@@ -6,6 +6,16 @@
       {
         "transparent": true,
         "shadow": true,
+        "resizable": true,
+        "decorations": false,
+        "minWidth": 900,
+        "minHeight": 600,
+        "maxWidth": 1280,
+        "maxHeight": 720,
+        "width": 1280,
+        "height": 720,
+        "title": "Mali Cowork",
+        "label": "main",
         "windowEffects": {
           "effects": ["hudWindow"],
           "state": "false",
