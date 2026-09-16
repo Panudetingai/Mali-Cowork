@@ -50,6 +50,7 @@
 
 :root {
   --titlebar-height: 3rem;
+  --window-radius: 12px;
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.153 0.006 107.1);
@@ -123,10 +124,26 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
-  }
   html {
     @apply font-sans;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+  }
+  body {
+    @apply text-foreground;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+  }
+  #root {
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--background);
+    border-radius: var(--window-radius);
+    isolation: isolate;
+  }
+  html[data-window-maximized="true"] #root {
+    border-radius: 0;
   }
 }

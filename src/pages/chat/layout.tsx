@@ -1,7 +1,7 @@
-import { useState } from "react";
 import { chatGenerateStream } from "@/lib/api/chat";
-import ChatTitle from "./components/chat-title";
+import { useState } from "react";
 import { ChatMessages } from "./components/chat-messages";
+import ChatTitle from "./components/chat-title";
 import PromptInput from "./components/prompt";
 import type { ChatMessage } from "./types";
 
@@ -15,7 +15,7 @@ export default function ChatLayout() {
     <div className="flex h-full flex-col items-center gap-6 px-4 py-6">
       {!hasMessages && <ChatTitle />}
 
-      <div className="flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-4 overflow-auto">
+      <div className="flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-4 overflow-auto scroll-fade">
         <ChatMessages messages={messages} isLoading={isLoading} />
       </div>
 
