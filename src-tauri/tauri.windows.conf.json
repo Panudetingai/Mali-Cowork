@@ -3,7 +3,15 @@
   "app": {
     "windows": [
       {
-        "shadow": true
+        "title": "Mali Cowork",
+        "label": "main",
+        "width": 1280,
+        "height": 720,
+        "minWidth": 900,
+        "minHeight": 600,
+        "decorations": false,
+        "shadow": true,
+        "resizable": true
       }
     ]
   }

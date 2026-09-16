@@ -104,7 +104,7 @@ export function Titlebar() {
       >
         <img src="/icon.ico" alt="logo" className="size-6" />
         <span className="truncate text-sm font-medium text-foreground">
-          Chief Of Staff
+          Mali Cowork
         </span>
       </div>
 

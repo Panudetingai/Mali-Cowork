@@ -22,7 +22,7 @@ export function ChatMessages({ messages, isLoading }: Props) {
       {messages.map((msg) => (
         <ChatMessageItem key={msg.id} message={msg} />
       ))}
-      {isLoading &&
+      {!isLoading &&
         messages[messages.length - 1]?.role !== "assistant" && (
           <LoadingMessage />
         )}

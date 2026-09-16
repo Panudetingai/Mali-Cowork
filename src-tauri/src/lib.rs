@@ -19,6 +19,9 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        // ลบ native menu bar ทั้ง Windows/Linux และ macOS (global menu)
+        // ถ้าไม่สร้าง menu จะไม่มีแถบเมนูในหน้าต่าง; บน macOS จะเหลือแค่ชื่อแอปแบบว่างๆ
+        .menu(|handle| tauri::menu::Menu::new(handle))
         .invoke_handler(tauri::generate_handler![chat_generate])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

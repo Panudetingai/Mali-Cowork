@@ -8,8 +8,8 @@
         "shadow": true,
         "windowEffects": {
           "effects": ["hudWindow"],
-          "state": "active",
-          "radius": 12
+          "state": "false",
+          "radius": 6
         }
       }
     ]
