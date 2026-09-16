@@ -42,7 +42,7 @@ fn resolve_model(model_id: &str) -> Result<ModelSpec, String> {
             provider: "openrouter",
             api_model: "z-ai/glm-5.2:free",
         }),
-        "groq" => Ok(ModelSpec {
+        "groq/gpt-oss-120b" => Ok(ModelSpec {
             provider: "groq",
             api_model: "openai/gpt-oss-120b",
         }),
