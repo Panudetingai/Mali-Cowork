@@ -1,172 +1,107 @@
-use std::path::Path;
-use tokio::process::Command as TokioCommand;
+//! Locating and invoking the `opencode` binary.
 
-/// Find the opencode binary on this machine.
-///
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+use tokio::process::Command;
+
+/// Resolve the opencode binary once and cache the result for the app lifetime.
+pub fn opencode_bin() -> Option<&'static str> {
+    static BIN: OnceLock<Option<String>> = OnceLock::new();
+    BIN.get_or_init(resolve_opencode_bin).as_deref()
+}
+
 /// Search order:
 /// 1. `OPENCODE_BIN` / `OPENCODE_PATH` env vars
-/// 2. `where.exe opencode` (Windows) / `which opencode` (Unix)
-/// 3. PATH directories, respecting `PATHEXT` on Windows
-/// 4. Common npm/bun/cursor install locations on Windows
-pub fn resolve_opencode_bin() -> Option<String> {
-    // 1) explicit env overrides
-    for key in ["OPENCODE_BIN", "OPENCODE_PATH"] {
-        if let Ok(p) = std::env::var(key) {
-            let trimmed = p.trim();
-            if !trimmed.is_empty() && Path::new(trimmed).exists() {
-                return Some(trimmed.to_string());
-            }
-        }
-    }
-
-    // 2) system lookup
-    #[cfg(windows)]
-    {
-        let mut candidates: Vec<String> = Vec::new();
-        for query in ["opencode", "opencode.cmd", "opencode.exe"] {
-            if let Ok(out) = std::process::Command::new("where.exe").arg(query).output() {
-                if out.status.success() {
-                    for line in String::from_utf8_lossy(&out.stdout).lines() {
-                        let p = line.trim();
-                        if !p.is_empty() && Path::new(p).exists() {
-                            candidates.push(p.to_string());
-                        }
-                    }
-                }
-            }
-        }
-        if !candidates.is_empty() {
-            candidates.sort_by_key(|p| {
-                let l = p.to_lowercase();
-                if l.ends_with(".cmd") { 0 }
-                else if l.ends_with(".exe") { 1 }
-                else { 10 }
-            });
-            return Some(candidates[0].clone());
-        }
-    }
-
-    #[cfg(not(windows))]
-    {
-        if let Ok(out) = std::process::Command::new("which").arg("opencode").output() {
-            if out.status.success() {
-                let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if !p.is_empty() && Path::new(&p).exists() {
-                    return Some(p);
-                }
-            }
-        }
-    }
-
-    // 3) manual PATH scan
-    if let Ok(path_var) = std::env::var("PATH") {
-        let sep = if cfg!(windows) { ';' } else { ':' };
-        let exts: Vec<String> = if cfg!(windows) {
-            std::env::var("PATHEXT")
-                .unwrap_or_else(|_| ".EXE;.CMD;.BAT;.COM".into())
-                .split(';')
-                .map(|s| s.to_string())
-                .collect()
-        } else {
-            vec!["".into()]
-        };
-
-        for dir in path_var.split(sep) {
-            if dir.is_empty() { continue; }
-            for ext in &exts {
-                let candidate = Path::new(dir).join(format!("opencode{ext}"));
-                if candidate.exists() {
-                    return Some(candidate.to_string_lossy().to_string());
-                }
-            }
-        }
-    }
-
-    // 4) common Windows install paths
-    #[cfg(windows)]
-    {
-        let home = std::env::var("USERPROFILE").unwrap_or_default();
-        let appdata = std::env::var("APPDATA").unwrap_or_default();
-        for candidate in [
-            format!(r"{appdata}\npm\opencode.cmd"),
-            format!(r"{appdata}\npm\opencode"),
-            format!(r"{home}\.bun\bin\opencode.exe"),
-        ] {
-            if Path::new(&candidate).exists() {
-                return Some(candidate);
-            }
-        }
-    }
-
-    None
-}
-
-/// Build a tokio Command that correctly invokes the binary.
+/// 2. every directory in `PATH` plus well-known install locations
 ///
-/// On Windows, `.cmd` and `.bat` files need `cmd /D /S /C`, and shebang scripts
-/// need `node`.
-pub fn build_opencode_command(bin_path: &str, args: &[String]) -> TokioCommand {
-    #[cfg(windows)]
-    {
-        let lower = bin_path.to_lowercase();
-        if lower.ends_with(".cmd") || lower.ends_with(".bat") {
-            let mut cmd = TokioCommand::new("cmd");
-            cmd.args(["/D", "/S", "/C", bin_path]);
-            cmd.args(args);
-            return cmd;
-        }
-
-        if !lower.contains('.') {
-            if Path::new(bin_path).exists() {
-                if let Ok(content) = std::fs::read_to_string(bin_path) {
-                    if content.starts_with("#!") && content.contains("node") {
-                        let mut cmd = TokioCommand::new("node");
-                        cmd.arg(bin_path);
-                        cmd.args(args);
-                        return cmd;
-                    }
-                }
+/// GUI apps on macOS start with a minimal `PATH`, so the extra locations
+/// (Homebrew, bun, npm, opencode installer) matter in release builds.
+fn resolve_opencode_bin() -> Option<String> {
+    for key in ["OPENCODE_BIN", "OPENCODE_PATH"] {
+        if let Ok(value) = std::env::var(key) {
+            let value = value.trim();
+            if !value.is_empty() && Path::new(value).exists() {
+                return Some(value.to_string());
             }
         }
     }
 
-    let mut cmd = TokioCommand::new(bin_path);
-    cmd.args(args);
-    cmd
+    let names: &[&str] = if cfg!(windows) {
+        &["opencode.cmd", "opencode.exe", "opencode"]
+    } else {
+        &["opencode"]
+    };
+
+    search_dirs()
+        .iter()
+        .flat_map(|dir| names.iter().map(move |name| dir.join(name)))
+        .find(|candidate| candidate.is_file())
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
-/// Append package-manager paths so the spawned process can find `node`, `bun`, etc.
-pub fn augment_path(mut cmd: TokioCommand) -> TokioCommand {
-    let Ok(cur) = std::env::var("PATH") else { return cmd; };
+/// `PATH` entries followed by common package-manager bin directories.
+fn search_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+
+    for extra in extra_bin_dirs() {
+        if !dirs.contains(&extra) {
+            dirs.push(extra);
+        }
+    }
+    dirs
+}
+
+fn extra_bin_dirs() -> Vec<PathBuf> {
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
 
     #[cfg(windows)]
     {
-        let home = std::env::var("USERPROFILE").unwrap_or_default();
-        let appdata = std::env::var("APPDATA").unwrap_or_default();
-        let extras = [format!(r"{appdata}\npm"), format!(r"{home}\.bun\bin")];
-        let mut new_path = cur.clone();
-        for extra in extras {
-            if !cur.contains(&extra) && Path::new(&extra).exists() {
-                new_path.push(';');
-                new_path.push_str(&extra);
-            }
+        let mut out = vec![home.join(".bun").join("bin"), home.join(".opencode").join("bin")];
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            out.insert(0, PathBuf::from(appdata).join("npm"));
         }
-        cmd.env("PATH", new_path);
+        out
     }
 
     #[cfg(not(windows))]
     {
-        let home = std::env::var("HOME").unwrap_or_default();
-        let extras = [format!("{home}/.bun/bin"), format!("{home}/.local/bin")];
-        for extra in extras {
-            if !cur.contains(&extra) && Path::new(&extra).exists() {
-                let mut p = cur.clone();
-                p.push(':');
-                p.push_str(&extra);
-                cmd.env("PATH", p);
-            }
-        }
+        vec![
+            home.join(".opencode/bin"),
+            home.join(".bun/bin"),
+            home.join(".local/bin"),
+            home.join(".npm-global/bin"),
+            PathBuf::from("/opt/homebrew/bin"),
+            PathBuf::from("/usr/local/bin"),
+        ]
     }
+}
 
+/// Build a command for the binary with a `PATH` that can find `node`/`bun`.
+///
+/// On Windows, `.cmd`/`.bat` shims must run through `cmd /C`.
+pub fn opencode_command(bin: &str, args: &[&str]) -> Command {
+    #[cfg(windows)]
+    let mut cmd = {
+        let lower = bin.to_lowercase();
+        if lower.ends_with(".cmd") || lower.ends_with(".bat") {
+            let mut c = Command::new("cmd");
+            c.args(["/D", "/S", "/C", bin]);
+            c
+        } else {
+            Command::new(bin)
+        }
+    };
+    #[cfg(not(windows))]
+    let mut cmd = Command::new(bin);
+
+    cmd.args(args);
+    if let Ok(path) = std::env::join_paths(search_dirs()) {
+        cmd.env("PATH", path);
+    }
     cmd
 }

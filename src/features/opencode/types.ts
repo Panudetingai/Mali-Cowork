@@ -1,19 +1,26 @@
-// OpenCode CLI feature types
-// Docs: https://opencode.ai/docs/cli/
+// OpenCode integration types. Backend: src-tauri/src/commands/opencode
 
 export type OpencodeRequest = {
   prompt: string;
-  /** provider/model format, e.g. "openai/gpt-5" or "opencode/muse-spark-1.2-contributor-free" */
+  /** `provider/model`; the server default is used when omitted. */
   model?: string;
-  /** working directory for the agent. OpenCode flag: `--dir` */
+  /** Working directory for the agent. */
   cwd?: string;
-  /** show thinking blocks. OpenCode flag: `--thinking` */
+  /** Continue this session instead of starting a new one. */
+  sessionId?: string;
+  /** Stream reasoning blocks. */
   thinking?: boolean;
-  /** auto-approve permissions. OpenCode flag: `--auto` */
+  /** Approve every permission request without asking. */
   autoApprove?: boolean;
-  /** attach to a running opencode server. OpenCode flag: `--attach` */
-  attach?: string;
+  /** `chat` answers without file access; `cowork` works in `cwd`. */
+  mode?: WorkMode;
+  /** Cowork: folders the user granted, the working folder first. */
+  folders?: FolderGrantInput[];
 };
+
+export type FolderGrantInput = { path: string; access: "read" | "write" };
+
+export type WorkMode = "chat" | "cowork";
 
 export type OpencodeCheckResult = {
   available: boolean;
@@ -22,14 +29,38 @@ export type OpencodeCheckResult = {
   error?: string;
 };
 
-export type OpencodeModelsResult = {
-  models: string[];
-  providers: string[];
+export type OpencodeModel = {
+  /** `provider/model` */
+  id: string;
+  name: string;
+  providerId: string;
+  providerName: string;
+  /** Costs nothing per token. */
+  free: boolean;
+  /** The provider has credentials, so the model can run now. */
+  connected: boolean;
+  /** Context window in tokens, when known. */
+  contextLimit?: number | null;
 };
 
-export type OpencodeConfig = {
+export type OpencodeProvider = {
+  id: string;
+  name: string;
+  /** Environment variables the provider reads its key from. */
+  env: string[];
+  connected: boolean;
+};
+
+export type OpencodeModelsResult = {
+  models: OpencodeModel[];
+  defaultModel?: string | null;
+  providers: OpencodeProvider[];
+};
+
+export type OpencodeSettings = {
   cwd: string;
-  model: string;
   thinking: boolean;
   autoApprove: boolean;
 };
+
+export type PermissionReply = "once" | "always" | "reject";

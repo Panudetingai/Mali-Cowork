@@ -11,6 +11,8 @@ export type AgentUsage = {
 };
 
 export type ActivityItem = {
+  /** Stable id; updates with the same id replace the earlier entry. */
+  id?: string;
   kind: string;
   title: string;
   detail?: string;
@@ -27,7 +29,7 @@ export type ChatMessage = {
   modelId?: string;
   createdAt?: number;
   isStreaming?: boolean;
-  // metadata จาก agent (cursor/opencode) แม้ตอน exit 1 ก็ได้
+  // Agent metadata (cursor/opencode), kept even when the run fails.
   sessionId?: string;
   usage?: AgentUsage;
   durationMs?: number;

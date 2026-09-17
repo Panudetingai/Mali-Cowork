@@ -1,110 +1,108 @@
-use aisdk::core::language_model::{LanguageModelStream, ReasoningEffort};
-use aisdk::core::{DynamicModel, LanguageModelRequest, LanguageModelStreamChunkType};
-use aisdk::providers::{Anthropic, Google, Groq, OpenAI, Openrouter};
+use aisdk::core::language_model::LanguageModelStream;
+use aisdk::core::{DynamicModel, LanguageModelRequest, LanguageModelStreamChunkType, Message};
+use aisdk::providers::{Anthropic, OpenAICompatible};
 use futures::StreamExt;
+use serde::Deserialize;
 use tauri::ipc::Channel;
 
-use crate::chat_stream::ChatStreamEvent;
+use crate::chat_stream::{AgentUsage, ChatStreamEvent};
 
-#[derive(Debug, Clone)]
-struct ModelSpec {
-    provider: &'static str,
-    api_model: &'static str,
-    supports_reasoning: bool,
+const SYSTEM_PROMPT: &str = "You are Mali Cowork, a concise and helpful assistant.";
+
+/// One earlier turn of the conversation, sent so the model keeps context.
+#[derive(Debug, Deserialize)]
+pub struct HistoryMessage {
+    pub role: String,
+    pub content: String,
 }
 
-fn resolve_model(model_id: &str) -> Result<ModelSpec, String> {
-    match model_id {
-        "claude-sonnet-4" => Ok(ModelSpec {
-            provider: "anthropic",
-            api_model: "claude-sonnet-4-20250514",
-            supports_reasoning: true,
-        }),
-        "claude-opus-4" => Ok(ModelSpec {
-            provider: "anthropic",
-            api_model: "claude-opus-4-20250514",
-            supports_reasoning: true,
-        }),
-        "gpt-4o" => Ok(ModelSpec {
-            provider: "openai",
-            api_model: "gpt-4o",
-            supports_reasoning: false,
-        }),
-        "o3-mini" => Ok(ModelSpec {
-            provider: "openai",
-            api_model: "o3-mini",
-            supports_reasoning: true,
-        }),
-        "gemini-2-flash" => Ok(ModelSpec {
-            provider: "google",
-            api_model: "gemini-2.0-flash",
-            supports_reasoning: false,
-        }),
-        "gemini-2-pro" => Ok(ModelSpec {
-            provider: "google",
-            api_model: "gemini-2.0-pro",
-            supports_reasoning: false,
-        }),
-        "z-ai/glm-5.2:free" => Ok(ModelSpec {
-            provider: "openrouter",
-            api_model: "z-ai/glm-5.2:free",
-            supports_reasoning: true,
-        }),
-        "groq/gpt-oss-120b" => Ok(ModelSpec {
-            provider: "groq",
-            api_model: "openai/gpt-oss-120b",
-            supports_reasoning: true,
-        }),
-        other => Err(format!("Unknown model id: {other}")),
-    }
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatRequest {
+    pub prompt: String,
+    /// Provider id from the settings page, e.g. "openai", "ollama".
+    pub provider: String,
+    pub model: String,
+    /// Falls back to the provider's env var when empty.
+    pub api_key: Option<String>,
+    /// Falls back to the provider's default host when empty.
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub history: Vec<HistoryMessage>,
 }
 
-fn missing_key_message(provider: &str) -> String {
-    match provider {
-        "anthropic" => {
-            "Set ANTHROPIC_API_KEY in .env (project root) and restart `bun tauri dev`.".into()
-        }
-        "openai" => "Set OPENAI_API_KEY in .env (project root) and restart `bun tauri dev`.".into(),
-        "google" => "Set GOOGLE_API_KEY in .env (project root) and restart `bun tauri dev`.".into(),
-        "openrouter" => {
-            "Set OPENROUTER_API_KEY in .env (project root) and restart `bun tauri dev`.".into()
-        }
-        "groq" => "Set GROQ_API_KEY in .env (project root) and restart `bun tauri dev`.".into(),
-        _ => "Missing API key for the selected provider.".into(),
-    }
+struct ProviderInfo {
+    base_url: &'static str,
+    env_var: Option<&'static str>,
 }
 
-fn get_api_key(var: &str) -> Result<String, String> {
-    let raw = std::env::var(var).map_err(|_| {
-        missing_key_message(match var {
-            "ANTHROPIC_API_KEY" => "anthropic",
-            "OPENAI_API_KEY" => "openai",
-            "GOOGLE_API_KEY" => "google",
-            "OPENROUTER_API_KEY" => "openrouter",
-            "GROQ_API_KEY" => "groq",
-            _ => "",
-        })
-    })?;
-    let trimmed = raw
+fn provider_info(provider: &str) -> Result<ProviderInfo, String> {
+    let (base_url, env_var) = match provider {
+        "anthropic" => ("https://api.anthropic.com/v1/", Some("ANTHROPIC_API_KEY")),
+        "openai" => ("https://api.openai.com/v1", Some("OPENAI_API_KEY")),
+        "google" => (
+            "https://generativelanguage.googleapis.com/v1beta/openai/",
+            Some("GOOGLE_API_KEY"),
+        ),
+        "xai" => ("https://api.x.ai/v1", Some("XAI_API_KEY")),
+        "deepseek" => ("https://api.deepseek.com/v1", Some("DEEPSEEK_API_KEY")),
+        "mistral" => ("https://api.mistral.ai/v1", Some("MISTRAL_API_KEY")),
+        "alibaba" => (
+            "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            Some("DASHSCOPE_API_KEY"),
+        ),
+        "zai" => ("https://api.z.ai/api/paas/v4", Some("ZAI_API_KEY")),
+        "moonshotai" => ("https://api.moonshot.ai/v1", Some("MOONSHOT_API_KEY")),
+        "openrouter" => ("https://openrouter.ai/api/v1", Some("OPENROUTER_API_KEY")),
+        "groq" => ("https://api.groq.com/openai/v1", Some("GROQ_API_KEY")),
+        "ollama" => ("http://localhost:11434/v1", None),
+        other => return Err(format!("Unknown provider: {other}")),
+    };
+    Ok(ProviderInfo { base_url, env_var })
+}
+
+fn clean(value: &str) -> String {
+    value
         .trim()
         .trim_matches('"')
         .trim_matches('\'')
         .trim()
-        .to_string();
-    if trimmed.is_empty() {
-        return Err(missing_key_message(match var {
-            "ANTHROPIC_API_KEY" => "anthropic",
-            "OPENAI_API_KEY" => "openai",
-            "GOOGLE_API_KEY" => "google",
-            "OPENROUTER_API_KEY" => "openrouter",
-            "GROQ_API_KEY" => "groq",
-            _ => "",
-        }));
+        .to_string()
+}
+
+fn non_empty(value: Option<&str>) -> Option<String> {
+    value.map(clean).filter(|v| !v.is_empty())
+}
+
+fn resolve_api_key(request: &ChatRequest, info: &ProviderInfo) -> Result<String, String> {
+    if let Some(key) = non_empty(request.api_key.as_deref()) {
+        return Ok(key);
     }
-    if trimmed != raw {
-        unsafe { std::env::set_var(var, &trimmed) };
-    }
-    Ok(trimmed)
+    let Some(var) = info.env_var else {
+        // Local servers such as Ollama ignore the key, but the client requires one.
+        return Ok(request.provider.clone());
+    };
+    non_empty(std::env::var(var).ok().as_deref()).ok_or_else(|| {
+        format!("No API key for {}. Add it in Settings → Models, or set {var} in .env.", request.provider)
+    })
+}
+
+/// Provider ids whose API key is already set in the environment.
+pub fn providers_with_env_key() -> Vec<String> {
+    [
+        "anthropic", "openai", "google", "xai", "deepseek", "mistral", "alibaba", "zai",
+        "moonshotai", "openrouter", "groq",
+    ]
+    .into_iter()
+    .filter(|id| {
+        provider_info(id)
+            .ok()
+            .and_then(|info| info.env_var)
+            .and_then(|var| non_empty(std::env::var(var).ok().as_deref()))
+            .is_some()
+    })
+    .map(String::from)
+    .collect()
 }
 
 async fn consume_stream(
@@ -135,16 +133,32 @@ async fn consume_stream(
                         .map_err(|e| e.to_string())?;
                 }
             }
-            LanguageModelStreamChunkType::Failed(message) => {
+            LanguageModelStreamChunkType::Failed(message)
+            | LanguageModelStreamChunkType::Incomplete(message)
+            | LanguageModelStreamChunkType::NotSupported(message) => {
                 return Err(message);
             }
-            LanguageModelStreamChunkType::Incomplete(message) => {
-                return Err(message);
+            LanguageModelStreamChunkType::End(message) => {
+                if let Some(usage) = message.usage {
+                    let input = usage.input_tokens.map(|n| n as u64);
+                    let output = usage.output_tokens.map(|n| n as u64);
+                    let _ = on_event.send(ChatStreamEvent::Metadata {
+                        session_id: None,
+                        usage: Some(AgentUsage {
+                            input_tokens: input,
+                            output_tokens: output,
+                            cache_read_tokens: usage.cached_tokens.map(|n| n as u64),
+                            cache_write_tokens: None,
+                            reasoning_tokens: usage.reasoning_tokens.map(|n| n as u64),
+                            total_tokens: input.zip(output).map(|(i, o)| i + o),
+                            cost: None,
+                        }),
+                        duration_ms: None,
+                        model: None,
+                    });
+                }
+                break;
             }
-            LanguageModelStreamChunkType::NotSupported(message) => {
-                return Err(message);
-            }
-            LanguageModelStreamChunkType::End(_) => break,
             LanguageModelStreamChunkType::Start
             | LanguageModelStreamChunkType::ToolCall(_) => {}
         }
@@ -158,19 +172,12 @@ async fn consume_stream(
 }
 
 macro_rules! stream_with_model {
-    ($model:expr, $prompt:expr, $on_event:expr, $with_reasoning:expr) => {{
-        let builder = LanguageModelRequest::builder()
+    ($model:expr, $messages:expr, $on_event:expr) => {{
+        let mut request = LanguageModelRequest::builder()
             .model($model)
-            .system("You are Mali Cowork, a concise and helpful assistant.")
-            .prompt($prompt);
-
-        let builder = if $with_reasoning {
-            builder.reasoning_effort(ReasoningEffort::Medium)
-        } else {
-            builder
-        };
-
-        let mut request = builder.build();
+            .system(SYSTEM_PROMPT)
+            .messages($messages)
+            .build();
 
         let response = request
             .stream_text()
@@ -181,76 +188,67 @@ macro_rules! stream_with_model {
     }};
 }
 
-pub async fn stream_chat_response(
-    prompt: &str,
-    model_id: &str,
-    on_event: Channel<ChatStreamEvent>,
-) -> Result<(), String> {
-    let spec = resolve_model(model_id)?;
-    let prompt = prompt.trim();
+async fn run(request: &ChatRequest, on_event: &Channel<ChatStreamEvent>) -> Result<(), String> {
+    let prompt = request.prompt.trim();
     if prompt.is_empty() {
         return Err("Prompt cannot be empty.".into());
     }
+    let model_name = request.model.trim();
+    if model_name.is_empty() {
+        return Err("No model selected. Set one in Settings → Models.".into());
+    }
 
-    let result = match spec.provider {
-        "anthropic" => {
-            get_api_key("ANTHROPIC_API_KEY")?;
-            let model = Anthropic::<DynamicModel>::builder()
-                .model_name(spec.api_model)
-                .build()
-                .map_err(|e| e.to_string())?;
-            stream_with_model!(model, prompt, &on_event, spec.supports_reasoning)
-        }
-        "openai" => {
-            get_api_key("OPENAI_API_KEY")?;
-            let model = OpenAI::<DynamicModel>::builder()
-                .model_name(spec.api_model)
-                .build()
-                .map_err(|e| e.to_string())?;
-            stream_with_model!(model, prompt, &on_event, spec.supports_reasoning)
-        }
-        "google" => {
-            get_api_key("GOOGLE_API_KEY")?;
-            let model = Google::<DynamicModel>::builder()
-                .model_name(spec.api_model)
-                .build()
-                .map_err(|e| e.to_string())?;
-            stream_with_model!(model, prompt, &on_event, spec.supports_reasoning)
-        }
-        "openrouter" => {
-            get_api_key("OPENROUTER_API_KEY")?;
-            let model = Openrouter::<DynamicModel>::builder()
-                .model_name(spec.api_model)
-                .build()
-                .map_err(|e| e.to_string())?;
-            stream_with_model!(model, prompt, &on_event, spec.supports_reasoning)
-        }
-        "groq" => {
-            get_api_key("GROQ_API_KEY")?;
-            let model = Groq::<DynamicModel>::builder()
-                .model_name(spec.api_model)
-                .build()
-                .map_err(|e| e.to_string())?;
-            stream_with_model!(model, prompt, &on_event, spec.supports_reasoning)
-        }
-        other => Err(format!("Unsupported provider: {other}")),
-    };
+    let info = provider_info(&request.provider)?;
+    let api_key = resolve_api_key(request, &info)?;
+    let base_url =
+        non_empty(request.base_url.as_deref()).unwrap_or_else(|| info.base_url.to_string());
 
-    match result {
-        Ok(()) => {
-            on_event
-                .send(ChatStreamEvent::Done {
-                    model_id: model_id.to_string(),
-                })
-                .map_err(|e| e.to_string())?;
-            Ok(())
+    let mut conversation = Message::conversation_builder();
+    for message in &request.history {
+        if message.content.trim().is_empty() {
+            continue;
         }
+        conversation = match message.role.as_str() {
+            "user" => conversation.user(message.content.as_str()),
+            "assistant" => conversation.assistant(message.content.as_str()),
+            _ => conversation,
+        };
+    }
+    let messages = conversation.user(prompt).build();
+
+    if request.provider == "anthropic" {
+        let model = Anthropic::<DynamicModel>::builder()
+            .model_name(model_name)
+            .base_url(base_url)
+            .api_key(api_key)
+            .build()
+            .map_err(|e| e.to_string())?;
+        return stream_with_model!(model, messages, on_event);
+    }
+
+    let model = OpenAICompatible::<DynamicModel>::builder()
+        .provider_name(request.provider.as_str())
+        .model_name(model_name)
+        .base_url(base_url)
+        .api_key(api_key)
+        .build()
+        .map_err(|e| e.to_string())?;
+    stream_with_model!(model, messages, on_event)
+}
+
+pub async fn stream_chat_response(
+    request: ChatRequest,
+    on_event: Channel<ChatStreamEvent>,
+) -> Result<(), String> {
+    match run(&request, &on_event).await {
+        Ok(()) => on_event
+            .send(ChatStreamEvent::Done {
+                model_id: format!("{}/{}", request.provider, request.model),
+            })
+            .map_err(|e| e.to_string()),
         Err(message) => {
-            // ส่ง error ผ่าน channel อย่างเดียวพอ — อย่า return Err อีก
-            // ไม่งั้น frontend จะโดนทั้ง onError (channel) + catch (invoke throw) = ขึ้นซ้ำ 2 อันแบบในภาพ
-            let _ = on_event.send(ChatStreamEvent::Error {
-                message: message.clone(),
-            });
+            // Report through the channel only; returning Err too would show the error twice.
+            let _ = on_event.send(ChatStreamEvent::Error { message });
             Ok(())
         }
     }

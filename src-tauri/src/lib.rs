@@ -2,12 +2,16 @@ mod ai;
 mod chat_stream;
 mod commands;
 
-use commands::chat::chat_generate;
+use commands::chat::{chat_generate, ollama_list_models, provider_env_keys};
 use commands::cli::{check_cli, cli_generate};
-use commands::opencode::{
-    opencode_check, opencode_default_cwd, opencode_generate, opencode_list_models,
+use commands::cursor::{
+    cursor_abort, cursor_check, cursor_generate, cursor_list_models, cursor_login,
 };
-use commands::socket::{socket_generate, socket_tcp_generate, socket_ws_generate};
+use commands::opencode::{
+    opencode_abort, opencode_check, opencode_default_cwd, opencode_delete_session,
+    opencode_generate, opencode_list_models, opencode_permission_reply, opencode_set_auth,
+    opencode_warm, shutdown_server, warm_up_server,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -17,11 +21,6 @@ pub fn run() {
     // เผื่อรันจาก src-tauri/ ให้ลองโหลด ../.env อีกรอบ
     let _ = dotenvy::from_path("../.env");
 
-    // debug: เช็คว่าโหลดได้ไหม (จะเห็นใน terminal ตอน bun tauri dev)
-    if std::env::var("OPENROUTER_API_KEY").is_err() {
-        eprintln!("[mali_cowork] OPENROUTER_API_KEY not found. Set it in .env at project root.");
-    }
-
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -29,6 +28,20 @@ pub fn run() {
         // ลบ native menu bar ทั้ง Windows/Linux และ macOS (global menu)
         // ถ้าไม่สร้าง menu จะไม่มีแถบเมนูในหน้าต่าง; บน macOS จะเหลือแค่ชื่อแอปแบบว่างๆ
         .menu(|handle| tauri::menu::Menu::new(handle))
+        .setup(|_| {
+            // Start opencode in the background so the first prompt is fast.
+            tauri::async_runtime::spawn(async {
+                if let Err(e) = warm_up_server().await {
+                    eprintln!("[opencode] warm-up skipped: {e}");
+                    return;
+                }
+                // Load Chat mode's folder now so the first chat answers sooner.
+                if let Err(e) = opencode_warm(None, Some("chat".into())).await {
+                    eprintln!("[opencode] chat warm-up failed: {e}");
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             chat_generate,
             cli_generate,
@@ -37,10 +50,24 @@ pub fn run() {
             opencode_check,
             opencode_list_models,
             opencode_default_cwd,
-            socket_generate,
-            socket_ws_generate,
-            socket_tcp_generate
+            opencode_permission_reply,
+            opencode_abort,
+            opencode_set_auth,
+            opencode_delete_session,
+            opencode_warm,
+            cursor_generate,
+            cursor_check,
+            cursor_login,
+            cursor_list_models,
+            cursor_abort,
+            provider_env_keys,
+            ollama_list_models
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_, event| {
+            if let tauri::RunEvent::Exit = event {
+                shutdown_server();
+            }
+        });
 }

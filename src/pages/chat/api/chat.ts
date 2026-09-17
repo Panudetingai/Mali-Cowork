@@ -1,29 +1,34 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import type { ActivityItem, AgentUsage } from "../types";
 
-export type UseTools = {
-  
-}
+export type HistoryMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
 
 export type ChatRequest = {
   prompt: string;
-  modelId: string;
+  provider: string;
+  model: string;
+  apiKey: string | null;
+  baseUrl: string | null;
+  history: HistoryMessage[];
 };
 
-export type AgentUsage = {
-  inputTokens?: number;
-  outputTokens?: number;
-  cacheReadTokens?: number;
-  cacheWriteTokens?: number;
-  reasoningTokens?: number;
-  totalTokens?: number;
-  cost?: number;
+export type StreamMetadata = {
+  sessionId?: string;
+  usage?: AgentUsage;
+  durationMs?: number;
+  model?: string;
 };
 
-export type ActivityItem = {
-  kind: string;
+export type PermissionRequest = {
+  id: string;
+  directory: string;
+  permission: string;
+  patterns: string[];
   title: string;
-  detail?: string;
-  done: boolean;
+  detail?: string | null;
 };
 
 export type ChatStreamEvent =
@@ -31,7 +36,9 @@ export type ChatStreamEvent =
   | { event: "chunk"; data: { text: string } }
   | { event: "reasoning"; data: { reasoning: string } }
   | { event: "activity"; data: ActivityItem }
-  | { event: "metadata"; data: { sessionId?: string; usage?: AgentUsage; durationMs?: number; model?: string } }
+  | { event: "metadata"; data: StreamMetadata }
+  | { event: "permission"; data: PermissionRequest }
+  | { event: "permissionResolved"; data: { id: string } }
   | { event: "done"; data: { modelId: string } }
   | { event: "error"; data: { message: string } };
 
@@ -40,23 +47,15 @@ export type ChatStreamHandlers = {
   onChunk: (text: string) => void;
   onReasoning?: (reasoning: string) => void;
   onActivity?: (activity: ActivityItem) => void;
-  onMetadata?: (data: { sessionId?: string; usage?: AgentUsage; durationMs?: number; model?: string }) => void;
+  onMetadata?: (data: StreamMetadata) => void;
+  onPermission?: (request: PermissionRequest) => void;
+  onPermissionResolved?: (id: string) => void;
   onDone: (modelId: string) => void;
   onError: (message: string) => void;
 };
 
-function isTauri() {
-  return "__TAURI__" in window || "__TAURI_INTERNALS__" in window;
-}
-
-export async function chatGenerateStream(
-  request: ChatRequest,
-  handlers: ChatStreamHandlers,
-): Promise<void> {
-  if (!isTauri()) {
-    throw new Error("AI streaming works in Tauri app only. Run: bun tauri dev");
-  }
-
+/** Channel that dispatches backend stream events to the given handlers. */
+export function createStreamChannel(handlers: ChatStreamHandlers) {
   const channel = new Channel<ChatStreamEvent>();
   channel.onmessage = (message) => {
     switch (message.event) {
@@ -75,6 +74,12 @@ export async function chatGenerateStream(
       case "metadata":
         handlers.onMetadata?.(message.data);
         break;
+      case "permission":
+        handlers.onPermission?.(message.data);
+        break;
+      case "permissionResolved":
+        handlers.onPermissionResolved?.(message.data.id);
+        break;
       case "done":
         handlers.onDone(message.data.modelId);
         break;
@@ -83,12 +88,23 @@ export async function chatGenerateStream(
         break;
     }
   };
+  return channel;
+}
+
+export function isTauri() {
+  return "__TAURI__" in window || "__TAURI_INTERNALS__" in window;
+}
+
+export async function chatGenerateStream(
+  request: ChatRequest,
+  handlers: ChatStreamHandlers,
+): Promise<void> {
+  if (!isTauri()) {
+    throw new Error("AI streaming works in Tauri app only. Run: bun tauri dev");
+  }
 
   await invoke("chat_generate", {
-    request: {
-      prompt: request.prompt,
-      modelId: request.modelId,
-    },
-    onEvent: channel,
+    request,
+    onEvent: createStreamChannel(handlers),
   });
 }

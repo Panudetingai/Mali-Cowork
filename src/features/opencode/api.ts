@@ -1,78 +1,88 @@
-import type { ChatStreamEvent, ChatStreamHandlers } from "@/pages/chat/api/chat";
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import {
+  createStreamChannel,
+  type ChatStreamHandlers,
+} from "@/pages/chat/api/chat";
 import type {
-    OpencodeCheckResult,
-    OpencodeModelsResult,
-    OpencodeRequest,
+  FolderGrantInput,
+  OpencodeCheckResult,
+  OpencodeModelsResult,
+  OpencodeRequest,
+  PermissionReply,
+  WorkMode,
 } from "./types";
 
-export { type OpencodeRequest } from "./types";
-
-export async function opencodeCheck(): Promise<OpencodeCheckResult> {
+export function opencodeCheck() {
   return invoke<OpencodeCheckResult>("opencode_check");
 }
 
-export async function opencodeListModels(): Promise<OpencodeModelsResult> {
-  return invoke<OpencodeModelsResult>("opencode_list_models");
+export function opencodeListModels(cwd?: string) {
+  return invoke<OpencodeModelsResult>("opencode_list_models", {
+    cwd: cwd || null,
+  });
 }
 
-export async function opencodeDefaultCwd(): Promise<string> {
+export function opencodeDefaultCwd() {
   return invoke<string>("opencode_default_cwd");
 }
 
-export function opencodeGenerateRequestFromStorage(
-  prompt: string,
-): OpencodeRequest {
-  return {
-    prompt,
-    model: localStorage.getItem("opencode_model") || undefined,
-    cwd: localStorage.getItem("opencode_cwd") || undefined,
-    thinking: localStorage.getItem("opencode_thinking") === "true",
-    autoApprove: localStorage.getItem("opencode_auto_approve") === "true",
-  };
+export function opencodeReplyPermission(
+  id: string,
+  directory: string,
+  reply: PermissionReply,
+  /** Also allow this folder for the rest of the running prompt. */
+  grant?: { sessionId: string; folder: FolderGrantInput },
+) {
+  return invoke<void>("opencode_permission_reply", {
+    request: {
+      id,
+      directory,
+      reply,
+      sessionId: grant?.sessionId ?? null,
+      grant: grant?.folder ?? null,
+    },
+  });
+}
+
+const warmed = new Set<string>();
+
+/** Load a folder's OpenCode instance ahead of the first prompt (once per folder). */
+export function opencodeWarm(cwd: string | undefined, mode: WorkMode) {
+  const key = `${mode}:${cwd ?? ""}`;
+  if (warmed.has(key)) return;
+  warmed.add(key);
+  invoke<void>("opencode_warm", { cwd: cwd || null, mode }).catch(() => warmed.delete(key));
+}
+
+type SessionTarget = { sessionId: string; cwd?: string; mode?: WorkMode };
+
+export function opencodeAbort({ sessionId, cwd, mode }: SessionTarget) {
+  return invoke<void>("opencode_abort", { sessionId, cwd: cwd || null, mode: mode ?? null });
+}
+
+export function opencodeDeleteSession({ sessionId, cwd, mode }: SessionTarget) {
+  return invoke<void>("opencode_delete_session", { sessionId, cwd: cwd || null, mode: mode ?? null });
+}
+
+export function opencodeSetAuth(providerId: string, key: string) {
+  return invoke<void>("opencode_set_auth", { request: { providerId, key } });
 }
 
 export async function opencodeGenerateStream(
   request: OpencodeRequest,
   handlers: ChatStreamHandlers,
 ): Promise<void> {
-  const channel = new Channel<ChatStreamEvent>();
-  channel.onmessage = (msg) => {
-    switch (msg.event) {
-      case "started":
-        handlers.onStart?.();
-        break;
-      case "chunk":
-        handlers.onChunk(msg.data.text);
-        break;
-      case "reasoning":
-        handlers.onReasoning?.(msg.data.reasoning);
-        break;
-      case "activity":
-        console.log("opencodeGenerateStream activity", msg.data);
-        handlers.onActivity?.(msg.data);
-        break;
-      case "metadata":
-        handlers.onMetadata?.(msg.data);
-        break;
-      case "done":
-        handlers.onDone(msg.data.modelId);
-        break;
-      case "error":
-        handlers.onError(msg.data.message);
-        break;
-    }
-  };
-
   await invoke("opencode_generate", {
     request: {
       prompt: request.prompt,
       model: request.model ?? null,
       cwd: request.cwd ?? null,
+      sessionId: request.sessionId ?? null,
       thinking: request.thinking ?? false,
       autoApprove: request.autoApprove ?? false,
-      attach: request.attach ?? null,
+      mode: request.mode ?? "cowork",
+      folders: request.folders ?? [],
     },
-    onEvent: channel,
+    onEvent: createStreamChannel(handlers),
   });
 }

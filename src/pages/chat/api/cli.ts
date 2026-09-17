@@ -1,5 +1,5 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
-import type { ChatStreamEvent, ChatStreamHandlers } from "./chat";
+import { invoke } from "@tauri-apps/api/core";
+import { createStreamChannel, type ChatStreamHandlers } from "./chat";
 
 export type CliRequest = {
   prompt: string;
@@ -7,43 +7,23 @@ export type CliRequest = {
   cwd?: string;
 };
 
+export type CliCheckResult = {
+  available: boolean;
+  version?: string;
+  path?: string;
+  error?: string;
+};
+
 export async function cliGenerateStream(
   request: CliRequest,
   handlers: ChatStreamHandlers,
 ): Promise<void> {
-  const channel = new Channel<ChatStreamEvent>();
-  channel.onmessage = (message) => {
-    switch (message.event) {
-      case "started":
-        handlers.onStart?.();
-        break;
-      case "chunk":
-        handlers.onChunk(message.data.text);
-        break;
-      case "reasoning":
-        handlers.onReasoning?.(message.data.reasoning);
-        break;
-      case "activity":
-        handlers.onActivity?.(message.data);
-        break;
-      case "metadata":
-        handlers.onMetadata?.(message.data);
-        break;
-      case "done":
-        handlers.onDone(message.data.modelId);
-        break;
-      case "error":
-        handlers.onError(message.data.message);
-        break;
-    }
-  };
-
   await invoke("cli_generate", {
-    request: {
-      prompt: request.prompt,
-      agent: request.agent,
-      cwd: request.cwd,
-    },
-    onEvent: channel,
+    request,
+    onEvent: createStreamChannel(handlers),
   });
+}
+
+export async function checkCli(agent: string): Promise<CliCheckResult> {
+  return invoke<CliCheckResult>("check_cli", { agent });
 }

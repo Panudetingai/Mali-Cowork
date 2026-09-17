@@ -1,0 +1,401 @@
+//! Translates `opencode serve` events into [`ChatStreamEvent`]s for one prompt.
+
+use std::collections::{HashMap, HashSet};
+
+use serde_json::Value;
+
+use crate::chat_stream::{AgentUsage, ChatStreamEvent};
+
+const MAX_DETAIL_CHARS: usize = 1200;
+
+/// What the stream loop should do after an event.
+pub enum Outcome {
+    Emit(ChatStreamEvent),
+    /// The agent needs approval before it can continue.
+    PermissionAsked(PermissionAsk),
+    /// The prompt finished.
+    Idle,
+    Failed(String),
+}
+
+pub struct PermissionAsk {
+    pub id: String,
+    pub permission: String,
+    pub patterns: Vec<String>,
+    pub title: String,
+    pub detail: Option<String>,
+    /// Absolute file the tool wants to change (`edit`).
+    pub path: Option<String>,
+    /// Shell command the tool wants to run (`bash`).
+    pub command: Option<String>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum PartKind {
+    Text,
+    Reasoning,
+}
+
+pub struct EventTranslator {
+    session_id: String,
+    show_reasoning: bool,
+    /// Our session plus any sub-agent sessions it spawns.
+    related_sessions: HashSet<String>,
+    user_messages: HashSet<String>,
+    part_kinds: HashMap<String, PartKind>,
+    /// Bytes already forwarded per part, so full-text updates don't duplicate deltas.
+    emitted: HashMap<String, usize>,
+}
+
+impl EventTranslator {
+    pub fn new(session_id: String, show_reasoning: bool) -> Self {
+        Self {
+            related_sessions: HashSet::from([session_id.clone()]),
+            session_id,
+            show_reasoning,
+            user_messages: HashSet::new(),
+            part_kinds: HashMap::new(),
+            emitted: HashMap::new(),
+        }
+    }
+
+    pub fn handle(&mut self, event: &Value) -> Vec<Outcome> {
+        let props = &event["properties"];
+        match event["type"].as_str().unwrap_or_default() {
+            "session.created" => {
+                let info = &props["info"];
+                if let (Some(id), Some(parent)) = (info["id"].as_str(), info["parentID"].as_str()) {
+                    if self.related_sessions.contains(parent) {
+                        self.related_sessions.insert(id.to_string());
+                    }
+                }
+                vec![]
+            }
+            "message.updated" => {
+                let info = &props["info"];
+                if info["role"] == "user" {
+                    if let Some(id) = info["id"].as_str() {
+                        self.user_messages.insert(id.to_string());
+                    }
+                }
+                vec![]
+            }
+            "message.part.updated" => self.on_part(&props["part"]),
+            "message.part.delta" => self.on_delta(props),
+            "permission.asked" if self.is_related(props) => {
+                vec![Outcome::PermissionAsked(permission_ask(props))]
+            }
+            "permission.replied" if self.is_related(props) => {
+                let id = props["requestID"].as_str().unwrap_or_default().to_string();
+                vec![Outcome::Emit(ChatStreamEvent::PermissionResolved { id })]
+            }
+            "session.error" if self.is_own(props) => {
+                let error = &props["error"];
+                if error["name"] == "MessageAbortedError" {
+                    vec![Outcome::Idle]
+                } else {
+                    vec![Outcome::Failed(error_message(error))]
+                }
+            }
+            "session.idle" if self.is_own(props) => vec![Outcome::Idle],
+            _ => vec![],
+        }
+    }
+
+    fn is_own(&self, props: &Value) -> bool {
+        props["sessionID"] == self.session_id.as_str()
+    }
+
+    fn is_related(&self, props: &Value) -> bool {
+        props["sessionID"]
+            .as_str()
+            .is_some_and(|id| self.related_sessions.contains(id))
+    }
+
+    fn on_part(&mut self, part: &Value) -> Vec<Outcome> {
+        if part["sessionID"] != self.session_id.as_str() {
+            return vec![];
+        }
+        if part["messageID"]
+            .as_str()
+            .is_some_and(|id| self.user_messages.contains(id))
+        {
+            return vec![];
+        }
+        let part_id = part["id"].as_str().unwrap_or_default().to_string();
+
+        match part["type"].as_str().unwrap_or_default() {
+            "text" => self.on_text_part(part_id, PartKind::Text, part),
+            "reasoning" => self.on_text_part(part_id, PartKind::Reasoning, part),
+            // A pending tool has no input yet; wait for the running update.
+            "tool" if part["state"]["status"] == "pending" => vec![],
+            "tool" => vec![Outcome::Emit(tool_activity(part))],
+            "step-finish" => vec![Outcome::Emit(step_usage(&self.session_id, part))],
+            _ => vec![],
+        }
+    }
+
+    fn on_text_part(&mut self, part_id: String, kind: PartKind, part: &Value) -> Vec<Outcome> {
+        self.part_kinds.insert(part_id.clone(), kind);
+        let text = part["text"].as_str().unwrap_or_default();
+        let sent = self.emitted.get(&part_id).copied().unwrap_or(0);
+        match text.get(sent..) {
+            Some(rest) if !rest.is_empty() => {
+                self.emitted.insert(part_id, text.len());
+                self.text_event(kind, rest.to_string()).into_iter().collect()
+            }
+            _ => vec![],
+        }
+    }
+
+    fn on_delta(&mut self, props: &Value) -> Vec<Outcome> {
+        if !self.is_own(props) || props["field"] != "text" {
+            return vec![];
+        }
+        let part_id = props["partID"].as_str().unwrap_or_default();
+        let Some(&kind) = self.part_kinds.get(part_id) else {
+            return vec![];
+        };
+        let delta = props["delta"].as_str().unwrap_or_default();
+        if delta.is_empty() {
+            return vec![];
+        }
+        *self.emitted.entry(part_id.to_string()).or_default() += delta.len();
+        self.text_event(kind, delta.to_string()).into_iter().collect()
+    }
+
+    fn text_event(&self, kind: PartKind, text: String) -> Option<Outcome> {
+        let event = match kind {
+            PartKind::Text => ChatStreamEvent::Chunk { text },
+            PartKind::Reasoning if self.show_reasoning => ChatStreamEvent::Reasoning { reasoning: text },
+            PartKind::Reasoning => return None,
+        };
+        Some(Outcome::Emit(event))
+    }
+}
+
+fn tool_activity(part: &Value) -> ChatStreamEvent {
+    let tool = part["tool"].as_str().unwrap_or("tool");
+    let state = &part["state"];
+    let input = &state["input"];
+    let status = state["status"].as_str().unwrap_or_default();
+
+    let subject = state["title"]
+        .as_str()
+        .or_else(|| first_str(input, &["description", "filePath", "command", "pattern", "url"]))
+        .unwrap_or_default();
+    let title = if subject.is_empty() {
+        tool.to_string()
+    } else {
+        format!("{tool}: {subject}")
+    };
+
+    let mut detail = Vec::new();
+    if let Some(command) = input["command"].as_str() {
+        detail.push(format!("$ {command}"));
+    }
+    match status {
+        "completed" => {
+            if let Some(output) = state["output"].as_str().filter(|s| !s.trim().is_empty()) {
+                detail.push(truncate(output.trim()));
+            }
+        }
+        "error" => {
+            if let Some(error) = state["error"].as_str() {
+                detail.push(format!("Error: {error}"));
+            }
+        }
+        _ => {}
+    }
+
+    ChatStreamEvent::Activity {
+        id: part["id"].as_str().map(str::to_string),
+        kind: "tool".into(),
+        title,
+        detail: (!detail.is_empty()).then(|| detail.join("\n")),
+        done: matches!(status, "completed" | "error"),
+        duration_ms: duration_ms(&state["time"]),
+    }
+}
+
+fn step_usage(session_id: &str, part: &Value) -> ChatStreamEvent {
+    let tokens = &part["tokens"];
+    let cache = &tokens["cache"];
+    ChatStreamEvent::Metadata {
+        session_id: Some(session_id.to_string()),
+        usage: Some(AgentUsage {
+            input_tokens: tokens["input"].as_u64(),
+            output_tokens: tokens["output"].as_u64(),
+            cache_read_tokens: cache["read"].as_u64(),
+            cache_write_tokens: cache["write"].as_u64(),
+            reasoning_tokens: tokens["reasoning"].as_u64(),
+            total_tokens: tokens["total"].as_u64(),
+            cost: part["cost"].as_f64(),
+        }),
+        duration_ms: None,
+        model: None,
+    }
+}
+
+fn permission_ask(props: &Value) -> PermissionAsk {
+    let permission = props["permission"].as_str().unwrap_or("unknown").to_string();
+    let metadata = &props["metadata"];
+    let patterns: Vec<String> = props["patterns"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|p| p.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+
+    let title = match permission.as_str() {
+        "bash" => "Run a shell command".to_string(),
+        "edit" => "Modify a file".to_string(),
+        "external_directory" => "Access files outside the working folder".to_string(),
+        "webfetch" => "Fetch a web page".to_string(),
+        "websearch" => "Search the web".to_string(),
+        "task" => "Start a sub-agent".to_string(),
+        other => format!("Use {other}"),
+    };
+
+    let mut detail = Vec::new();
+    if let Some(command) = metadata["command"].as_str() {
+        detail.push(format!("$ {command}"));
+    }
+    if let Some(path) = first_str(metadata, &["filepath", "filePath", "path", "url"]) {
+        detail.push(path.to_string());
+    }
+    if let Some(diff) = metadata["diff"].as_str() {
+        detail.push(truncate(diff));
+    }
+    if detail.is_empty() && !patterns.is_empty() {
+        detail.push(patterns.join("\n"));
+    }
+
+    PermissionAsk {
+        id: props["id"].as_str().unwrap_or_default().to_string(),
+        permission,
+        patterns,
+        title,
+        detail: (!detail.is_empty()).then(|| detail.join("\n")),
+        path: first_str(metadata, &["filepath", "filePath", "path"]).map(str::to_string),
+        command: metadata["command"].as_str().map(str::to_string),
+    }
+}
+
+fn error_message(error: &Value) -> String {
+    error["data"]["message"]
+        .as_str()
+        .or_else(|| error["message"].as_str())
+        .or_else(|| error["name"].as_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("opencode error: {error}"))
+}
+
+fn first_str<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter()
+        .find_map(|k| value[*k].as_str().filter(|s| !s.is_empty()))
+}
+
+fn duration_ms(time: &Value) -> Option<u64> {
+    Some(time["end"].as_u64()?.saturating_sub(time["start"].as_u64()?))
+}
+
+fn truncate(text: &str) -> String {
+    let total = text.chars().count();
+    if total <= MAX_DETAIL_CHARS {
+        return text.to_string();
+    }
+    let head: String = text.chars().take(MAX_DETAIL_CHARS).collect();
+    format!("{head}… ({total} chars, truncated)")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    const SES: &str = "ses_main";
+
+    fn texts(outcomes: &[Outcome]) -> Vec<String> {
+        outcomes
+            .iter()
+            .filter_map(|o| match o {
+                Outcome::Emit(ChatStreamEvent::Chunk { text }) => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn part_event(part: Value) -> Value {
+        json!({ "type": "message.part.updated", "properties": { "sessionID": SES, "part": part } })
+    }
+
+    #[test]
+    fn skips_user_prompt_and_merges_deltas_without_duplicates() {
+        let mut t = EventTranslator::new(SES.into(), false);
+        t.handle(&json!({ "type": "message.updated", "properties": { "info": { "id": "msg_user", "role": "user" } } }));
+
+        let echoed = t.handle(&part_event(json!({
+            "id": "prt_u", "messageID": "msg_user", "sessionID": SES, "type": "text", "text": "hello"
+        })));
+        assert!(texts(&echoed).is_empty());
+
+        t.handle(&part_event(json!({
+            "id": "prt_a", "messageID": "msg_a", "sessionID": SES, "type": "text", "text": ""
+        })));
+        let delta = t.handle(&json!({ "type": "message.part.delta", "properties": {
+            "sessionID": SES, "messageID": "msg_a", "partID": "prt_a", "field": "text", "delta": "Hi "
+        }}));
+        assert_eq!(texts(&delta), ["Hi "]);
+
+        let full = t.handle(&part_event(json!({
+            "id": "prt_a", "messageID": "msg_a", "sessionID": SES, "type": "text", "text": "Hi there"
+        })));
+        assert_eq!(texts(&full), ["there"]);
+    }
+
+    #[test]
+    fn reasoning_is_hidden_unless_enabled() {
+        let part = part_event(json!({
+            "id": "prt_r", "messageID": "msg_a", "sessionID": SES, "type": "reasoning", "text": "hmm"
+        }));
+        assert!(EventTranslator::new(SES.into(), false).handle(&part).is_empty());
+        let shown = EventTranslator::new(SES.into(), true).handle(&part);
+        assert!(matches!(shown[..], [Outcome::Emit(ChatStreamEvent::Reasoning { .. })]));
+    }
+
+    #[test]
+    fn permission_from_subagent_session_is_forwarded() {
+        let mut t = EventTranslator::new(SES.into(), false);
+        t.handle(&json!({ "type": "session.created", "properties": { "info": { "id": "ses_child", "parentID": SES } } }));
+        let out = t.handle(&json!({ "type": "permission.asked", "properties": {
+            "id": "per_1", "sessionID": "ses_child", "permission": "bash",
+            "patterns": ["rm *"], "metadata": { "command": "rm victim.txt" }, "always": []
+        }}));
+        match &out[..] {
+            [Outcome::PermissionAsked(ask)] => {
+                assert_eq!(ask.id, "per_1");
+                assert_eq!(ask.detail.as_deref(), Some("$ rm victim.txt"));
+            }
+            _ => panic!("expected a permission request"),
+        }
+
+        let other = t.handle(&json!({ "type": "permission.asked", "properties": {
+            "id": "per_2", "sessionID": "ses_unrelated", "permission": "bash", "patterns": [], "metadata": {}, "always": []
+        }}));
+        assert!(other.is_empty());
+    }
+
+    #[test]
+    fn idle_and_abort_finish_the_prompt() {
+        let mut t = EventTranslator::new(SES.into(), false);
+        let idle = t.handle(&json!({ "type": "session.idle", "properties": { "sessionID": SES } }));
+        assert!(matches!(idle[..], [Outcome::Idle]));
+        let aborted = t.handle(&json!({ "type": "session.error", "properties": {
+            "sessionID": SES, "error": { "name": "MessageAbortedError", "data": {} }
+        }}));
+        assert!(matches!(aborted[..], [Outcome::Idle]));
+        let failed = t.handle(&json!({ "type": "session.error", "properties": {
+            "sessionID": SES, "error": { "name": "APIError", "data": { "message": "quota" } }
+        }}));
+        assert!(matches!(&failed[..], [Outcome::Failed(m)] if m == "quota"));
+    }
+}

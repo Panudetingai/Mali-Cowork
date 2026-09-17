@@ -10,7 +10,7 @@ export function AppLayout() {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <AppSidebar />
         <SidebarInset className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-          <div className="flex flex-1 flex-col gap-4 overflow-auto p-6">
+          <div className="flex flex-1 flex-col gap-4 overflow-auto">
             <Outlet />
           </div>
         </SidebarInset>

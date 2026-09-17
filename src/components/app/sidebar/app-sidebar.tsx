@@ -1,134 +1,126 @@
 import {
-    Sidebar,
-    SidebarContent,
-    SidebarFooter,
-    SidebarGroup,
-    SidebarGroupContent,
-    SidebarGroupLabel,
-    SidebarHeader,
-    SidebarMenu,
-    SidebarMenuButton,
-    SidebarMenuItem,
-    SidebarRail,
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarRail,
 } from "@/components/animate-ui/components/radix/sidebar";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { sessionMode, useChatRuns, useChatSessions, type ChatSession } from "@/features/chat-history";
 import type { LucideIcon } from "lucide-react";
-import {
-    Calendar,
-    FolderKanban,
-    LayoutDashboard,
-    ListTodo,
-    Settings,
-    Users,
-} from "lucide-react";
+import { SearchIcon, Settings2Icon, SparklesIcon, SquarePenIcon } from "lucide-react";
+import { useMemo, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
+import { ChatHistoryItem } from "./chat-history-item";
+import { sidebarItemClass } from "./sidebar-styles";
 
-const mainNav = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Projects", url: "/projects", icon: FolderKanban },
-  { title: "Tasks", url: "/tasks", icon: ListTodo },
-  { title: "Calendar", url: "/calendar", icon: Calendar },
-] as const;
-
-const secondaryNav = [
-  { title: "Team", url: "/team", icon: Users },
-  { title: "Settings", url: "/settings", icon: Settings },
-] as const;
-
-function NavItem({
-  title,
-  url,
-  icon: Icon,
-}: {
-  title: string;
-  url: string;
-  icon: LucideIcon;
-}) {
-  const { pathname } = useLocation();
+function NavItem({ title, url, icon: Icon }: { title: string; url: string; icon: LucideIcon }) {
+  const { pathname, search } = useLocation();
+  const [path, query = ""] = url.split("?");
   const isActive =
-    url === "/" ? pathname === "/" : pathname.startsWith(url);
+    path === "/"
+      ? pathname === "/" && new URLSearchParams(search).get("mode") === new URLSearchParams(query).get("mode")
+      : pathname.startsWith(path);
 
   return (
     <SidebarMenuItem>
-      <NavLink
-        to={url}
-        title={title}
-        data-active={isActive}
-        data-slot="sidebar-menu-button"
-        data-sidebar="menu-button"
-        className={cn(
-          "flex h-8 w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm text-sidebar-foreground outline-hidden ring-sidebar-ring transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
-          "group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate",
-          isActive &&
-            "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
-        )}
-      >
-        <Icon />
-        <span className="truncate group-data-[collapsible=icon]:hidden">
-          {title}
-        </span>
+      <NavLink to={url} title={title} data-active={isActive} className={sidebarItemClass}>
+        <Icon strokeWidth={1.75} />
+        <span className="truncate group-data-[collapsible=icon]:hidden">{title}</span>
       </NavLink>
     </SidebarMenuItem>
   );
 }
 
+function matches(session: ChatSession, query: string) {
+  if (!query) return true;
+  if (session.title.toLowerCase().includes(query)) return true;
+  return session.messages.some((m) => m.content.toLowerCase().includes(query));
+}
+
+function HistoryGroup({ label, sessions }: { label: string; sessions: ChatSession[] }) {
+  const runs = useChatRuns();
+  if (sessions.length === 0) return null;
+
+  return (
+    <SidebarGroup className="py-1 group-data-[collapsible=icon]:hidden">
+      <SidebarGroupLabel className="h-7 text-xs font-normal text-sidebar-foreground/55">
+        {label}
+      </SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu className="gap-0.5">
+          {sessions.map((session) => (
+            <ChatHistoryItem key={session.id} session={session} running={!!runs[session.id]} />
+          ))}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
 export function AppSidebar() {
+  const sessions = useChatSessions();
+  const [query, setQuery] = useState("");
+
+  const { pinned, chats, cowork } = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const sorted = sessions
+      .filter((s) => matches(s, q))
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+    const unpinned = sorted.filter((s) => !s.pinned);
+    return {
+      pinned: sorted.filter((s) => s.pinned),
+      chats: unpinned.filter((s) => sessionMode(s) === "chat"),
+      cowork: unpinned.filter((s) => sessionMode(s) === "cowork"),
+    };
+  }, [sessions, query]);
+
+  const nothingFound = sessions.length > 0 && pinned.length + chats.length + cowork.length === 0;
+
   return (
     <Sidebar
       collapsible="icon"
       className="top-(--titlebar-height) bottom-0 h-auto max-h-[calc(100svh-var(--titlebar-height))] border-r-0"
     >
-      <SidebarHeader className="border-b border-sidebar-border">
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild>
-              <Input placeholder="Search Chat History" className="w-full" />
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+      <SidebarHeader className="gap-1 pb-1">
+        <SidebarMenu className="gap-0.5">
+          <NavItem title="New chat" url="/?mode=chat" icon={SquarePenIcon} />
+          <NavItem title="Cowork" url="/?mode=cowork" icon={SparklesIcon} />
+          <NavItem title="Settings" url="/settings" icon={Settings2Icon} />
         </SidebarMenu>
+        <div className="relative mt-1 group-data-[collapsible=icon]:hidden">
+          <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => event.key === "Escape" && setQuery("")}
+            placeholder="Search chats"
+            aria-label="Search chat history"
+            className="h-8 rounded-lg border-transparent bg-sidebar-accent/70 pl-8 text-[13px] shadow-none focus-visible:bg-background"
+          />
+        </div>
       </SidebarHeader>
 
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-sidebar-foreground/55">
-            Main
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {mainNav.map((item) => (
-                <NavItem key={item.url} {...item} />
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+      <SidebarContent className="gap-0 pb-3">
+        <HistoryGroup label="Pinned" sessions={pinned} />
+        <HistoryGroup label="Chats" sessions={chats} />
+        <HistoryGroup label="Cowork" sessions={cowork} />
 
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-sidebar-foreground/55">
-            Workspace
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {secondaryNav.map((item) => (
-                <NavItem key={item.url} {...item} />
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {sessions.length === 0 && (
+          <p className="px-4 py-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
+            Your chats will show up here.
+          </p>
+        )}
+        {nothingFound && (
+          <p className="px-4 py-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
+            No chats match “{query.trim()}”.
+          </p>
+        )}
       </SidebarContent>
-
-      <SidebarFooter className="border-t border-sidebar-border">
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton tooltip="Demo user">
-              <div className="flex size-6 items-center justify-center rounded-full bg-sidebar-accent text-xs font-medium text-sidebar-accent-foreground">
-                P
-              </div>
-              <span className="text-sidebar-foreground">Philips</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarFooter>
 
       <SidebarRail />
     </Sidebar>

@@ -19,12 +19,20 @@ pub struct AgentUsage {
 }
 
 #[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase", tag = "event", content = "data")]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "event",
+    content = "data"
+)]
 pub enum ChatStreamEvent {
     Started,
     Chunk { text: String },
     Reasoning { reasoning: String },
     Activity {
+        /// Stable id so repeated updates of one step replace each other.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
         kind: String,
         title: String,
         detail: Option<String>,
@@ -38,6 +46,17 @@ pub enum ChatStreamEvent {
         duration_ms: Option<u64>,
         model: Option<String>,
     },
+    /// The agent is waiting for the user to approve an action.
+    Permission {
+        id: String,
+        directory: String,
+        permission: String,
+        patterns: Vec<String>,
+        title: String,
+        detail: Option<String>,
+    },
+    /// A pending permission was answered (by the user or automatically).
+    PermissionResolved { id: String },
     Done { model_id: String },
     Error { message: String },
 }

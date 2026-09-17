@@ -27,8 +27,9 @@ import {
     SparklesIcon,
     TerminalIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ActivityItem } from "../../types";
+import { ExpandableClamp } from "./expandable-clamp";
 
 type Props = {
   content: string;
@@ -59,18 +60,11 @@ export function AssistantMessage({
   durationMs,
 }: Props) {
   const [copied, setCopied] = useState(false);
-  const [reasoningOpen, setReasoningOpen] = useState(true);
 
-  const isCli =
-    (modelId ?? "").startsWith("cli:") ||
-    (modelId ?? "").startsWith("opencode:");
-  const agentName = isCli ? modelId!.split(":")[1] : undefined;
-
-  useEffect(() => {
-    if (isStreaming) {
-      setReasoningOpen(true);
-    }
-  }, [isStreaming]);
+  const id = modelId ?? "";
+  const isOpencode = id.startsWith("opencode:");
+  const isCli = isOpencode || id.startsWith("cli:");
+  const agentName = isOpencode ? "OpenCode" : id.split(":")[1];
 
   const handleCopy = async () => {
     const text = [reasoning, content].filter(Boolean).join("\n\n");
@@ -82,13 +76,10 @@ export function AssistantMessage({
   const hasReasoning = Boolean(reasoning?.trim());
   const hasContent = Boolean(content.trim());
   const hasActivities = (activities?.length ?? 0) > 0;
-  const showThinking =
-    isStreaming && !hasContent && !hasReasoning && !hasActivities;
   const showEmptyState =
     !isStreaming && !hasContent && !hasReasoning && !hasActivities;
   const contentIsAnimating = isCli ? false : isStreaming;
-
-  console.log("activities", activities);
+  const showStreamWait = isStreaming && !hasContent && !hasActivities;
 
   return (
     <Message from="assistant">
@@ -110,7 +101,6 @@ export function AssistantMessage({
                 defaultOpen={idx === activities!.length - 1 && isStreaming}
               >
                 <ChainOfThoughtTrigger
-                  // disabled={!hasDetail}
                   swapIconOnHover={hasDetail}
                   leftIcon={
                     <ActivityIcon kind={activity.kind} done={activity.done} />
@@ -119,7 +109,7 @@ export function AssistantMessage({
                   <span
                     className={cn(
                       "text-xs",
-                      activity.done && "text-muted-foreground line-through",
+                      activity.done && "text-muted-foreground",
                     )}
                   >
                     {activity.title}
@@ -127,10 +117,8 @@ export function AssistantMessage({
                 </ChainOfThoughtTrigger>
                 {hasDetail && (
                   <ChainOfThoughtContent>
-                    <ChainOfThoughtItem className="whitespace-pre-wrap break-words text-[11px]">
-                      {activity.detail!.length > 400
-                        ? activity.detail!.slice(0, 400) + "…"
-                        : activity.detail}
+                    <ChainOfThoughtItem className="whitespace-pre-wrap text-[11px] max-h-24 overflow-auto scroll-hidden">
+                      <MessageResponse>{activity.detail}</MessageResponse>
                     </ChainOfThoughtItem>
                   </ChainOfThoughtContent>
                 )}
@@ -145,22 +133,30 @@ export function AssistantMessage({
         )}
       >
         {hasContent ? (
-          <MessageResponse isAnimating={contentIsAnimating}>
-            {content}
-          </MessageResponse>
-        ) : showThinking ? (
-          <div className="flex items-center gap-3 px-4 py-3">
-            <BotFace size={48} />
-            <span className="text-sm text-muted-foreground">
-              {isCli ? `Waiting for ${agentName}…` : "Thinking…"}
-            </span>
-          </div>
+          isStreaming && isCli ? (
+            <pre className="text-sm whitespace-pre-wrap break-words">{content}</pre>
+          ) : (
+            <ExpandableClamp maxHeightClass="max-h-[min(70vh,32rem)]" disabled={isStreaming}>
+              <MessageResponse className="text-sm" isAnimating={contentIsAnimating}>
+                {content}
+              </MessageResponse>
+            </ExpandableClamp>
+          )
         ) : showEmptyState ? (
           <div className="px-4 py-3 text-sm italic text-muted-foreground">
             No response received.
           </div>
         ) : null}
       </MessageContent>
+
+      {showStreamWait && (
+        <div className="flex items-center gap-3 px-1 py-2">
+          <BotFace size={40} />
+          <span className="line-clamp-2 min-w-0 text-sm text-muted-foreground">
+            {reasoning?.trim() || (isCli ? `Running ${agentName}…` : "Thinking…")}
+          </span>
+        </div>
+      )}
 
       {(hasContent || hasReasoning) && !isStreaming && (
         <MessageActions className="mt-2">
