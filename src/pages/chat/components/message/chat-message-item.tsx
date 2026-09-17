@@ -17,8 +17,13 @@ export function ChatMessageItem({ message }: Props) {
       return (
         <AssistantMessage
           content={message.content}
+          reasoning={message.reasoning}
+          activities={message.activities}
           modelId={message.modelId}
           isStreaming={message.isStreaming}
+          usage={message.usage}
+          sessionId={message.sessionId}
+          durationMs={message.durationMs}
         />
       );
     case "error":

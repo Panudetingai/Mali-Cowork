@@ -146,4 +146,12 @@
   html[data-window-maximized="true"] #root {
     border-radius: 0;
   }
+
+  .scroll-hidden {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scroll-hidden::-webkit-scrollbar {
+    display: none;
+  }
 }

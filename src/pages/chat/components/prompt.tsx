@@ -33,12 +33,13 @@ import {
     Link,
     PlusIcon,
 } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import React, { useState, type FormEvent } from "react";
+import { useOpencodeConfig, OpencodeConfigPanel } from "@/features/opencode";
 
 export type AiModel = {
   id: string;
   name: string;
-  provider: "anthropic" | "openai" | "google" | "openrouter" | "groq";
+  provider: "anthropic" | "openai" | "google" | "openrouter" | "groq" | "opencode" | "cursor" | "codex" | "socket";
   group: string;
 };
 
@@ -90,19 +91,59 @@ export const AI_MODELS: AiModel[] = [
     name: "Groq GPT-OSS 120B",
     provider: "groq",
     group: "Groq",
+  },
+  {
+    id: "cli:opencode",
+    name: "OpenCode (local CLI)",
+    provider: "opencode",
+    group: "Local CLI",
+  },
+  {
+    id: "cli:cursor",
+    name: "Cursor Agent",
+    provider: "cursor",
+    group: "Local CLI",
+  },
+  {
+    id: "cli:codex",
+    name: "Codex (local CLI)",
+    provider: "codex",
+    group: "Local CLI",
+  },
+  {
+    id: "socket:local",
+    name: "Local Agent Server (SSE)",
+    provider: "socket",
+    group: "Local Socket",
+  },
+  {
+    id: "socket:ws",
+    name: "Local Agent Server (WebSocket)",
+    provider: "socket",
+    group: "Local Socket",
+  },
+  {
+    id: "socket:tcp",
+    name: "Local Agent Server (TCP)",
+    provider: "socket",
+    group: "Local Socket",
   }
 ];
 
 const MODEL_GROUPS = [...new Set(AI_MODELS.map((m) => m.group))];
 
 type PromptInputProps = {
+  ref: React.RefObject<HTMLTextAreaElement | null>;
   isLoading?: boolean;
   onSubmit: (payload: { prompt: string; modelId: string }) => void | Promise<void>;
 };
 
-export default function PromptInput({ isLoading, onSubmit }: PromptInputProps) {
+export default function PromptInput({ ref, isLoading, onSubmit }: PromptInputProps) {
   const [prompt, setPrompt] = useState("");
   const [selectedModel, setSelectedModel] = useState(AI_MODELS[0]);
+
+  // opencode feature module: folder + model + thinking + auto-approve
+  const opencodeConfig = useOpencodeConfig();
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -119,7 +160,7 @@ export default function PromptInput({ isLoading, onSubmit }: PromptInputProps) {
       className="relative mx-auto w-full max-w-3xl rounded-xl border bg-card p-3 shadow-sm transition-colors focus-within:shadow-amber-300 focus-within:ring-1 focus-within:ring-amber-300"
     >
       <Textarea
-        autoFocus
+        ref={ref}
         value={prompt}
         onChange={(event) => setPrompt(event.target.value)}
         placeholder="How can I help you today?"
@@ -133,13 +174,18 @@ export default function PromptInput({ isLoading, onSubmit }: PromptInputProps) {
           }
         }}
       />
+      {/* OpenCode feature module: folder + model + thinking + auto-approve */}
+      {selectedModel.provider === "opencode" && (
+        <OpencodeConfigPanel config={opencodeConfig} />
+      )}
+
       <div className="mt-2 flex items-center justify-between gap-2 pt-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <DropdownAddFile />
           <TagsWorkspaceAI />
         </div>
         <ModelSelect selected={selectedModel} onSelect={setSelectedModel} />
-        <ButtonSend isLoading={isLoading} disabled={!prompt.trim()} />
+        <ButtonSend isLoading={isLoading} disabled={!prompt.trim() || (selectedModel.provider === "opencode" && !!opencodeConfig.check && !opencodeConfig.check.available)} />
       </div>
     </form>
   );

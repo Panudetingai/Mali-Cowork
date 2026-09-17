@@ -1,6 +1,6 @@
-use aisdk::core::language_model::LanguageModelStream;
+use aisdk::core::language_model::{LanguageModelStream, ReasoningEffort};
 use aisdk::core::{DynamicModel, LanguageModelRequest, LanguageModelStreamChunkType};
-use aisdk::providers::{Anthropic, Google, OpenAI, Openrouter, Groq};
+use aisdk::providers::{Anthropic, Google, Groq, OpenAI, Openrouter};
 use futures::StreamExt;
 use tauri::ipc::Channel;
 
@@ -10,6 +10,7 @@ use crate::chat_stream::ChatStreamEvent;
 struct ModelSpec {
     provider: &'static str,
     api_model: &'static str,
+    supports_reasoning: bool,
 }
 
 fn resolve_model(model_id: &str) -> Result<ModelSpec, String> {
@@ -17,34 +18,42 @@ fn resolve_model(model_id: &str) -> Result<ModelSpec, String> {
         "claude-sonnet-4" => Ok(ModelSpec {
             provider: "anthropic",
             api_model: "claude-sonnet-4-20250514",
+            supports_reasoning: true,
         }),
         "claude-opus-4" => Ok(ModelSpec {
             provider: "anthropic",
             api_model: "claude-opus-4-20250514",
+            supports_reasoning: true,
         }),
         "gpt-4o" => Ok(ModelSpec {
             provider: "openai",
             api_model: "gpt-4o",
+            supports_reasoning: false,
         }),
         "o3-mini" => Ok(ModelSpec {
             provider: "openai",
             api_model: "o3-mini",
+            supports_reasoning: true,
         }),
         "gemini-2-flash" => Ok(ModelSpec {
             provider: "google",
             api_model: "gemini-2.0-flash",
+            supports_reasoning: false,
         }),
         "gemini-2-pro" => Ok(ModelSpec {
             provider: "google",
             api_model: "gemini-2.0-pro",
+            supports_reasoning: false,
         }),
         "z-ai/glm-5.2:free" => Ok(ModelSpec {
             provider: "openrouter",
             api_model: "z-ai/glm-5.2:free",
+            supports_reasoning: true,
         }),
         "groq/gpt-oss-120b" => Ok(ModelSpec {
             provider: "groq",
             api_model: "openai/gpt-oss-120b",
+            supports_reasoning: true,
         }),
         other => Err(format!("Unknown model id: {other}")),
     }
@@ -106,15 +115,23 @@ async fn consume_stream(
         .send(ChatStreamEvent::Started)
         .map_err(|e| e.to_string())?;
 
-    let mut has_text = false;
+    let mut has_output = false;
 
     while let Some(chunk) = stream.next().await {
         match chunk {
             LanguageModelStreamChunkType::Text(text) => {
                 if !text.is_empty() {
-                    has_text = true;
+                    has_output = true;
                     on_event
                         .send(ChatStreamEvent::Chunk { text })
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+            LanguageModelStreamChunkType::Reasoning(reasoning) => {
+                if !reasoning.is_empty() {
+                    has_output = true;
+                    on_event
+                        .send(ChatStreamEvent::Reasoning { reasoning })
                         .map_err(|e| e.to_string())?;
                 }
             }
@@ -129,12 +146,11 @@ async fn consume_stream(
             }
             LanguageModelStreamChunkType::End(_) => break,
             LanguageModelStreamChunkType::Start
-            | LanguageModelStreamChunkType::Reasoning(_)
             | LanguageModelStreamChunkType::ToolCall(_) => {}
         }
     }
 
-    if !has_text {
+    if !has_output {
         return Err("Model returned an empty response.".into());
     }
 
@@ -142,12 +158,19 @@ async fn consume_stream(
 }
 
 macro_rules! stream_with_model {
-    ($model:expr, $prompt:expr, $on_event:expr) => {{
-        let mut request = LanguageModelRequest::builder()
+    ($model:expr, $prompt:expr, $on_event:expr, $with_reasoning:expr) => {{
+        let builder = LanguageModelRequest::builder()
             .model($model)
             .system("You are Mali Cowork, a concise and helpful assistant.")
-            .prompt($prompt)
-            .build();
+            .prompt($prompt);
+
+        let builder = if $with_reasoning {
+            builder.reasoning_effort(ReasoningEffort::Medium)
+        } else {
+            builder
+        };
+
+        let mut request = builder.build();
 
         let response = request
             .stream_text()
@@ -176,7 +199,7 @@ pub async fn stream_chat_response(
                 .model_name(spec.api_model)
                 .build()
                 .map_err(|e| e.to_string())?;
-            stream_with_model!(model, prompt, &on_event)
+            stream_with_model!(model, prompt, &on_event, spec.supports_reasoning)
         }
         "openai" => {
             get_api_key("OPENAI_API_KEY")?;
@@ -184,7 +207,7 @@ pub async fn stream_chat_response(
                 .model_name(spec.api_model)
                 .build()
                 .map_err(|e| e.to_string())?;
-            stream_with_model!(model, prompt, &on_event)
+            stream_with_model!(model, prompt, &on_event, spec.supports_reasoning)
         }
         "google" => {
             get_api_key("GOOGLE_API_KEY")?;
@@ -192,7 +215,7 @@ pub async fn stream_chat_response(
                 .model_name(spec.api_model)
                 .build()
                 .map_err(|e| e.to_string())?;
-            stream_with_model!(model, prompt, &on_event)
+            stream_with_model!(model, prompt, &on_event, spec.supports_reasoning)
         }
         "openrouter" => {
             get_api_key("OPENROUTER_API_KEY")?;
@@ -200,7 +223,7 @@ pub async fn stream_chat_response(
                 .model_name(spec.api_model)
                 .build()
                 .map_err(|e| e.to_string())?;
-            stream_with_model!(model, prompt, &on_event)
+            stream_with_model!(model, prompt, &on_event, spec.supports_reasoning)
         }
         "groq" => {
             get_api_key("GROQ_API_KEY")?;
@@ -208,7 +231,7 @@ pub async fn stream_chat_response(
                 .model_name(spec.api_model)
                 .build()
                 .map_err(|e| e.to_string())?;
-            stream_with_model!(model, prompt, &on_event)
+            stream_with_model!(model, prompt, &on_event, spec.supports_reasoning)
         }
         other => Err(format!("Unsupported provider: {other}")),
     };

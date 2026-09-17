@@ -6,9 +6,32 @@
   "permissions": [
     "core:default",
     "opener:default",
-    "core:window:default",
+    "dialog:default",
+    "dialog:allow-open",
+    "fs:default",
+    "fs:allow-read",
+    "fs:allow-exists",
+    "fs:allow-mkdir",
+    "fs:allow-write",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        "$HOME/**",
+        "$APPDATA/**",
+        "$APPLOCALDATA/**",
+        "$RESOURCE/**",
+        "$TEMP/**",
+        "C:/Users/Public/**",
+        "D:/mali_cowork/**",
+        "D:/**"
+      ],
+      "deny": []
+    },
     "core:window:allow-close",
     "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-is-maximized",
     "core:window:allow-toggle-maximize",
     "core:window:allow-start-dragging"
   ]
