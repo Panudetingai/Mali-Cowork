@@ -1,31 +1,28 @@
 import type { ChatMessage } from "@/pages/chat/types";
 import { ChatMessageItem } from "./message/chat-message-item";
-import { LoadingMessage } from "./message/loading-message";
 
 type Props = {
   messages: ChatMessage[];
   isLoading?: boolean;
 };
 
-/**
- * Clean container — delegates rendering to ai-element based items
- * - user: Message from="user" + MessageContent
- * - assistant: Message + MessageResponse (markdown via Streamdown)
- * - error: Message with destructive style
- */
 export function ChatMessages({ messages, isLoading }: Props) {
   const isEmpty = messages.length === 0 && !isLoading;
   if (isEmpty) return null;
 
   return (
-    <div className="flex w-full max-w-3xl flex-col gap-1">
-      {messages.map((msg) => (
-        <ChatMessageItem key={msg.id} message={msg} />
+    <div className="flex w-full max-w-3xl flex-col">
+      {messages.map((msg, index) => (
+        <div
+          key={msg.id}
+          className="group relative py-3 first:pt-0 last:pb-0"
+        >
+          {index > 0 && (
+            <div className="absolute top-0 right-0 left-0 h-px bg-gradient-to-r from-transparent via-border to-transparent opacity-60" />
+          )}
+          <ChatMessageItem message={msg} />
+        </div>
       ))}
-      {!isLoading &&
-        messages[messages.length - 1]?.role !== "assistant" && (
-          <LoadingMessage />
-        )}
     </div>
   );
 }

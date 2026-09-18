@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Geometric Bot</title>
+<style>
+  :root {
+    --bg-color: transparent;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: sans-serif;
+  }
+
+  .scene {
+    position: relative;
+    width: min(80vmin, 400px);
+    aspect-ratio: 1 / 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Wrapper สำหรับการลอยขึ้นลง */
+  .bot-wrapper {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: float 4s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-12px); }
+  }
+
+  /* ตัว Bot หลัก */
+  .bot-body {
+    width: 220px;
+    height: 220px;
+    background: linear-gradient(135deg, #f6d365 0%, #fda085 100%);
+    border-radius: 50%;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 15px 35px rgba(253, 160, 133, 0.4), inset 0 -5px 15px rgba(0,0,0,0.05);
+    transition: border-radius 0.8s cubic-bezier(0.68, -0.55, 0.27, 1.55), 
+                transform 0.8s cubic-bezier(0.68, -0.55, 0.27, 1.55),
+                box-shadow 0.8s ease;
+  }
+
+  /* แสงสะท้อนบนตัว Bot */
+  .bot-body::before {
+    content: '';
+    position: absolute;
+    top: 15%;
+    left: 15%;
+    width: 25%;
+    height: 15%;
+    background: rgba(255, 255, 255, 0.4);
+    border-radius: 50%;
+    transform: rotate(-45deg);
+    filter: blur(2px);
+    pointer-events: none;
+  }
+
+  /* ใบหน้าที่จะหมุนสวนทางเพื่อตั้งตรงเสมอ */
+  .bot-face {
+    width: 60%;
+    height: 60%;
+    transition: transform 0.8s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+    position: relative;
+    z-index: 2;
+  }
+
+  .face-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* ดวงตา */
+  .eyes {
+    transform-origin: center;
+    transition: transform 0.15s ease;
+  }
+  .eye {
+    fill: #2d3436;
+  }
+
+  /* รอยยิ้ม */
+  .smile {
+    fill: none;
+    stroke: #2d3436;
+    stroke-width: 5;
+    stroke-linecap: round;
+    transform-origin: 50% 50%;
+    transition: transform 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+  }
+
+  /* แก้ม */
+  .cheek {
+    fill: #ff7675;
+    opacity: 0.5;
+  }
+
+  /* อนุภาคเรขาคณิตที่โคจรรอบตัว */
+  .geo-particles {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  .bot-wrapper.transforming .geo-particles {
+    opacity: 1;
+  }
+
+  .particle {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 18px;
+    height: 18px;
+    margin: -9px 0 0 -9px;
+  }
+
+  .p-circle {
+    background: #ff7675;
+    border-radius: 50%;
+    animation: orbit1 1.2s linear infinite;
+  }
+  .p-square {
+    background: #74b9ff;
+    border-radius: 4px;
+    animation: orbit2 1.2s linear infinite;
+  }
+  .p-triangle {
+    background: #55efc4;
+    clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+    animation: orbit3 1.2s linear infinite;
+  }
+
+  @keyframes orbit1 {
+    0% { transform: rotate(0deg) translateX(85px) rotate(0deg); }
+    100% { transform: rotate(360deg) translateX(85px) rotate(-360deg); }
+  }
+  @keyframes orbit2 {
+    0% { transform: rotate(120deg) translateX(85px) rotate(-120deg); }
+    100% { transform: rotate(480deg) translateX(85px) rotate(-480deg); }
+  }
+  @keyframes orbit3 {
+    0% { transform: rotate(240deg) translateX(85px) rotate(-240deg); }
+    100% { transform: rotate(600deg) translateX(85px) rotate(-600deg); }
+  }
+
+  /* รองรับผู้ที่ไม่ต้องการการเคลื่อนไหว */
+  @media (prefers-reduced-motion: reduce) {
+    .bot-wrapper, .particle, .bot-body, .bot-face, .smile, .eyes {
+      animation: none !important;
+      transition: none !important;
+      transform: none !important;
+    }
+    .bot-body { border-radius: 50% !important; }
+    .geo-particles { display: none; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="scene" id="scene">
+    <div class="bot-wrapper" id="botWrapper">
+      
+      <!-- อนุภาคเรขาคณิต -->
+      <div class="geo-particles" id="geoParticles">
+        <div class="particle p-circle"></div>
+        <div class="particle p-square"></div>
+        <div class="particle p-triangle"></div>
+      </div>
+
+      <!-- ตัว Bot -->
+      <div class="bot-body" id="botBody">
+        <div class="bot-face" id="botFace">
+          <svg viewBox="0 0 100 100" class="face-svg" xmlns="http://www.w3.org/2000/svg">
+            <!-- ดวงตา -->
+            <g class="eyes" id="eyes">
+              <ellipse class="eye eye-l" cx="30" cy="42" rx="8" ry="10" />
+              <ellipse class="eye eye-r" cx="70" cy="42" rx="8" ry="10" />
+            </g>
+            <!-- รอยยิ้ม -->
+            <path class="smile" id="smile" d="M 30 65 Q 50 80 70 65" />
+            <!-- แก้ม -->
+            <circle class="cheek cheek-l" cx="18" cy="58" r="7" />
+            <circle class="cheek cheek-r" cx="82" cy="58" r="7" />
+          </svg>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+
+  const botBody = document.getElementById('botBody');
+  const botFace = document.getElementById('botFace');
+  const botWrapper = document.getElementById('botWrapper');
+  const eyes = document.getElementById('eyes');
+  const smile = document.getElementById('smile');
+  const scene = document.getElementById('scene');
+
+  // ---------- 1. สีตามเวลาของวัน ----------
+  const PALETTES = {
+    day:      { bg1: "#f6d365", bg2: "#fda085", p1: "#ff7675", p2: "#74b9ff", p3: "#55efc4", shadow: "rgba(253, 160, 133, 0.4)" },
+    twilight: { bg1: "#a18cd1", bg2: "#fbc2eb", p1: "#fd79a8", p2: "#81ecec", p3: "#ffeaa7", shadow: "rgba(161, 140, 209, 0.4)" },
+    night:    { bg1: "#2c3e50", bg2: "#4ca1af", p1: "#ff7675", p2: "#74b9ff", p3: "#55efc4", shadow: "rgba(44, 62, 80, 0.5)" }
+  };
+
+  function applyPalette() {
+    const h = new Date().getHours();
+    let period = "day";
+    if ((h >= 5 && h < 8) || (h >= 18 && h < 21)) period = "twilight";
+    else if (h >= 21 || h < 5) period = "night";
+    
+    const p = PALETTES[period];
+    botBody.style.background = `linear-gradient(135deg, ${p.bg1} 0%, ${p.bg2} 100%)`;
+    botBody.style.boxShadow = `0 15px 35px ${p.shadow}, inset 0 -5px 15px rgba(0,0,0,0.1)`;
+    
+    document.querySelector('.p-circle').style.background = p.p1;
+    document.querySelector('.p-square').style.background = p.p2;
+    document.querySelector('.p-triangle').style.background = p.p3;
+  }
+  applyPalette();
+  setInterval(applyPalette, 60000);
+
+  // ---------- 2. ดวงตาเคลื่อนไหวตามเมาส์ + กระพริบตา ----------
+  let targetTx = 0, targetTy = 0, curTx = 0, curTy = 0;
+  let isBlinking = false;
+
+  document.addEventListener('mousemove', (e) => {
+    const rect = scene.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    targetTx = (e.clientX - cx) / 20;
+    targetTy = (e.clientY - cy) / 20;
+  });
+
+  function blink() {
+    isBlinking = true;
+    eyes.style.transform = `translate(${curTx}px, ${curTy}px) scaleY(0.1)`;
+    setTimeout(() => {
+      isBlinking = false;
+      eyes.style.transform = `translate(${curTx}px, ${curTy}px) scaleY(1)`;
+    }, 150);
+  }
+
+  function scheduleBlink() {
+    const delay = 2000 + Math.random() * 3000;
+    setTimeout(() => {
+      blink();
+      // โอกาส 25% ที่จะกระพริบตา 2 ครั้งติดกัน (ดูเป็นธรรมชาติ)
+      if (Math.random() < 0.25) {
+        setTimeout(blink, 250);
+      }
+      scheduleBlink();
+    }, delay);
+  }
+  scheduleBlink();
+
+  function raf() {
+    curTx += (targetTx - curTx) * 0.1;
+    curTy += (targetTy - curTy) * 0.1;
+    if (!isBlinking) {
+      eyes.style.transform = `translate(${curTx}px, ${curTy}px) scaleY(1)`;
+    }
+    requestAnimationFrame(raf);
+  }
+  requestAnimationFrame(raf);
+
+  // ---------- 3. หมุนและเปลี่ยนรูปร่างเรขาคณิต ----------
+  const shapes = [
+    "50%",                          // 1. วงกลม
+    "25%",                          // 2. สี่เหลี่ยมมน
+    "50% 20% 50% 20%",              // 3. ข้าวหลามตัดมน
+    "40% 60% 60% 40% / 60% 40% 60% 40%" // 4. รูปทรงอิสระ (Organic)
+  ];
+  let currentShape = 0;
+
+  function triggerTransform() {
+    if (botWrapper.classList.contains('transforming')) return;
+    
+    botWrapper.classList.add('transforming');
+    
+    // หมุนตัว Bot และหมุนใบหน้าสวนทางเพื่อรักษาสมดุลให้ใบหน้าตั้งตรง
+    botBody.style.transform = "rotate(360deg) scale(1.05)";
+    botBody.style.boxShadow = "0 20px 45px rgba(0,0,0,0.15), inset 0 -5px 15px rgba(0,0,0,0.05)";
+    botFace.style.transform = "rotate(-360deg)";
+    
+    // เปลี่ยนรูปร่างเรขาคณิต
+    currentShape = (currentShape + 1) % shapes.length;
+    botBody.style.borderRadius = shapes[currentShape];
+    
+    // ยิ้มกว้างขึ้นขณะเปลี่ยนรูปร่าง
+    smile.style.transform = "scale(1.25) translateY(4px)";
+    
+    // คืนค่าปกติหลังจากแอนิเมชันเสร็จสิ้น
+    setTimeout(() => {
+      botWrapper.classList.remove('transforming');
+      botBody.style.transform = "rotate(0deg) scale(1)";
+      botBody.style.boxShadow = ""; // กลับไปใช้ค่าจาก CSS/Palette
+      botFace.style.transform = "rotate(0deg)";
+      smile.style.transform = "scale(1) translateY(0)";
+      
+      // เรียกครั้งถัดไปแบบสุ่ม
+      setTimeout(triggerTransform, 3500 + Math.random() * 2500);
+    }, 800); // ตรงกับระยะเวลา transition ใน CSS
+  }
+
+  // เริ่มลูปการเปลี่ยนรูปร่างครั้งแรกหลังจาก 2.5 วินาที
+  setTimeout(triggerTransform, 2500);
+
+})();
+</script>
+</body>
+</html>

@@ -3,6 +3,9 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/inter";
 
+/* Streamdown ships its Tailwind classes in JS; without this lists lose bullets. */
+@source "../node_modules/streamdown/dist/*.js";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -76,11 +79,11 @@
   --chart-4: oklch(0.554 0.135 66.442);
   --chart-5: oklch(0.476 0.114 61.907);
   /* Sidebar shell — same tone as titlebar left zone */
-  --sidebar: oklch(0.988 0.003 106.5);
+  --sidebar: oklch(0.97 0.003 106.5);
   --sidebar-foreground: oklch(0.153 0.006 107.1);
   --sidebar-primary: oklch(0.681 0.162 75.834);
   --sidebar-primary-foreground: oklch(0.987 0.026 102.212);
-  --sidebar-accent: oklch(0.966 0.005 106.5);
+  --sidebar-accent: oklch(0.935 0.005 106.5);
   --sidebar-accent-foreground: oklch(0.228 0.013 107.4);
   --sidebar-border: oklch(0.93 0.007 106.5);
   --sidebar-ring: oklch(0.737 0.021 106.9);
@@ -146,4 +149,88 @@
   html[data-window-maximized="true"] #root {
     border-radius: 0;
   }
+
+  .scroll-hidden {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scroll-hidden::-webkit-scrollbar {
+    display: none;
+  }
+}
+/*
+ * Chat markdown: compact, readable typography. Sizes are in `em` so the same
+ * rules work for the 15px reply body and the 11px activity details.
+ * Unlayered on purpose so it wins over Streamdown's utility classes.
+ */
+.chat-markdown {
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.chat-markdown p {
+  margin-block: 0.5em;
+}
+.chat-markdown :is([data-streamdown^="heading-"]) {
+  margin-top: 1.25em;
+  margin-bottom: 0.4em;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.005em;
+}
+.chat-markdown [data-streamdown="heading-1"] { font-size: 1.25em; }
+.chat-markdown [data-streamdown="heading-2"] { font-size: 1.125em; }
+.chat-markdown [data-streamdown="heading-3"] { font-size: 1.0625em; }
+.chat-markdown :is([data-streamdown="heading-4"], [data-streamdown="heading-5"], [data-streamdown="heading-6"]) {
+  font-size: 1em;
+}
+.chat-markdown :is([data-streamdown="unordered-list"], [data-streamdown="ordered-list"]) {
+  margin-block: 0.4em;
+  padding-left: 1.25em;
+  list-style-position: outside;
+}
+.chat-markdown [data-streamdown="unordered-list"] { list-style-type: disc; }
+.chat-markdown [data-streamdown="ordered-list"] { list-style-type: decimal; }
+.chat-markdown [data-streamdown="list-item"] {
+  margin-block: 0.2em;
+  padding-left: 0.15em;
+}
+.chat-markdown [data-streamdown="list-item"]::marker {
+  color: var(--muted-foreground);
+}
+.chat-markdown [data-streamdown="list-item"] > p {
+  margin-block: 0;
+}
+.chat-markdown [data-streamdown="inline-code"] {
+  padding: 0.1em 0.35em;
+  border-radius: 0.3em;
+  font-size: 0.85em;
+  background: var(--muted);
+  overflow-wrap: anywhere;
+}
+/* Code inside a heading shouldn't balloon with it. */
+.chat-markdown [data-streamdown^="heading-"] [data-streamdown="inline-code"] {
+  font-size: 0.8em;
+  font-weight: 500;
+}
+.chat-markdown [data-streamdown="blockquote"] {
+  margin-block: 0.6em;
+  padding-left: 0.9em;
+  border-left: 2px solid var(--border);
+  color: var(--muted-foreground);
+  font-style: normal;
+}
+.chat-markdown [data-streamdown="horizontal-rule"] {
+  margin-block: 1em;
+  border-color: var(--border);
+}
+.chat-markdown [data-streamdown="code-block"] {
+  margin-block: 0.75em;
+  font-size: 0.8125rem;
+}
+.chat-markdown [data-streamdown="table-wrapper"] {
+  margin-block: 0.75em;
+  font-size: 0.875em;
+}
+.chat-markdown [data-streamdown="link"] {
+  text-underline-offset: 2px;
 }

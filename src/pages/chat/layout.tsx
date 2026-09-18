@@ -1,116 +1,83 @@
-import { chatGenerateStream } from "@/lib/api/chat";
-import { useState } from "react";
-import { ChatMessages } from "./components/chat-messages";
+"use client";
+
+import { FolderAccessDialog } from "@/features/workspace";
+import { CursorLoginDialog } from "@/features/cursor";
+import { ProviderKeyDialog } from "@/features/opencode";
+import { useChat } from "@/pages/chat/hooks/use-chat";
+import { startTransition } from "react";
+import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { ChatComposer } from "./components/chat-composer";
+import { ChatMessagePanel } from "./components/chat-message-panel";
 import ChatTitle from "./components/chat-title";
-import PromptInput from "./components/prompt";
-import type { ChatMessage } from "./types";
+import { loadWorkMode, saveWorkMode, type WorkMode } from "./components/work-mode-toggle";
 
 export default function ChatLayout() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const { chatId } = useParams();
+  const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const requested = params.get("mode");
+  const newChatMode: WorkMode =
+    requested === "cowork" || requested === "chat" ? requested : loadWorkMode();
 
-  const hasMessages = messages.length > 0 || isLoading;
+  const {
+    session,
+    mode,
+    messages,
+    isLoading,
+    hasMessages,
+    containerRef,
+    promptInputRef,
+    sendMessage,
+    permissions,
+    replyPermission,
+    allowFolder,
+    canStop,
+    stop,
+  } = useChat(chatId, newChatMode);
+
+  // A chat keeps its type; switching starts a new chat of the other type.
+  const changeMode = (next: WorkMode) => {
+    if (next === mode) return;
+    saveWorkMode(next);
+    startTransition(() => navigate(`/?mode=${next}`, { replace: !chatId }));
+  };
+  const startNewChat = () => navigate(`/?mode=${mode}`);
+
+  // A deleted or unknown chat falls back to a new one.
+  if (chatId && !session) return <Navigate to={`/?mode=${newChatMode}`} replace />;
 
   return (
-    <div className="flex h-full flex-col items-center gap-6 px-4 py-6">
-      {!hasMessages && <ChatTitle />}
+    <div className="flex h-full min-h-0 flex-col items-center gap-4 px-4 py-4 sm:gap-5 sm:py-5">
+      {!hasMessages && <ChatTitle mode={mode} />}
 
-      <div className="flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-4 overflow-auto scroll-fade">
-        <ChatMessages messages={messages} isLoading={isLoading} />
-      </div>
+      <ChatMessagePanel
+        messages={messages}
+        isLoading={isLoading}
+        containerRef={containerRef}
+        continuedFrom={session?.continuedFrom}
+      />
 
-      <div className="w-full max-w-3xl shrink-0">
-        <PromptInput
-          isLoading={isLoading}
-          onSubmit={async ({ prompt, modelId }) => {
-            const userMessage: ChatMessage = {
-              id: crypto.randomUUID(),
-              role: "user",
-              content: prompt,
-            };
-            const assistantId = crypto.randomUUID();
-            // กัน error ซ้ำ: ถ้า backend ส่งทั้ง channel error + throw จะได้ไม่ขึ้น 2 ครั้ง
-            let hasErrored = false;
+      <ChatComposer
+        key={`${chatId ?? "new"}:${mode}`}
+        mode={mode}
+        session={session}
+        messages={messages}
+        isLoading={isLoading}
+        canStop={canStop}
+        promptInputRef={promptInputRef}
+        permissions={permissions}
+        placeholder={hasMessages ? "Ask a follow-up" : undefined}
+        onReplyPermission={replyPermission}
+        onAllowFolder={allowFolder}
+        onStop={stop}
+        onNewChat={startNewChat}
+        onModeChange={changeMode}
+        onSubmit={sendMessage}
+      />
 
-            setMessages((prev) => [
-              ...prev,
-              userMessage,
-              {
-                id: assistantId,
-                role: "assistant",
-                content: "",
-                modelId,
-                isStreaming: true,
-              },
-            ]);
-            setIsLoading(true);
-
-            try {
-              await chatGenerateStream(
-                { prompt, modelId },
-                {
-                  onChunk: (text) => {
-                    setMessages((prev) =>
-                      prev.map((message) =>
-                        message.id === assistantId
-                          ? {
-                              ...message,
-                              content: message.content + text,
-                            }
-                          : message,
-                      ),
-                    );
-                  },
-                  onDone: (doneModelId) => {
-                    setMessages((prev) =>
-                      prev.map((message) =>
-                        message.id === assistantId
-                          ? {
-                              ...message,
-                              modelId: doneModelId,
-                              isStreaming: false,
-                            }
-                          : message,
-                      ),
-                    );
-                  },
-                  onError: (message) => {
-                    if (hasErrored) return;
-                    hasErrored = true;
-                    setMessages((prev) => [
-                      ...prev.filter((item) => item.id !== assistantId),
-                      {
-                        id: crypto.randomUUID(),
-                        role: "error",
-                        content: message,
-                      },
-                    ]);
-                  },
-                },
-              );
-            } catch (error) {
-              if (hasErrored) return;
-              hasErrored = true;
-              const raw = error instanceof Error ? error.message : String(error);
-              // 429 บ่อยกับ free model — ทำข้อความให้อ่านง่าย
-              const friendly =
-                raw.includes("429") || raw.includes("Too Many Requests")
-                  ? "429 Too Many Requests — โมเดลนี้ถูกเรียกถี่เกินไป ลองรอสักครู่แล้วส่งใหม่ หรือสลับโมเดล"
-                  : raw;
-              setMessages((prev) => [
-                ...prev.filter((item) => item.id !== assistantId),
-                {
-                  id: crypto.randomUUID(),
-                  role: "error",
-                  content: friendly,
-                },
-              ]);
-            } finally {
-              setIsLoading(false);
-            }
-          }}
-        />
-      </div>
+      <ProviderKeyDialog />
+      <CursorLoginDialog />
+      <FolderAccessDialog />
     </div>
   );
 }

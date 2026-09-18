@@ -41,3 +41,38 @@ export function BotFace({ size = 56, className }: Props) {
     </div>
   );
 }
+
+export function BotReasoning({ size = 28, className }: Props) {
+  return (
+    <div
+      className={className}
+      style={{
+        width: size,
+        height: size,
+        flexShrink: 0,
+        background: "transparent",
+        overflow: "visible",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+      aria-hidden
+    >
+      <iframe
+        src="/anim/bot-reasoning.html"
+        title="Bot reasoning"
+        loading="lazy"
+        scrolling="no"
+        style={{
+          width: "100%",
+          height: "100%",
+          border: 0,
+          display: "block",
+          background: "transparent",
+          overflow: "hidden",
+          borderRadius: 8,
+        }}
+      />
+    </div>
+  );
+}

@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local aisdk upstream PR workspace (separate git repo)
+_aisdk-upstream-pr/

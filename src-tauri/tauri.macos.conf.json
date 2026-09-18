@@ -18,7 +18,7 @@
         "label": "main",
         "windowEffects": {
           "effects": ["hudWindow"],
-          "state": "false",
+          "state": "active",
           "radius": 6
         }
       }

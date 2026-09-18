@@ -1,273 +1,298 @@
-"use client";
-
-import {
-    ModelSelector,
-    ModelSelectorContent,
-    ModelSelectorEmpty,
-    ModelSelectorGroup,
-    ModelSelectorInput,
-    ModelSelectorItem,
-    ModelSelectorList,
-    ModelSelectorLogo,
-    ModelSelectorName,
-    ModelSelectorTrigger,
-} from "@/components/ai-elements/model-selector";
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from "@/components/animate-ui/primitives/radix/dropdown-menu";
-import {
-    ToggleGroup,
-    ToggleGroupHighlight,
-    ToggleGroupHighlightItem,
-    ToggleGroupItem,
-} from "@/components/animate-ui/primitives/radix/toggle-group";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
+import { attachFolder, detachFolder, type ChatSession } from "@/features/chat-history";
+import { requestCursorLogin, useCursor } from "@/features/cursor";
 import {
-    ArrowRightIcon,
-    ChevronDownIcon,
-    Link,
-    PlusIcon,
-} from "lucide-react";
-import { useState, type FormEvent } from "react";
+  opencodeWarm,
+  requestProviderKey,
+  useOpencode,
+  type OpencodeState,
+  type WorkMode,
+} from "@/features/opencode";
+import {
+  listConfiguredProviders,
+  useEnvKeys,
+  useProviderConfigs,
+} from "@/features/providers";
+import {
+  findGrant,
+  folderName,
+  normalizeFolder,
+  requestFolderAccess,
+  useFolderGrants,
+} from "@/features/workspace";
+import { cn } from "@/lib/utils";
+import { open } from "@tauri-apps/plugin-dialog";
+import { ArrowUpIcon, EyeIcon, FolderIcon, LoaderIcon, SquareIcon, XIcon } from "lucide-react";
+import { useEffect, useMemo, useState, type FormEvent, type RefObject } from "react";
+import { contextUsage } from "../context-usage";
+import type { SendMessage } from "../hooks/use-chat";
+import {
+  buildModelCatalog,
+  contextBudgetFor,
+  findModel,
+  isOpencodeModel,
+  loadSelectedModelId,
+  opencodeProviderOf,
+  saveSelectedModelId,
+  type AiModel,
+} from "../models";
+import type { ChatMessage } from "../types";
+import { useDebouncedValue } from "../hooks/use-debounced-value";
+import { ContextMeter } from "./context-meter";
+import { ModelPicker } from "./model-picker";
+import { PromptOptionsMenu } from "./prompt-options-menu";
+import { WorkModeToggle } from "./work-mode-toggle";
 
-export type AiModel = {
-  id: string;
-  name: string;
-  provider: "anthropic" | "openai" | "google" | "openrouter" | "groq";
-  group: string;
-};
-
-export const AI_MODELS: AiModel[] = [
-  {
-    id: "claude-sonnet-4",
-    name: "Claude Sonnet 4",
-    provider: "anthropic",
-    group: "Anthropic",
-  },
-  {
-    id: "claude-opus-4",
-    name: "Claude Opus 4",
-    provider: "anthropic",
-    group: "Anthropic",
-  },
-  {
-    id: "gpt-4o",
-    name: "GPT-4o",
-    provider: "openai",
-    group: "OpenAI",
-  },
-  {
-    id: "o3-mini",
-    name: "o3-mini",
-    provider: "openai",
-    group: "OpenAI",
-  },
-  {
-    id: "gemini-2-flash",
-    name: "Gemini 2.0 Flash",
-    provider: "google",
-    group: "Google",
-  },
-  {
-    id: "gemini-2-pro",
-    name: "Gemini 2.0 Pro",
-    provider: "google",
-    group: "Google",
-  },
-  {
-    id: "z-ai/glm-5.2:free",
-    name: "Z-AI GLM 5.2",
-    provider: "openrouter",
-    group: "OpenRouter",
-  },
-  {
-    id: "groq/gpt-oss-120b",
-    name: "Groq GPT-OSS 120B",
-    provider: "groq",
-    group: "Groq",
-  }
-];
-
-const MODEL_GROUPS = [...new Set(AI_MODELS.map((m) => m.group))];
-
-type PromptInputProps = {
+type Props = {
+  ref: RefObject<HTMLTextAreaElement | null>;
+  mode: WorkMode;
+  session?: ChatSession;
+  messages: ChatMessage[];
   isLoading?: boolean;
-  onSubmit: (payload: { prompt: string; modelId: string }) => void | Promise<void>;
+  canStop?: boolean;
+  placeholder?: string;
+  onStop?: () => void;
+  onNewChat: () => void;
+  onModeChange: (mode: WorkMode) => void;
+  onSubmit: (payload: SendMessage) => Promise<boolean>;
 };
 
-export default function PromptInput({ isLoading, onSubmit }: PromptInputProps) {
+const NO_FOLDERS: string[] = [];
+
+export default function PromptInput({
+  ref,
+  mode,
+  session,
+  messages,
+  isLoading,
+  canStop,
+  placeholder,
+  onStop,
+  onNewChat,
+  onModeChange,
+  onSubmit,
+}: Props) {
   const [prompt, setPrompt] = useState("");
-  const [selectedModel, setSelectedModel] = useState(AI_MODELS[0]);
+  const [modelId, setModelId] = useState(() => loadSelectedModelId(mode));
+  const opencode = useOpencode();
+  const cursor = useCursor();
+  useFolderGrants(); // re-render when access changes
+
+  const providerConfigs = useProviderConfigs();
+  const envKeys = useEnvKeys();
+  const cursorStatus = useMemo(
+    () => ({ models: cursor.models, loggedIn: !!cursor.check?.loggedIn }),
+    [cursor.models, cursor.check?.loggedIn],
+  );
+  const catalog = useMemo(
+    () =>
+      buildModelCatalog(
+        opencode.models,
+        listConfiguredProviders(providerConfigs, envKeys),
+        mode,
+        cursorStatus,
+      ),
+    [opencode.models, providerConfigs, envKeys, mode, cursorStatus],
+  );
+  const selected = findModel(catalog, modelId);
+  const usesOpencode = isOpencodeModel(selected.id);
+  const opencodeMissing = usesOpencode && opencode.check?.available === false;
+  const budget = contextBudgetFor(selected);
+  const usageLive = useMemo(() => contextUsage(messages), [messages]);
+  const usage = useDebouncedValue(usageLive, 400, !!isLoading);
+
+  const isCowork = mode === "cowork";
+  // A chat keeps the folder its agent session started in; new chats use the default.
+  const cwd = session?.cwd || opencode.cwd;
+  const extraFolders = session?.folders ?? NO_FOLDERS;
+  const folders = isCowork ? [cwd, ...extraFolders].filter(Boolean) : NO_FOLDERS;
+
+  const opencodeReady = !!opencode.check?.available;
+  useEffect(() => {
+    if (isCowork && cwd && opencodeReady) opencodeWarm(cwd, "cowork");
+  }, [isCowork, cwd, opencodeReady]);
+
+  const defaultPlaceholder = isCowork
+    ? "Describe what you want to build or change in your project…"
+    : "How can I help you today?";
+
+  /** Ask for whatever the model still needs; true when something was asked. */
+  const askForAccess = (model: AiModel, onReady?: () => void) => {
+    if (model.needsLogin) {
+      requestCursorLogin({ onSignedIn: onReady });
+      return true;
+    }
+    const providerId = model.needsKey ? opencodeProviderOf(model.id) : undefined;
+    if (providerId) {
+      requestProviderKey({
+        providerId,
+        modelName: model.free ? undefined : model.name,
+        onSaved: onReady,
+      });
+      return true;
+    }
+    return false;
+  };
+
+  const pickFolder = async () => {
+    const folder = await open({
+      directory: true,
+      multiple: false,
+      defaultPath: cwd || undefined,
+      title: session?.cwd ? "Add a folder to this chat" : "Choose the folder Cowork works in",
+    });
+    if (typeof folder !== "string" || !folder) return;
+    const grant = await requestFolderAccess(folder);
+    if (!grant) return;
+    const path = normalizeFolder(folder);
+    // The agent session is bound to its first folder; later picks are attached.
+    if (session?.cwd) attachFolder(session.id, path);
+    else opencode.update({ cwd: path });
+  };
+
+  async function send(text: string, model: AiModel) {
+    setPrompt("");
+    const sent = await onSubmit({ prompt: text, model, budget: contextBudgetFor(model) });
+    if (!sent) setPrompt((current) => current || text);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = prompt.trim();
-    if (!trimmed || isLoading) return;
-
-    await onSubmit({ prompt: trimmed, modelId: selectedModel.id });
-    setPrompt("");
+    if (!trimmed || isLoading || opencodeMissing) return;
+    if (askForAccess(selected, () => void send(trimmed, selected))) return;
+    await send(trimmed, selected);
   }
 
   return (
     <form
       onSubmit={handleSubmit}
-      className="relative mx-auto w-full max-w-3xl rounded-xl border bg-card p-3 shadow-sm transition-colors focus-within:shadow-amber-300 focus-within:ring-1 focus-within:ring-amber-300"
+      className="relative mx-auto w-full max-w-3xl rounded-2xl border bg-card p-3 shadow-sm transition-shadow focus-within:ring-1 focus-within:ring-amber-300"
     >
+      {isCowork && extraFolders.length > 0 && session && (
+        <div className="mb-1.5 flex flex-wrap gap-1 px-1">
+          {extraFolders.map((folder) => (
+            <span
+              key={folder}
+              title={folder}
+              className="flex items-center gap-1 rounded-full border bg-muted/50 py-0.5 pr-1 pl-2 text-xs text-muted-foreground"
+            >
+              <FolderIcon className="size-3" />
+              <span className="max-w-32 truncate">{folderName(folder)}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${folderName(folder)}`}
+                onClick={() => detachFolder(session.id, folder)}
+                className="rounded-full p-0.5 hover:bg-background hover:text-foreground"
+              >
+                <XIcon className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       <Textarea
-        autoFocus
+        ref={ref}
         value={prompt}
         onChange={(event) => setPrompt(event.target.value)}
-        placeholder="How can I help you today?"
-        rows={3}
+        placeholder={placeholder ?? defaultPlaceholder}
+        rows={2}
         disabled={isLoading}
-        className="max-h-40 min-h-15 resize-none border-0 bg-transparent p-0 text-[15px] shadow-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+        className="max-h-40 min-h-12 resize-none border-0 bg-transparent p-1 text-[15px] shadow-none placeholder:text-muted-foreground focus-visible:ring-0 dark:bg-transparent"
         onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
+          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
             event.preventDefault();
             event.currentTarget.form?.requestSubmit();
           }
         }}
       />
-      <div className="mt-2 flex items-center justify-between gap-2 pt-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <DropdownAddFile />
-          <TagsWorkspaceAI />
+
+      {opencodeMissing && (
+        <p className="mt-1 px-1 text-xs text-red-600 dark:text-red-400">
+          {opencode.check?.error ?? "OpenCode CLI is not available."}
+        </p>
+      )}
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <PromptOptionsMenu
+            opencode={usesOpencode ? opencode : undefined}
+            mode={mode}
+            canAddFolder={!!session?.cwd}
+            onPickFolder={pickFolder}
+          />
+          <WorkModeToggle mode={mode} onModeChange={onModeChange} />
+          {isCowork && <FolderChip opencode={opencode} cwd={cwd} onClick={pickFolder} />}
         </div>
-        <ModelSelect selected={selectedModel} onSelect={setSelectedModel} />
-        <ButtonSend isLoading={isLoading} disabled={!prompt.trim()} />
+
+        <div className="ml-auto flex min-w-0 items-center gap-1">
+          {(messages.length > 0 || isLoading) && (
+            <ContextMeter usage={usage} budget={budget} folders={folders} onNewChat={onNewChat} />
+          )}
+          <ModelPicker
+            models={catalog}
+            selected={selected}
+            loading={opencode.loading}
+            onSelect={(model) => {
+              setModelId(model.id);
+              saveSelectedModelId(mode, model.id);
+              askForAccess(model);
+            }}
+          />
+          {canStop ? (
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="secondary"
+              className="rounded-full"
+              onClick={onStop}
+              aria-label="Stop"
+            >
+              <SquareIcon className="size-3 fill-current" />
+            </Button>
+          ) : (
+            <Button
+              type="submit"
+              size="icon-sm"
+              className="rounded-full"
+              disabled={!prompt.trim() || isLoading || opencodeMissing}
+              aria-label="Send"
+            >
+              {isLoading ? <LoaderIcon className="animate-spin" /> : <ArrowUpIcon />}
+            </Button>
+          )}
+        </div>
       </div>
     </form>
   );
 }
 
-function ModelSelect({
-  selected,
-  onSelect,
-}: {
-  selected: AiModel;
-  onSelect: (model: AiModel) => void;
-}) {
-  const [open, setOpen] = useState(false);
+function FolderChip({ opencode, cwd, onClick }: { opencode: OpencodeState; cwd: string; onClick: () => void }) {
+  const grant = cwd ? findGrant(cwd) : undefined;
+  const status = opencode.loading
+    ? { dot: "bg-muted-foreground/50 animate-pulse", label: "Connecting to OpenCode…" }
+    : !opencode.check?.available
+      ? { dot: "bg-red-500", label: "OpenCode unavailable" }
+      : !grant
+        ? { dot: "bg-amber-500", label: "Not allowed yet — you’ll be asked before the agent starts" }
+        : { dot: "bg-emerald-500", label: grant.access === "read" ? "Read-only access" : "Read & write access" };
 
   return (
-    <ModelSelector open={open} onOpenChange={setOpen}>
-      <ModelSelectorTrigger asChild className="border-none shadow-none">
-        <Button
-          type="button"
-          variant="ghost"
-          className="max-w-44 shrink bg-background hover:bg-accent"
-          aria-label="Select AI model"
-        >
-          <ModelSelectorLogo provider={selected.provider} />
-          <ModelSelectorName className="text-sm font-normal">
-            {selected.name}
-          </ModelSelectorName>
-          <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        </Button>
-      </ModelSelectorTrigger>
-      <ModelSelectorContent title="Select model">
-        <ModelSelectorInput placeholder="Search models..." />
-        <ModelSelectorList>
-          <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
-          {MODEL_GROUPS.map((group) => (
-            <ModelSelectorGroup key={group} heading={group}>
-              {AI_MODELS.filter((model) => model.group === group).map(
-                (model) => (
-                  <ModelSelectorItem
-                    key={model.id}
-                    value={model.id}
-                    data-checked={selected.id === model.id}
-                    onSelect={() => {
-                      onSelect(model);
-                      setOpen(false);
-                    }}
-                    className={cn(selected.id === model.id && "bg-muted")}
-                  >
-                    <ModelSelectorLogo provider={model.provider} />
-                    <ModelSelectorName>{model.name}</ModelSelectorName>
-                  </ModelSelectorItem>
-                ),
-              )}
-            </ModelSelectorGroup>
-          ))}
-        </ModelSelectorList>
-      </ModelSelectorContent>
-    </ModelSelector>
-  );
-}
-
-function TagsWorkspaceAI() {
-  return (
-    <ToggleGroup
-      type="single"
-      defaultValue="chat"
-      className="flex w-fit items-center gap-2 rounded-md bg-foreground/5"
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      onClick={onClick}
+      className="min-w-0 gap-1.5 rounded-full px-2 text-xs text-muted-foreground"
+      title={`${status.label}\n${cwd}`}
     >
-      <ToggleGroupHighlight className="rounded-md bg-primary p-2">
-        <ToggleGroupHighlightItem value="chat">
-          <ToggleGroupItem value="chat" className="w-16 rounded-md p-1">
-            <span className="text-sm">Chat</span>
-          </ToggleGroupItem>
-        </ToggleGroupHighlightItem>
-        <ToggleGroupHighlightItem value="cowork">
-          <ToggleGroupItem value="cowork" className="w-16 rounded-md p-1">
-            <span className="text-sm">Cowork</span>
-          </ToggleGroupItem>
-        </ToggleGroupHighlightItem>
-      </ToggleGroupHighlight>
-    </ToggleGroup>
-  );
-}
-
-function DropdownAddFile() {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          className="size-8 shrink-0 rounded-full border-border bg-background hover:bg-accent"
-          aria-label="Add file"
-          title="Add a file to the workspace"
-        >
-          <PlusIcon className="size-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        side="bottom"
-        sideOffset={8}
-        className="z-50 min-w-45 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
-      >
-        <DropdownMenuItem
-          onSelect={() => console.log("Add file")}
-          className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm focus:bg-accent focus:text-accent-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
-        >
-          <Link className="size-4" />
-          <span className="text-sm">Add file or Photos</span>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function ButtonSend({
-  isLoading,
-  disabled,
-}: {
-  isLoading?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <Button type="submit" disabled={disabled || isLoading}>
-      {isLoading ? "Sending..." : "Let's go"}
-      <ArrowRightIcon />
+      <span className={cn("size-1.5 shrink-0 rounded-full", status.dot)} />
+      <FolderIcon className="size-3.5" />
+      <span className="max-w-32 truncate">{folderName(cwd)}</span>
+      {grant?.access === "read" && <EyeIcon className="size-3" aria-label="Read only" />}
     </Button>
   );
 }
+

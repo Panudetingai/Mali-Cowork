@@ -71,7 +71,7 @@ export function Titlebar() {
     <div
       className={cn(
         "relative z-50 flex h-(--titlebar-height) w-full shrink-0 select-none items-stretch",
-        !isMaximized && "rounded-t-[var(--window-radius)]",
+        !isMaximized && "rounded-t-(--window-radius)",
       )}
       style={{ height: "var(--titlebar-height)" }}
     >

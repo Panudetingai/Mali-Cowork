@@ -1,6 +1,8 @@
 "use client";
 
 import { Message, MessageContent } from "@/components/ai-elements/message";
+import { cn } from "@/lib/utils";
+import { ExpandableClamp } from "./expandable-clamp";
 
 type Props = {
   content: string;
@@ -8,9 +10,19 @@ type Props = {
 
 export function UserMessage({ content }: Props) {
   return (
-    <Message from="user" className="py-2">
-      <MessageContent className="whitespace-pre-wrap wrap-words bg-transparent!">
-        {content}
+    <Message from="user" className="py-3">
+      <MessageContent
+        className={cn(
+          "max-w-[min(85%,100%)] rounded-2xl rounded-tr-sm bg-primary px-5 py-3 text-primary-foreground shadow-sm",
+          "break-words",
+        )}
+      >
+        <ExpandableClamp
+          maxHeightClass="max-h-48"
+          className="[&_button]:text-primary-foreground/80 [&_button:hover]:text-primary-foreground"
+        >
+          <p className="whitespace-pre-wrap">{content}</p>
+        </ExpandableClamp>
       </MessageContent>
     </Message>
   );
