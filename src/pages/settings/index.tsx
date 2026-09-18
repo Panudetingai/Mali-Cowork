@@ -2,11 +2,13 @@ import { cn } from "@/lib/utils";
 import { useSearchParams } from "react-router-dom";
 import { AgentsSettings } from "./agents-settings";
 import { FoldersSettings } from "./folders-settings";
+import { McpSettings } from "./mcp-settings";
 import { ModelsSettings } from "./models-settings";
 
 const TABS = [
   { id: "models", label: "Models" },
   { id: "agents", label: "Agents" },
+  { id: "mcp", label: "MCP" },
   { id: "folders", label: "Folders" },
 ] as const;
 
@@ -41,6 +43,7 @@ export default function SettingsPage() {
       <div className="min-w-0 flex-1 pb-6">
         {tab === "models" && <ModelsSettings />}
         {tab === "agents" && <AgentsSettings />}
+        {tab === "mcp" && <McpSettings />}
         {tab === "folders" && <FoldersSettings />}
       </div>
     </div>

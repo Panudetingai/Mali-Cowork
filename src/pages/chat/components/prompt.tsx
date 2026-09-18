@@ -53,7 +53,7 @@ type Props = {
   canStop?: boolean;
   placeholder?: string;
   onStop?: () => void;
-  onNewChat: () => void;
+  onNewChat: (options?: { cwd?: string }) => void;
   onModeChange: (mode: WorkMode) => void;
   onSubmit: (payload: SendMessage) => Promise<boolean>;
 };
@@ -135,20 +135,45 @@ export default function PromptInput({
     return false;
   };
 
-  const pickFolder = async () => {
+  /** Primary Cowork folder. Changing it after a chat started opens a new chat. */
+  const pickWorkingFolder = async () => {
     const folder = await open({
       directory: true,
       multiple: false,
       defaultPath: cwd || undefined,
-      title: session?.cwd ? "Add a folder to this chat" : "Choose the folder Cowork works in",
+      title: session?.cwd
+        ? "Change working folder (starts a new chat)"
+        : "Choose the folder Cowork works in",
     });
     if (typeof folder !== "string" || !folder) return;
     const grant = await requestFolderAccess(folder);
     if (!grant) return;
     const path = normalizeFolder(folder);
-    // The agent session is bound to its first folder; later picks are attached.
-    if (session?.cwd) attachFolder(session.id, path);
-    else opencode.update({ cwd: path });
+    opencode.update({ cwd: path });
+    if (session?.cwd) {
+      if (path === normalizeFolder(session.cwd)) return;
+      onNewChat({ cwd: path });
+      return;
+    }
+  };
+
+  const addAttachedFolder = async () => {
+    if (!session?.cwd) {
+      await pickWorkingFolder();
+      return;
+    }
+    const folder = await open({
+      directory: true,
+      multiple: false,
+      defaultPath: cwd || undefined,
+      title: "Add a folder to this chat",
+    });
+    if (typeof folder !== "string" || !folder) return;
+    const grant = await requestFolderAccess(folder);
+    if (!grant) return;
+    const path = normalizeFolder(folder);
+    if (path === normalizeFolder(session.cwd)) return;
+    attachFolder(session.id, path);
   };
 
   async function send(text: string, model: AiModel) {
@@ -221,10 +246,18 @@ export default function PromptInput({
             opencode={usesOpencode ? opencode : undefined}
             mode={mode}
             canAddFolder={!!session?.cwd}
-            onPickFolder={pickFolder}
+            onPickWorkingFolder={pickWorkingFolder}
+            onAddFolder={addAttachedFolder}
           />
           <WorkModeToggle mode={mode} onModeChange={onModeChange} />
-          {isCowork && <FolderChip opencode={opencode} cwd={cwd} onClick={pickFolder} />}
+          {isCowork && (
+            <FolderChip
+              opencode={opencode}
+              cwd={cwd}
+              boundToChat={!!session?.cwd}
+              onClick={pickWorkingFolder}
+            />
+          )}
         </div>
 
         <div className="ml-auto flex min-w-0 items-center gap-1">
@@ -269,7 +302,17 @@ export default function PromptInput({
   );
 }
 
-function FolderChip({ opencode, cwd, onClick }: { opencode: OpencodeState; cwd: string; onClick: () => void }) {
+function FolderChip({
+  opencode,
+  cwd,
+  boundToChat,
+  onClick,
+}: {
+  opencode: OpencodeState;
+  cwd: string;
+  boundToChat: boolean;
+  onClick: () => void;
+}) {
   const grant = cwd ? findGrant(cwd) : undefined;
   const status = opencode.loading
     ? { dot: "bg-muted-foreground/50 animate-pulse", label: "Connecting to OpenCode…" }
@@ -286,7 +329,11 @@ function FolderChip({ opencode, cwd, onClick }: { opencode: OpencodeState; cwd: 
       size="sm"
       onClick={onClick}
       className="min-w-0 gap-1.5 rounded-full px-2 text-xs text-muted-foreground"
-      title={`${status.label}\n${cwd}`}
+      title={
+        boundToChat
+          ? `${status.label}\n${cwd}\n\nClick to change folder — opens a new chat`
+          : `${status.label}\n${cwd}`
+      }
     >
       <span className={cn("size-1.5 shrink-0 rounded-full", status.dot)} />
       <FolderIcon className="size-3.5" />

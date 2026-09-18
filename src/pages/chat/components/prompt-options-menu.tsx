@@ -26,9 +26,10 @@ type Props = {
   /** Present only while an OpenCode model is selected. */
   opencode?: OpencodeState;
   mode: WorkMode;
-  /** The chat already has a folder, so picking one attaches another. */
+  /** The chat already has a bound working folder. */
   canAddFolder: boolean;
-  onPickFolder: () => void;
+  onPickWorkingFolder: () => void;
+  onAddFolder: () => void;
 };
 
 const itemClass =
@@ -38,7 +39,13 @@ const labelClass =
 const separatorClass = "-mx-1 my-1 h-px bg-border";
 
 /** Everything secondary to typing lives behind the plus button. */
-export function PromptOptionsMenu({ opencode, mode, canAddFolder, onPickFolder }: Props) {
+export function PromptOptionsMenu({
+  opencode,
+  mode,
+  canAddFolder,
+  onPickWorkingFolder,
+  onAddFolder,
+}: Props) {
   const isCowork = mode === "cowork";
   return (
     <DropdownMenu>
@@ -65,19 +72,28 @@ export function PromptOptionsMenu({ opencode, mode, canAddFolder, onPickFolder }
         </DropdownMenuItem>
 
         {isCowork && (
-          <DropdownMenuItem className={itemClass} onSelect={onPickFolder}>
-            {canAddFolder ? (
-              <FolderPlusIcon className="size-4 text-muted-foreground" />
-            ) : (
+          <>
+            <DropdownMenuItem className={itemClass} onSelect={onPickWorkingFolder}>
               <FolderOpenIcon className="size-4 text-muted-foreground" />
-            )}
-            <span className="flex-1">{canAddFolder ? "Add another folder" : "Working folder"}</span>
-            {opencode && !canAddFolder && (
-              <span className="max-w-28 truncate text-xs text-muted-foreground" title={opencode.cwd}>
-                {folderName(opencode.cwd)}
+              <span className="flex flex-1 flex-col">
+                {canAddFolder ? "Change working folder" : "Working folder"}
+                {canAddFolder && (
+                  <span className="text-xs text-muted-foreground">Starts a new chat</span>
+                )}
               </span>
+              {opencode && (
+                <span className="max-w-28 truncate text-xs text-muted-foreground" title={opencode.cwd}>
+                  {folderName(opencode.cwd)}
+                </span>
+              )}
+            </DropdownMenuItem>
+            {canAddFolder && (
+              <DropdownMenuItem className={itemClass} onSelect={onAddFolder}>
+                <FolderPlusIcon className="size-4 text-muted-foreground" />
+                <span className="flex-1">Add another folder</span>
+              </DropdownMenuItem>
             )}
-          </DropdownMenuItem>
+          </>
         )}
 
         {opencode && (

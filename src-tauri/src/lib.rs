@@ -7,6 +7,7 @@ use commands::cli::{check_cli, cli_generate};
 use commands::cursor::{
     cursor_abort, cursor_check, cursor_generate, cursor_list_models, cursor_login,
 };
+use commands::mcp::{mcp_diagnose, mcp_status, mcp_sync};
 use commands::opencode::{
     opencode_abort, opencode_check, opencode_default_cwd, opencode_delete_session,
     opencode_generate, opencode_list_models, opencode_permission_reply, opencode_set_auth,
@@ -55,6 +56,9 @@ pub fn run() {
             opencode_set_auth,
             opencode_delete_session,
             opencode_warm,
+            mcp_sync,
+            mcp_status,
+            mcp_diagnose,
             cursor_generate,
             cursor_check,
             cursor_login,

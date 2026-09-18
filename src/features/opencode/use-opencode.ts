@@ -5,6 +5,7 @@ import {
   opencodeDefaultCwd,
   opencodeListModels,
 } from "./api";
+import { getMcpConnections, syncMcpServers } from "@/features/mcp";
 import { loadOpencodeSettings, saveOpencodeSettings } from "./settings";
 import type {
   OpencodeCheckResult,
@@ -27,6 +28,9 @@ async function fetchStatus(cwd: string) {
   const check = await opencodeCheck();
   if (!check.available) return { check, models: null };
   const models = await opencodeListModels(cwd).catch(() => null);
+  if (Object.values(getMcpConnections()).some((c) => c.enabled)) {
+    await syncMcpServers(getMcpConnections(), cwd).catch(() => undefined);
+  }
   return { check, models };
 }
 

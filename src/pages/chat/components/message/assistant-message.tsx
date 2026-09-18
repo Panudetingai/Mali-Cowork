@@ -27,7 +27,8 @@ import {
     SparklesIcon,
     TerminalIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { useScrollToBottomOfChainOfThoughtSteps } from "../../hooks/use-chat";
 import type { ActivityItem } from "../../types";
 import { ExpandableClamp } from "./expandable-clamp";
 
@@ -49,6 +50,44 @@ type Props = {
   durationMs?: number;
 };
 
+
+function titleSlice(title: string, maxLength: number) {
+  return title.length > maxLength ? title.slice(0, maxLength) + "..." : title;
+}
+
+/** Collapsible step that opens while active and closes when the step completes. */
+function ActivityChainStep({
+  activity,
+  isActive,
+  isStreaming,
+  children,
+}: {
+  activity: ActivityItem;
+  isActive: boolean;
+  isStreaming?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(
+    () => !activity.done && isActive && !!isStreaming,
+  );
+
+  useEffect(() => {
+    if (activity.done) {
+      setOpen(false);
+      return;
+    }
+    if (isActive && isStreaming) {
+      setOpen(true);
+    }
+  }, [activity.done, isActive, isStreaming]);
+
+  return (
+    <ChainOfThoughtStep open={open} onOpenChange={setOpen}>
+      {children}
+    </ChainOfThoughtStep>
+  );
+}
+
 export function AssistantMessage({
   content,
   reasoning,
@@ -60,12 +99,11 @@ export function AssistantMessage({
   durationMs,
 }: Props) {
   const [copied, setCopied] = useState(false);
-
   const id = modelId ?? "";
   const isOpencode = id.startsWith("opencode:");
   const isCli = isOpencode || id.startsWith("cli:");
   const agentName = isOpencode ? "OpenCode" : id.split(":")[1];
-
+  const { containerRef } = useScrollToBottomOfChainOfThoughtSteps();
   const handleCopy = async () => {
     const text = [reasoning, content].filter(Boolean).join("\n\n");
     await navigator.clipboard.writeText(text);
@@ -79,26 +117,23 @@ export function AssistantMessage({
   const showEmptyState =
     !isStreaming && !hasContent && !hasReasoning && !hasActivities;
   const contentIsAnimating = isCli ? false : isStreaming;
-  const showStreamWait = isStreaming && !hasContent && !hasActivities;
+  const lastActivity = hasActivities ? activities![activities!.length - 1] : undefined;
+  const waitingOnTool = Boolean(lastActivity && !lastActivity.done);
+  const showAgentSpinner =
+    isStreaming && (waitingOnTool || !hasContent);
 
   return (
     <Message from="assistant">
-      <div className="mb-2 flex items-center gap-2">
-        {isStreaming && (
-          <span className="text-[11px] text-muted-foreground animate-pulse">
-            {isCli ? `Running ${agentName}…` : "Thinking…"}
-          </span>
-        )}
-      </div>
-
       {hasActivities && (
         <ChainOfThought>
           {activities!.map((activity, idx) => {
             const hasDetail = Boolean(activity.detail?.trim());
             return (
-              <ChainOfThoughtStep
-                key={`${activity.kind}-${idx}-${activity.title}`}
-                defaultOpen={idx === activities!.length - 1 && isStreaming}
+              <ActivityChainStep
+                key={activity.id ?? `${activity.kind}-${idx}-${activity.title}`}
+                activity={activity}
+                isActive={idx === activities!.length - 1}
+                isStreaming={isStreaming}
               >
                 <ChainOfThoughtTrigger
                   swapIconOnHover={hasDetail}
@@ -112,17 +147,17 @@ export function AssistantMessage({
                       activity.done && "text-muted-foreground",
                     )}
                   >
-                    {activity.title}
+                    {titleSlice(activity.title, 120)}
                   </span>
                 </ChainOfThoughtTrigger>
                 {hasDetail && (
                   <ChainOfThoughtContent>
-                    <ChainOfThoughtItem className="whitespace-pre-wrap text-[11px] max-h-24 overflow-auto scroll-hidden">
+                    <ChainOfThoughtItem ref={containerRef} className="whitespace-pre-wrap text-[11px] max-h-24 overflow-auto scroll-hidden">
                       <MessageResponse>{activity.detail}</MessageResponse>
                     </ChainOfThoughtItem>
                   </ChainOfThoughtContent>
                 )}
-              </ChainOfThoughtStep>
+              </ActivityChainStep>
             );
           })}
         </ChainOfThought>
@@ -133,11 +168,19 @@ export function AssistantMessage({
         )}
       >
         {hasContent ? (
-          isStreaming && isCli ? (
-            <pre className="text-sm whitespace-pre-wrap break-words">{content}</pre>
+          isStreaming && isCli && waitingOnTool ? (
+            <pre className="text-sm whitespace-pre-wrap break-words">
+              {content}
+            </pre>
           ) : (
-            <ExpandableClamp maxHeightClass="max-h-[min(70vh,32rem)]" disabled={isStreaming}>
-              <MessageResponse className="text-sm" isAnimating={contentIsAnimating}>
+            <ExpandableClamp
+              maxHeightClass="max-h-[min(70vh,32rem)]"
+              disabled={isStreaming}
+            >
+              <MessageResponse
+                className="text-sm"
+                isAnimating={contentIsAnimating}
+              >
                 {content}
               </MessageResponse>
             </ExpandableClamp>
@@ -149,16 +192,16 @@ export function AssistantMessage({
         ) : null}
       </MessageContent>
 
-      {showStreamWait && (
-        <div className="flex items-center gap-3 px-1 py-2">
-          <BotFace size={40} />
-          <span className="line-clamp-2 min-w-0 text-sm text-muted-foreground">
-            {reasoning?.trim() || (isCli ? `Running ${agentName}…` : "Thinking…")}
+      {showAgentSpinner && (
+        <div className="mb-2 flex items-center gap-2">
+          <BotFace size={32} />
+          <span className="text-[11px] text-muted-foreground animate-pulse">
+            {isCli ? `Running ${agentName}…` : "Thinking…"}
           </span>
         </div>
       )}
 
-      {(hasContent || hasReasoning) && !isStreaming && (
+      {(hasContent || hasReasoning) && (!isStreaming || !showAgentSpinner) && (
         <MessageActions className="mt-2">
           <MessageAction
             tooltip={copied ? "Copied" : "Copy"}

@@ -1,45 +1,46 @@
 "use client";
 
 import {
-  loadOpencodeSettings,
-  opencodeAbort,
-  opencodeReplyPermission,
-  requestProviderKey,
-  type PermissionReply,
-  type WorkMode,
-} from "@/features/opencode";
-import {
-  attachFolder,
-  createChat,
-  endRun,
-  getChat,
-  getRun,
-  sessionMode,
-  startRun,
-  updateChat,
-  updateChatMessages,
-  updateRun,
-  useChatRuns,
-  useChatSessions,
-  type ChatSession,
+    attachFolder,
+    createChat,
+    endRun,
+    getChat,
+    getRun,
+    sessionMode,
+    startRun,
+    updateChat,
+    updateChatMessages,
+    updateRun,
+    useChatRuns,
+    useChatSessions,
+    type ChatSession,
 } from "@/features/chat-history";
 import { cursorAbort, requestCursorLogin } from "@/features/cursor";
+import {
+    loadOpencodeSettings,
+    opencodeAbort,
+    opencodeReplyPermission,
+    requestProviderKey,
+    type PermissionReply,
+    type WorkMode,
+} from "@/features/opencode";
+import { getMcpConnections, syncMcpServers } from "@/features/mcp";
 import { findGrant, grantsFor, normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import type {
-  HistoryMessage,
-  PermissionRequest,
-  StreamMetadata,
+    HistoryMessage,
+    PermissionRequest,
+    StreamMetadata,
 } from "@/pages/chat/api/chat";
 import { generateStream } from "@/pages/chat/api/router";
 import { useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { contextUsage } from "../context-usage";
 import {
-  isCursorModel,
-  isOpencodeModel,
-  opencodeProviderOf,
-  type AiModel,
-  type ContextBudget,
+    isCursorModel,
+    isOpencodeModel,
+    opencodeProviderOf,
+    type AiModel,
+    type ContextBudget,
 } from "../models";
 import type { ActivityItem, ChatMessage } from "../types";
 
@@ -71,7 +72,6 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
     const id = requestAnimationFrame(() => {
       el.scrollTo({
         top: el.scrollHeight,
-        // Smooth scroll on every stream chunk feels stuck; snap while generating.
         behavior: isLoading ? "auto" : "smooth",
       });
     });
@@ -166,6 +166,10 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
       const isCursor = isCursorModel(modelId);
       let hasErrored = false;
 
+      if (isOpencode && chatMode === "cowork" && folders[0]) {
+        await syncMcpServers(getMcpConnections(), folders[0]).catch(() => undefined);
+      }
+
       updateChatMessages(chatKey, (prev) => [
         ...prev,
         createUserMessage(prompt),
@@ -235,6 +239,9 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
                 ...m,
                 modelId: doneModelId || m.modelId,
                 isStreaming: false,
+                activities: m.activities?.map((a) =>
+                  a.done ? a : { ...a, done: true },
+                ),
               })),
             onError: handleError,
           },
@@ -401,6 +408,10 @@ function formatChatError(error: unknown): string {
   return raw;
 }
 
+function finalizeActivities(activities: ActivityItem[]) {
+  return activities.map((a) => (a.done ? a : { ...a, done: true }));
+}
+
 /** Merge a streamed activity into the message's step list. */
 function withActivity(message: ChatMessage, activity: ActivityItem): ChatMessage {
   const prev = message.activities ?? [];
@@ -411,7 +422,10 @@ function withActivity(message: ChatMessage, activity: ActivityItem): ChatMessage
       activities[index] = { ...prev[index], ...activity };
       return { ...message, activities };
     }
-    return { ...message, activities: [...prev, activity] };
+    return {
+      ...message,
+      activities: [...finalizeActivities(prev), activity],
+    };
   }
   const last = prev[prev.length - 1];
   // Same step reporting progress: update it in place.
@@ -421,7 +435,10 @@ function withActivity(message: ChatMessage, activity: ActivityItem): ChatMessage
       activities: [...prev.slice(0, -1), { ...last, ...activity }],
     };
   }
-  return { ...message, activities: [...prev, activity] };
+  return {
+    ...message,
+    activities: [...finalizeActivities(prev), activity],
+  };
 }
 
 function withMetadata(message: ChatMessage, data: StreamMetadata): ChatMessage {
@@ -451,4 +468,16 @@ function replaceAssistantWithError(
     ...messages.filter((item) => item.id !== assistantId),
     createErrorMessage(content),
   ];
+}
+
+// scroll to bottom of chain of thought steps
+export function useScrollToBottomOfChainOfThoughtSteps() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const scrollToBottom = useCallback(() => {
+    containerRef.current?.scrollTo({
+      top: containerRef.current?.scrollHeight,
+      behavior: "smooth",
+    });
+  }, []);
+  return { containerRef, scrollToBottom };
 }

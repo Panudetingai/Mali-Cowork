@@ -1,6 +1,7 @@
 "use client";
 
-import { FolderAccessDialog } from "@/features/workspace";
+import { createChat } from "@/features/chat-history";
+import { FolderAccessDialog, folderName, normalizeFolder } from "@/features/workspace";
 import { CursorLoginDialog } from "@/features/cursor";
 import { ProviderKeyDialog } from "@/features/opencode";
 import { useChat } from "@/pages/chat/hooks/use-chat";
@@ -41,7 +42,15 @@ export default function ChatLayout() {
     saveWorkMode(next);
     startTransition(() => navigate(`/?mode=${next}`, { replace: !chatId }));
   };
-  const startNewChat = () => navigate(`/?mode=${mode}`);
+  const startNewChat = (options?: { cwd?: string }) => {
+    if (options?.cwd && mode === "cowork") {
+      const path = normalizeFolder(options.cwd);
+      const chat = createChat(folderName(path), { mode: "cowork", cwd: path });
+      navigate(`/chat/${chat.id}?mode=cowork`);
+      return;
+    }
+    navigate(`/?mode=${mode}`);
+  };
 
   // A deleted or unknown chat falls back to a new one.
   if (chatId && !session) return <Navigate to={`/?mode=${newChatMode}`} replace />;

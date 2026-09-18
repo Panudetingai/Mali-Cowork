@@ -21,6 +21,7 @@ mod events;
 mod policy;
 mod server;
 
+pub(crate) use client::OpencodeClient;
 pub use commands::{
     opencode_abort, opencode_check, opencode_default_cwd, opencode_delete_session,
     opencode_generate, opencode_list_models, opencode_permission_reply, opencode_set_auth,
