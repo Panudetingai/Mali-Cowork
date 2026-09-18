@@ -210,7 +210,7 @@ export function AssistantMessage({
 
       {showAgentSpinner ? (
         <div className="mb-2 flex items-center gap-2">
-          <CoworkBot size={32} state={waitingOnTool ? "working" : "thinking"} />
+          <CoworkBot size={32} state="thinking" />
           <span className="text-[11px] text-muted-foreground animate-pulse">
             {isCli ? `Running ${agentName}…` : "Thinking…"}
           </span>
@@ -222,13 +222,7 @@ export function AssistantMessage({
             aria-label="Writing reply"
             className="mt-2 flex h-7 items-center gap-1 text-muted-foreground"
           >
-            {[0, 150, 300].map((delay) => (
-              <span
-                key={delay}
-                className="size-1.5 animate-bounce rounded-full bg-current"
-                style={{ animationDelay: `${delay}ms` }}
-              />
-            ))}
+            <CoworkBot size={32} state="working" />
           </div>
         )
       )}
