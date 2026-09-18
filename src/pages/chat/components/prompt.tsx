@@ -42,6 +42,9 @@ import {
 import type { ChatMessage } from "../types";
 import { useDebouncedValue } from "../hooks/use-debounced-value";
 import { ContextMeter } from "./context-meter";
+import { buildMentionAppendix, parseMentions } from "./mention/mentions";
+import { filterMentions, MentionPopup } from "./mention/mention-popup";
+import { useWorkspaceFiles } from "./mention/use-workspace-files";
 import { ModelPicker } from "./model-picker";
 import { PromptOptionsMenu } from "./prompt-options-menu";
 import { WorkModeToggle } from "./work-mode-toggle";
@@ -123,7 +126,7 @@ export default function PromptInput({
   }, [isCowork, cwd, opencodeReady]);
 
   const defaultPlaceholder = isCowork
-    ? "Describe what you want to build or change in your project…"
+    ? "Describe what to build or change… (type @ to attach files)"
     : "How can I help you today?";
 
   /** Ask for whatever the model still needs; true when something was asked. */
@@ -187,16 +190,68 @@ export default function PromptInput({
     attachFolder(session.id, path);
   };
 
+  // `@` mentions: files and folders under the working folder.
+  const mentionRoot = cwd || undefined;
+  const { entries: workspaceEntries, loading: workspaceLoading } = useWorkspaceFiles(mentionRoot);
+  const [mention, setMention] = useState<{ query: string; start: number } | null>(null);
+  const [mentionActive, setMentionActive] = useState(0);
+  const [attaching, setAttaching] = useState(false);
+  const mentionMatches = useMemo(
+    () => (mention ? filterMentions(workspaceEntries, mention.query) : []),
+    [mention, workspaceEntries],
+  );
+
+  /** Recompute an open `@` query from the caret position. */
+  function updateMention(value: string, caret: number | undefined) {
+    if (caret == null || !mentionRoot) {
+      setMention(null);
+      return;
+    }
+    const before = value.slice(0, caret);
+    const m = /(?:^|\s)@([^\s@]*)$/.exec(before);
+    if (!m) {
+      setMention(null);
+      return;
+    }
+    setMention({ query: m[1], start: caret - m[1].length - 1 });
+    setMentionActive(0);
+  }
+
+  function insertMention(rel: string) {
+    if (!mention) return;
+    const caret = ref.current?.selectionStart ?? prompt.length;
+    const next = `${prompt.slice(0, mention.start)}@${rel} ${prompt.slice(caret)}`;
+    const nextCaret = mention.start + rel.length + 2;
+    setPrompt(next);
+    setMention(null);
+    requestAnimationFrame(() => {
+      ref.current?.focus();
+      ref.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+  }
+
+  async function withMentions(text: string): Promise<string> {
+    if (!mentionRoot || parseMentions(text).length === 0) return text;
+    setAttaching(true);
+    try {
+      return text + (await buildMentionAppendix(mentionRoot, text));
+    } finally {
+      setAttaching(false);
+    }
+  }
+
   async function send(text: string, model: AiModel) {
     setPrompt("");
-    const sent = await onSubmit({ prompt: text, model, budget: contextBudgetFor(model) });
+    setMention(null);
+    const full = await withMentions(text);
+    const sent = await onSubmit({ prompt: full, model, budget: contextBudgetFor(model) });
     if (!sent) setPrompt((current) => current || text);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = prompt.trim();
-    if (!trimmed || isLoading || opencodeMissing) return;
+    if (!trimmed || isLoading || attaching || opencodeMissing) return;
     if (askForAccess(selected, () => void send(trimmed, selected))) return;
     await send(trimmed, selected);
   }
@@ -229,21 +284,60 @@ export default function PromptInput({
         </div>
       )}
 
-      <Textarea
-        ref={ref}
-        value={prompt}
-        onChange={(event) => setPrompt(event.target.value)}
-        placeholder={placeholder ?? defaultPlaceholder}
-        rows={2}
-        disabled={isLoading}
-        className="max-h-40 min-h-12 resize-none border-0 bg-transparent p-1 text-[15px] shadow-none placeholder:text-muted-foreground focus-visible:ring-0 dark:bg-transparent"
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-            event.preventDefault();
-            event.currentTarget.form?.requestSubmit();
-          }
-        }}
-      />
+      <div className="relative">
+        {mention && mentionMatches.length > 0 && (
+          <MentionPopup
+            query={mention.query}
+            entries={workspaceEntries}
+            loading={workspaceLoading}
+            active={mentionActive}
+            onActiveChange={setMentionActive}
+            onSelect={insertMention}
+          />
+        )}
+        <Textarea
+          ref={ref}
+          value={prompt}
+          onChange={(event) => {
+            setPrompt(event.target.value);
+            updateMention(event.target.value, event.target.selectionStart ?? undefined);
+          }}
+          onSelect={(event) => {
+            if (mention) updateMention(prompt, event.currentTarget.selectionStart ?? undefined);
+          }}
+          placeholder={placeholder ?? defaultPlaceholder}
+          rows={2}
+          disabled={isLoading}
+          className="max-h-40 min-h-12 resize-none border-0 bg-transparent p-1 text-[15px] shadow-none placeholder:text-muted-foreground focus-visible:ring-0 dark:bg-transparent"
+          onKeyDown={(event) => {
+            if (mention && mentionMatches.length > 0) {
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                setMentionActive((i) =>
+                  event.key === "ArrowDown"
+                    ? Math.min(i + 1, mentionMatches.length - 1)
+                    : Math.max(i - 1, 0),
+                );
+                return;
+              }
+              if (event.key === "Enter" || event.key === "Tab") {
+                event.preventDefault();
+                insertMention(mentionMatches[mentionActive]?.rel ?? mentionMatches[0].rel);
+                return;
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setMention(null);
+                return;
+              }
+            }
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }
+          }}
+        />
+      </div>
 
       {opencodeMissing && (
         <p className="mt-1 px-1 text-xs text-red-600 dark:text-red-400">
@@ -301,10 +395,10 @@ export default function PromptInput({
               type="submit"
               size="icon-sm"
               className="rounded-full"
-              disabled={!prompt.trim() || isLoading || opencodeMissing}
-              aria-label="Send"
+              disabled={!prompt.trim() || isLoading || attaching || opencodeMissing}
+              aria-label={attaching ? "Attaching files" : "Send"}
             >
-              {isLoading ? <LoaderIcon className="animate-spin" /> : <ArrowUpIcon />}
+              {isLoading || attaching ? <LoaderIcon className="animate-spin" /> : <ArrowUpIcon />}
             </Button>
           )}
         </div>

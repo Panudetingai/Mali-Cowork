@@ -18,6 +18,7 @@ import {
 import { codexAbort } from "@/features/codex";
 import { cursorAbort, requestCursorLogin } from "@/features/cursor";
 import { geminiAbort } from "@/features/gemini";
+import { hasEnabledMcp, syncMcpServers } from "@/features/mcp";
 import {
     loadOpencodeSettings,
     opencodeAbort,
@@ -26,7 +27,6 @@ import {
     type PermissionReply,
     type WorkMode,
 } from "@/features/opencode";
-import { hasEnabledMcp, syncMcpServers } from "@/features/mcp";
 import { findGrant, grantsFor, normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import type {
     HistoryMessage,
@@ -128,10 +128,20 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
   const containerRef = useScroll({ messages, isLoading });
   const promptInputRef = usePromptInput({ isLoading });
 
-  /** Resolves false when the message was not sent (e.g. folder access declined). */
-  const sendMessage = useCallback(
-    async ({ prompt, model, budget }: SendMessage): Promise<boolean> => {
-      const modelId = model.id;
+  /**
+   * The shared send pipeline. Both new prompts and retries run through here,
+   * so a retry reproduces the original model and context budget exactly.
+   */
+  const executeSend = useCallback(
+    async ({
+      prompt,
+      resend,
+    }: {
+      prompt: string;
+      resend: NonNullable<ChatMessage["resend"]>;
+    }): Promise<boolean> => {
+      const modelId = resend.modelId;
+      const budget = { maxTokens: resend.maxTokens, autoNewChat: resend.autoNewChat };
       let chat = chatId ? getChat(chatId) : undefined;
       const chatMode = chat ? sessionMode(chat) : newChatMode;
 
@@ -172,22 +182,29 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
       const isGemini = isGeminiModel(modelId);
       let hasErrored = false;
 
-      if (isOpencode && hasEnabledMcp()) {
-        const mcpSync =
+      if (hasEnabledMcp() && (isOpencode || isCodex)) {
+        const cwd =
           chatMode === "chat"
-            ? syncMcpServers({ cwd: normalizeFolder(loadOpencodeSettings().cwd), mode: "chat" })
-            : folders[0]
-              ? syncMcpServers({ cwd: folders[0] })
-              : undefined;
+            ? normalizeFolder(loadOpencodeSettings().cwd)
+            : folders[0];
+        const mcpSync = cwd
+          ? syncMcpServers({
+              cwd,
+              mode: chatMode === "chat" ? "chat" : undefined,
+              liveConnect: isOpencode,
+            })
+          : isCodex
+            ? syncMcpServers({ liveConnect: false })
+            : undefined;
         await mcpSync?.catch(() => undefined);
       }
 
       updateChatMessages(chatKey, (prev) => [
         ...prev,
-        createUserMessage(prompt),
+        createUserMessage(prompt, resend),
         createAssistantPlaceholder(modelId, assistantId),
       ]);
-      const runToken = startRun(chatKey, runModelId);
+      const runToken = startRun(chatKey, runModelIdFor(modelId));
 
       const update = (fn: (message: ChatMessage) => ChatMessage) =>
         updateChatMessages(chatKey, (prev) => prev.map((m) => (m.id === assistantId ? fn(m) : m)));
@@ -210,7 +227,7 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
         }
         const providerId = opencodeProviderOf(modelId);
         if (providerId && isAuthError(content)) {
-          requestProviderKey({ providerId, modelName: model.name, invalid: true });
+          requestProviderKey({ providerId, modelName: resend.modelName, invalid: true });
         }
       };
 
@@ -218,7 +235,7 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
         await generateStream(
           {
             prompt,
-            modelId: runModelId,
+            modelId: runModelIdFor(modelId),
             sessionId: isOpencode
               ? chat.opencodeSessionId
               : isCursor
@@ -286,6 +303,54 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
       return true;
     },
     [chatId, newChatMode, navigate],
+  );
+
+  /** Resolves false when the message was not sent (e.g. folder access declined). */
+  const sendMessage = useCallback(
+    async ({ prompt, model, budget }: SendMessage): Promise<boolean> =>
+      executeSend({
+        prompt,
+        resend: {
+          modelId: model.id,
+          modelName: model.name,
+          maxTokens: budget.maxTokens,
+          autoNewChat: budget.autoNewChat,
+        },
+      }),
+    [executeSend],
+  );
+
+  /**
+   * Drop the user message and everything after it, then resend it with the
+   * same model and budget. Only the latest exchange can be retried while a
+   * run is in flight nothing happens.
+   */
+  const retryMessage = useCallback(
+    async (userMessageId: string): Promise<boolean> => {
+      if (!chatId || getRun(chatId)) return false;
+      const chat = getChat(chatId);
+      const index = chat?.messages.findIndex((m) => m.id === userMessageId && m.role === "user") ?? -1;
+      const original = index >= 0 ? chat!.messages[index] : undefined;
+      if (!chat || !original?.resend) return false;
+      updateChatMessages(chatId, (prev) => prev.slice(0, index));
+      return executeSend({ prompt: original.content, resend: original.resend });
+    },
+    [chatId, executeSend],
+  );
+
+  /** Thumbs up/down on an assistant reply; tapping again clears it. */
+  const rateMessage = useCallback(
+    (messageId: string, value: "up" | "down") => {
+      if (!chatId) return;
+      updateChatMessages(chatId, (prev) =>
+        prev.map((m) =>
+          m.id === messageId && m.role === "assistant"
+            ? { ...m, feedback: m.feedback === value ? undefined : value }
+            : m,
+        ),
+      );
+    },
+    [chatId],
   );
 
   const addError = useCallback(
@@ -386,6 +451,8 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
     containerRef,
     promptInputRef,
     sendMessage,
+    retryMessage,
+    rateMessage,
     permissions: run?.permissions ?? [],
     replyPermission,
     allowFolder,
@@ -411,11 +478,12 @@ function toHistory(messages: ChatMessage[]): HistoryMessage[] {
     .map((m) => ({ role: m.role, content: m.content }));
 }
 
-function createUserMessage(prompt: string): ChatMessage {
+function createUserMessage(prompt: string, resend: NonNullable<ChatMessage["resend"]>): ChatMessage {
   return {
     id: crypto.randomUUID(),
     role: "user",
     content: prompt,
+    resend,
   };
 }
 

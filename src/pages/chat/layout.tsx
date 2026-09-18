@@ -1,9 +1,9 @@
 "use client";
 
 import { createChat } from "@/features/chat-history";
-import { FolderAccessDialog, folderName, normalizeFolder } from "@/features/workspace";
 import { CursorLoginDialog } from "@/features/cursor";
 import { ProviderKeyDialog } from "@/features/opencode";
+import { FolderAccessDialog, folderName, normalizeFolder } from "@/features/workspace";
 import { useChat } from "@/pages/chat/hooks/use-chat";
 import { startTransition } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -29,6 +29,8 @@ export default function ChatLayout() {
     containerRef,
     promptInputRef,
     sendMessage,
+    retryMessage,
+    rateMessage,
     permissions,
     replyPermission,
     allowFolder,
@@ -56,7 +58,7 @@ export default function ChatLayout() {
   if (chatId && !session) return <Navigate to={`/?mode=${newChatMode}`} replace />;
 
   return (
-    <div className="flex h-full min-h-0 flex-col items-center gap-4 px-4 py-4 sm:gap-5 sm:py-5">
+    <div className="flex h-full min-h-0 flex-col items-center gap-4 px-4 py-4 sm:gap-5 sm:py-5 justify-center">
       {!hasMessages && <ChatTitle mode={mode} />}
 
       <ChatMessagePanel
@@ -64,6 +66,8 @@ export default function ChatLayout() {
         isLoading={isLoading}
         containerRef={containerRef}
         continuedFrom={session?.continuedFrom}
+        onRetry={(id) => void retryMessage(id)}
+        onRate={rateMessage}
       />
 
       <ChatComposer

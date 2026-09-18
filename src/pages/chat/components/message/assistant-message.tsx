@@ -13,7 +13,7 @@ import {
     MessageContent,
     MessageResponse,
 } from "@/components/ai-elements/message";
-import { BotFace } from "@/components/anim/bot-face";
+import { CoworkBot } from "@/components/anim/cowork-bot";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -23,9 +23,12 @@ import {
     FileTextIcon,
     HammerIcon,
     LockIcon,
+    RotateCcwIcon,
     SearchIcon,
     SparklesIcon,
     TerminalIcon,
+    ThumbsDownIcon,
+    ThumbsUpIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useScrollToBottomOfChainOfThoughtSteps } from "../../hooks/use-chat";
@@ -48,6 +51,10 @@ type Props = {
   };
   sessionId?: string;
   durationMs?: number;
+  feedback?: "up" | "down";
+  /** Resend the prompt that produced this reply. Undefined hides the button. */
+  onRetry?: () => void;
+  onRate?: (value: "up" | "down") => void;
 };
 
 function titleSlice(title: string, maxLength: number) {
@@ -93,6 +100,9 @@ export function AssistantMessage({
   usage,
   sessionId,
   durationMs,
+  feedback,
+  onRetry,
+  onRate,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const id = modelId ?? "";
@@ -158,8 +168,10 @@ export function AssistantMessage({
                   status={stepStatus(activity, isActive, isStreaming)}
                 >
                   {hasDetail && (
-                    <div className="max-h-24 overflow-auto rounded-md border bg-muted/40 px-2 py-1.5 text-[11px] whitespace-pre-wrap">
-                      <MessageResponse>{activity.detail}</MessageResponse>
+                    <div className="max-h-24 overflow-auto rounded-md border bg-muted/40 px-2 py-1.5 text-[11px]">
+                      <MessageResponse className="text-[11px] leading-relaxed">
+                        {activity.detail}
+                      </MessageResponse>
                     </div>
                   )}
                 </ChainOfThoughtStep>
@@ -184,10 +196,7 @@ export function AssistantMessage({
               maxHeightClass="max-h-[min(70vh,32rem)]"
               disabled={isStreaming}
             >
-              <MessageResponse
-                className="text-sm"
-                isAnimating={contentIsAnimating}
-              >
+              <MessageResponse className="text-sm" isAnimating={contentIsAnimating}>
                 {content}
               </MessageResponse>
             </ExpandableClamp>
@@ -201,7 +210,7 @@ export function AssistantMessage({
 
       {showAgentSpinner ? (
         <div className="mb-2 flex items-center gap-2">
-          <BotFace size={32} />
+          <CoworkBot size={32} state={waitingOnTool ? "working" : "thinking"} />
           <span className="text-[11px] text-muted-foreground animate-pulse">
             {isCli ? `Running ${agentName}…` : "Thinking…"}
           </span>
@@ -224,7 +233,7 @@ export function AssistantMessage({
         )
       )}
 
-      {/* Copy and usage only once the reply is complete. */}
+      {/* Copy, feedback, retry and usage only once the reply is complete. */}
       {(hasContent || hasReasoning) && !isStreaming && (
         <MessageActions className="mt-2">
           <MessageAction
@@ -237,6 +246,37 @@ export function AssistantMessage({
               <CopyIcon className="size-3.5" />
             )}
           </MessageAction>
+          {onRate && (
+            <>
+              <MessageAction
+                tooltip="Good response"
+                onClick={() => onRate("up")}
+              >
+                <ThumbsUpIcon
+                  className={cn(
+                    "size-3.5",
+                    feedback === "up" && "fill-emerald-500 text-emerald-500",
+                  )}
+                />
+              </MessageAction>
+              <MessageAction
+                tooltip="Bad response"
+                onClick={() => onRate("down")}
+              >
+                <ThumbsDownIcon
+                  className={cn(
+                    "size-3.5",
+                    feedback === "down" && "fill-red-500 text-red-500",
+                  )}
+                />
+              </MessageAction>
+            </>
+          )}
+          {onRetry && (
+            <MessageAction tooltip="Retry" onClick={onRetry}>
+              <RotateCcwIcon className="size-3.5" />
+            </MessageAction>
+          )}
           {(usage || sessionId || durationMs) && (
             <span className="ml-2 inline-flex items-center gap-1.5 text-[11px] leading-none text-muted-foreground">
               {usage?.inputTokens != null && (
@@ -255,7 +295,6 @@ export function AssistantMessage({
               {durationMs != null && (
                 <span>{(durationMs / 1000).toFixed(1)}s</span>
               )}
-              {sessionId && <span>· {sessionId.slice(0, 8)}</span>}
             </span>
           )}
         </MessageActions>

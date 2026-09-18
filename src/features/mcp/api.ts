@@ -33,17 +33,33 @@ export type McpSyncOptions = {
    * server is left out there, since Chat has no file access.
    */
   mode?: "chat";
+  /**
+   * OpenCode live connect. Default true. Use false before Codex/Gemini runs —
+   * still writes OpenCode JSON + Codex TOML without starting MCP processes.
+   */
+  liveConnect?: boolean;
 };
 
 /** Push the saved MCP servers into OpenCode (config + running server). */
-export async function syncMcpServers({ cwd, targets, removed, mode }: McpSyncOptions = {}): Promise<McpSyncResult | null> {
+export async function syncMcpServers({
+  cwd,
+  targets,
+  removed,
+  mode,
+  liveConnect,
+}: McpSyncOptions = {}): Promise<McpSyncResult | null> {
   if (!isTauri()) return null;
   const servers = buildMcpSyncPayload(getMcpConnections(), getCustomMcps(), cwd ? [cwd] : undefined);
   const chatTargets = mode === "chat" ? servers.map((s) => s.id).filter((id) => id !== "filesystem") : undefined;
   return invoke<McpSyncResult>("mcp_sync", {
     servers,
     directory: mode === "chat" ? null : (cwd ?? null),
-    options: { targets: targets ?? chatTargets ?? null, removed: removed ?? [], mode: mode ?? null },
+    options: {
+      targets: targets ?? chatTargets ?? null,
+      removed: removed ?? [],
+      mode: mode ?? null,
+      liveConnect: liveConnect ?? null,
+    },
   });
 }
 

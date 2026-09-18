@@ -26,7 +26,7 @@ export type McpDef = {
   id: string;
   name: string;
   description: string;
-  /** lucide icon key, resolved in the settings page. */
+  /** Legacy icon key; cards use LobeHub brand icons via catalog id. */
   icon: string;
   /** Tailwind classes for the icon tile. */
   tile: string;

@@ -1,14 +1,16 @@
 "use client";
 
-import { Message, MessageContent } from "@/components/ai-elements/message";
-import { TriangleAlertIcon } from "lucide-react";
+import { Message, MessageActions, MessageAction, MessageContent } from "@/components/ai-elements/message";
+import { RotateCcwIcon, TriangleAlertIcon } from "lucide-react";
 import { ExpandableClamp } from "./expandable-clamp";
 
 type Props = {
   content: string;
+  /** Resend the prompt that failed. Undefined hides the button. */
+  onRetry?: () => void;
 };
 
-export function ErrorMessage({ content }: Props) {
+export function ErrorMessage({ content, onRetry }: Props) {
   return (
     <Message from="assistant" className="py-3">
       <MessageContent className="w-full max-w-none rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
@@ -19,6 +21,13 @@ export function ErrorMessage({ content }: Props) {
           </ExpandableClamp>
         </div>
       </MessageContent>
+      {onRetry && (
+        <MessageActions className="mt-2">
+          <MessageAction tooltip="Retry" onClick={onRetry}>
+            <RotateCcwIcon className="size-3.5" />
+          </MessageAction>
+        </MessageActions>
+      )}
     </Message>
   );
 }

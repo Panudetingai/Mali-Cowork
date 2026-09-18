@@ -1,6 +1,7 @@
 "use client";
 
 import type { ChatSession } from "@/features/chat-history";
+import { cn } from "cn";
 import { HistoryIcon } from "lucide-react";
 import type { RefObject } from "react";
 import { Link } from "react-router-dom";
@@ -12,6 +13,8 @@ type Props = {
   isLoading: boolean;
   containerRef: RefObject<HTMLDivElement | null>;
   continuedFrom?: ChatSession["continuedFrom"];
+  onRetry?: (userMessageId: string) => void;
+  onRate?: (messageId: string, value: "up" | "down") => void;
 };
 
 export function ChatMessagePanel({
@@ -19,9 +22,11 @@ export function ChatMessagePanel({
   isLoading,
   containerRef,
   continuedFrom,
+  onRetry,
+  onRate,
 }: Props) {
   return (
-    <div className="flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-3">
+    <div className={cn("flex min-h-0 w-full max-w-3xl flex-col gap-3 flex-1", messages.length > 0 ? "flex-1" : "flex-none")}>
       <div
         ref={containerRef}
         className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto scroll-hidden"
@@ -39,7 +44,7 @@ export function ChatMessagePanel({
             </Link>
           </p>
         )}
-        <ChatMessages messages={messages} isLoading={isLoading} />
+        <ChatMessages messages={messages} isLoading={isLoading} onRetry={onRetry} onRate={onRate} />
       </div>
     </div>
   );

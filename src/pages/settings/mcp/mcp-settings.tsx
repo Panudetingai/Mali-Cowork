@@ -249,7 +249,17 @@ export function McpSettings() {
 
       <footer className="flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
         <p>
-          บันทึกลง <code className="font-mono">~/.config/opencode/opencode.json</code> — MCP ที่คุณเพิ่มเองในไฟล์นั้นจะไม่ถูกแตะ
+          บันทึกลง <code className="font-mono">~/.config/opencode/opencode.json</code> และ{" "}
+          <code className="font-mono">~/.codex/config.toml</code> (Codex CLI) — MCP ที่เพิ่มเองในไฟล์เหล่านั้นจะไม่ถูกแตะ
+          {" · "}
+          <a
+            href="https://mcp.so/"
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            ค้นหา MCP บน mcp.so
+          </a>
         </p>
         <Button
           type="button"

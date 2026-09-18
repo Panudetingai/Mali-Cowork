@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from "react"
-import { Markdown } from "./markdown"
+import { MessageResponse } from "@/components/ai-elements/message"
 
 type ReasoningContextType = {
   isOpen: boolean
@@ -149,7 +149,7 @@ function ReasoningContent({
   const safeChildren =
     typeof children === "string" ? children : ((children as string) ?? "")
   const content = markdown ? (
-    <Markdown>{safeChildren}</Markdown>
+    <MessageResponse className="text-sm">{safeChildren}</MessageResponse>
   ) : (
     (safeChildren as React.ReactNode)
   )

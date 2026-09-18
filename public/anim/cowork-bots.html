@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Cowork AI — Bot Faces</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Mali:wght@500;700&family=IBM+Plex+Sans+Thai:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#eef0f5;
+    --stage:#ffffff;
+    --ink:#2a2d3a;
+    --muted:#6f7488;
+    --line:#dde0ea;
+    --btn:#f3f4f8;
+    --btn-on:#2a2d3a;
+    --btn-on-ink:#ffffff;
+    --shadow:rgba(40,45,70,.13);
+    --code:#f5f6fa;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#16171d; --stage:#1f2029; --ink:#eceef5; --muted:#9a9fb3; --line:#2e3040;
+      --btn:#282a36; --btn-on:#eceef5; --btn-on-ink:#16171d; --shadow:rgba(0,0,0,.4); --code:#262833;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#16171d; --stage:#1f2029; --ink:#eceef5; --muted:#9a9fb3; --line:#2e3040;
+    --btn:#282a36; --btn-on:#eceef5; --btn-on-ink:#16171d; --shadow:rgba(0,0,0,.4); --code:#262833;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"IBM Plex Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size:16px; line-height:1.6;
+  }
+  .page{ max-width:1040px; margin:0 auto; padding:40px 20px 56px; }
+  h1{
+    font-family:"Mali", "IBM Plex Sans Thai", system-ui, sans-serif;
+    font-weight:700; font-size:clamp(28px, 4.2vw, 40px); line-height:1.2; margin:0 0 6px;
+  }
+  .lede{ color:var(--muted); margin:0 0 24px; max-width:62ch; }
+
+  .bar{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:16px; }
+  .seg{ display:inline-flex; flex-wrap:wrap; gap:4px; background:var(--btn); padding:4px; border-radius:999px; }
+  .seg button{
+    font:inherit; font-size:14px; border:0; background:transparent; color:var(--ink);
+    padding:6px 14px; border-radius:999px; cursor:pointer;
+  }
+  .seg button[aria-pressed="true"]{ background:var(--btn-on); color:var(--btn-on-ink); }
+  .seg button:focus-visible, .toggle input:focus-visible + span{ outline:2px solid #6f8cff; outline-offset:2px; }
+  .toggle{ display:inline-flex; align-items:center; gap:8px; font-size:14px; color:var(--muted); cursor:pointer; margin-left:auto; }
+  .toggle input{ position:absolute; opacity:0; width:1px; height:1px; }
+  .toggle span{ width:38px; height:22px; border-radius:999px; background:var(--line); position:relative; transition:background .2s; }
+  .toggle span::after{ content:""; position:absolute; top:3px; left:3px; width:16px; height:16px; border-radius:50%; background:#fff; transition:transform .2s; }
+  .toggle input:checked + span{ background:#34c38f; }
+  .toggle input:checked + span::after{ transform:translateX(16px); }
+
+  .stage{
+    background:var(--stage); border-radius:28px; padding:24px 16px 20px;
+    display:grid; grid-template-columns:repeat(4, 1fr); gap:8px;
+  }
+  .bot{ display:flex; flex-direction:column; align-items:center; gap:10px; min-width:0; }
+  .bot-canvas{ width:100%; max-width:250px; aspect-ratio:1/1; }
+  .bot-canvas svg{ display:block; width:100%; height:auto; overflow:visible; }
+  .bot-name{ font-family:"Mali", system-ui, sans-serif; font-weight:700; font-size:20px; margin:0; line-height:1.2; }
+  .bot-state{ font-size:14px; color:var(--muted); margin:-6px 0 2px; min-height:1.6em; }
+  .bot .seg button{ padding:4px 10px; font-size:13px; }
+
+  .howto{ margin-top:32px; display:grid; gap:12px; max-width:760px; }
+  .howto h2{ font-family:"Mali", system-ui, sans-serif; font-size:22px; margin:0; }
+  .howto p{ margin:0; color:var(--muted); }
+  pre{
+    margin:0; background:var(--code); border-radius:14px; padding:14px 16px; overflow-x:auto;
+    font-size:13.5px; line-height:1.55;
+  }
+  code{ font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+
+  /* embed mode: single bot, transparent background */
+  #embed{ display:none; }
+  body.embed{ background:transparent; }
+  body.embed .page{ display:none; }
+  body.embed #embed{ display:flex; position:fixed; inset:0; align-items:center; justify-content:center; }
+  body.embed #embed .bot-canvas{ width:min(80vmin, 420px); max-width:none; }
+
+  @media (max-width: 900px){
+    .stage{ grid-template-columns:repeat(2, 1fr); gap:24px; }
+  }
+  @media (max-width: 520px){
+    .stage{ grid-template-columns:1fr; gap:28px; }
+    .bot-canvas{ max-width:220px; }
+    .toggle{ margin-left:0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <h1>Cowork AI bots</h1>
+  <p class="lede">สี่น้องบอทสีเหลือง เขียว ม่วง ดำ ที่เปลี่ยนท่าทางตามงานของ agent ตอนคิดและตอนทำงานจะสลับระหว่างร่างสามจุดกับหน้าปกติไปเรื่อย ๆ ตอนทำงานน้องจะดีใจ เด้งดุ๊กดิ๊ก มีสายรุ้งหมุนรอบตัว แล้วหดหายก่อนแยกร่าง</p>
+
+  <div class="bar">
+    <div class="seg" role="group" aria-label="สถานะของบอททุกตัว" id="allSeg">
+      <button data-state="idle">รอคำสั่ง</button>
+      <button data-state="thinking">กำลังคิด</button>
+      <button data-state="working">กำลังทำงาน</button>
+      <button data-state="done">เสร็จแล้ว</button>
+    </div>
+    <label class="toggle"><input type="checkbox" id="demoToggle" checked><span></span>เล่นเดโมอัตโนมัติ</label>
+  </div>
+
+  <div class="stage" id="stage"></div>
+
+  <section class="howto">
+    <h2>นำไปใส่ในแอป</h2>
+    <p>ใช้ไฟล์นี้เป็น iframe แบบพื้นหลังโปร่งใส เลือกตัวด้วย <code>?embed=mochi</code>, <code>jelly</code>, <code>petal</code> หรือ <code>nori</code> แล้วส่งสถานะจาก agent เข้าไปด้วย postMessage</p>
+<pre><code>&lt;iframe id="bot" src="cowork-bots.html?embed=jelly&amp;state=idle"
+        style="border:0;width:160px;height:160px;background:transparent"&gt;&lt;/iframe&gt;
+
+// เมื่อ agent เปลี่ยนสถานะ: "idle" | "thinking" | "working" | "done"
+document.getElementById("bot").contentWindow
+  .postMessage({ state: "working" }, "*");</code></pre>
+    <p>ถ้าวางไว้ในหน้าเดียวกันโดยตรง เรียก <code>CoworkBots.set("petal", "thinking")</code> ได้เลย ส่วน <code>"done"</code> จะกลับเป็น <code>"idle"</code> เองหลังฉลองเสร็จ</p>
+  </section>
+</div>
+
+<div id="embed"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  var TAU = Math.PI * 2;
+  var REDUCED = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var PILL = "M-9.3 -11.3A9.3 9.3 0 0 1 0 -20.6L0 -20.6A9.3 9.3 0 0 1 9.3 -11.3L9.3 11.3A9.3 9.3 0 0 1 0 20.6L0 20.6A9.3 9.3 0 0 1 -9.3 11.3Z";
+  var HAPPY = "M-11 4Q0 -10 11 4";
+  var LABELS = { idle:"รอคำสั่ง", thinking:"กำลังคิด…", working:"กำลังทำงาน…", done:"เสร็จแล้ว!" };
+
+  // rainbow ring colors: yellow → green → purple → black
+  var RING_COLORS = ["#f5c518","#34c77b","#8b5cf6","#2a2a33"];
+  var RING_N = 44, RING_R = 108, RING_SWEEP = 0.8;
+
+  // ---------- the four bots ----------
+  // palettes: [highlight, 32%, 72%, shade] — shades drift within each bot's color
+  var PRESETS = {
+    mochi: {
+      name: "Mochi",
+      palettes: [
+        ["#fff6c2","#ffe45c","#ffd21f","#c79a00"],
+        ["#fbe7a6","#f5c542","#f0b429","#b8860b"],
+        ["#fffbe0","#fff07a","#f7dc3a","#caa414"]
+      ],
+      aspect: [1.08, 0.97],
+      base:  {2:0.025, 3:0.055, 5:0.02},
+      morph: {4:0.13, 7:0.05},
+      eyes: { L:{x:-29.79, y:14.6, m:[0.93,-0.14,0.23,0.68]}, R:{x:20.29, y:2.49, m:[0.94,-0.16,0.23,0.68]} },
+      blush: false,
+      eye: "#1a1a1a",
+      layout: "line", work: "wave", squash: 0.015
+    },
+    jelly: {
+      name: "Jelly",
+      palettes: [
+        ["#dcfff0","#7ff0bd","#34d48c","#138a55"],
+        ["#effed0","#c2f06e","#8fd33a","#4f8a15"],
+        ["#d6f7e6","#5fd9a0","#1fb877","#0c6b45"]
+      ],
+      aspect: [1.05, 0.95],
+      base:  {2:0.035, 4:0.012},
+      morph: {3:0.13, 6:0.05},
+      eyes: { L:{x:-25, y:6, m:[0.95,0,0,0.74]}, R:{x:25, y:6, m:[0.95,0,0,0.74]} },
+      blush: true,
+      eye: "#1a1a1a",
+      layout: "line", work: "hop", squash: 0.04
+    },
+    petal: {
+      name: "Petal",
+      palettes: [
+        ["#f1e8ff","#c9aaff","#9f78f7","#5e3bb5"],
+        ["#eadcff","#b388ff","#8250e6","#4b2296"],
+        ["#fbe6ff","#dca6f5","#b36fe0","#6c2f99"]
+      ],
+      aspect: [1, 1],
+      base:  {5:0.06, 3:0.012},
+      morph: {6:0.11, 2:0.06},
+      eyes: { L:{x:-23, y:9, m:[0.9,0.1,-0.08,0.7]}, R:{x:23, y:9, m:[0.9,-0.1,0.08,0.7]} },
+      blush: true,
+      eye: "#1a1a1a",
+      layout: "tri", work: "orbit", squash: 0.02
+    },
+    nori: {
+      name: "Nori",
+      palettes: [
+        ["#8a8d99","#4a4d57","#2c2e35","#101115"],
+        ["#7f86a3","#3e4460","#23273a","#0c0e18"],
+        ["#9a9a9a","#555555","#333333","#111111"]
+      ],
+      aspect: [1.02, 0.98],
+      base:  {2:0.02, 4:0.03},
+      morph: {5:0.12, 3:0.05},
+      eyes: { L:{x:-22, y:4, m:[1,0,0,0.8]}, R:{x:22, y:4, m:[1,0,0,0.8]} },
+      blush: true,
+      eye: "#ffffff",
+      layout: "line", work: "snake", squash: 0.025
+    }
+  };
+
+  // ---------- helpers ----------
+  function hex(h){ h=h.replace("#",""); return [parseInt(h.substr(0,2),16),parseInt(h.substr(2,2),16),parseInt(h.substr(4,2),16)]; }
+  function mix(a,b,f){ return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f]; }
+  function rgb(c){ return "rgb("+Math.round(c[0])+","+Math.round(c[1])+","+Math.round(c[2])+")"; }
+  function clamp01(v){ return v<0?0:(v>1?1:v); }
+  function frac(v){ return v - Math.floor(v); }
+  function palAt(P, p, j){
+    var n = P.length; p = ((p % n) + n) % n;
+    var i = Math.floor(p), f = p - i; f = f*f*(3-2*f);
+    return mix(P[i][j], P[(i+1)%n][j], f);
+  }
+  var ringRGB = RING_COLORS.map(hex);
+  var ringStroke = [];
+  for (var ri=0; ri<RING_N; ri++){
+    var u = ri/(RING_N-1)*(ringRGB.length-1), rk = Math.min(ringRGB.length-2, Math.floor(u));
+    ringStroke.push(rgb(mix(ringRGB[rk], ringRGB[rk+1], u-rk)));
+  }
+  function Spring(v, k, d){ return { v:v, t:v, vel:0, k:k, d:d }; }
+  function stepSpring(s, f){
+    s.vel += (s.t - s.v) * s.k * f;
+    s.vel *= Math.pow(s.d, f);
+    s.v += s.vel * f;
+  }
+  function blobPath(R, amps, ph, sx, sy){
+    var N = 40, pts = [], j, k;
+    for (j=0; j<N; j++){
+      var th = j/N*TAU, r = 1;
+      for (k=1; k<amps.length; k++){ if (amps[k]) r += amps[k]*Math.sin(k*th + ph[k]); }
+      r *= R;
+      pts.push([Math.cos(th)*r*sx, Math.sin(th)*r*sy]);
+    }
+    var d = "M" + pts[0][0].toFixed(2) + " " + pts[0][1].toFixed(2);
+    for (j=0; j<N; j++){
+      var p0=pts[(j-1+N)%N], p1=pts[j], p2=pts[(j+1)%N], p3=pts[(j+2)%N];
+      d += "C" + (p1[0]+(p2[0]-p0[0])/6).toFixed(2) + " " + (p1[1]+(p2[1]-p0[1])/6).toFixed(2) + " " +
+                 (p2[0]-(p3[0]-p1[0])/6).toFixed(2) + " " + (p2[1]-(p3[1]-p1[1])/6).toFixed(2) + " " +
+                 p2[0].toFixed(2) + " " + p2[1].toFixed(2);
+    }
+    return d + "Z";
+  }
+
+  // ---------- bot factory ----------
+  var uid = 0;
+  function createBot(container, key, onChange){
+    var P = PRESETS[key];
+    var id = key + (uid++);
+    var pals = P.palettes.map(function(p){ return p.map(hex); });
+    var base = [], mo = [], amps = [], ph = [];
+    for (var k=0; k<8; k++){ base[k]=P.base[k]||0; mo[k]=P.morph[k]||0; amps[k]=base[k]; ph[k]=Math.random()*TAU; }
+
+    function eyeMarkup(e, cls, fill){
+      return '<g class="'+cls+'"><path d="'+PILL+'" fill="'+(fill||"#000")+'" transform="matrix('+e.m.join(",")+',0,0)"/></g>';
+    }
+    function happyMarkup(cls, color){
+      return '<path class="'+cls+'" d="'+HAPPY+'" fill="none" stroke="'+color+'" stroke-width="5.5" stroke-linecap="round" opacity="0"/>';
+    }
+    container.innerHTML =
+      '<svg viewBox="-125 -125 250 250" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+      '<defs>' +
+        '<filter id="goo'+id+'" filterUnits="userSpaceOnUse" x="-170" y="-170" width="340" height="340" color-interpolation-filters="sRGB">' +
+          '<feGaussianBlur in="SourceGraphic" stdDeviation="6.5" result="b"/>' +
+          '<feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -10"/>' +
+        '</filter>' +
+        '<radialGradient id="fill'+id+'" gradientUnits="userSpaceOnUse" cx="-50.56" cy="-63.2" r="244.9">' +
+          '<stop offset="0%"/><stop offset="32%"/><stop offset="72%"/><stop offset="100%"/>' +
+        '</radialGradient>' +
+      '</defs>' +
+      '<ellipse class="shadow" cx="0" cy="112" rx="50" ry="6.5" fill="var(--shadow)"/>' +
+      '<g class="ring" fill="none" style="display:none"></g>' +
+      '<g class="rig">' +
+        '<g filter="url(#goo'+id+')">' +
+          '<ellipse class="d0"/><ellipse class="d1"/><ellipse class="d2"/>' +
+          '<path class="body" fill="url(#fill'+id+')"/>' +
+        '</g>' +
+        (P.blush ? '<ellipse class="bL" rx="9" ry="5" fill="#ff8fab"/><ellipse class="bR" rx="9" ry="5" fill="#ff8fab"/>' : '') +
+        '<g class="eyes">' +
+          eyeMarkup(P.eyes.L, "vL", P.eye) + eyeMarkup(P.eyes.R, "vR", P.eye) +
+          happyMarkup("vHL", P.eye) + happyMarkup("vHR", P.eye) +
+        '</g>' +
+      '</g>' +
+      '</svg>';
+
+    var q = function(s){ return container.querySelector(s); };
+    var stops = container.querySelectorAll("stop");
+    var body = q(".body"), rig = q(".rig"), shadow = q(".shadow"), ring = q(".ring");
+    var dots = [q(".d0"), q(".d1"), q(".d2")];
+    var eL = q(".vL"), eR = q(".vR"), hL = q(".vHL"), hR = q(".vHR");
+    var bL = q(".bL"), bR = q(".bR");
+    var ringSegs = [];
+    for (var s=0; s<RING_N; s++){
+      var seg = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      seg.setAttribute("stroke", ringStroke[s]);
+      seg.setAttribute("stroke-linecap", s === RING_N-1 ? "round" : "butt");
+      ring.appendChild(seg); ringSegs.push(seg);
+    }
+
+    // animated values
+    var bodyS  = Spring(1,   0.07, 0.80);
+    var spread = Spring(0,   0.06, 0.80);
+    var dotS   = Spring(0.55,0.08, 0.78);
+    var eyeOpen= Spring(1,   0.20, 0.62);
+    var happy  = Spring(0,   0.15, 0.70);
+    var squint = Spring(1,   0.18, 0.62);
+    var lookX  = Spring(0,   0.12, 0.70);
+    var lookY  = Spring(0,   0.12, 0.70);
+    var morph  = Spring(0,   0.05, 0.85);
+    var work   = Spring(0,   0.05, 0.85);
+    var hopY   = Spring(0,   0.12, 0.72);
+    var dance  = Spring(0,   0.08, 0.80);
+    var ringOn = Spring(0,   0.06, 0.80);
+    var springs = [bodyS, spread, dotS, eyeOpen, happy, squint, lookX, lookY, morph, work, hopY, dance, ringOn];
+
+    var t = Math.random()*10, colorP = Math.random()*pals.length, colorRate = 0.05;
+    var orbitA = 0, ringA = Math.random()*TAU, blinkY = 1, blinkOK = true, ambient = true;
+    var state = "idle", form = "face"; // form: face | split | dots | merge
+    var timers = [];
+
+    function after(ms, fn){ timers.push(setTimeout(fn, ms)); }
+    function clearTimers(){ timers.forEach(clearTimeout); timers = []; }
+
+    // plain waiting face
+    function faceNeutral(){
+      eyeOpen.t=1; squint.t=1; lookX.t=0; lookY.t=0; morph.t=0; bodyS.t=1;
+      spread.t=0; dotS.t=0.55; happy.t=0; dance.t=0; ringOn.t=0;
+      blinkOK=true; ambient=true;
+    }
+    // face → puff up → shape-shift → three dots
+    function toDots(fast, cb){
+      var s = fast ? 0.6 : 1;
+      form = "split"; blinkOK = false; ambient = false; happy.t = 0; dance.t = 0;
+      squint.t = 0.4; lookX.t = 5; lookY.t = -4; eyeOpen.t = 1;
+      after(550*s, function(){ squint.t=1; lookX.t=0; lookY.t=0; eyeOpen.t=1.18; bodyS.t=1.18; morph.t=1; });
+      after(1050*s, function(){ eyeOpen.t = 0; });
+      after(1300*s, function(){ spread.t=1; dotS.t=1; bodyS.t=0.28; morph.t=0.3; });
+      after(1750*s, function(){ bodyS.t=0; morph.t=0; form="dots"; if (cb) cb(); });
+    }
+    // three dots → merge back into the face
+    function toFace(cb){
+      form = "merge"; eyeOpen.t = 0; happy.t = 0; spread.t = 0; morph.t = 0.6;
+      squint.t = 1; lookX.t = 0; lookY.t = 0;
+      after(320, function(){ bodyS.t=1; dotS.t=0.55; });
+      after(700, function(){ morph.t=0; form="face"; if (cb) cb(); else faceNeutral(); });
+    }
+    function ensureFace(cb){ if (form === "face") cb(); else toFace(cb); }
+
+    // thinking: dots for a while, back to the waiting face, then dots again
+    function thinkLoop(){
+      toDots(false, function(){
+        after(2600, function(){
+          toFace(function(){ faceNeutral(); after(1500, thinkLoop); });
+        });
+      });
+    }
+    // working: happy dance with a rainbow → rainbow shrinks away → dots → back → repeat
+    function workLoop(){
+      ambient=false; blinkOK=false;
+      eyeOpen.t=0; happy.t=1; dance.t=1; ringOn.t=1; bodyS.t=1; morph.t=0.35;
+      after(2800, function(){ ringOn.t=0; dance.t=0; morph.t=0; happy.t=0; eyeOpen.t=1; });
+      after(3300, function(){
+        toDots(true, function(){
+          after(2600, function(){ toFace(workLoop); });
+        });
+      });
+    }
+    function celebrate(){
+      blinkOK=false; ambient=false; eyeOpen.t=0; happy.t=1; bodyS.t=1; squint.t=1;
+      after(80,  function(){ hopY.t=-18; bodyS.t=1.08; });
+      after(300, function(){ hopY.t=0;   bodyS.t=1; });
+      after(520, function(){ hopY.t=-9; });
+      after(700, function(){ hopY.t=0; });
+      after(2000,function(){
+        faceNeutral(); state="idle"; colorRate=0.05;
+        if (onChange) onChange("idle");
+      });
+    }
+
+    function setState(s){
+      if (!LABELS[s]) return;
+      if (s === state && s !== "done") return;
+      clearTimers(); state = s;
+      if (onChange) onChange(s);
+      dance.t = 0; ringOn.t = 0; hopY.t = 0;
+      work.t = (s === "working") ? 1 : 0;
+      if (s === "idle"){
+        colorRate = 0.05;
+        ensureFace(faceNeutral);
+      } else if (s === "thinking"){
+        colorRate = 0.15;
+        if (form === "face") thinkLoop();
+        else toFace(function(){ faceNeutral(); after(900, thinkLoop); });
+      } else if (s === "working"){
+        colorRate = 0.35;
+        ensureFace(workLoop);
+      } else if (s === "done"){
+        colorRate = 0.2;
+        ensureFace(celebrate);
+      }
+    }
+
+    // ambient: blinking + glancing around (only on the plain waiting face)
+    function blink(){ blinkY = 0.05; setTimeout(function(){ blinkY = 1; }, 110); }
+    (function blinkLoop(){
+      setTimeout(function(){
+        if (blinkOK && form === "face"){ blink(); if (Math.random() < 0.18) setTimeout(blink, 260); }
+        blinkLoop();
+      }, 2000 + Math.random()*3200);
+    })();
+    (function lookLoop(){
+      setTimeout(function(){
+        if (ambient && form === "face" && blinkOK && !REDUCED){
+          lookX.t = (Math.random()*2-1)*6; lookY.t = (Math.random()*2-1)*3.5;
+          setTimeout(function(){ if (ambient && form === "face"){ lookX.t=0; lookY.t=0; } }, 900 + Math.random()*700);
+        }
+        lookLoop();
+      }, 2600 + Math.random()*3000);
+    })();
+
+    function update(dt, f){
+      t += dt;
+      for (var i=0; i<springs.length; i++) stepSpring(springs[i], f);
+      var motion = REDUCED ? 0.2 : 1;
+
+      // colors
+      colorP += dt * colorRate;
+      for (var j=0; j<4; j++) stops[j].setAttribute("stop-color", rgb(palAt(pals, colorP, j)));
+
+      // happy dance: bouncing, wiggling, squishing
+      var dn = clamp01(dance.v) * (REDUCED ? 0 : 1);
+      var bounce = Math.abs(Math.sin(Math.PI*t/0.62));
+      var danceY = -12 * dn * bounce;
+      var tilt = dn * 7 * Math.sin(TAU*t/1.24);
+      var landSquash = dn * 0.07 * Math.pow(1 - bounce, 6) - dn * 0.03 * bounce;
+
+      // shape morph
+      var m = Math.max(0, morph.v);
+      for (var k=1; k<8; k++){
+        ph[k] += dt * (0.3 + 0.07*k) * (k%2 ? 1 : -1) * (1 + m*8) * motion;
+        amps[k] = base[k]*(1 - 0.4*Math.min(1,m)) + mo[k]*m;
+      }
+      var bs = Math.max(0, bodyS.v);
+      var w = Math.sin(t*2.4) * P.squash * motion;
+      var sx = P.aspect[0]*(1 + w + landSquash), sy = P.aspect[1]*(1 - w - landSquash);
+      body.setAttribute("d", bs < 0.015 ? "M0 0" : blobPath(84*bs, amps, ph, sx, sy));
+
+      // float + hop + dance
+      var sp = Math.max(0, spread.v);
+      var bob = REDUCED ? 0 : (-3 + 3*Math.cos(TAU*t/4.2)) * (1 - 0.5*clamp01(sp)) * (1 - dn);
+      var y = bob + hopY.v + danceY;
+      rig.setAttribute("transform", "translate(0," + y.toFixed(2) + ") rotate(" + tilt.toFixed(2) + ")");
+
+      // rainbow ring: grows in, circles slowly, shrinks away
+      var ro = ringOn.v;
+      if (ro < 0.01){ ring.style.display = "none"; }
+      else {
+        ring.style.display = "";
+        ringA += dt * 1.1 * (REDUCED ? 0.3 : 1);
+        var sweep = RING_SWEEP * clamp01(ro) * TAU;
+        var sc = 0.55 + 0.45*ro;
+        ring.setAttribute("transform", "translate(0," + y.toFixed(2) + ") rotate(" + (ringA*180/Math.PI).toFixed(2) + ") scale(" + sc.toFixed(3) + ")");
+        for (var r=0; r<RING_N; r++){
+          var a0 = r/RING_N*sweep, a1 = (r+1)/RING_N*sweep + 0.012, pos = r/(RING_N-1);
+          ringSegs[r].setAttribute("d",
+            "M" + (Math.cos(a0)*RING_R).toFixed(2) + " " + (Math.sin(a0)*RING_R).toFixed(2) +
+            "A" + RING_R + " " + RING_R + " 0 0 1 " + (Math.cos(a1)*RING_R).toFixed(2) + " " + (Math.sin(a1)*RING_R).toFixed(2));
+          ringSegs[r].setAttribute("stroke-width", (2 + 6*pos).toFixed(2));
+          ringSegs[r].setAttribute("opacity", ((0.2 + 0.8*pos) * clamp01(ro)).toFixed(3));
+        }
+      }
+
+      // dots
+      var wk = clamp01(work.v), ds = Math.max(0, dotS.v);
+      orbitA += dt * (0.5 + 2.8*wk) * motion;
+      var a1w = clamp01(sp)*(1-wk), a2w = clamp01(sp)*wk;
+      for (var d=0; d<3; d++){
+        var bx, by;
+        if (P.layout === "tri"){
+          var ang = -Math.PI/2 + d*TAU/3 + orbitA;
+          bx = Math.cos(ang)*46*sp; by = Math.sin(ang)*46*sp;
+        } else { bx = (d-1)*66*sp; by = 0; }
+        var ps = 1 - 0.5*Math.pow(Math.sin(Math.PI*(t/1.2 - d*0.15)), 2); // thinking pulse
+        var rx = 1, ry = 1, oy = 0, h;
+        if (P.work === "wave"){
+          h = Math.max(0, Math.sin(TAU*(t/0.95 - d*0.16)));
+          oy = -20*h; rx = ry = 1 + 0.08*h;
+        } else if (P.work === "hop"){
+          var p = frac(t/1.1 - d*0.2);
+          if (p < 0.42){ h = Math.sin(Math.PI*p/0.42); oy = -28*h; rx = 1-0.1*h; ry = 1+0.12*h; }
+          else if (p < 0.56){ h = Math.sin(Math.PI*(p-0.42)/0.14); rx = 1+0.28*h; ry = 1-0.24*h; oy = 6*h; }
+        } else if (P.work === "snake"){
+          oy = -16*Math.sin(TAU*(t/1.0 - d*0.25));
+          rx = ry = 1 + 0.06*Math.cos(TAU*(t/1.0 - d*0.25));
+        } else {
+          rx = ry = 1 + 0.14*Math.sin(TAU*(t/0.8 - d/3));
+        }
+        if (REDUCED){ ps = 1; rx = ry = 1; oy = 0; }
+        var dsc = 1 - a1w*(1-ps);
+        var R0 = 24*ds*dsc;
+        var el = dots[d];
+        el.setAttribute("cx", bx.toFixed(2));
+        el.setAttribute("cy", (by + oy*a2w).toFixed(2));
+        el.setAttribute("rx", (R0*(1 + (rx-1)*a2w)).toFixed(2));
+        el.setAttribute("ry", (R0*(1 + (ry-1)*a2w)).toFixed(2));
+        el.setAttribute("fill", rgb(palAt(pals, colorP + d*pals.length/3, 2)));
+      }
+
+      // eyes
+      var es = Math.min(1.25, bs), eo = Math.max(0, eyeOpen.v), hp = clamp01(happy.v);
+      var lx = lookX.v, ly = lookY.v;
+      function placeEye(g, e, squintY){
+        var s1 = es*eo, s2 = es*eo*blinkY*squintY;
+        g.setAttribute("transform", "translate(" + (e.x*es+lx).toFixed(2) + "," + (e.y*es+ly).toFixed(2) + ") scale(" + s1.toFixed(3) + "," + s2.toFixed(3) + ")");
+      }
+      placeEye(eL, P.eyes.L, Math.max(0.05, squint.v));
+      placeEye(eR, P.eyes.R, 1);
+      function placeHappy(g, e){
+        var s = es*(0.6 + 0.4*hp);
+        g.setAttribute("transform", "translate(" + (e.x*es+lx).toFixed(2) + "," + (e.y*es-2).toFixed(2) + ") scale(" + s.toFixed(3) + ")");
+        g.setAttribute("opacity", hp.toFixed(3));
+      }
+      placeHappy(hL, P.eyes.L); placeHappy(hR, P.eyes.R);
+
+      if (bL){
+        var bo = (0.35 + 0.3*hp) * clamp01(Math.max(eo, hp)) * clamp01(bs);
+        [[bL, P.eyes.L], [bR, P.eyes.R]].forEach(function(pair){
+          pair[0].setAttribute("transform", "translate(" + (pair[1].x*es*1.12).toFixed(2) + "," + ((pair[1].y+22)*es).toFixed(2) + ") scale(" + es.toFixed(3) + ")");
+          pair[0].setAttribute("opacity", bo.toFixed(3));
+        });
+      }
+
+      // ground shadow
+      var srx = (46 + 50*clamp01(sp)) * (1 + y/70);
+      shadow.setAttribute("rx", Math.max(10, srx).toFixed(2));
+      shadow.setAttribute("opacity", (0.9 + y/60).toFixed(3));
+    }
+
+    return { key:key, name:P.name, update:update, setState:setState, getState:function(){ return state; } };
+  }
+
+  // ---------- shared animation loop ----------
+  var bots = [];
+  var last = performance.now();
+  function frame(now){
+    var dt = Math.min(0.05, (now - last)/1000); last = now;
+    var f = dt*60;
+    for (var i=0; i<bots.length; i++) bots[i].update(dt, f);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ---------- demo sequence ----------
+  var SEQ = [["idle",3000],["thinking",8000],["working",9000],["done",2600]];
+  function startDemo(bot, offset){
+    stopDemo(bot);
+    var i = 0;
+    function next(){ var st = SEQ[i%4]; bot.setState(st[0]); bot._demo = setTimeout(next, st[1]); i++; }
+    bot._demo = setTimeout(next, offset);
+  }
+  function stopDemo(bot){ if (bot._demo){ clearTimeout(bot._demo); bot._demo = null; } }
+
+  // ---------- page setup ----------
+  var params = new URLSearchParams(location.search);
+  var embedKey = params.get("embed");
+
+  if (embedKey && PRESETS[embedKey]){
+    document.body.classList.add("embed");
+    var holder = document.createElement("div");
+    holder.className = "bot-canvas";
+    document.getElementById("embed").appendChild(holder);
+    var b = createBot(holder, embedKey, function(s){
+      try { parent.postMessage({ type:"bot-state-changed", bot:embedKey, state:s }, "*"); } catch(e){}
+    });
+    if (params.get("shadow") === "0") holder.querySelector(".shadow").style.display = "none";
+    bots.push(b);
+    if (params.get("demo") === "1") startDemo(b, 400);
+    else if (params.get("state")) b.setState(params.get("state"));
+  } else {
+    var stageEl = document.getElementById("stage");
+    var demoToggle = document.getElementById("demoToggle");
+    var allBtns = document.querySelectorAll("#allSeg button");
+
+    Object.keys(PRESETS).forEach(function(key){
+      var wrap = document.createElement("div");
+      wrap.className = "bot";
+      wrap.innerHTML =
+        '<div class="bot-canvas"></div>' +
+        '<p class="bot-name">' + PRESETS[key].name + '</p>' +
+        '<p class="bot-state" aria-live="polite"></p>' +
+        '<div class="seg" role="group" aria-label="สถานะของ ' + PRESETS[key].name + '">' +
+          '<button data-state="idle">รอ</button><button data-state="thinking">คิด</button>' +
+          '<button data-state="working">ทำงาน</button><button data-state="done">เสร็จ</button>' +
+        '</div>';
+      stageEl.appendChild(wrap);
+      var label = wrap.querySelector(".bot-state");
+      var btns = wrap.querySelectorAll(".seg button");
+      var bot = createBot(wrap.querySelector(".bot-canvas"), key, function(s){
+        label.textContent = LABELS[s];
+        btns.forEach(function(x){ x.setAttribute("aria-pressed", x.dataset.state === s ? "true" : "false"); });
+      });
+      label.textContent = LABELS.idle;
+      btns.forEach(function(x){
+        x.setAttribute("aria-pressed", x.dataset.state === "idle" ? "true" : "false");
+        x.addEventListener("click", function(){ setDemo(false); bot.setState(x.dataset.state); });
+      });
+      bots.push(bot);
+    });
+
+    function setDemo(on){
+      demoToggle.checked = on;
+      bots.forEach(function(b, i){ if (on) startDemo(b, 300 + i*1100); else stopDemo(b); });
+      allBtns.forEach(function(x){ x.setAttribute("aria-pressed", "false"); });
+    }
+    demoToggle.addEventListener("change", function(){ setDemo(demoToggle.checked); });
+    allBtns.forEach(function(x){
+      x.addEventListener("click", function(){
+        setDemo(false);
+        allBtns.forEach(function(y){ y.setAttribute("aria-pressed", y === x ? "true" : "false"); });
+        bots.forEach(function(b){ b.setState(x.dataset.state); });
+      });
+    });
+    setDemo(true);
+  }
+
+  // ---------- control from outside ----------
+  function apply(botKey, s){
+    bots.forEach(function(b){ if (!botKey || botKey === "all" || botKey === b.key){ stopDemo(b); b.setState(s); } });
+  }
+  window.addEventListener("message", function(e){
+    var d = e.data; if (!d) return;
+    if (typeof d === "string") apply("all", d);
+    else if (d.state) apply(d.bot || "all", d.state);
+  });
+  window.CoworkBots = {
+    set: function(botKey, s){ if (s === undefined){ s = botKey; botKey = "all"; } apply(botKey, s); },
+    list: function(){ return bots.map(function(b){ return { bot:b.key, state:b.getState() }; }); }
+  };
+})();
+</script>
+</body>
+</html>

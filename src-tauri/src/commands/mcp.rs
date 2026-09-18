@@ -1,4 +1,4 @@
-//! Sync MCP servers from the app into OpenCode (config file + live server).
+//! Sync MCP servers from the app into OpenCode (config + live) and Codex (`config.toml`).
 //!
 //! Robustness notes:
 //! - The GUI process often has a smaller `PATH` than the user's terminal, so
@@ -20,6 +20,7 @@ use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use toml_edit::{Array, DocumentMut, InlineTable, Item, Table, Value as TomlValue};
 
 use super::opencode::{session_dir, OpencodeClient};
 use super::opencode::warm_up_server as ensure_server;
@@ -80,6 +81,9 @@ pub struct McpSyncOptions {
     /// `chat`: connect in Chat mode's session folder instead of `directory`.
     #[serde(default)]
     pub mode: Option<String>,
+    /// When false, only write config files (OpenCode JSON + Codex TOML) — no live connect.
+    #[serde(default)]
+    pub live_connect: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -400,6 +404,135 @@ fn write_opencode_mcp_config(servers: &[McpServerEntry], removed: &[String]) -> 
     write_private(&path, &pretty)
 }
 
+fn codex_config_path() -> Result<PathBuf, String> {
+    let base = std::env::var("CODEX_HOME")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|h| h.join(".codex")))
+        .ok_or("Cannot resolve Codex home directory")?;
+    Ok(base.join("config.toml"))
+}
+
+fn codex_env_table(server: &McpServerEntry) -> InlineTable {
+    let mut environment = server.environment.clone();
+    if !environment.contains_key("PATH") {
+        if let Some(path) = child_path() {
+            environment.insert("PATH".into(), path);
+        }
+    }
+    let mut env = InlineTable::new();
+    for (key, value) in environment {
+        env.insert(key.as_str(), TomlValue::from(value));
+    }
+    env
+}
+
+fn codex_http_headers(server: &McpServerEntry) -> InlineTable {
+    let mut headers = InlineTable::new();
+    for (key, value) in &server.headers {
+        headers.insert(key.as_str(), TomlValue::from(value.clone()));
+    }
+    headers
+}
+
+fn codex_set(table: &mut Table, key: &str, value: TomlValue) {
+    table.insert(key, Item::Value(value));
+}
+
+fn codex_server_table(server: &McpServerEntry, argv: &[String]) -> Table {
+    let mut table = Table::new();
+    table.set_implicit(false);
+    if !server.enabled {
+        codex_set(&mut table, "enabled", TomlValue::from(false));
+        return table;
+    }
+
+    codex_set(&mut table, "enabled", TomlValue::from(true));
+    let startup_sec = server.timeout().div_ceil(1000).clamp(5, 600);
+
+    if server.is_remote() {
+        codex_set(
+            &mut table,
+            "url",
+            TomlValue::from(server.url.as_deref().unwrap_or_default().trim()),
+        );
+        if !server.headers.is_empty() {
+            codex_set(
+                &mut table,
+                "http_headers",
+                TomlValue::InlineTable(codex_http_headers(server)),
+            );
+        }
+        codex_set(&mut table, "startup_timeout_sec", TomlValue::from(startup_sec as i64));
+        return table;
+    }
+
+    let resolved = resolve_argv(argv);
+    if let Some(command) = resolved.first() {
+        codex_set(&mut table, "command", TomlValue::from(command.as_str()));
+    }
+    if resolved.len() > 1 {
+        let mut args = Array::new();
+        for arg in &resolved[1..] {
+            args.push(TomlValue::from(arg.as_str()));
+        }
+        codex_set(&mut table, "args", TomlValue::Array(args));
+    }
+    let env = codex_env_table(server);
+    if !env.is_empty() {
+        codex_set(&mut table, "env", TomlValue::InlineTable(env));
+    }
+    codex_set(&mut table, "startup_timeout_sec", TomlValue::from(startup_sec as i64));
+    table
+}
+
+/// Mirror MCP choices into `~/.codex/config.toml` so Codex CLI picks them up
+/// without spawning servers until a Codex run needs them.
+fn write_codex_mcp_config(servers: &[McpServerEntry], removed: &[String]) -> Result<(), String> {
+    let path = codex_config_path()?;
+    let mut doc: DocumentMut = if path.is_file() {
+        let raw = std::fs::read_to_string(&path)
+            .map_err(|e| format!("อ่าน {} ไม่ได้: {e}", path.display()))?;
+        if raw.trim().is_empty() {
+            DocumentMut::new()
+        } else {
+            raw.parse().map_err(|e| {
+                format!(
+                    "{} ไม่ใช่ TOML ที่ถูกต้อง ({e}) — แก้ไฟล์ก่อนแล้วลองใหม่",
+                    path.display()
+                )
+            })?
+        }
+    } else {
+        DocumentMut::new()
+    };
+
+    let mcp_item = doc
+        .entry("mcp_servers")
+        .or_insert(Item::Table(Table::new()));
+    let mcp = mcp_item
+        .as_table_mut()
+        .ok_or("mcp_servers ใน config.toml ต้องเป็น table")?;
+
+    for id in removed {
+        mcp.remove(id);
+    }
+    let sent: HashSet<String> = servers.iter().map(|s| s.id.clone()).collect();
+    mcp.retain(|id, _| !id.starts_with(CUSTOM_PREFIX) || sent.contains(id));
+
+    for server in servers {
+        let argv = if server.enabled && !server.is_remote() {
+            resolve_argv(&server.command)
+        } else {
+            server.command.clone()
+        };
+        mcp.insert(server.id.as_str(), Item::Table(codex_server_table(server, &argv)));
+    }
+
+    write_private(&path, &doc.to_string())
+}
+
 // ── live server ──
 
 /// Config last applied per `(directory, id)` that reached `connected`.
@@ -555,6 +688,11 @@ pub async fn mcp_sync(
 
     let _guard = sync_lock().lock().await;
     write_opencode_mcp_config(&servers, &removed)?;
+    write_codex_mcp_config(&servers, &removed)?;
+
+    if !options.live_connect.unwrap_or(true) {
+        return Ok(McpSyncResult { servers: vec![] });
+    }
 
     let client = ensure_server().await?;
     let chat_dir = if options.mode.as_deref() == Some("chat") {
@@ -696,5 +834,33 @@ mod tests {
         server.enabled = false;
         server.command.clear();
         assert!(validate(&server).is_ok());
+    }
+
+    #[test]
+    fn codex_table_splits_command_and_args() {
+        let server = entry("github");
+        let table = codex_server_table(&server, &server.command);
+        assert_eq!(
+            table.get("enabled").and_then(|i| i.as_value()).and_then(|v| v.as_bool()),
+            Some(true)
+        );
+        assert!(table.contains_key("command"));
+        assert!(table
+            .get("args")
+            .and_then(|i| i.as_value())
+            .and_then(|v| v.as_array())
+            .is_some_and(|a| !a.is_empty()));
+    }
+
+    #[test]
+    fn codex_disabled_is_a_single_flag() {
+        let mut server = entry("word");
+        server.enabled = false;
+        let table = codex_server_table(&server, &[]);
+        assert_eq!(
+            table.get("enabled").and_then(|i| i.as_value()).and_then(|v| v.as_bool()),
+            Some(false)
+        );
+        assert!(!table.contains_key("command"));
     }
 }
