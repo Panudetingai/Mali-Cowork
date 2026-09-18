@@ -30,6 +30,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Fail in seconds, not after the Rust build, on config the bundler rejects.
+      - name: Check release config
+        shell: bash
+        run: |
+          id=$(node -p "require('./src-tauri/tauri.conf.json').identifier")
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [[ ! "$id" =~ ^[A-Za-z0-9.-]+$ ]]; then
+            echo "::error file=src-tauri/tauri.conf.json::identifier \"$id\" may only contain A-Z, a-z, 0-9, '-' and '.'"
+            exit 1
+          fi
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error file=src-tauri/tauri.conf.json::tag $GITHUB_REF_NAME does not match version $version (expected v$version)"
+            exit 1
+          fi
+          echo "identifier=$id version=$version"
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
@@ -51,7 +67,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v__VERSION__
+          # The pushed tag; a manual run releases the version in tauri.conf.json.
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
           releaseName: Mali Cowork v__VERSION__
           releaseBody: |
             ## Install

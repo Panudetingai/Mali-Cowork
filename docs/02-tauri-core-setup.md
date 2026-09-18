@@ -57,7 +57,7 @@ futures = "0.3"
 ```json
 {
   "productName": "Mali Cowork",
-  "identifier": "com.panudet.mali_cowork",
+  "identifier": "com.panudet.mali-cowork",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
