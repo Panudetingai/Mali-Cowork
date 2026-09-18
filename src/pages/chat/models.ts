@@ -1,5 +1,5 @@
 import type { CursorModel } from "@/features/cursor";
-import type { OpencodeModelsResult, WorkMode } from "@/features/opencode";
+import type { OpencodeModel, OpencodeModelsResult, WorkMode } from "@/features/opencode";
 import { providerContextLimit, type ProviderDef } from "@/features/providers";
 
 export type AiModel = {
@@ -16,6 +16,8 @@ export type AiModel = {
   needsLogin?: boolean;
   /** Context window in tokens, when known. */
   contextLimit?: number;
+  /** Why the model can't do Cowork's agent work; shown disabled when set. */
+  coworkIssue?: string;
 };
 
 export type ConfiguredProvider = { provider: ProviderDef; models: string[] };
@@ -67,6 +69,18 @@ export function apiModelOf(modelId: string) {
   return { provider: rest.slice(0, slash), model: rest.slice(slash + 1) };
 }
 
+/** Agent work needs tool calls and room for file contents and tool output. */
+const MIN_COWORK_CONTEXT = 32_000;
+
+/** Why a model is not fit for Cowork, or undefined when it is (or unknown). */
+export function coworkIssueOf(model: Pick<OpencodeModel, "toolCall" | "contextLimit">) {
+  if (model.toolCall === false) return "Can't call tools, so it can't work on files or use MCP";
+  if (model.contextLimit && model.contextLimit < MIN_COWORK_CONTEXT) {
+    return `Context window too small for agent work (${Math.round(model.contextLimit / 1000)}K)`;
+  }
+  return undefined;
+}
+
 /**
  * Selectable models for a mode. Chat talks to provider APIs and OpenCode
  * (without file access); Cowork only offers agents that can work on folders.
@@ -109,6 +123,7 @@ export function buildModelCatalog(
       free: m.free,
       needsKey: !m.connected,
       contextLimit: m.contextLimit ?? undefined,
+      coworkIssue: mode === "cowork" ? coworkIssueOf(m) : undefined,
     })),
   ];
 
@@ -138,7 +153,9 @@ export function buildModelCatalog(
 /** Resolve a stored id even before OpenCode models have loaded. */
 export function findModel(catalog: AiModel[], id: string): AiModel {
   const found = catalog.find((m) => m.id === id);
-  if (found) return found;
+  if (found && !found.coworkIssue) return found;
+  // A model picked in Chat that can't do agent work: use the default instead.
+  if (found) return catalog.find((m) => !m.coworkIssue) ?? found;
   if (isCursorModel(id)) {
     const model = cursorModelOf(id);
     return { id, name: model === "auto" ? "Cursor Agent" : model, provider: "cursor", group: "Cursor" };

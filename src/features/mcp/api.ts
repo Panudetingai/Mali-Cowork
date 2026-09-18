@@ -28,16 +28,22 @@ export type McpSyncOptions = {
   targets?: string[];
   /** Custom servers the user deleted. */
   removed?: string[];
+  /**
+   * `chat`: connect in Chat mode's session instead of `cwd`. The Filesystem
+   * server is left out there, since Chat has no file access.
+   */
+  mode?: "chat";
 };
 
 /** Push the saved MCP servers into OpenCode (config + running server). */
-export async function syncMcpServers({ cwd, targets, removed }: McpSyncOptions = {}): Promise<McpSyncResult | null> {
+export async function syncMcpServers({ cwd, targets, removed, mode }: McpSyncOptions = {}): Promise<McpSyncResult | null> {
   if (!isTauri()) return null;
   const servers = buildMcpSyncPayload(getMcpConnections(), getCustomMcps(), cwd ? [cwd] : undefined);
+  const chatTargets = mode === "chat" ? servers.map((s) => s.id).filter((id) => id !== "filesystem") : undefined;
   return invoke<McpSyncResult>("mcp_sync", {
     servers,
-    directory: cwd ?? null,
-    options: { targets: targets ?? null, removed: removed ?? [] },
+    directory: mode === "chat" ? null : (cwd ?? null),
+    options: { targets: targets ?? chatTargets ?? null, removed: removed ?? [], mode: mode ?? null },
   });
 }
 

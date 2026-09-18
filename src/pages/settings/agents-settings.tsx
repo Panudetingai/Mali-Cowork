@@ -26,8 +26,6 @@ import {
   StatusPill,
 } from "./ui";
 
-const CLI_PROVIDERS = PROVIDERS.filter((p) => p.cli);
-
 export function AgentsSettings() {
   const opencode = useOpencode();
   const cursor = useCursor();
@@ -198,7 +196,7 @@ export function AgentsSettings() {
           </p>
         </div>
         <CardGrid className="lg:grid-cols-3 2xl:grid-cols-3">
-          {CLI_PROVIDERS.map((p) => {
+          {PROVIDERS.map((p) => {
             const status = providerStatus(p, configs[p.id], envKeys);
             const inAgent = opencode.models?.providers.find((x) => x.id === p.id)?.connected;
             return (

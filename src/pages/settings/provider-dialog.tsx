@@ -69,7 +69,6 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
   const set = (patch: Partial<ProviderConfig>) => setDraft((prev) => ({ ...prev, ...patch }));
 
   async function syncAgent() {
-    if (!provider.cli) return true;
     try {
       await syncCliProviders();
       void refreshOpencode();
@@ -113,14 +112,14 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
           <DialogTitle className="truncate">{provider.name}</DialogTitle>
           <DialogDescription className="flex flex-wrap items-center gap-2 pt-1">
             <StatusPill tone={status.tone}>{status.label}</StatusPill>
-            {provider.cli && <StatusPill tone="neutral">Chat + Cowork</StatusPill>}
+            <StatusPill tone="neutral">Chat + Cowork</StatusPill>
           </DialogDescription>
         </div>
       </DialogHeader>
 
       <p className="text-sm text-muted-foreground">
         {provider.description}
-        {provider.cli && " ใช้ได้ทั้งหน้าแชท และ agent ในโหมด Cowork (OpenCode) — บันทึกแล้วซิงก์ให้อัตโนมัติ"}
+        {" ใช้ได้ทั้งหน้าแชท และ agent ในโหมด Cowork (OpenCode) พร้อม MCP ที่ตั้งไว้ — บันทึกแล้วซิงก์ให้อัตโนมัติ"}
       </p>
 
       <Field

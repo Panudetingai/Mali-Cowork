@@ -21,7 +21,7 @@ use std::sync::{Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::opencode::OpencodeClient;
+use super::opencode::{session_dir, OpencodeClient};
 use super::opencode::warm_up_server as ensure_server;
 use super::secure_fs::write_private;
 
@@ -77,6 +77,9 @@ pub struct McpSyncOptions {
     /// Ids the app no longer manages (deleted custom servers).
     #[serde(default)]
     pub removed: Vec<String>,
+    /// `chat`: connect in Chat mode's session folder instead of `directory`.
+    #[serde(default)]
+    pub mode: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -554,7 +557,16 @@ pub async fn mcp_sync(
     write_opencode_mcp_config(&servers, &removed)?;
 
     let client = ensure_server().await?;
-    let dir = directory.as_deref().map(str::trim).filter(|d| !d.is_empty());
+    let chat_dir = if options.mode.as_deref() == Some("chat") {
+        let dir = session_dir(Some("chat"), None);
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        Some(dir.to_string_lossy().into_owned())
+    } else {
+        None
+    };
+    let dir = chat_dir
+        .as_deref()
+        .or_else(|| directory.as_deref().map(str::trim).filter(|d| !d.is_empty()));
     let targets: Option<HashSet<&str>> = options
         .targets
         .as_ref()

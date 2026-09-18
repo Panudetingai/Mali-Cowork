@@ -31,12 +31,12 @@ pub struct ChatRequest {
     pub history: Vec<HistoryMessage>,
 }
 
-struct ProviderInfo {
-    base_url: &'static str,
-    env_var: Option<&'static str>,
+pub(crate) struct ProviderInfo {
+    pub base_url: &'static str,
+    pub env_var: Option<&'static str>,
 }
 
-fn provider_info(provider: &str) -> Result<ProviderInfo, String> {
+pub(crate) fn provider_info(provider: &str) -> Result<ProviderInfo, String> {
     let (base_url, env_var) = match provider {
         "anthropic" => ("https://api.anthropic.com/v1/", Some("ANTHROPIC_API_KEY")),
         "openai" => ("https://api.openai.com/v1", Some("OPENAI_API_KEY")),

@@ -100,6 +100,9 @@ async fn spawn_server() -> Result<Running, String> {
     if std::env::var_os("OPENCODE_CONFIG_CONTENT").is_none() {
         cmd.env("OPENCODE_CONFIG_CONTENT", app_config());
     }
+    // Skills in ~/.claude/skills belong to Claude Code; offered here, they
+    // pull the agent away from the MCP servers set up in this app.
+    cmd.env("OPENCODE_DISABLE_CLAUDE_CODE_SKILLS", "1");
     cmd.env("OPENCODE_SERVER_PASSWORD", &password)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

@@ -1,6 +1,6 @@
-//! Providers the app sets up for OpenCode, so Cowork (the CLI agent) can use
-//! the same models as Chat: OpenRouter models missing from models.dev, a
-//! local Ollama server and Ollama Cloud.
+//! Providers the app sets up for OpenCode, so Cowork (the CLI agent) and
+//! MCP tools can use the same models and keys as Chat: every provider from
+//! Settings → Models, plus a local Ollama server and Ollama Cloud.
 //!
 //! The provider config is layered over the user's own opencode config when the
 //! server starts (see `server::app_config`) and saved without secrets. API keys
@@ -13,10 +13,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use super::server::{ensure_server, restart};
+use crate::ai::provider_info;
 use crate::commands::secure_fs::write_private;
 
-/// Provider ids this module may configure.
-pub const APP_PROVIDERS: &[&str] = &["openrouter", "ollama", "ollama-cloud"];
+/// Provider ids this module may configure. All but `ollama` are built into
+/// opencode (models.dev), so only the user's extra models are added for them.
+pub const APP_PROVIDERS: &[&str] = &[
+    "anthropic", "openai", "google", "xai", "deepseek", "mistral", "alibaba", "zai",
+    "moonshotai", "openrouter", "groq", "ollama", "ollama-cloud",
+];
 
 const OLLAMA_LOCAL_URL: &str = "http://localhost:11434/v1";
 const OLLAMA_CLOUD_URL: &str = "https://ollama.com/v1";
@@ -101,6 +106,21 @@ fn models_map(models: &[String]) -> Result<Map<String, Value>, String> {
     Ok(out)
 }
 
+/// Settings may point a built-in provider at another host (a proxy, a
+/// regional endpoint); pass that on, but not the app's own default.
+fn custom_base_url(id: &str, raw: Option<&str>) -> Result<Option<String>, String> {
+    let Some(raw) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let default = provider_info(id)?.base_url;
+    // The app talks to Gemini through its OpenAI-compatible endpoint, which
+    // opencode's Gemini SDK cannot use.
+    if id == "google" || raw.trim_end_matches('/') == default.trim_end_matches('/') {
+        return Ok(None);
+    }
+    base_url(Some(raw), default).map(Some)
+}
+
 fn build_overlay(providers: &[CliProviderConfig]) -> Result<Map<String, Value>, String> {
     let mut overlay = Map::new();
     for provider in providers {
@@ -110,8 +130,6 @@ fn build_overlay(providers: &[CliProviderConfig]) -> Result<Map<String, Value>, 
         }
         let has_key = provider.api_key.as_deref().is_some_and(|k| !k.trim().is_empty());
         let config = match provider.id.as_str() {
-            // Built into opencode; only add models it does not list yet.
-            "openrouter" => json!({ "models": models }),
             "ollama" => json!({
                 "npm": "@ai-sdk/openai-compatible",
                 "name": "Ollama (local)",
@@ -130,6 +148,14 @@ fn build_overlay(providers: &[CliProviderConfig]) -> Result<Map<String, Value>, 
                     "options": options,
                     "models": models,
                 })
+            }
+            // Built into opencode: keep its SDK, add the models it may not list yet.
+            id if APP_PROVIDERS.contains(&id) => {
+                let mut config = json!({ "models": models });
+                if let Some(url) = custom_base_url(id, provider.base_url.as_deref())? {
+                    config["options"] = json!({ "baseURL": url });
+                }
+                config
             }
             other => return Err(format!("Provider {other} cannot be configured for OpenCode")),
         };
@@ -194,8 +220,24 @@ mod tests {
     }
 
     #[test]
+    fn builtin_providers_get_models_and_only_custom_hosts() {
+        let mut openai = provider("openai", &["gpt-4o"]);
+        openai.base_url = Some("https://api.openai.com/v1/".into());
+        let mut google = provider("google", &["gemini-2.5-flash"]);
+        google.base_url = Some("https://example.com/v1".into());
+        let mut groq = provider("groq", &["openai/gpt-oss-120b"]);
+        groq.base_url = Some("https://proxy.example.com/groq".into());
+        let overlay = build_overlay(&[openai, google, groq]).unwrap();
+        assert!(overlay["openai"]["models"]["gpt-4o"].is_object());
+        assert!(overlay["openai"].get("options").is_none(), "default host is not repeated");
+        assert!(overlay["google"].get("options").is_none(), "Gemini keeps its native endpoint");
+        assert_eq!(overlay["groq"]["options"]["baseURL"], "https://proxy.example.com/groq");
+        assert!(overlay["groq"].get("npm").is_none(), "built-ins keep their own SDK");
+    }
+
+    #[test]
     fn rejects_unknown_providers_and_bad_input() {
-        assert!(build_overlay(&[provider("anthropic", &["x"])]).is_err());
+        assert!(build_overlay(&[provider("unknown", &["x"])]).is_err());
         assert!(build_overlay(&[provider("ollama", &["bad model"])]).is_err());
         let mut bad_url = provider("ollama", &["m"]);
         bad_url.base_url = Some("file:///etc".into());

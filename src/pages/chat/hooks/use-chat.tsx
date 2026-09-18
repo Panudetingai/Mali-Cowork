@@ -31,7 +31,7 @@ import type {
     PermissionRequest,
     StreamMetadata,
 } from "@/pages/chat/api/chat";
-import { generateStream } from "@/pages/chat/api/router";
+import { generateStream, runModelIdFor } from "@/pages/chat/api/router";
 import { useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { contextUsage } from "../context-usage";
@@ -162,12 +162,20 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
       const chatKey = chat.id;
       const history = toHistory(chat.messages);
       const assistantId = crypto.randomUUID();
-      const isOpencode = isOpencodeModel(modelId);
-      const isCursor = isCursorModel(modelId);
+      // API models run through OpenCode while MCP servers are on.
+      const runModelId = runModelIdFor(modelId);
+      const isOpencode = isOpencodeModel(runModelId);
+      const isCursor = isCursorModel(runModelId);
       let hasErrored = false;
 
-      if (isOpencode && chatMode === "cowork" && folders[0] && hasEnabledMcp()) {
-        await syncMcpServers({ cwd: folders[0] }).catch(() => undefined);
+      if (isOpencode && hasEnabledMcp()) {
+        const mcpSync =
+          chatMode === "chat"
+            ? syncMcpServers({ cwd: normalizeFolder(loadOpencodeSettings().cwd), mode: "chat" })
+            : folders[0]
+              ? syncMcpServers({ cwd: folders[0] })
+              : undefined;
+        await mcpSync?.catch(() => undefined);
       }
 
       updateChatMessages(chatKey, (prev) => [
@@ -175,7 +183,7 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
         createUserMessage(prompt),
         createAssistantPlaceholder(modelId, assistantId),
       ]);
-      const runToken = startRun(chatKey, modelId);
+      const runToken = startRun(chatKey, runModelId);
 
       const update = (fn: (message: ChatMessage) => ChatMessage) =>
         updateChatMessages(chatKey, (prev) => prev.map((m) => (m.id === assistantId ? fn(m) : m)));
@@ -206,7 +214,7 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
         await generateStream(
           {
             prompt,
-            modelId,
+            modelId: runModelId,
             sessionId: isOpencode
               ? chat.opencodeSessionId
               : isCursor

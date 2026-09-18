@@ -60,6 +60,7 @@ export function ModelPicker({ models, selected, loading, onSelect }: Props) {
                   <ModelSelectorItem
                     key={model.id}
                     value={`${model.group} ${model.name} ${model.id}`}
+                    disabled={!!model.coworkIssue}
                     onSelect={() => {
                       onSelect(model);
                       setOpen(false);
@@ -70,7 +71,15 @@ export function ModelPicker({ models, selected, loading, onSelect }: Props) {
                     )}
                   >
                     <Logo provider={model.provider} />
-                    <ModelSelectorName className="min-w-0">{model.name}</ModelSelectorName>
+                    {model.coworkIssue ? (
+                      // Disabled items get no pointer events, so the reason is spelled out.
+                      <div className="flex min-w-0 flex-1 flex-col">
+                        <ModelSelectorName className="min-w-0">{model.name}</ModelSelectorName>
+                        <span className="truncate text-[11px] text-muted-foreground">{model.coworkIssue}</span>
+                      </div>
+                    ) : (
+                      <ModelSelectorName className="min-w-0">{model.name}</ModelSelectorName>
+                    )}
                     <ModelBadge model={model} />
                     {active && <CheckIcon className="size-4 shrink-0 text-foreground" />}
                   </ModelSelectorItem>
@@ -85,6 +94,13 @@ export function ModelPicker({ models, selected, loading, onSelect }: Props) {
 }
 
 function ModelBadge({ model }: { model: AiModel }) {
+  if (model.coworkIssue) {
+    return (
+      <span className="ml-auto shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+        Not for Cowork
+      </span>
+    );
+  }
   if (model.needsLogin) {
     return (
       <span
@@ -129,10 +145,14 @@ function Logo({ provider }: { provider: string }) {
   );
 }
 
+/** Models by group, with the ones unfit for Cowork last in each. */
 function groupModels(models: AiModel[]) {
   const groups = new Map<string, AiModel[]>();
   for (const model of models) {
     groups.set(model.group, [...(groups.get(model.group) ?? []), model]);
   }
-  return [...groups];
+  return [...groups].map(
+    ([group, items]) =>
+      [group, [...items].sort((a, b) => Number(!!a.coworkIssue) - Number(!!b.coworkIssue))] as const,
+  );
 }

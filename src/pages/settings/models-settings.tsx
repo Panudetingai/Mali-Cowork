@@ -50,7 +50,6 @@ export function ModelsSettings() {
                     </IconTile>
                   }
                   title={provider.name}
-                  badge={provider.cli ? <StatusPill tone="neutral">Chat + Cowork</StatusPill> : undefined}
                   description={provider.description}
                   onOpen={() => setOpen(provider)}
                   openLabel={`ตั้งค่า ${provider.name}`}

@@ -17,8 +17,6 @@ export type ProviderDef = {
    * continues in a new chat instead of failing (e.g. Groq's free-tier TPM cap).
    */
   contextLimit?: number;
-  /** Also usable by the OpenCode agent (Cowork), synced on save. */
-  cli?: boolean;
   /** Where to get an API key. */
   keyUrl?: string;
 };
@@ -33,7 +31,6 @@ export const PROVIDERS: ProviderDef[] = [
     defaultBaseUrl: "http://localhost:11434/v1",
     defaultModels: "",
     keyRequired: false,
-    cli: true,
   },
   {
     id: "ollama-cloud",
@@ -45,7 +42,6 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModels: "gpt-oss:120b",
     keyRequired: true,
     envVar: "OLLAMA_API_KEY",
-    cli: true,
     keyUrl: "https://ollama.com/settings/keys",
   },
   {
@@ -166,7 +162,6 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModels: "z-ai/glm-5.2:free",
     keyRequired: true,
     envVar: "OPENROUTER_API_KEY",
-    cli: true,
     keyUrl: "https://openrouter.ai/settings/keys",
   },
   {

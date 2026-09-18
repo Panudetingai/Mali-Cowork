@@ -24,6 +24,7 @@ mod providers;
 mod server;
 
 pub(crate) use client::OpencodeClient;
+pub(crate) use commands::session_dir;
 pub use commands::{
     opencode_abort, opencode_check, opencode_default_cwd, opencode_delete_session,
     opencode_generate, opencode_list_models, opencode_permission_reply, opencode_set_auth,
@@ -110,6 +111,8 @@ pub struct OpencodeModel {
     pub connected: bool,
     /// Context window in tokens, when known.
     pub context_limit: Option<u64>,
+    /// Can call tools (files, MCP); `None` when the model has no metadata.
+    pub tool_call: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
