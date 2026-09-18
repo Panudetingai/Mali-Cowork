@@ -182,23 +182,7 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
       const isGemini = isGeminiModel(modelId);
       let hasErrored = false;
 
-      if (hasEnabledMcp() && (isOpencode || isCodex)) {
-        const cwd =
-          chatMode === "chat"
-            ? normalizeFolder(loadOpencodeSettings().cwd)
-            : folders[0];
-        const mcpSync = cwd
-          ? syncMcpServers({
-              cwd,
-              mode: chatMode === "chat" ? "chat" : undefined,
-              liveConnect: isOpencode,
-            })
-          : isCodex
-            ? syncMcpServers({ liveConnect: false })
-            : undefined;
-        await mcpSync?.catch(() => undefined);
-      }
-
+      // Show the prompt right away; anything slow (MCP sync) runs after.
       updateChatMessages(chatKey, (prev) => [
         ...prev,
         createUserMessage(prompt, resend),
@@ -232,6 +216,25 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
       };
 
       try {
+        // Live-connecting MCP servers can take seconds; the reply placeholder
+        // already shows the run as started meanwhile.
+        if (hasEnabledMcp() && (isOpencode || isCodex)) {
+          const cwd =
+            chatMode === "chat"
+              ? normalizeFolder(loadOpencodeSettings().cwd)
+              : folders[0];
+          const mcpSync = cwd
+            ? syncMcpServers({
+                cwd,
+                mode: chatMode === "chat" ? "chat" : undefined,
+                liveConnect: isOpencode,
+              })
+            : isCodex
+              ? syncMcpServers({ liveConnect: false })
+              : undefined;
+          await mcpSync?.catch(() => undefined);
+        }
+
         await generateStream(
           {
             prompt,
@@ -252,8 +255,7 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
             folders: grantsFor(folders),
           },
           {
-            onChunk: (text) =>
-              update((m) => ({ ...m, content: m.content + text })),
+            onChunk: (text) => update((m) => withChunk(m, text)),
             onReasoning: (reasoning) =>
               update((m) => ({ ...m, reasoning: (m.reasoning ?? "") + reasoning })),
             onActivity: (activity) =>
@@ -523,14 +525,28 @@ function finalizeActivities(activities: ActivityItem[]) {
   return activities.map((a) => (a.done ? a : { ...a, done: true }));
 }
 
+/**
+ * Append reply text. Text that follows a step starts a new paragraph, so
+ * "…then I'll rename them." and "Done: …" never run together in the copy.
+ */
+function withChunk(message: ChatMessage, text: string): ChatMessage {
+  const last = message.activities?.at(-1);
+  const content = message.content;
+  const afterStep =
+    last?.offset === content.length && content.trim() !== "" && !/\n\s*$/.test(content);
+  return { ...message, content: content + (afterStep ? `\n\n${text.trimStart()}` : text) };
+}
+
 /** Merge a streamed activity into the message's step list. */
-function withActivity(message: ChatMessage, activity: ActivityItem): ChatMessage {
+function withActivity(message: ChatMessage, incoming: ActivityItem): ChatMessage {
   const prev = message.activities ?? [];
+  // A new step is placed where the text is now; updates keep their place.
+  const activity = { ...incoming, offset: message.content.length };
   if (activity.id) {
     const index = prev.findIndex((a) => a.id === activity.id);
     if (index >= 0) {
       const activities = [...prev];
-      activities[index] = { ...prev[index], ...activity };
+      activities[index] = { ...prev[index], ...activity, offset: prev[index].offset };
       return { ...message, activities };
     }
     return {
@@ -543,7 +559,7 @@ function withActivity(message: ChatMessage, activity: ActivityItem): ChatMessage
   if (last && (last.title === activity.title || (last.kind === activity.kind && !last.done && activity.done))) {
     return {
       ...message,
-      activities: [...prev.slice(0, -1), { ...last, ...activity }],
+      activities: [...prev.slice(0, -1), { ...last, ...activity, offset: last.offset }],
     };
   }
   return {
@@ -579,16 +595,4 @@ function replaceAssistantWithError(
     ...messages.filter((item) => item.id !== assistantId),
     createErrorMessage(content),
   ];
-}
-
-// scroll to bottom of chain of thought steps
-export function useScrollToBottomOfChainOfThoughtSteps() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const scrollToBottom = useCallback(() => {
-    containerRef.current?.scrollTo({
-      top: containerRef.current?.scrollHeight,
-      behavior: "smooth",
-    });
-  }, []);
-  return { containerRef, scrollToBottom };
 }

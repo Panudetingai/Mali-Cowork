@@ -15,15 +15,28 @@ use super::{GeminiCheckResult, GeminiModel, GeminiRequest};
 
 const CHECK_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// The CLI has no `status` command, so sign-in is detected best-effort:
-/// an API key in the environment or OAuth credentials on disk.
-fn is_logged_in() -> (bool, Option<String>) {
-    for key in ["GEMINI_API_KEY", "GOOGLE_API_KEY"] {
-        if let Ok(value) = std::env::var(key) {
+/// The key handed to `gemini` as `GEMINI_API_KEY`: the one from Settings
+/// first, then the environment. `GOOGLE_API_KEY` is mapped over because the
+/// CLI's API-key sign-in only accepts `GEMINI_API_KEY`.
+pub fn api_key_for(settings_key: Option<&str>) -> Option<(String, &'static str)> {
+    if let Some(key) = settings_key.map(str::trim).filter(|k| !k.is_empty()) {
+        return Some((key.to_string(), "Settings"));
+    }
+    for name in ["GEMINI_API_KEY", "GOOGLE_API_KEY"] {
+        if let Ok(value) = std::env::var(name) {
             if !value.trim().is_empty() {
-                return (true, Some(format!("API key ({key})")));
+                return Some((value.trim().to_string(), name));
             }
         }
+    }
+    None
+}
+
+/// The CLI has no `status` command, so sign-in is detected best-effort:
+/// an API key (Settings or environment) or OAuth credentials on disk.
+fn is_logged_in(settings_key: Option<&str>) -> (bool, Option<String>) {
+    if let Some((_, from)) = api_key_for(settings_key) {
+        return (true, Some(format!("API key ({from})")));
     }
     if let Some(home) = dirs::home_dir() {
         // OAuth login from interactive `gemini` stores credentials here.
@@ -35,7 +48,7 @@ fn is_logged_in() -> (bool, Option<String>) {
 }
 
 #[tauri::command]
-pub async fn gemini_check() -> GeminiCheckResult {
+pub async fn gemini_check(api_key: Option<String>) -> GeminiCheckResult {
     let Some(bin) = gemini_bin() else {
         return GeminiCheckResult {
             available: false,
@@ -62,7 +75,7 @@ pub async fn gemini_check() -> GeminiCheckResult {
         }
     };
 
-    let (logged_in, account) = is_logged_in();
+    let (logged_in, account) = is_logged_in(api_key.as_deref());
     GeminiCheckResult {
         available: true,
         logged_in,
@@ -70,7 +83,7 @@ pub async fn gemini_check() -> GeminiCheckResult {
         path,
         account,
         error: (!logged_in).then(|| {
-            "Not signed in to Gemini. Run `gemini` once to sign in with Google, or set GEMINI_API_KEY.".into()
+            "Not signed in to Gemini. Add a Gemini API key in Settings → Models, or run `gemini` once and choose \"Sign in with Google\".".into()
         }),
     }
 }
@@ -97,8 +110,6 @@ pub fn build_args(request: &GeminiRequest) -> Vec<String> {
     } else {
         args.extend(["--approval-mode".into(), "yolo".into()]);
     }
-    // Skip the folder trust check: the user already granted these folders.
-    args.push("--skip-trust".into());
 
     if let Some(model) = request
         .model
@@ -171,6 +182,9 @@ async fn run_prompt(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    if let Some((key, _)) = api_key_for(request.api_key.as_deref()) {
+        cmd.env("GEMINI_API_KEY", key);
+    }
     // Gemini CLI is project-scoped: it reads settings and sessions from cwd.
     if let Some(cwd) = request.workspace() {
         cmd.current_dir(cwd);
@@ -223,7 +237,7 @@ async fn run_prompt(
     let stderr_text = errors.lock().unwrap().join("\n");
 
     if let Some(message) = failure {
-        return Err(message);
+        return Err(known_error(&format!("{message}\n{stderr_text}")).unwrap_or(message));
     }
     if finished {
         return on_event
@@ -233,19 +247,58 @@ async fn run_prompt(
             .map_err(|e| e.to_string());
     }
     if status.success() {
-        return Err(format!("gemini ended without a reply.{}", tail(&stderr_text)));
+        return Err(known_error(&stderr_text)
+            .unwrap_or_else(|| format!("gemini ended without a reply.{}", tail(&stderr_text))));
     }
     // Exit 42 = bad input, 53 = turn limit; surface stderr so it is actionable.
-    Err(format!("gemini exited with {status}.{}", tail(&stderr_text)))
+    Err(known_error(&stderr_text)
+        .unwrap_or_else(|| format!("gemini exited with {status}.{}", tail(&stderr_text))))
 }
 
+/// Failures with a known fix get a plain explanation instead of a stack trace.
+fn known_error(stderr: &str) -> Option<String> {
+    // Exit 41 = auth: the CLI is set to API-key sign-in but got no key.
+    if stderr.contains("must specify the GEMINI_API_KEY") {
+        return Some(MISSING_KEY.into());
+    }
+    let limited = ["status: 429", "\"code\":429", "RESOURCE_EXHAUSTED", "Quota exceeded", "Too Many Requests"]
+        .iter()
+        .any(|needle| stderr.contains(needle));
+    limited.then(|| RATE_LIMITED.into())
+}
+
+const MISSING_KEY: &str = "Gemini CLI is set to sign in with an API key, but it got none. \
+A key saved in gemini's own /auth screen only works in its terminal UI, not here.\n\n\
+Fix one of these:\n\
+• Add your key in Settings → Models → Gemini (from https://aistudio.google.com/app/apikey), or\n\
+• Run `gemini` in a terminal, type /auth and choose \"Sign in with Google\".";
+
+const RATE_LIMITED: &str = "Gemini API: 429 Too Many Requests — the quota for this API key is used up \
+(the free tier allows only a few requests per minute and per day, and one task can use many).\n\n\
+Try one of these:\n\
+• Wait a minute and send again (per-minute limit), or try tomorrow (daily limit)\n\
+• Switch to Gemini 2.5 Flash — it has a bigger free quota than Pro\n\
+• Check usage or turn on billing at https://aistudio.google.com/usage\n\
+• Or sign in with Google instead of a key: run `gemini`, type /auth, choose \"Sign in with Google\"";
+
 fn tail(stderr: &str) -> String {
-    let text = stderr.trim();
-    if text.is_empty() {
+    // Stack frames and startup chatter hide the one line that matters.
+    let lines: Vec<&str> = stderr
+        .lines()
+        .map(str::trim_end)
+        .filter(|l| {
+            let t = l.trim_start();
+            !t.is_empty()
+                && !t.starts_with("at ")
+                && !t.starts_with("[STARTUP]")
+                && !t.starts_with("YOLO mode is enabled")
+        })
+        .collect();
+    if lines.is_empty() {
         return String::new();
     }
-    let lines: Vec<&str> = text.lines().rev().take(12).collect();
-    format!("\n\n— gemini —\n{}", lines.into_iter().rev().collect::<Vec<_>>().join("\n"))
+    let start = lines.len().saturating_sub(12);
+    format!("\n\n— gemini —\n{}", lines[start..].join("\n"))
 }
 
 fn collect_stderr<R>(stderr: R) -> std::sync::Arc<Mutex<Vec<String>>>
@@ -334,6 +387,7 @@ mod tests {
             mode: Some(mode.into()),
             folders,
             run_id: "run1".into(),
+            api_key: None,
         }
     }
 
@@ -345,7 +399,8 @@ mod tests {
     fn chat_mode_is_read_only_plan() {
         let args = build_args(&request("chat", vec![]));
         assert!(args.windows(2).any(|w| w == ["--approval-mode", "plan"]));
-        assert!(args.iter().any(|a| a == "--skip-trust"));
+        // Not a flag this CLI knows: passing it makes gemini exit 1.
+        assert!(!args.iter().any(|a| a == "--skip-trust"));
         assert!(args.windows(2).any(|w| w == ["--output-format", "stream-json"]));
         // Chat never resumes or exposes folders.
         assert!(!args.iter().any(|a| a == "-r"));
@@ -377,6 +432,23 @@ mod tests {
         assert!(prompt.contains("read-only"));
         assert!(prompt.ends_with("do it"));
         assert_eq!(prompt_with_notes(&request("chat", vec![grant("/docs", "read")])), "do it");
+    }
+
+    #[test]
+    fn rate_limits_get_a_plain_explanation() {
+        let stderr = "    at async retryWithBackoff (file:///x.js:1:1) {\n  status: 429\n}\nYOLO mode is enabled.";
+        assert_eq!(known_error(stderr).as_deref(), Some(RATE_LIMITED));
+        assert_eq!(known_error("must specify the GEMINI_API_KEY").as_deref(), Some(MISSING_KEY));
+        assert!(known_error("something else").is_none());
+        assert_eq!(tail(stderr), "\n\n— gemini —\n  status: 429\n}");
+    }
+
+    #[test]
+    fn settings_key_wins_over_the_environment() {
+        assert_eq!(
+            api_key_for(Some("  from-settings ")),
+            Some(("from-settings".into(), "Settings"))
+        );
     }
 
     #[test]

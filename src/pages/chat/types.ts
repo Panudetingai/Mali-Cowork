@@ -18,6 +18,11 @@ export type ActivityItem = {
   detail?: string;
   done: boolean;
   durationMs?: number;
+  /**
+   * Length of the reply text when the step started, so text and steps render
+   * in the order they happened. Missing on replies saved before this existed.
+   */
+  offset?: number;
 };
 
 export type ChatMessage = {

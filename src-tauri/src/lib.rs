@@ -17,6 +17,61 @@ use commands::opencode::{
     opencode_warm, shutdown_server, warm_up_server,
 };
 
+/// Windows/Linux: no menu bar in the window.
+/// macOS: the menu lives in the global menu bar, and Cmd+C / Cmd+V / Cmd+X /
+/// Cmd+A / Cmd+Z only reach the webview through the Edit menu's items, so an
+/// empty menu breaks copy and paste everywhere in the app.
+fn app_menu<R: tauri::Runtime>(
+    handle: &tauri::AppHandle<R>,
+) -> tauri::Result<tauri::menu::Menu<R>> {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::menu::{Menu, PredefinedMenuItem, Submenu};
+        let app = Submenu::with_items(
+            handle,
+            "Mali Cowork",
+            true,
+            &[
+                &PredefinedMenuItem::about(handle, None, None)?,
+                &PredefinedMenuItem::separator(handle)?,
+                &PredefinedMenuItem::hide(handle, None)?,
+                &PredefinedMenuItem::hide_others(handle, None)?,
+                &PredefinedMenuItem::show_all(handle, None)?,
+                &PredefinedMenuItem::separator(handle)?,
+                &PredefinedMenuItem::quit(handle, None)?,
+            ],
+        )?;
+        let edit = Submenu::with_items(
+            handle,
+            "Edit",
+            true,
+            &[
+                &PredefinedMenuItem::undo(handle, None)?,
+                &PredefinedMenuItem::redo(handle, None)?,
+                &PredefinedMenuItem::separator(handle)?,
+                &PredefinedMenuItem::cut(handle, None)?,
+                &PredefinedMenuItem::copy(handle, None)?,
+                &PredefinedMenuItem::paste(handle, None)?,
+                &PredefinedMenuItem::select_all(handle, None)?,
+            ],
+        )?;
+        let window = Submenu::with_items(
+            handle,
+            "Window",
+            true,
+            &[
+                &PredefinedMenuItem::minimize(handle, None)?,
+                &PredefinedMenuItem::close_window(handle, None)?,
+            ],
+        )?;
+        Menu::with_items(handle, &[&app, &edit, &window])
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        tauri::menu::Menu::new(handle)
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // โหลด .env ที่ root ของโปรเจค (D:\mali_cowork\.env) — Rust ไม่ได้โหลดอัตโนมัติ
@@ -29,9 +84,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        // ลบ native menu bar ทั้ง Windows/Linux และ macOS (global menu)
-        // ถ้าไม่สร้าง menu จะไม่มีแถบเมนูในหน้าต่าง; บน macOS จะเหลือแค่ชื่อแอปแบบว่างๆ
-        .menu(|handle| tauri::menu::Menu::new(handle))
+        .menu(app_menu)
         .setup(|_| {
             // Start opencode in the background so the first prompt is fast.
             tauri::async_runtime::spawn(async {

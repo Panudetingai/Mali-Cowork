@@ -1,12 +1,6 @@
 "use client";
 
 import {
-    ChainOfThought,
-    ChainOfThoughtContent,
-    ChainOfThoughtHeader,
-    ChainOfThoughtStep,
-} from "@/components/ai-elements/chain-of-thought";
-import {
     Message,
     MessageAction,
     MessageActions,
@@ -15,24 +9,16 @@ import {
 } from "@/components/ai-elements/message";
 import { CoworkBot } from "@/components/anim/cowork-bot";
 import { cn } from "@/lib/utils";
-import type { LucideIcon } from "lucide-react";
 import {
-    Brain,
     CheckIcon,
     CopyIcon,
-    FileTextIcon,
-    HammerIcon,
-    LockIcon,
     RotateCcwIcon,
-    SearchIcon,
-    SparklesIcon,
-    TerminalIcon,
     ThumbsDownIcon,
     ThumbsUpIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { useScrollToBottomOfChainOfThoughtSteps } from "../../hooks/use-chat";
+import { useMemo, useState } from "react";
 import type { ActivityItem } from "../../types";
+import { AgentSteps, segmentReply } from "./agent-steps";
 import { ExpandableClamp } from "./expandable-clamp";
 
 type Props = {
@@ -57,40 +43,6 @@ type Props = {
   onRate?: (value: "up" | "down") => void;
 };
 
-function titleSlice(title: string, maxLength: number) {
-  return title.length > maxLength ? title.slice(0, maxLength) + "..." : title;
-}
-
-function activityStepIcon(kind: string, done: boolean): LucideIcon {
-  if (done) return CheckIcon;
-  switch (kind) {
-    case "tool":
-      return HammerIcon;
-    case "step":
-      return TerminalIcon;
-    case "file":
-      return FileTextIcon;
-    case "permission":
-      return LockIcon;
-    case "search":
-      return SearchIcon;
-    case "system":
-      return SparklesIcon;
-    default:
-      return Brain;
-  }
-}
-
-function stepStatus(
-  activity: ActivityItem,
-  isActive: boolean,
-  isStreaming?: boolean,
-): "complete" | "active" | "pending" {
-  if (activity.done) return "complete";
-  if (isActive && isStreaming) return "active";
-  return "pending";
-}
-
 export function AssistantMessage({
   content,
   reasoning,
@@ -109,7 +61,6 @@ export function AssistantMessage({
   const isOpencode = id.startsWith("opencode:");
   const isCli = isOpencode || id.startsWith("cli:");
   const agentName = isOpencode ? "OpenCode" : id.split(":")[1];
-  const { containerRef } = useScrollToBottomOfChainOfThoughtSteps();
 
   const hasReasoning = Boolean(reasoning?.trim());
   const hasContent = Boolean(content.trim());
@@ -121,21 +72,10 @@ export function AssistantMessage({
   const waitingOnTool = Boolean(lastActivity && !lastActivity.done);
   const showAgentSpinner =
     isStreaming && (waitingOnTool || !hasContent);
+  // The step still running, if any: only the last one can be.
+  const runningIndex = isStreaming && waitingOnTool ? activities!.length - 1 : undefined;
 
-  const [chainOpen, setChainOpen] = useState(
-    () => !!isStreaming && hasActivities,
-  );
-
-  useEffect(() => {
-    if (!hasActivities) return;
-    if (!isStreaming && activities!.every((a) => a.done)) {
-      setChainOpen(false);
-      return;
-    }
-    if (isStreaming && activities!.some((a) => !a.done)) {
-      setChainOpen(true);
-    }
-  }, [hasActivities, isStreaming, activities]);
+  const segments = useMemo(() => segmentReply(content, activities), [content, activities]);
 
   const handleCopy = async () => {
     const text = [reasoning, content].filter(Boolean).join("\n\n");
@@ -146,61 +86,37 @@ export function AssistantMessage({
 
   return (
     <Message from="assistant">
-      {hasActivities && (
-        <ChainOfThought
-          className="space-y-2"
-          open={chainOpen}
-          onOpenChange={setChainOpen}
-        >
-          <ChainOfThoughtHeader className="text-xs font-medium">
-            Process Steps ({activities!.length})
-          </ChainOfThoughtHeader>
-          <ChainOfThoughtContent>
-            <div ref={containerRef} className="flex flex-col gap-3">
-            {activities!.map((activity, idx) => {
-              const hasDetail = Boolean(activity.detail?.trim());
-              const isActive = idx === activities!.length - 1;
-              return (
-                <ChainOfThoughtStep
-                  key={activity.id ?? `${activity.kind}-${idx}-${activity.title}`}
-                  icon={activityStepIcon(activity.kind, activity.done)}
-                  label={titleSlice(activity.title, 120)}
-                  status={stepStatus(activity, isActive, isStreaming)}
-                >
-                  {hasDetail && (
-                    <div className="max-h-24 overflow-auto rounded-md border bg-muted/40 px-2 py-1.5 text-[11px]">
-                      <MessageResponse className="text-[11px] leading-relaxed">
-                        {activity.detail}
-                      </MessageResponse>
-                    </div>
-                  )}
-                </ChainOfThoughtStep>
-              );
-            })}
-            </div>
-          </ChainOfThoughtContent>
-        </ChainOfThought>
-      )}
       <MessageContent
         className={cn(
           "w-full max-w-none bg-transparent px-0 py-0 shadow-none",
         )}
       >
-        {hasContent ? (
-          isStreaming && isCli && waitingOnTool ? (
-            <pre className="text-sm whitespace-pre-wrap break-words">
-              {content}
-            </pre>
-          ) : (
-            <ExpandableClamp
-              maxHeightClass="max-h-[min(70vh,32rem)]"
-              disabled={isStreaming}
-            >
-              <MessageResponse className="text-sm" isAnimating={contentIsAnimating}>
-                {content}
-              </MessageResponse>
-            </ExpandableClamp>
-          )
+        {segments.length > 0 ? (
+          <ExpandableClamp
+            maxHeightClass="max-h-[min(70vh,32rem)]"
+            disabled={isStreaming}
+          >
+            {/* Text and steps in the order they happened. */}
+            {segments.map((segment, index) =>
+              segment.type === "steps" ? (
+                <AgentSteps
+                  key={`steps-${segment.first}`}
+                  steps={segment.steps}
+                  runningIndex={
+                    runningIndex === undefined ? undefined : runningIndex - segment.first
+                  }
+                />
+              ) : (
+                <MessageResponse
+                  key={`text-${index}`}
+                  className="text-sm"
+                  isAnimating={contentIsAnimating && index === segments.length - 1}
+                >
+                  {segment.text.trim()}
+                </MessageResponse>
+              ),
+            )}
+          </ExpandableClamp>
         ) : showEmptyState ? (
           <div className="px-4 py-3 text-sm italic text-muted-foreground">
             No response received.

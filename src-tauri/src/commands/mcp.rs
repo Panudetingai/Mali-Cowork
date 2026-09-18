@@ -272,6 +272,45 @@ fn resolve_argv(argv: &[String]) -> Vec<String> {
     out
 }
 
+/// Servers that always write a file into the folder they start in, with no
+/// setting to stop it: `@mkusaka/mcp-shell-server` writes `mcp-shell.log`.
+/// Agents start MCP servers in the user's working folder, so these are
+/// started in the app's own folder instead.
+const WRITES_TO_CWD: [&str; 1] = ["@mkusaka/mcp-shell-server"];
+
+fn mcp_work_dir() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("mali-cowork")
+        .join("mcp")
+}
+
+/// The argv written to agent configs: `argv[0]` resolved, and servers from
+/// [`WRITES_TO_CWD`] started in [`mcp_work_dir`] so their files stay out of
+/// the user's folders.
+fn launch_argv(argv: &[String]) -> Vec<String> {
+    let resolved = resolve_argv(argv);
+    let writes_to_cwd = argv
+        .iter()
+        .any(|arg| WRITES_TO_CWD.iter().any(|pkg| arg.starts_with(pkg)));
+    if !cfg!(unix) || !writes_to_cwd {
+        return resolved;
+    }
+    let dir = mcp_work_dir();
+    if std::fs::create_dir_all(&dir).is_err() {
+        return resolved;
+    }
+    // `$0` is the folder, `$@` the real command.
+    let mut out: Vec<String> = vec![
+        "/bin/sh".into(),
+        "-c".into(),
+        r#"cd "$0" && exec "$@""#.into(),
+        dir.to_string_lossy().into_owned(),
+    ];
+    out.extend(resolved);
+    out
+}
+
 /// `PATH` for the MCP child, so `npx` can find `node` even from a GUI launch.
 fn child_path() -> Option<String> {
     let mut paths: Vec<PathBuf> = std::env::var_os("PATH")
@@ -350,7 +389,7 @@ fn server_config(server: &McpServerEntry, command: &[String]) -> Value {
     }
     json!({
         "type": "local",
-        "command": resolve_argv(command),
+        "command": launch_argv(command),
         "enabled": true,
         "timeout": server.timeout(),
         "environment": environment,
@@ -468,7 +507,7 @@ fn codex_server_table(server: &McpServerEntry, argv: &[String]) -> Table {
         return table;
     }
 
-    let resolved = resolve_argv(argv);
+    let resolved = launch_argv(argv);
     if let Some(command) = resolved.first() {
         codex_set(&mut table, "command", TomlValue::from(command.as_str()));
     }
@@ -850,6 +889,20 @@ mod tests {
             .and_then(|i| i.as_value())
             .and_then(|v| v.as_array())
             .is_some_and(|a| !a.is_empty()));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn shell_server_starts_outside_the_users_folders() {
+        let argv: Vec<String> = ["npx", "-y", "@mkusaka/mcp-shell-server"].map(String::from).into();
+        let launched = launch_argv(&argv);
+        assert_eq!(&launched[..2], ["/bin/sh", "-c"]);
+        assert_eq!(launched[3], mcp_work_dir().to_string_lossy());
+        assert!(launched.last().unwrap().starts_with("@mkusaka/mcp-shell-server"));
+
+        // Other servers keep starting in the working folder.
+        let other: Vec<String> = ["npx", "-y", "@modelcontextprotocol/server-filesystem"].map(String::from).into();
+        assert_eq!(launch_argv(&other).len(), 3);
     }
 
     #[test]

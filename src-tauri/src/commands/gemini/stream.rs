@@ -7,6 +7,8 @@
 //!
 //! Ref: https://geminicli.com/docs/cli/headless
 
+use std::collections::HashMap;
+
 use serde_json::Value;
 
 use crate::chat_stream::{AgentUsage, ChatStreamEvent};
@@ -26,6 +28,9 @@ pub struct GeminiStream {
     /// final repeat, so overlapping prefixes are dropped, not printed twice.
     text: String,
     session_id: Option<String>,
+    /// Title and input of each started tool, by `tool_id`: `tool_result`
+    /// carries neither, so the finished step would otherwise lose its name.
+    tools: HashMap<String, (String, Option<String>)>,
 }
 
 impl GeminiStream {
@@ -56,14 +61,8 @@ impl GeminiStream {
                 let content = event["content"].as_str().unwrap_or_default();
                 emit_delta(&mut self.text, content)
             }
-            "tool_use" => tool_activity(event, false)
-                .into_iter()
-                .map(Outcome::Emit)
-                .collect(),
-            "tool_result" => tool_activity(event, true)
-                .into_iter()
-                .map(Outcome::Emit)
-                .collect(),
+            "tool_use" => vec![Outcome::Emit(self.tool_use(event))],
+            "tool_result" => vec![Outcome::Emit(self.tool_result(event))],
             // Non-fatal warnings and system errors: surface as progress so the
             // user sees them, but keep the run going.
             "error" => {
@@ -105,6 +104,95 @@ impl GeminiStream {
             _ => vec![],
         }
     }
+}
+
+impl GeminiStream {
+    fn tool_use(&mut self, event: &Value) -> ChatStreamEvent {
+        let name = event["tool_name"].as_str().or_else(|| event["name"].as_str()).unwrap_or_default();
+        let params = &event["parameters"];
+        let subject = first_str(params, &SUBJECT_KEYS).map(str::to_string);
+        let title = match &subject {
+            Some(subject) => format!("{}: {}", verb(name), short(subject)),
+            None => verb(name),
+        };
+        // Full input for the expanded row: the command itself, or the args.
+        let input = subject.map(|s| truncate(&s)).or_else(|| {
+            let flat = params.to_string();
+            (params.is_object() && flat.len() > 2).then(|| truncate(&flat))
+        });
+        let id = tool_id(event);
+        if let Some(id) = &id {
+            self.tools.insert(id.clone(), (title.clone(), input.clone()));
+        }
+        ChatStreamEvent::Activity {
+            id,
+            kind: "tool".into(),
+            title,
+            detail: input,
+            done: false,
+            duration_ms: None,
+        }
+    }
+
+    fn tool_result(&mut self, event: &Value) -> ChatStreamEvent {
+        let id = tool_id(event);
+        let (title, input) = id
+            .as_ref()
+            .and_then(|id| self.tools.remove(id))
+            .unwrap_or_else(|| (verb(event["tool_name"].as_str().unwrap_or_default()), None));
+
+        let failed = event["status"].as_str() == Some("error");
+        let output = if failed {
+            event["error"]["message"].as_str().or_else(|| event["output"].as_str())
+        } else {
+            event["output"].as_str().or_else(|| event["output"]["text"].as_str())
+        }
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| if failed { format!("Error: {s}") } else { truncate(s) });
+
+        let detail = match (input, output) {
+            (Some(input), Some(output)) => Some(format!("{input}\n\n{output}")),
+            (input, output) => input.or(output),
+        };
+        ChatStreamEvent::Activity {
+            id,
+            kind: "tool".into(),
+            title: if failed { format!("{title} (failed)") } else { title },
+            detail,
+            done: true,
+            duration_ms: None,
+        }
+    }
+}
+
+const SUBJECT_KEYS: [&str; 9] = [
+    "command", "file_path", "absolute_path", "dir_path", "path", "pattern", "query", "url", "filePath",
+];
+
+fn tool_id(event: &Value) -> Option<String> {
+    event["tool_id"].as_str().or_else(|| event["call_id"].as_str()).map(str::to_string)
+}
+
+/// Gemini's tool names as short verbs, like the other agents' steps read.
+fn verb(tool: &str) -> String {
+    match tool {
+        "run_shell_command" => "Run",
+        "read_file" => "Read",
+        "read_many_files" => "Read files",
+        "write_file" => "Write",
+        "replace" | "edit" => "Edit",
+        "list_directory" | "ls" => "List",
+        "glob" => "Find files",
+        "search_file_content" | "grep_search" | "grep" => "Search",
+        "web_fetch" => "Fetch",
+        "google_web_search" => "Web search",
+        "save_memory" => "Remember",
+        "write_todos" => "Update todos",
+        "" => "Tool",
+        other => return other.replace('_', " "),
+    }
+    .into()
 }
 
 /// Append-only delta so a repeated full message is not printed twice.
@@ -150,53 +238,6 @@ fn usage(stats: &Value) -> Option<AgentUsage> {
         total_tokens: num(stats, &["total_tokens", "totalTokenCount"])
             .or_else(|| input.zip(output).map(|(i, o)| i + o)),
         cost: None,
-    })
-}
-
-/// `tool_use` / `tool_result` events become progress rows with a stable id.
-fn tool_activity(event: &Value, done: bool) -> Option<ChatStreamEvent> {
-    let name = event["tool_name"]
-        .as_str()
-        .or_else(|| event["name"].as_str())
-        .unwrap_or("tool");
-    let id = event["tool_id"]
-        .as_str()
-        .or_else(|| event["call_id"].as_str())
-        .map(str::to_string);
-
-    let mut detail = Vec::new();
-    let params = &event["parameters"];
-    if let Some(s) = first_str(params, &["command", "file_path", "path", "pattern", "query", "url", "filePath"]) {
-        detail.push(s.to_string());
-    } else if params.is_object() {
-        let flat = params.to_string();
-        if flat.len() > 2 {
-            detail.push(truncate(&flat));
-        }
-    }
-    // `tool_result` carries the output next to the same id.
-    let output = &event["output"];
-    if let Some(s) = output
-        .as_str()
-        .or_else(|| event["result"].as_str())
-        .or_else(|| output["text"].as_str())
-    {
-        if !s.trim().is_empty() {
-            detail.push(truncate(s.trim()));
-        }
-    }
-
-    let title = match detail.first() {
-        Some(subject) if !done || detail.len() == 1 => format!("{name}: {}", short(subject)),
-        _ => name.to_string(),
-    };
-    Some(ChatStreamEvent::Activity {
-        id,
-        kind: "tool".into(),
-        title,
-        detail: (!detail.is_empty()).then(|| detail.join("\n")),
-        done,
-        duration_ms: None,
     })
 }
 
@@ -274,8 +315,26 @@ mod tests {
             }
             _ => panic!("expected activity"),
         }
-        match &stream.handle(&json!({"type":"tool_result","tool_name":"run_shell_command","tool_id":"t1","output":"a\nb"}))[0] {
-            Outcome::Emit(ChatStreamEvent::Activity { done, .. }) => assert!(*done),
+        // Real results carry no tool name: the step keeps its title.
+        match &stream.handle(&json!({"type":"tool_result","tool_id":"t1","status":"success","output":"a\nb"}))[0] {
+            Outcome::Emit(ChatStreamEvent::Activity { title, detail, done, .. }) => {
+                assert!(*done);
+                assert_eq!(title, "Run: ls");
+                assert_eq!(detail.as_deref(), Some("ls\n\na\nb"));
+            }
+            _ => panic!("expected activity"),
+        }
+    }
+
+    #[test]
+    fn failed_tools_say_so() {
+        let mut stream = GeminiStream::new();
+        stream.handle(&json!({"type":"tool_use","tool_name":"read_file","tool_id":"t2","parameters":{"file_path":"/a"}}));
+        match &stream.handle(&json!({"type":"tool_result","tool_id":"t2","status":"error","error":{"message":"no such file"}}))[0] {
+            Outcome::Emit(ChatStreamEvent::Activity { title, detail, .. }) => {
+                assert_eq!(title, "Read: /a (failed)");
+                assert!(detail.as_deref().unwrap().ends_with("Error: no such file"));
+            }
             _ => panic!("expected activity"),
         }
     }

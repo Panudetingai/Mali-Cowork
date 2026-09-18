@@ -36,6 +36,34 @@ cp .env.example .env   # ใส่ API keys
 bun tauri dev          # รัน Tauri + Vite (port 1420)
 ```
 
+## Release (macOS + Windows)
+
+GitHub Actions workflow [`.github/workflows/release.yml`](./.github/workflows/release.yml) builds installers and attaches them to a GitHub Release.
+
+**Version** must match in `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`.
+
+### วิธีปล่อยเวอร์ชันให้คนอื่นดาวน์โหลด
+
+1. อัปเดตเลขเวอร์ชันในทั้ง 3 ไฟล์ด้านบน แล้ว commit
+2. สร้าง tag และ push:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+3. รอ workflow **Release** บน GitHub Actions ให้เสร็จ
+4. เปิดหน้า **Releases** ของ repo — จะมีไฟล์ประมาณนี้:
+   - **macOS**: `.dmg` (Universal: Apple Silicon + Intel)
+   - **Windows**: `.msi` และ/หรือ NSIS `.exe`
+
+หรือรันมือจาก **Actions → Release → Run workflow** (ใช้เวอร์ชันจาก `tauri.conf.json` สร้าง tag `v<version>` ให้อัตโนมัติ)
+
+### หมายเหตุการแจกจ่าย
+
+- แอปยังไม่ได้ code-sign / notarize — ผู้ใช้ macOS อาจต้องเปิดครั้งแรกด้วย Right click → Open
+- Windows อาจแสดง SmartScreen สำหรับไฟล์ที่ไม่ได้ลงนาม — เป็นเรื่องปกติสำหรับ build จาก CI แบบ open source
+
 ## Recommended IDE Setup
 
 - [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)

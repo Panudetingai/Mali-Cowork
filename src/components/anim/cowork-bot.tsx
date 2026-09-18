@@ -1,6 +1,5 @@
 "use client";
 
-import { useChatRuns, useChatSessions } from "@/features/chat-history";
 import {
   BOTS,
   setCoworkBot,
@@ -10,7 +9,7 @@ import {
 } from "@/features/cowork-bot";
 import { cn } from "@/lib/utils";
 import { CheckIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 /**
  * The selected cowork bot, rendered from public/anim/cowork-bots.html
@@ -19,21 +18,18 @@ import { useEffect, useRef, useState } from "react";
 export function CoworkBot({
   size = 28,
   bot: botProp,
-  state: stateProp,
+  state = "idle",
   className,
   title,
 }: {
   size?: number;
   bot?: CoworkBotId;
-  /** Defaults to the global agent state (titlebar); pass explicitly in messages. */
   state?: BotState;
   className?: string;
   title?: string;
 }) {
   const { bot: stored } = useCoworkBot();
-  const globalState = useGlobalAgentState();
   const bot = botProp ?? stored;
-  const state = stateProp ?? globalState;
   const frameRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
@@ -70,59 +66,6 @@ export function CoworkBot({
       />
     </div>
   );
-}
-
-/**
- * Follows the agent across every chat: no run → idle, streaming text →
- * thinking, tool steps running → working, and a short "done" celebration
- * when the last run finishes.
- */
-export function useGlobalAgentState(): BotState {
-  const runs = useChatRuns();
-  const sessions = useChatSessions();
-  const runIds = Object.keys(runs);
-  const [, setTick] = useState(0);
-  const finishing = useRef<{ timer?: ReturnType<typeof setTimeout>; hadRun: boolean }>({ hadRun: false });
-
-  // A run just ended → celebrate, then settle back to idle.
-  useEffect(() => {
-    if (runIds.length > 0) {
-      finishing.current.hadRun = true;
-      if (finishing.current.timer) {
-        clearTimeout(finishing.current.timer);
-        finishing.current.timer = undefined;
-      }
-      return;
-    }
-    if (!finishing.current.hadRun) return;
-    finishing.current.hadRun = false;
-    finishing.current.timer = setTimeout(() => {
-      finishing.current.timer = undefined;
-      // Trigger a re-render so idle is returned below.
-      window.dispatchEvent(new CustomEvent("cowork-bot-settled"));
-    }, 2300);
-    return () => {
-      if (finishing.current.timer) {
-        clearTimeout(finishing.current.timer);
-        finishing.current.timer = undefined;
-      }
-    };
-  }, [runIds.length]);
-
-  // Re-render when the celebration window closes.
-  useEffect(() => {
-    const onSettled = () => setTick((t) => t + 1);
-    window.addEventListener("cowork-bot-settled", onSettled);
-    return () => window.removeEventListener("cowork-bot-settled", onSettled);
-  }, []);
-
-  if (runIds.length === 0) {
-    return finishing.current.timer ? "done" : "idle";
-  }
-  const session = sessions.find((s) => s.id === runIds[0]);
-  const lastAssistant = [...(session?.messages ?? [])].reverse().find((m) => m.role === "assistant");
-  const busyTool = lastAssistant?.activities?.some((a) => !a.done);
-  return busyTool ? "working" : "thinking";
 }
 
 /** Bot picker: four live previews, the choice persists in localStorage. */
