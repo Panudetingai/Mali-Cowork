@@ -4,11 +4,19 @@ import type { OpencodeModel, OpencodeModelsResult, WorkMode } from "@/features/o
 import type { GeminiModel } from "@/features/gemini";
 import { providerContextLimit, type ProviderDef } from "@/features/providers";
 
+/**
+ * Where a model runs, so API models and CLI agents never share a heading:
+ * `api` = the user's own API key, `local` = a server on this machine,
+ * `opencode` = through OpenCode, `cli` = a signed-in CLI agent.
+ */
+export type ModelSource = "api" | "local" | "opencode" | "cli";
+
 export type AiModel = {
   id: string;
   name: string;
   /** models.dev provider id, used for the logo. */
   provider: string;
+  source: ModelSource;
   group: string;
   /** Costs nothing per token (OpenCode models only). */
   free?: boolean;
@@ -34,10 +42,6 @@ export const CODEX_PREFIX = "codex:";
 export const CODEX_DEFAULT_ID = `${CODEX_PREFIX}auto`;
 export const GEMINI_PREFIX = "gemini:";
 export const GEMINI_DEFAULT_ID = `${GEMINI_PREFIX}auto`;
-
-const CLI_MODELS: AiModel[] = [
-  { id: "cli:codex", name: "Codex", provider: "openai", group: "Local CLI" },
-];
 
 export function isOpencodeModel(modelId: string) {
   return modelId.startsWith(OPENCODE_PREFIX);
@@ -126,7 +130,8 @@ export function buildModelCatalog(
       id: apiModelId(provider.id, model),
       name: model,
       provider: provider.logo,
-      group: provider.group === "local" ? `Local · ${provider.name}` : provider.name,
+      source: provider.group === "local" ? "local" : "api",
+      group: provider.name,
       contextLimit: knownLimits.get(`${provider.id}/${model}`),
     })),
   );
@@ -137,6 +142,7 @@ export function buildModelCatalog(
       id: OPENCODE_DEFAULT_ID,
       name: defaultModel ? `OpenCode default (${defaultModel.name})` : "OpenCode default",
       provider: "opencode",
+      source: "opencode",
       group: "OpenCode",
       free: defaultModel?.free,
       contextLimit: defaultModel?.contextLimit ?? undefined,
@@ -145,7 +151,8 @@ export function buildModelCatalog(
       id: `${OPENCODE_PREFIX}${m.id}`,
       name: m.name,
       provider: m.providerId,
-      group: m.connected ? `OpenCode · ${m.providerName}` : `OpenCode · ${m.providerName} (needs key)`,
+      source: "opencode" as const,
+      group: m.connected ? m.providerName : `${m.providerName} (needs key)`,
       free: m.free,
       needsKey: !m.connected,
       contextLimit: m.contextLimit ?? undefined,
@@ -159,14 +166,16 @@ export function buildModelCatalog(
         id: `${CURSOR_PREFIX}${m.id}`,
         name: m.name,
         provider: "cursor",
-        group: "Cursor",
+        source: "cli",
+        group: "Cursor CLI",
       }))
     : [
         {
           id: CURSOR_DEFAULT_ID,
           name: "Cursor Agent (sign in)",
           provider: "cursor",
-          group: "Cursor",
+          source: "cli",
+          group: "Cursor CLI",
           needsLogin: true,
         },
       ];
@@ -178,14 +187,16 @@ export function buildModelCatalog(
           id: `${CODEX_PREFIX}${m.id}`,
           name: m.name,
           provider: "codex",
-          group: "Codex",
+          source: "cli",
+          group: "Codex CLI",
         }))
       : [
           {
             id: CODEX_DEFAULT_ID,
             name: codex.loggedIn ? "Codex (auto)" : "Codex Agent (sign in)",
             provider: "codex",
-            group: "Codex",
+            source: "cli",
+            group: "Codex CLI",
             needsLogin: !codex.loggedIn,
           },
         ];
@@ -197,21 +208,23 @@ export function buildModelCatalog(
           id: `${GEMINI_PREFIX}${m.id}`,
           name: m.name,
           provider: "gemini",
-          group: "Gemini",
+          source: "cli",
+          group: "Gemini CLI",
         }))
       : [
           {
             id: GEMINI_DEFAULT_ID,
             name: gemini.loggedIn ? "Gemini (auto)" : "Gemini CLI (sign in)",
             provider: "gemini",
-            group: "Gemini",
+            source: "cli",
+            group: "Gemini CLI",
             needsLogin: !gemini.loggedIn,
           },
         ];
 
   return mode === "cowork"
-    ? [...opencodeModels, ...cursorModels, ...codexModels, ...geminiModels, ...CLI_MODELS]
-    : [...apiModels, ...opencodeModels, ...cursorModels, ...codexModels, ...geminiModels];
+    ? [...cursorModels, ...codexModels, ...geminiModels, ...opencodeModels]
+    : [...apiModels, ...cursorModels, ...codexModels, ...geminiModels, ...opencodeModels];
 }
 
 /** Resolve a stored id even before OpenCode models have loaded. */
@@ -222,15 +235,15 @@ export function findModel(catalog: AiModel[], id: string): AiModel {
   if (found) return catalog.find((m) => !m.coworkIssue) ?? found;
   if (isCursorModel(id)) {
     const model = cursorModelOf(id);
-    return { id, name: model === "auto" ? "Cursor Agent" : model, provider: "cursor", group: "Cursor" };
+    return { id, name: model === "auto" ? "Cursor Agent" : model, provider: "cursor", source: "cli", group: "Cursor CLI" };
   }
   if (isCodexModel(id)) {
     const model = codexModelOf(id);
-    return { id, name: model === "auto" ? "Codex Agent" : model, provider: "codex", group: "Codex" };
+    return { id, name: model === "auto" ? "Codex Agent" : model, provider: "codex", source: "cli", group: "Codex CLI" };
   }
   if (isGeminiModel(id)) {
     const model = geminiModelOf(id);
-    return { id, name: model === "auto" ? "Gemini CLI" : model, provider: "gemini", group: "Gemini" };
+    return { id, name: model === "auto" ? "Gemini CLI" : model, provider: "gemini", source: "cli", group: "Gemini CLI" };
   }
   if (isOpencodeModel(id)) {
     const model = opencodeModelOf(id);
@@ -238,6 +251,7 @@ export function findModel(catalog: AiModel[], id: string): AiModel {
       id,
       name: model?.split("/")[1] ?? "OpenCode default",
       provider: model?.split("/")[0] ?? "opencode",
+      source: "opencode",
       group: "OpenCode",
     };
   }

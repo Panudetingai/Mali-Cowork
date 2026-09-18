@@ -1,9 +1,18 @@
 import { createStreamChannel, type ChatStreamHandlers } from "@/pages/chat/api/chat";
+import { requestConfigFor } from "@/features/providers";
 import { invoke } from "@tauri-apps/api/core";
 import type { GeminiCheckResult, GeminiModel, GeminiRequest } from "./types";
 
+/**
+ * The Gemini key from Settings → Models. Headless `gemini` reads its key only
+ * from `GEMINI_API_KEY`, so the backend hands this one over.
+ */
+function settingsApiKey() {
+  return requestConfigFor("google").apiKey;
+}
+
 export function geminiCheck() {
-  return invoke<GeminiCheckResult>("gemini_check");
+  return invoke<GeminiCheckResult>("gemini_check", { apiKey: settingsApiKey() });
 }
 
 export function geminiListModels() {
@@ -27,6 +36,7 @@ export async function geminiGenerateStream(
       mode: request.mode ?? "cowork",
       folders: request.folders ?? [],
       runId: request.runId,
+      apiKey: settingsApiKey(),
     },
     onEvent: createStreamChannel(handlers),
   });

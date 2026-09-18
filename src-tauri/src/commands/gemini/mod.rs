@@ -36,6 +36,10 @@ pub struct GeminiRequest {
     pub folders: Vec<FolderGrant>,
     /// Identifies this run so it can be stopped.
     pub run_id: String,
+    /// Gemini API key from Settings → Models. Headless `gemini -p` only reads
+    /// the key from `GEMINI_API_KEY`, never the one saved by its `/auth` screen.
+    #[serde(default)]
+    pub api_key: Option<String>,
 }
 
 impl GeminiRequest {

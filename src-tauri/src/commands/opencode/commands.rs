@@ -256,6 +256,16 @@ async fn run_prompt(
     let client = ensure_server().await?;
     let session_id = open_session(&client, &directory, request.session_id.as_deref()).await?;
     let model = request.model.as_deref().map(str::trim).filter(|m| !m.is_empty());
+    let tool_call = match model {
+        Some(model) => model_tool_call(&client, &directory, model).await?,
+        None => true,
+    };
+    if !tool_call && !request.is_chat() {
+        return Err(format!(
+            "{} can't call tools, so it can't work on files. Pick another model for Cowork.",
+            model.unwrap_or_default()
+        ));
+    }
 
     // Subscribe before prompting so no early event is missed.
     let mut events = SseStream::new(client.events(&directory).await?);
@@ -282,8 +292,13 @@ async fn run_prompt(
         client.set_permissions(&directory, &session_id, rules).await?;
     }
 
-    let mcp = connected_mcp(&client, &directory, request.is_chat()).await;
-    let options = prompt_options(request, &policy.lock().unwrap(), &directory, model, &mcp);
+    let mcp = if tool_call {
+        connected_mcp(&client, &directory, request.is_chat()).await
+    } else {
+        Vec::new()
+    };
+    let options =
+        prompt_options(request, &policy.lock().unwrap(), &directory, model, tool_call, &mcp);
     client
         .prompt_async(&directory, &session_id, prompt, &options)
         .await?;
@@ -359,6 +374,35 @@ async fn open_session(
     client.create_session(directory).await
 }
 
+/// Whether a `provider/model` can call tools. Fails early when the provider
+/// has no API key, which opencode would otherwise report as a confusing
+/// "Model not found: groq/groq/compound".
+async fn model_tool_call(
+    client: &OpencodeClient,
+    directory: &str,
+    model: &str,
+) -> Result<bool, String> {
+    let Some((provider_id, model_id)) = model.split_once('/') else {
+        return Ok(true);
+    };
+    // The prompt itself reports any problem when the lookup fails.
+    let Ok(body) = client.usable_providers(directory).await else {
+        return Ok(true);
+    };
+    let Some(provider) = body["providers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|p| p["id"] == provider_id)
+    else {
+        return Err(format!(
+            "{provider_id} has no API key in OpenCode, so {model_id} can't run. \
+             Add the key in Settings → Models (or pick the model again to enter it), then try again."
+        ));
+    };
+    Ok(provider["models"][model_id]["capabilities"]["toolcall"].as_bool() != Some(false))
+}
+
 const CHAT_SYSTEM: &str = "You are Mali Cowork in Chat mode: a friendly, concise assistant. \
 Answer from your own knowledge. You cannot read or change the user's files in this mode; \
 if the task needs that, suggest switching to Cowork mode.";
@@ -369,6 +413,10 @@ const WORKSPACE_TOOLS: &[&str] = &[
     "bash", "edit", "write", "patch", "multiedit", "read", "grep", "glob", "list", "task",
     "todowrite", "todoread", "filesystem_*",
 ];
+
+/// For models without tool calling: providers such as Groq reject a request
+/// that offers any tool ("`tool calling` is not supported with this model").
+const ALL_TOOLS: &[&str] = &["*"];
 
 /// MCP servers connected in this folder's instance. Chat leaves out the
 /// Filesystem server, whose tools it disables.
@@ -410,6 +458,7 @@ fn prompt_options<'a>(
     policy: &FolderPolicy,
     directory: &str,
     model: Option<&'a str>,
+    tool_call: bool,
     mcp: &[String],
 ) -> PromptOptions<'a> {
     let mcp_note = mcp_note(mcp);
@@ -417,7 +466,7 @@ fn prompt_options<'a>(
         let system = [Some(CHAT_SYSTEM.to_string()), mcp_note].into_iter().flatten();
         return PromptOptions {
             model,
-            disabled_tools: WORKSPACE_TOOLS,
+            disabled_tools: if tool_call { WORKSPACE_TOOLS } else { ALL_TOOLS },
             system: Some(system.collect::<Vec<_>>().join("\n\n")),
         };
     }
@@ -532,6 +581,35 @@ impl SseStream {
 mod tests {
     use super::super::server::shutdown;
     use super::*;
+
+    /// A model without tool calling (Groq Compound) still answers in Chat.
+    /// Run with `cargo test -- --ignored opencode_live_no_tools`.
+    #[tokio::test]
+    #[ignore = "needs the opencode CLI and a Groq key"]
+    async fn opencode_live_no_tools_model() {
+        let events = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = events.clone();
+        let channel: Channel<ChatStreamEvent> = Channel::new(move |body| {
+            if let tauri::ipc::InvokeResponseBody::Json(json) = body {
+                sink.lock().unwrap().push(json);
+            }
+            Ok(())
+        });
+        let request = OpencodeRequest {
+            prompt: "Reply with one short greeting.".into(),
+            model: Some("groq/groq/compound".into()),
+            cwd: None,
+            session_id: None,
+            thinking: Some(false),
+            auto_approve: Some(false),
+            mode: Some("chat".into()),
+            folders: Vec::new(),
+        };
+        let result = run_prompt(&request, &channel).await;
+        shutdown();
+        result.expect("prompt finishes");
+        assert!(events.lock().unwrap().iter().any(|e| e.contains("\"chunk\"")), "the model answered");
+    }
 
     /// Read-only folders block writes while read & write folders work, all
     /// without prompting. Run with `cargo test -- --ignored opencode_live_folder`.

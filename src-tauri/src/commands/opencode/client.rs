@@ -78,6 +78,15 @@ impl OpencodeClient {
         Self::send(req).await?.json().await.map_err(|e| e.to_string())
     }
 
+    /// `GET /config/providers` — the providers this directory's instance can
+    /// actually use (those with credentials), with their models.
+    pub async fn usable_providers(&self, directory: &str) -> Result<Value, String> {
+        let req = self
+            .request(Method::GET, "/config/providers", Some(directory))
+            .timeout(SHORT_TIMEOUT);
+        Self::send(req).await?.json().await.map_err(|e| e.to_string())
+    }
+
     /// `PUT /auth/{provider}` — store an API key in opencode's auth file.
     pub async fn set_api_key(&self, provider_id: &str, key: &str) -> Result<(), String> {
         let req = self

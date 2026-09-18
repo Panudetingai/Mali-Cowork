@@ -15,7 +15,31 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CheckIcon, ChevronDownIcon, KeyRoundIcon } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { AiModel } from "../models";
+import type { AiModel, ModelSource } from "../models";
+
+/** How each source is labelled, so API models and CLI agents read apart. */
+const SOURCES: Record<ModelSource, { tag: string; hint: string; className: string }> = {
+  api: {
+    tag: "API",
+    hint: "Your API key · billed per token",
+    className: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
+  },
+  local: {
+    tag: "Local",
+    hint: "Runs on this computer",
+    className: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  },
+  cli: {
+    tag: "CLI",
+    hint: "Agent app on this computer · uses your signed-in plan",
+    className: "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
+  },
+  opencode: {
+    tag: "OpenCode",
+    hint: "Through OpenCode",
+    className: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+  },
+};
 
 type Props = {
   models: AiModel[];
@@ -43,6 +67,7 @@ export function ModelPicker({ models, selected, loading, onSelect }: Props) {
           <ModelSelectorName className="text-sm font-normal">
             {selected.name}
           </ModelSelectorName>
+          <SourceTag source={selected.source} />
           <ChevronDownIcon className="size-3.5 shrink-0 opacity-60" />
         </Button>
       </ModelSelectorTrigger>
@@ -52,14 +77,14 @@ export function ModelPicker({ models, selected, loading, onSelect }: Props) {
           <ModelSelectorEmpty>
             {loading ? "Loading OpenCode models…" : "No models found. Add one in Settings → Models."}
           </ModelSelectorEmpty>
-          {groups.map(([group, items]) => (
-            <ModelSelectorGroup key={group} heading={group}>
+          {groups.map(({ key, source, group, items }) => (
+            <ModelSelectorGroup key={key} heading={<GroupHeading source={source} group={group} />}>
               {items.map((model) => {
                 const active = model.id === selected.id;
                 return (
                   <ModelSelectorItem
                     key={model.id}
-                    value={`${model.group} ${model.name} ${model.id}`}
+                    value={`${SOURCES[model.source].tag} ${model.group} ${model.name} ${model.id}`}
                     disabled={!!model.coworkIssue}
                     onSelect={() => {
                       onSelect(model);
@@ -104,7 +129,7 @@ function ModelBadge({ model }: { model: AiModel }) {
   if (model.needsLogin) {
     return (
       <span
-        title="Sign in to Cursor to use its models"
+        title={`Sign in to ${model.group} to use its models`}
         className="ml-auto flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] text-muted-foreground"
       >
         <KeyRoundIcon className="size-2.5" />
@@ -133,6 +158,30 @@ function ModelBadge({ model }: { model: AiModel }) {
   return <span className="ml-auto" />;
 }
 
+function SourceTag({ source }: { source: ModelSource }) {
+  const { tag, className } = SOURCES[source];
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded px-1 py-px text-[10px] font-medium leading-4",
+        className,
+      )}
+    >
+      {tag}
+    </span>
+  );
+}
+
+function GroupHeading({ source, group }: { source: ModelSource; group: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <SourceTag source={source} />
+      <span className="truncate font-medium text-foreground">{group}</span>
+      <span className="truncate font-normal">· {SOURCES[source].hint}</span>
+    </span>
+  );
+}
+
 function Logo({ provider }: { provider: string }) {
   return (
     <ModelSelectorLogo
@@ -145,14 +194,20 @@ function Logo({ provider }: { provider: string }) {
   );
 }
 
-/** Models by group, with the ones unfit for Cowork last in each. */
+/**
+ * Models by source and group, with the ones unfit for Cowork last in each.
+ * Keyed by source too, so e.g. the Gemini API and Gemini CLI never merge.
+ */
 function groupModels(models: AiModel[]) {
-  const groups = new Map<string, AiModel[]>();
+  const groups = new Map<string, { key: string; source: ModelSource; group: string; items: AiModel[] }>();
   for (const model of models) {
-    groups.set(model.group, [...(groups.get(model.group) ?? []), model]);
+    const key = `${model.source}:${model.group}`;
+    const entry = groups.get(key) ?? { key, source: model.source, group: model.group, items: [] };
+    entry.items.push(model);
+    groups.set(key, entry);
   }
-  return [...groups].map(
-    ([group, items]) =>
-      [group, [...items].sort((a, b) => Number(!!a.coworkIssue) - Number(!!b.coworkIssue))] as const,
-  );
+  return [...groups.values()].map((entry) => ({
+    ...entry,
+    items: [...entry.items].sort((a, b) => Number(!!a.coworkIssue) - Number(!!b.coworkIssue)),
+  }));
 }
