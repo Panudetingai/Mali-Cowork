@@ -1,20 +1,26 @@
-import {
-  getOpencodeModels,
-  loadOpencodeSettings,
-  opencodeGenerateStream,
-  type FolderGrantInput,
-  type WorkMode,
-} from "@/features/opencode";
+import { codexGenerateStream } from "@/features/codex";
 import { cursorGenerateStream } from "@/features/cursor";
+import { geminiGenerateStream } from "@/features/gemini";
 import { hasEnabledMcp } from "@/features/mcp";
+import {
+    getOpencodeModels,
+    loadOpencodeSettings,
+    opencodeGenerateStream,
+    type FolderGrantInput,
+    type WorkMode,
+} from "@/features/opencode";
 import { requestConfigFor } from "@/features/providers";
 import {
-  apiModelOf,
-  cursorModelOf,
-  isCursorModel,
-  isOpencodeModel,
-  OPENCODE_PREFIX,
-  opencodeModelOf,
+    apiModelOf,
+    codexModelOf,
+    cursorModelOf,
+    geminiModelOf,
+    isCodexModel,
+    isCursorModel,
+    isGeminiModel,
+    isOpencodeModel,
+    OPENCODE_PREFIX,
+    opencodeModelOf,
 } from "../models";
 import { chatGenerateStream, type ChatStreamHandlers, type HistoryMessage } from "./chat";
 import { cliGenerateStream } from "./cli";
@@ -81,6 +87,38 @@ export async function generateStream(
       {
         prompt,
         model: cursorModelOf(modelId),
+        cwd: request.cwd,
+        sessionId: request.sessionId,
+        mode: request.mode,
+        folders: request.folders,
+        runId: request.runId,
+      },
+      handlers,
+    );
+  }
+
+  // Codex CLI: codex:<model>
+  if (isCodexModel(modelId)) {
+    return codexGenerateStream(
+      {
+        prompt,
+        model: codexModelOf(modelId),
+        cwd: request.cwd,
+        sessionId: request.sessionId,
+        mode: request.mode,
+        folders: request.folders,
+        runId: request.runId,
+      },
+      handlers,
+    );
+  }
+
+  // Gemini CLI: gemini:<model>
+  if (isGeminiModel(modelId)) {
+    return geminiGenerateStream(
+      {
+        prompt,
+        model: geminiModelOf(modelId),
         cwd: request.cwd,
         sessionId: request.sessionId,
         mode: request.mode,

@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { attachFolder, detachFolder, type ChatSession } from "@/features/chat-history";
 import { requestCursorLogin, useCursor } from "@/features/cursor";
+import { useGemini } from "@/features/gemini";
 import {
   opencodeWarm,
   requestProviderKey,
@@ -31,6 +32,7 @@ import {
   buildModelCatalog,
   contextBudgetFor,
   findModel,
+  isCursorModel,
   isOpencodeModel,
   loadSelectedModelId,
   opencodeProviderOf,
@@ -77,6 +79,7 @@ export default function PromptInput({
   const [modelId, setModelId] = useState(() => loadSelectedModelId(mode));
   const opencode = useOpencode();
   const cursor = useCursor();
+  const gemini = useGemini();
   useFolderGrants(); // re-render when access changes
 
   const providerConfigs = useProviderConfigs();
@@ -85,6 +88,10 @@ export default function PromptInput({
     () => ({ models: cursor.models, loggedIn: !!cursor.check?.loggedIn }),
     [cursor.models, cursor.check?.loggedIn],
   );
+  const geminiStatus = useMemo(
+    () => ({ models: gemini.models, loggedIn: !!gemini.check?.loggedIn }),
+    [gemini.models, gemini.check?.loggedIn],
+  );
   const catalog = useMemo(
     () =>
       buildModelCatalog(
@@ -92,8 +99,10 @@ export default function PromptInput({
         listConfiguredProviders(providerConfigs, envKeys),
         mode,
         cursorStatus,
+        undefined,
+        geminiStatus,
       ),
-    [opencode.models, providerConfigs, envKeys, mode, cursorStatus],
+    [opencode.models, providerConfigs, envKeys, mode, cursorStatus, geminiStatus],
   );
   const selected = findModel(catalog, modelId);
   const usesOpencode = isOpencodeModel(selected.id);
@@ -119,7 +128,9 @@ export default function PromptInput({
 
   /** Ask for whatever the model still needs; true when something was asked. */
   const askForAccess = (model: AiModel, onReady?: () => void) => {
-    if (model.needsLogin) {
+    // Only Cursor has an in-app sign-in flow; other CLIs explain sign-in
+    // through their own backend errors (e.g. run `gemini` once).
+    if (model.needsLogin && isCursorModel(model.id)) {
       requestCursorLogin({ onSignedIn: onReady });
       return true;
     }

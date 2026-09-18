@@ -20,6 +20,10 @@ export type ChatSession = {
   opencodeSessionId?: string;
   /** Cursor chat id, so `cursor-agent --resume` keeps the conversation. */
   cursorSessionId?: string;
+  /** Codex thread id, so `codex exec resume <id>` keeps the conversation. */
+  codexSessionId?: string;
+  /** Gemini session id, so `gemini -r <id>` keeps the conversation. */
+  geminiSessionId?: string;
   /** Chat this one continues after the context limit was reached. */
   continuedFrom?: { id: string; title: string };
 };

@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CursorLoginDialog, requestCursorLogin, useCursor } from "@/features/cursor";
+import { useGemini } from "@/features/gemini";
 import { useOpencode } from "@/features/opencode";
 import {
   PROVIDERS,
@@ -12,7 +13,8 @@ import {
 import { cn } from "@/lib/utils";
 import { checkCli, type CliCheckResult } from "@/pages/chat/api/cli";
 import { open } from "@tauri-apps/plugin-dialog";
-import { BotIcon, FolderOpenIcon, MousePointer2Icon, RefreshCwIcon, SquareTerminalIcon } from "lucide-react";
+import { Codex, Cursor, GeminiCLI, OpenCode } from "@lobehub/icons";
+import { FolderOpenIcon, RefreshCwIcon } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { ProviderDialog, providerStatus } from "./provider-dialog";
 import {
@@ -29,6 +31,7 @@ import {
 export function AgentsSettings() {
   const opencode = useOpencode();
   const cursor = useCursor();
+  const gemini = useGemini();
   const configs = useProviderConfigs();
   const envKeys = useEnvKeys();
   const folderId = useId();
@@ -49,6 +52,7 @@ export function AgentsSettings() {
   function refreshAll() {
     opencode.refresh();
     cursor.refresh();
+    gemini.refresh();
     loadCodex();
   }
 
@@ -65,7 +69,8 @@ export function AgentsSettings() {
   const oc = opencode.loading ? null : opencode.check;
   const ocModels = opencode.models?.models.length ?? 0;
   const cursorReady = !!cursor.check?.available && !!cursor.check.loggedIn;
-  const refreshing = opencode.loading || cursor.loading;
+  const geminiReady = !!gemini.check?.available && !!gemini.check.loggedIn;
+  const refreshing = opencode.loading || cursor.loading || gemini.loading;
 
   return (
     <div className="flex flex-col gap-8">
@@ -83,8 +88,8 @@ export function AgentsSettings() {
       <CardGrid className="lg:grid-cols-3 2xl:grid-cols-3">
         <IntegrationCard
           icon={
-            <IconTile className="border-transparent bg-zinc-900 text-white dark:bg-zinc-700">
-              <BotIcon />
+            <IconTile>
+              <OpenCode size={24} />
             </IconTile>
           }
           title="OpenCode"
@@ -106,8 +111,8 @@ export function AgentsSettings() {
         />
         <IntegrationCard
           icon={
-            <IconTile className="border-transparent bg-neutral-900 text-white dark:bg-neutral-700">
-              <MousePointer2Icon />
+            <IconTile>
+              <Cursor size={24} />
             </IconTile>
           }
           title="Cursor Agent"
@@ -137,7 +142,7 @@ export function AgentsSettings() {
         <IntegrationCard
           icon={
             <IconTile>
-              <SquareTerminalIcon />
+              <Codex size={24} />
             </IconTile>
           }
           title="Codex"
@@ -152,7 +157,37 @@ export function AgentsSettings() {
             )
           }
         />
+        <IntegrationCard
+          icon={
+            <IconTile>
+              <GeminiCLI size={24} />
+            </IconTile>
+          }
+          title="Gemini CLI"
+          description={
+            gemini.check?.account ||
+            (gemini.models.length ? `${gemini.models.length} models · ใช้ Google account ของคุณ` : "ใช้ Google account ของคุณผ่าน gemini CLI")
+          }
+          status={
+            gemini.loading ? (
+              <StatusPill tone="pending">กำลังตรวจ…</StatusPill>
+            ) : geminiReady ? (
+              <StatusPill tone="success">Signed in</StatusPill>
+            ) : gemini.check?.available ? (
+              <StatusPill tone="warning">Not signed in</StatusPill>
+            ) : (
+              <StatusPill tone="neutral">Not installed</StatusPill>
+            )
+          }
+        />
       </CardGrid>
+
+      {gemini.check && !gemini.check.available && (
+        <div className="flex max-w-xl flex-col gap-2">
+          <p className="text-sm text-muted-foreground">ติดตั้ง Gemini CLI แล้วเปิดแอปใหม่ (หรือตั้ง GEMINI_BIN):</p>
+          <CopyCommand command="npm i -g @google/gemini-cli" />
+        </div>
+      )}
 
       {oc && !oc.available && (
         <div className="flex max-w-xl flex-col gap-2">

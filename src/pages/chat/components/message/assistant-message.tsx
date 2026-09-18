@@ -1,6 +1,12 @@
 "use client";
 
 import {
+    ChainOfThought,
+    ChainOfThoughtContent,
+    ChainOfThoughtHeader,
+    ChainOfThoughtStep,
+} from "@/components/ai-elements/chain-of-thought";
+import {
     Message,
     MessageAction,
     MessageActions,
@@ -8,14 +14,8 @@ import {
     MessageResponse,
 } from "@/components/ai-elements/message";
 import { BotFace } from "@/components/anim/bot-face";
-import {
-    ChainOfThought,
-    ChainOfThoughtContent,
-    ChainOfThoughtItem,
-    ChainOfThoughtStep,
-    ChainOfThoughtTrigger,
-} from "@/components/ui/chain-of-thought";
 import { cn } from "@/lib/utils";
+import type { LucideIcon } from "lucide-react";
 import {
     Brain,
     CheckIcon,
@@ -27,7 +27,7 @@ import {
     SparklesIcon,
     TerminalIcon,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { useScrollToBottomOfChainOfThoughtSteps } from "../../hooks/use-chat";
 import type { ActivityItem } from "../../types";
 import { ExpandableClamp } from "./expandable-clamp";
@@ -50,42 +50,38 @@ type Props = {
   durationMs?: number;
 };
 
-
 function titleSlice(title: string, maxLength: number) {
   return title.length > maxLength ? title.slice(0, maxLength) + "..." : title;
 }
 
-/** Collapsible step that opens while active and closes when the step completes. */
-function ActivityChainStep({
-  activity,
-  isActive,
-  isStreaming,
-  children,
-}: {
-  activity: ActivityItem;
-  isActive: boolean;
-  isStreaming?: boolean;
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useState(
-    () => !activity.done && isActive && !!isStreaming,
-  );
+function activityStepIcon(kind: string, done: boolean): LucideIcon {
+  if (done) return CheckIcon;
+  switch (kind) {
+    case "tool":
+      return HammerIcon;
+    case "step":
+      return TerminalIcon;
+    case "file":
+      return FileTextIcon;
+    case "permission":
+      return LockIcon;
+    case "search":
+      return SearchIcon;
+    case "system":
+      return SparklesIcon;
+    default:
+      return Brain;
+  }
+}
 
-  useEffect(() => {
-    if (activity.done) {
-      setOpen(false);
-      return;
-    }
-    if (isActive && isStreaming) {
-      setOpen(true);
-    }
-  }, [activity.done, isActive, isStreaming]);
-
-  return (
-    <ChainOfThoughtStep open={open} onOpenChange={setOpen}>
-      {children}
-    </ChainOfThoughtStep>
-  );
+function stepStatus(
+  activity: ActivityItem,
+  isActive: boolean,
+  isStreaming?: boolean,
+): "complete" | "active" | "pending" {
+  if (activity.done) return "complete";
+  if (isActive && isStreaming) return "active";
+  return "pending";
 }
 
 export function AssistantMessage({
@@ -104,12 +100,6 @@ export function AssistantMessage({
   const isCli = isOpencode || id.startsWith("cli:");
   const agentName = isOpencode ? "OpenCode" : id.split(":")[1];
   const { containerRef } = useScrollToBottomOfChainOfThoughtSteps();
-  const handleCopy = async () => {
-    const text = [reasoning, content].filter(Boolean).join("\n\n");
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
 
   const hasReasoning = Boolean(reasoning?.trim());
   const hasContent = Boolean(content.trim());
@@ -122,49 +112,66 @@ export function AssistantMessage({
   const showAgentSpinner =
     isStreaming && (waitingOnTool || !hasContent);
 
+  const [chainOpen, setChainOpen] = useState(
+    () => !!isStreaming && hasActivities,
+  );
+
+  useEffect(() => {
+    if (!hasActivities) return;
+    if (!isStreaming && activities!.every((a) => a.done)) {
+      setChainOpen(false);
+      return;
+    }
+    if (isStreaming && activities!.some((a) => !a.done)) {
+      setChainOpen(true);
+    }
+  }, [hasActivities, isStreaming, activities]);
+
+  const handleCopy = async () => {
+    const text = [reasoning, content].filter(Boolean).join("\n\n");
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
   return (
     <Message from="assistant">
       {hasActivities && (
-        <ChainOfThought>
-          {activities!.map((activity, idx) => {
-            const hasDetail = Boolean(activity.detail?.trim());
-            return (
-              <ActivityChainStep
-                key={activity.id ?? `${activity.kind}-${idx}-${activity.title}`}
-                activity={activity}
-                isActive={idx === activities!.length - 1}
-                isStreaming={isStreaming}
-              >
-                <ChainOfThoughtTrigger
-                  swapIconOnHover={hasDetail}
-                  leftIcon={
-                    <ActivityIcon kind={activity.kind} done={activity.done} />
-                  }
+        <ChainOfThought
+          className="space-y-2"
+          open={chainOpen}
+          onOpenChange={setChainOpen}
+        >
+          <ChainOfThoughtHeader className="text-xs font-medium">
+            Process Steps ({activities!.length})
+          </ChainOfThoughtHeader>
+          <ChainOfThoughtContent>
+            <div ref={containerRef} className="flex flex-col gap-3">
+            {activities!.map((activity, idx) => {
+              const hasDetail = Boolean(activity.detail?.trim());
+              const isActive = idx === activities!.length - 1;
+              return (
+                <ChainOfThoughtStep
+                  key={activity.id ?? `${activity.kind}-${idx}-${activity.title}`}
+                  icon={activityStepIcon(activity.kind, activity.done)}
+                  label={titleSlice(activity.title, 120)}
+                  status={stepStatus(activity, isActive, isStreaming)}
                 >
-                  <span
-                    className={cn(
-                      "text-xs",
-                      activity.done && "text-muted-foreground",
-                    )}
-                  >
-                    {titleSlice(activity.title, 120)}
-                  </span>
-                </ChainOfThoughtTrigger>
-                {hasDetail && (
-                  <ChainOfThoughtContent>
-                    <ChainOfThoughtItem ref={containerRef} className="whitespace-pre-wrap text-[11px] max-h-24 overflow-auto scroll-hidden">
+                  {hasDetail && (
+                    <div className="max-h-24 overflow-auto rounded-md border bg-muted/40 px-2 py-1.5 text-[11px] whitespace-pre-wrap">
                       <MessageResponse>{activity.detail}</MessageResponse>
-                    </ChainOfThoughtItem>
-                  </ChainOfThoughtContent>
-                )}
-              </ActivityChainStep>
-            );
-          })}
+                    </div>
+                  )}
+                </ChainOfThoughtStep>
+              );
+            })}
+            </div>
+          </ChainOfThoughtContent>
         </ChainOfThought>
       )}
       <MessageContent
         className={cn(
-          "w-full max-w-none bg-transparent px-0 py-0 shadow-none mt-4",
+          "w-full max-w-none bg-transparent px-0 py-0 shadow-none",
         )}
       >
         {hasContent ? (
@@ -255,25 +262,4 @@ export function AssistantMessage({
       )}
     </Message>
   );
-}
-
-function ActivityIcon({ kind, done }: { kind: string; done: boolean }) {
-  const size = "size-3.5";
-  if (done) return <CheckIcon className={cn(size, "text-emerald-600")} />;
-  switch (kind) {
-    case "tool":
-      return <HammerIcon className={cn(size, "text-blue-500")} />;
-    case "step":
-      return <TerminalIcon className={cn(size, "text-purple-500")} />;
-    case "file":
-      return <FileTextIcon className={cn(size, "text-emerald-500")} />;
-    case "permission":
-      return <LockIcon className={cn(size, "text-amber-500")} />;
-    case "search":
-      return <SearchIcon className={cn(size, "text-sky-500")} />;
-    case "system":
-      return <SparklesIcon className={cn(size, "text-slate-500")} />;
-    default:
-      return <Brain className={cn(size, "text-muted-foreground")} />;
-  }
 }

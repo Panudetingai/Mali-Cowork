@@ -15,7 +15,9 @@ import {
     useChatSessions,
     type ChatSession,
 } from "@/features/chat-history";
+import { codexAbort } from "@/features/codex";
 import { cursorAbort, requestCursorLogin } from "@/features/cursor";
+import { geminiAbort } from "@/features/gemini";
 import {
     loadOpencodeSettings,
     opencodeAbort,
@@ -36,7 +38,9 @@ import { useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { contextUsage } from "../context-usage";
 import {
+    isCodexModel,
     isCursorModel,
+    isGeminiModel,
     isOpencodeModel,
     opencodeProviderOf,
     type AiModel,
@@ -162,10 +166,10 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
       const chatKey = chat.id;
       const history = toHistory(chat.messages);
       const assistantId = crypto.randomUUID();
-      // API models run through OpenCode while MCP servers are on.
-      const runModelId = runModelIdFor(modelId);
-      const isOpencode = isOpencodeModel(runModelId);
-      const isCursor = isCursorModel(runModelId);
+      const isOpencode = isOpencodeModel(modelId);
+      const isCursor = isCursorModel(modelId);
+      const isCodex = isCodexModel(modelId);
+      const isGemini = isGeminiModel(modelId);
       let hasErrored = false;
 
       if (isOpencode && hasEnabledMcp()) {
@@ -219,7 +223,11 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
               ? chat.opencodeSessionId
               : isCursor
                 ? chat.cursorSessionId
-                : undefined,
+                : isCodex
+                  ? chat.codexSessionId
+                  : isGemini
+                    ? chat.geminiSessionId
+                    : undefined,
             history,
             mode: chatMode,
             runId: chatKey,
@@ -234,10 +242,16 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
             onActivity: (activity) =>
               update((m) => withActivity(m, activity)),
             onMetadata: (data) => {
-              if ((isOpencode || isCursor) && data.sessionId) {
+              if ((isOpencode || isCursor || isCodex || isGemini) && data.sessionId) {
                 const sessionId = data.sessionId;
                 updateChat(chatKey, (s) =>
-                  isCursor ? { ...s, cursorSessionId: sessionId } : { ...s, opencodeSessionId: sessionId },
+                  isCursor
+                    ? { ...s, cursorSessionId: sessionId }
+                    : isCodex
+                      ? { ...s, codexSessionId: sessionId }
+                      : isGemini
+                        ? { ...s, geminiSessionId: sessionId }
+                        : { ...s, opencodeSessionId: sessionId },
                 );
                 updateRun(chatKey, (r) => ({ ...r, agentSessionId: sessionId }));
               }
@@ -331,7 +345,12 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
     [chatId, replyPermission, addError],
   );
 
-  const canStop = !!run && (isOpencodeModel(run.modelId) || isCursorModel(run.modelId));
+  const canStop =
+    !!run &&
+    (isOpencodeModel(run.modelId) ||
+      isCursorModel(run.modelId) ||
+      isCodexModel(run.modelId) ||
+      isGeminiModel(run.modelId));
 
   const stop = useCallback(async () => {
     if (!chatId) return;
@@ -341,6 +360,14 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
     if (isCursorModel(activeRun.modelId)) {
       // Cursor runs as a child process, keyed by the chat it belongs to.
       return cursorAbort(chatId).catch(addError);
+    }
+    if (isCodexModel(activeRun.modelId)) {
+      // Same pattern as cursor: child process keyed by chat.
+      return codexAbort(chatId).catch(addError);
+    }
+    if (isGeminiModel(activeRun.modelId)) {
+      // Same pattern: child process keyed by chat.
+      return geminiAbort(chatId).catch(addError);
     }
     if (!activeRun.agentSessionId) return;
     await opencodeAbort({
