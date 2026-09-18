@@ -45,6 +45,8 @@ pub struct EventTranslator {
     part_kinds: HashMap<String, PartKind>,
     /// Bytes already forwarded per part, so full-text updates don't duplicate deltas.
     emitted: HashMap<String, usize>,
+    /// Tool parts still marked running; flushed when assistant text arrives.
+    running_tools: HashMap<String, Value>,
 }
 
 impl EventTranslator {
@@ -56,6 +58,7 @@ impl EventTranslator {
             user_messages: HashSet::new(),
             part_kinds: HashMap::new(),
             emitted: HashMap::new(),
+            running_tools: HashMap::new(),
         }
     }
 
@@ -129,10 +132,21 @@ impl EventTranslator {
             "reasoning" => self.on_text_part(part_id, PartKind::Reasoning, part),
             // A pending tool has no input yet; wait for the running update.
             "tool" if part["state"]["status"] == "pending" => vec![],
-            "tool" => vec![Outcome::Emit(tool_activity(part))],
+            "tool" => self.on_tool_part(part),
             "step-finish" => vec![Outcome::Emit(step_usage(&self.session_id, part))],
             _ => vec![],
         }
+    }
+
+    fn on_tool_part(&mut self, part: &Value) -> Vec<Outcome> {
+        let id = part["id"].as_str().unwrap_or_default();
+        let status = part["state"]["status"].as_str().unwrap_or_default();
+        if matches!(status, "completed" | "error") {
+            self.running_tools.remove(id);
+        } else if !id.is_empty() {
+            self.running_tools.insert(id.to_string(), part.clone());
+        }
+        vec![Outcome::Emit(tool_activity(part))]
     }
 
     fn on_text_part(&mut self, part_id: String, kind: PartKind, part: &Value) -> Vec<Outcome> {
@@ -142,7 +156,11 @@ impl EventTranslator {
         match text.get(sent..) {
             Some(rest) if !rest.is_empty() => {
                 self.emitted.insert(part_id, text.len());
-                self.text_event(kind, rest.to_string()).into_iter().collect()
+                let mut outcomes = self.flush_running_tools();
+                if let Some(ev) = self.text_event(kind, rest.to_string()) {
+                    outcomes.push(ev);
+                }
+                outcomes
             }
             _ => vec![],
         }
@@ -161,7 +179,11 @@ impl EventTranslator {
             return vec![];
         }
         *self.emitted.entry(part_id.to_string()).or_default() += delta.len();
-        self.text_event(kind, delta.to_string()).into_iter().collect()
+        let mut outcomes = self.flush_running_tools();
+        if let Some(ev) = self.text_event(kind, delta.to_string()) {
+            outcomes.push(ev);
+        }
+        outcomes
     }
 
     fn text_event(&self, kind: PartKind, text: String) -> Option<Outcome> {
@@ -171,6 +193,20 @@ impl EventTranslator {
             PartKind::Reasoning => return None,
         };
         Some(Outcome::Emit(event))
+    }
+
+    /// Some tools never send a final `completed` update; once the model writes, treat them as done.
+    fn flush_running_tools(&mut self) -> Vec<Outcome> {
+        let running: Vec<Value> = self.running_tools.drain().map(|(_, part)| part).collect();
+        running
+            .into_iter()
+            .map(|mut part| {
+                if let Some(state) = part.get_mut("state").and_then(|s| s.as_object_mut()) {
+                    state.insert("status".into(), serde_json::json!("completed"));
+                }
+                Outcome::Emit(tool_activity(&part))
+            })
+            .collect()
     }
 }
 

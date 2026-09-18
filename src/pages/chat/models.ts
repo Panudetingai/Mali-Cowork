@@ -1,5 +1,7 @@
+import type { CodexModel } from "@/features/codex";
 import type { CursorModel } from "@/features/cursor";
-import type { OpencodeModelsResult, WorkMode } from "@/features/opencode";
+import type { OpencodeModel, OpencodeModelsResult, WorkMode } from "@/features/opencode";
+import type { GeminiModel } from "@/features/gemini";
 import { providerContextLimit, type ProviderDef } from "@/features/providers";
 
 export type AiModel = {
@@ -16,6 +18,8 @@ export type AiModel = {
   needsLogin?: boolean;
   /** Context window in tokens, when known. */
   contextLimit?: number;
+  /** Why the model can't do Cowork's agent work; shown disabled when set. */
+  coworkIssue?: string;
 };
 
 export type ConfiguredProvider = { provider: ProviderDef; models: string[] };
@@ -26,6 +30,10 @@ const API_PREFIX = "api:";
 const CLI_PREFIX = "cli:";
 export const CURSOR_PREFIX = "cursor:";
 export const CURSOR_DEFAULT_ID = `${CURSOR_PREFIX}auto`;
+export const CODEX_PREFIX = "codex:";
+export const CODEX_DEFAULT_ID = `${CODEX_PREFIX}auto`;
+export const GEMINI_PREFIX = "gemini:";
+export const GEMINI_DEFAULT_ID = `${GEMINI_PREFIX}auto`;
 
 const CLI_MODELS: AiModel[] = [
   { id: "cli:codex", name: "Codex", provider: "openai", group: "Local CLI" },
@@ -42,6 +50,24 @@ export function isCursorModel(modelId: string) {
 /** `cursor:<model>` → the model id the CLI expects. */
 export function cursorModelOf(modelId: string) {
   return modelId.slice(CURSOR_PREFIX.length) || "auto";
+}
+
+export function isCodexModel(modelId: string) {
+  return modelId.startsWith(CODEX_PREFIX);
+}
+
+/** `codex:<model>` → the model id the CLI expects. */
+export function codexModelOf(modelId: string) {
+  return modelId.slice(CODEX_PREFIX.length) || "auto";
+}
+
+export function isGeminiModel(modelId: string) {
+  return modelId.startsWith(GEMINI_PREFIX);
+}
+
+/** `gemini:<model>` → the model id the CLI expects. */
+export function geminiModelOf(modelId: string) {
+  return modelId.slice(GEMINI_PREFIX.length) || "auto";
 }
 
 export function isCliModel(modelId: string) {
@@ -67,6 +93,18 @@ export function apiModelOf(modelId: string) {
   return { provider: rest.slice(0, slash), model: rest.slice(slash + 1) };
 }
 
+/** Agent work needs tool calls and room for file contents and tool output. */
+const MIN_COWORK_CONTEXT = 32_000;
+
+/** Why a model is not fit for Cowork, or undefined when it is (or unknown). */
+export function coworkIssueOf(model: Pick<OpencodeModel, "toolCall" | "contextLimit">) {
+  if (model.toolCall === false) return "Can't call tools, so it can't work on files or use MCP";
+  if (model.contextLimit && model.contextLimit < MIN_COWORK_CONTEXT) {
+    return `Context window too small for agent work (${Math.round(model.contextLimit / 1000)}K)`;
+  }
+  return undefined;
+}
+
 /**
  * Selectable models for a mode. Chat talks to provider APIs and OpenCode
  * (without file access); Cowork only offers agents that can work on folders.
@@ -76,6 +114,8 @@ export function buildModelCatalog(
   providers: ConfiguredProvider[],
   mode: WorkMode,
   cursor: { models: CursorModel[]; loggedIn: boolean } = { models: [], loggedIn: false },
+  codex: { models: CodexModel[]; loggedIn: boolean } = { models: [], loggedIn: false },
+  gemini: { models: GeminiModel[]; loggedIn: boolean } = { models: [], loggedIn: false },
 ): AiModel[] {
   const knownLimits = new Map(
     (opencode?.models ?? []).map((m) => [m.id, m.contextLimit ?? undefined]),
@@ -109,6 +149,7 @@ export function buildModelCatalog(
       free: m.free,
       needsKey: !m.connected,
       contextLimit: m.contextLimit ?? undefined,
+      coworkIssue: mode === "cowork" ? coworkIssueOf(m) : undefined,
     })),
   ];
 
@@ -130,18 +171,66 @@ export function buildModelCatalog(
         },
       ];
 
+  // Codex runs on the user's own subscription, in both modes.
+  const codexModels: AiModel[] =
+    codex.loggedIn && codex.models.length > 0
+      ? codex.models.map((m) => ({
+          id: `${CODEX_PREFIX}${m.id}`,
+          name: m.name,
+          provider: "codex",
+          group: "Codex",
+        }))
+      : [
+          {
+            id: CODEX_DEFAULT_ID,
+            name: codex.loggedIn ? "Codex (auto)" : "Codex Agent (sign in)",
+            provider: "codex",
+            group: "Codex",
+            needsLogin: !codex.loggedIn,
+          },
+        ];
+
+  // Gemini CLI runs on the user's own Google account, in both modes.
+  const geminiModels: AiModel[] =
+    gemini.loggedIn && gemini.models.length > 0
+      ? gemini.models.map((m) => ({
+          id: `${GEMINI_PREFIX}${m.id}`,
+          name: m.name,
+          provider: "gemini",
+          group: "Gemini",
+        }))
+      : [
+          {
+            id: GEMINI_DEFAULT_ID,
+            name: gemini.loggedIn ? "Gemini (auto)" : "Gemini CLI (sign in)",
+            provider: "gemini",
+            group: "Gemini",
+            needsLogin: !gemini.loggedIn,
+          },
+        ];
+
   return mode === "cowork"
-    ? [...opencodeModels, ...cursorModels, ...CLI_MODELS]
-    : [...apiModels, ...opencodeModels, ...cursorModels];
+    ? [...opencodeModels, ...cursorModels, ...codexModels, ...geminiModels, ...CLI_MODELS]
+    : [...apiModels, ...opencodeModels, ...cursorModels, ...codexModels, ...geminiModels];
 }
 
 /** Resolve a stored id even before OpenCode models have loaded. */
 export function findModel(catalog: AiModel[], id: string): AiModel {
   const found = catalog.find((m) => m.id === id);
-  if (found) return found;
+  if (found && !found.coworkIssue) return found;
+  // A model picked in Chat that can't do agent work: use the default instead.
+  if (found) return catalog.find((m) => !m.coworkIssue) ?? found;
   if (isCursorModel(id)) {
     const model = cursorModelOf(id);
     return { id, name: model === "auto" ? "Cursor Agent" : model, provider: "cursor", group: "Cursor" };
+  }
+  if (isCodexModel(id)) {
+    const model = codexModelOf(id);
+    return { id, name: model === "auto" ? "Codex Agent" : model, provider: "codex", group: "Codex" };
+  }
+  if (isGeminiModel(id)) {
+    const model = geminiModelOf(id);
+    return { id, name: model === "auto" ? "Gemini CLI" : model, provider: "gemini", group: "Gemini" };
   }
   if (isOpencodeModel(id)) {
     const model = opencodeModelOf(id);

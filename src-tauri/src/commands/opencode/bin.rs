@@ -61,7 +61,16 @@ fn extra_bin_dirs() -> Vec<PathBuf> {
 
     #[cfg(windows)]
     {
-        let mut out = vec![home.join(".bun").join("bin"), home.join(".opencode").join("bin")];
+        let mut out = vec![
+            home.join(".local").join("bin"),
+            home.join(".bun").join("bin"),
+            home.join(".opencode").join("bin"),
+            home
+                .join("AppData")
+                .join("Local")
+                .join("Programs")
+                .join("uv"),
+        ];
         if let Some(appdata) = std::env::var_os("APPDATA") {
             out.insert(0, PathBuf::from(appdata).join("npm"));
         }

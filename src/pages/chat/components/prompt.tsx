@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { attachFolder, detachFolder, type ChatSession } from "@/features/chat-history";
 import { requestCursorLogin, useCursor } from "@/features/cursor";
+import { useGemini } from "@/features/gemini";
 import {
   opencodeWarm,
   requestProviderKey,
@@ -31,6 +32,7 @@ import {
   buildModelCatalog,
   contextBudgetFor,
   findModel,
+  isCursorModel,
   isOpencodeModel,
   loadSelectedModelId,
   opencodeProviderOf,
@@ -40,6 +42,9 @@ import {
 import type { ChatMessage } from "../types";
 import { useDebouncedValue } from "../hooks/use-debounced-value";
 import { ContextMeter } from "./context-meter";
+import { buildMentionAppendix, parseMentions } from "./mention/mentions";
+import { filterMentions, MentionPopup } from "./mention/mention-popup";
+import { useWorkspaceFiles } from "./mention/use-workspace-files";
 import { ModelPicker } from "./model-picker";
 import { PromptOptionsMenu } from "./prompt-options-menu";
 import { WorkModeToggle } from "./work-mode-toggle";
@@ -53,7 +58,7 @@ type Props = {
   canStop?: boolean;
   placeholder?: string;
   onStop?: () => void;
-  onNewChat: () => void;
+  onNewChat: (options?: { cwd?: string }) => void;
   onModeChange: (mode: WorkMode) => void;
   onSubmit: (payload: SendMessage) => Promise<boolean>;
 };
@@ -77,6 +82,7 @@ export default function PromptInput({
   const [modelId, setModelId] = useState(() => loadSelectedModelId(mode));
   const opencode = useOpencode();
   const cursor = useCursor();
+  const gemini = useGemini();
   useFolderGrants(); // re-render when access changes
 
   const providerConfigs = useProviderConfigs();
@@ -85,6 +91,10 @@ export default function PromptInput({
     () => ({ models: cursor.models, loggedIn: !!cursor.check?.loggedIn }),
     [cursor.models, cursor.check?.loggedIn],
   );
+  const geminiStatus = useMemo(
+    () => ({ models: gemini.models, loggedIn: !!gemini.check?.loggedIn }),
+    [gemini.models, gemini.check?.loggedIn],
+  );
   const catalog = useMemo(
     () =>
       buildModelCatalog(
@@ -92,8 +102,10 @@ export default function PromptInput({
         listConfiguredProviders(providerConfigs, envKeys),
         mode,
         cursorStatus,
+        undefined,
+        geminiStatus,
       ),
-    [opencode.models, providerConfigs, envKeys, mode, cursorStatus],
+    [opencode.models, providerConfigs, envKeys, mode, cursorStatus, geminiStatus],
   );
   const selected = findModel(catalog, modelId);
   const usesOpencode = isOpencodeModel(selected.id);
@@ -114,12 +126,14 @@ export default function PromptInput({
   }, [isCowork, cwd, opencodeReady]);
 
   const defaultPlaceholder = isCowork
-    ? "Describe what you want to build or change in your project…"
+    ? "Describe what to build or change… (type @ to attach files)"
     : "How can I help you today?";
 
   /** Ask for whatever the model still needs; true when something was asked. */
   const askForAccess = (model: AiModel, onReady?: () => void) => {
-    if (model.needsLogin) {
+    // Only Cursor has an in-app sign-in flow; other CLIs explain sign-in
+    // through their own backend errors (e.g. run `gemini` once).
+    if (model.needsLogin && isCursorModel(model.id)) {
       requestCursorLogin({ onSignedIn: onReady });
       return true;
     }
@@ -135,32 +149,109 @@ export default function PromptInput({
     return false;
   };
 
-  const pickFolder = async () => {
+  /** Primary Cowork folder. Changing it after a chat started opens a new chat. */
+  const pickWorkingFolder = async () => {
     const folder = await open({
       directory: true,
       multiple: false,
       defaultPath: cwd || undefined,
-      title: session?.cwd ? "Add a folder to this chat" : "Choose the folder Cowork works in",
+      title: session?.cwd
+        ? "Change working folder (starts a new chat)"
+        : "Choose the folder Cowork works in",
     });
     if (typeof folder !== "string" || !folder) return;
     const grant = await requestFolderAccess(folder);
     if (!grant) return;
     const path = normalizeFolder(folder);
-    // The agent session is bound to its first folder; later picks are attached.
-    if (session?.cwd) attachFolder(session.id, path);
-    else opencode.update({ cwd: path });
+    opencode.update({ cwd: path });
+    if (session?.cwd) {
+      if (path === normalizeFolder(session.cwd)) return;
+      onNewChat({ cwd: path });
+      return;
+    }
   };
+
+  const addAttachedFolder = async () => {
+    if (!session?.cwd) {
+      await pickWorkingFolder();
+      return;
+    }
+    const folder = await open({
+      directory: true,
+      multiple: false,
+      defaultPath: cwd || undefined,
+      title: "Add a folder to this chat",
+    });
+    if (typeof folder !== "string" || !folder) return;
+    const grant = await requestFolderAccess(folder);
+    if (!grant) return;
+    const path = normalizeFolder(folder);
+    if (path === normalizeFolder(session.cwd)) return;
+    attachFolder(session.id, path);
+  };
+
+  // `@` mentions: files and folders under the working folder.
+  const mentionRoot = cwd || undefined;
+  const { entries: workspaceEntries, loading: workspaceLoading } = useWorkspaceFiles(mentionRoot);
+  const [mention, setMention] = useState<{ query: string; start: number } | null>(null);
+  const [mentionActive, setMentionActive] = useState(0);
+  const [attaching, setAttaching] = useState(false);
+  const mentionMatches = useMemo(
+    () => (mention ? filterMentions(workspaceEntries, mention.query) : []),
+    [mention, workspaceEntries],
+  );
+
+  /** Recompute an open `@` query from the caret position. */
+  function updateMention(value: string, caret: number | undefined) {
+    if (caret == null || !mentionRoot) {
+      setMention(null);
+      return;
+    }
+    const before = value.slice(0, caret);
+    const m = /(?:^|\s)@([^\s@]*)$/.exec(before);
+    if (!m) {
+      setMention(null);
+      return;
+    }
+    setMention({ query: m[1], start: caret - m[1].length - 1 });
+    setMentionActive(0);
+  }
+
+  function insertMention(rel: string) {
+    if (!mention) return;
+    const caret = ref.current?.selectionStart ?? prompt.length;
+    const next = `${prompt.slice(0, mention.start)}@${rel} ${prompt.slice(caret)}`;
+    const nextCaret = mention.start + rel.length + 2;
+    setPrompt(next);
+    setMention(null);
+    requestAnimationFrame(() => {
+      ref.current?.focus();
+      ref.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+  }
+
+  async function withMentions(text: string): Promise<string> {
+    if (!mentionRoot || parseMentions(text).length === 0) return text;
+    setAttaching(true);
+    try {
+      return text + (await buildMentionAppendix(mentionRoot, text));
+    } finally {
+      setAttaching(false);
+    }
+  }
 
   async function send(text: string, model: AiModel) {
     setPrompt("");
-    const sent = await onSubmit({ prompt: text, model, budget: contextBudgetFor(model) });
+    setMention(null);
+    const full = await withMentions(text);
+    const sent = await onSubmit({ prompt: full, model, budget: contextBudgetFor(model) });
     if (!sent) setPrompt((current) => current || text);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = prompt.trim();
-    if (!trimmed || isLoading || opencodeMissing) return;
+    if (!trimmed || isLoading || attaching || opencodeMissing) return;
     if (askForAccess(selected, () => void send(trimmed, selected))) return;
     await send(trimmed, selected);
   }
@@ -193,21 +284,60 @@ export default function PromptInput({
         </div>
       )}
 
-      <Textarea
-        ref={ref}
-        value={prompt}
-        onChange={(event) => setPrompt(event.target.value)}
-        placeholder={placeholder ?? defaultPlaceholder}
-        rows={2}
-        disabled={isLoading}
-        className="max-h-40 min-h-12 resize-none border-0 bg-transparent p-1 text-[15px] shadow-none placeholder:text-muted-foreground focus-visible:ring-0 dark:bg-transparent"
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-            event.preventDefault();
-            event.currentTarget.form?.requestSubmit();
-          }
-        }}
-      />
+      <div className="relative">
+        {mention && mentionMatches.length > 0 && (
+          <MentionPopup
+            query={mention.query}
+            entries={workspaceEntries}
+            loading={workspaceLoading}
+            active={mentionActive}
+            onActiveChange={setMentionActive}
+            onSelect={insertMention}
+          />
+        )}
+        <Textarea
+          ref={ref}
+          value={prompt}
+          onChange={(event) => {
+            setPrompt(event.target.value);
+            updateMention(event.target.value, event.target.selectionStart ?? undefined);
+          }}
+          onSelect={(event) => {
+            if (mention) updateMention(prompt, event.currentTarget.selectionStart ?? undefined);
+          }}
+          placeholder={placeholder ?? defaultPlaceholder}
+          rows={2}
+          disabled={isLoading}
+          className="max-h-40 min-h-12 resize-none border-0 bg-transparent p-1 text-[15px] shadow-none placeholder:text-muted-foreground focus-visible:ring-0 dark:bg-transparent"
+          onKeyDown={(event) => {
+            if (mention && mentionMatches.length > 0) {
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                setMentionActive((i) =>
+                  event.key === "ArrowDown"
+                    ? Math.min(i + 1, mentionMatches.length - 1)
+                    : Math.max(i - 1, 0),
+                );
+                return;
+              }
+              if (event.key === "Enter" || event.key === "Tab") {
+                event.preventDefault();
+                insertMention(mentionMatches[mentionActive]?.rel ?? mentionMatches[0].rel);
+                return;
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setMention(null);
+                return;
+              }
+            }
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }
+          }}
+        />
+      </div>
 
       {opencodeMissing && (
         <p className="mt-1 px-1 text-xs text-red-600 dark:text-red-400">
@@ -221,10 +351,18 @@ export default function PromptInput({
             opencode={usesOpencode ? opencode : undefined}
             mode={mode}
             canAddFolder={!!session?.cwd}
-            onPickFolder={pickFolder}
+            onPickWorkingFolder={pickWorkingFolder}
+            onAddFolder={addAttachedFolder}
           />
           <WorkModeToggle mode={mode} onModeChange={onModeChange} />
-          {isCowork && <FolderChip opencode={opencode} cwd={cwd} onClick={pickFolder} />}
+          {isCowork && (
+            <FolderChip
+              opencode={opencode}
+              cwd={cwd}
+              boundToChat={!!session?.cwd}
+              onClick={pickWorkingFolder}
+            />
+          )}
         </div>
 
         <div className="ml-auto flex min-w-0 items-center gap-1">
@@ -257,10 +395,10 @@ export default function PromptInput({
               type="submit"
               size="icon-sm"
               className="rounded-full"
-              disabled={!prompt.trim() || isLoading || opencodeMissing}
-              aria-label="Send"
+              disabled={!prompt.trim() || isLoading || attaching || opencodeMissing}
+              aria-label={attaching ? "Attaching files" : "Send"}
             >
-              {isLoading ? <LoaderIcon className="animate-spin" /> : <ArrowUpIcon />}
+              {isLoading || attaching ? <LoaderIcon className="animate-spin" /> : <ArrowUpIcon />}
             </Button>
           )}
         </div>
@@ -269,7 +407,17 @@ export default function PromptInput({
   );
 }
 
-function FolderChip({ opencode, cwd, onClick }: { opencode: OpencodeState; cwd: string; onClick: () => void }) {
+function FolderChip({
+  opencode,
+  cwd,
+  boundToChat,
+  onClick,
+}: {
+  opencode: OpencodeState;
+  cwd: string;
+  boundToChat: boolean;
+  onClick: () => void;
+}) {
   const grant = cwd ? findGrant(cwd) : undefined;
   const status = opencode.loading
     ? { dot: "bg-muted-foreground/50 animate-pulse", label: "Connecting to OpenCode…" }
@@ -286,7 +434,11 @@ function FolderChip({ opencode, cwd, onClick }: { opencode: OpencodeState; cwd: 
       size="sm"
       onClick={onClick}
       className="min-w-0 gap-1.5 rounded-full px-2 text-xs text-muted-foreground"
-      title={`${status.label}\n${cwd}`}
+      title={
+        boundToChat
+          ? `${status.label}\n${cwd}\n\nClick to change folder — opens a new chat`
+          : `${status.label}\n${cwd}`
+      }
     >
       <span className={cn("size-1.5 shrink-0 rounded-full", status.dot)} />
       <FolderIcon className="size-3.5" />

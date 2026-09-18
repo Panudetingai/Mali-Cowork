@@ -20,6 +20,10 @@ export type ChatSession = {
   opencodeSessionId?: string;
   /** Cursor chat id, so `cursor-agent --resume` keeps the conversation. */
   cursorSessionId?: string;
+  /** Codex thread id, so `codex exec resume <id>` keeps the conversation. */
+  codexSessionId?: string;
+  /** Gemini session id, so `gemini -r <id>` keeps the conversation. */
+  geminiSessionId?: string;
   /** Chat this one continues after the context limit was reached. */
   continuedFrom?: { id: string; title: string };
 };
@@ -28,6 +32,8 @@ type NewChat = Pick<ChatSession, "mode" | "cwd" | "continuedFrom">;
 
 /** In-flight state for a chat; never persisted. */
 export type ChatRun = {
+  /** Identifies this run, so a late cleanup can't end a newer one. */
+  token: string;
   modelId: string;
   agentSessionId?: string;
   permissions: PermissionRequest[];
@@ -119,8 +125,11 @@ export function deleteChat(id: string) {
   );
 }
 
+/** Returns the run's token for `endRun`. */
 export function startRun(id: string, modelId: string) {
-  runStore.set((prev) => ({ ...prev, [id]: { modelId, permissions: [] } }));
+  const token = crypto.randomUUID();
+  runStore.set((prev) => ({ ...prev, [id]: { token, modelId, permissions: [] } }));
+  return token;
 }
 
 export function updateRun(id: string, fn: (run: ChatRun) => ChatRun) {
@@ -131,8 +140,14 @@ export function getRun(id: string): ChatRun | undefined {
   return runStore.get()[id];
 }
 
-export function endRun(id: string) {
-  runStore.set(({ [id]: _ended, ...rest }) => rest);
+/** End a chat's run; with `token`, only if it is still that run. */
+export function endRun(id: string, token?: string) {
+  runStore.set((prev) => {
+    const run = prev[id];
+    if (!run || (token && run.token !== token)) return prev;
+    const { [id]: _ended, ...rest } = prev;
+    return rest;
+  });
 }
 
 function titleFrom(prompt: string) {

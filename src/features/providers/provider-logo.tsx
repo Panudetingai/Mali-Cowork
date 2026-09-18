@@ -1,38 +1,54 @@
 import { cn } from "@/lib/utils";
+import { ProviderIcon } from "@lobehub/icons";
 import { useState } from "react";
+import { lobeProviderKey } from "./lobe";
 
 type Props = {
+  /** Our provider id from catalog.ts (e.g. "openai", "zai"). */
   logo: string;
   name: string;
   className?: string;
 };
 
-/** models.dev logo with a letter fallback when the image is missing or offline. */
+/**
+ * Brand icon from LobeHub (inline SVG, works offline in Tauri) with a
+ * models.dev image fallback and a letter tile as last resort.
+ * Browse: https://lobehub.com/icons
+ */
 export function ProviderLogo({ logo, name, className }: Props) {
-  const [failed, setFailed] = useState(false);
+  const [imgFailed, setImgFailed] = useState(false);
+  const lobeKey = lobeProviderKey(logo);
 
-  if (failed) {
+  if (lobeKey) {
     return (
-      <span
-        aria-hidden
-        className={cn(
-          "flex size-4 shrink-0 items-center justify-center rounded-sm bg-muted text-[10px] font-semibold text-muted-foreground",
-          className,
-        )}
-      >
-        {name.charAt(0)}
+      <span className={cn("flex shrink-0 items-center justify-center", className)} aria-hidden>
+        <ProviderIcon provider={lobeKey} size={24} type="color" />
       </span>
     );
   }
 
+  if (!imgFailed) {
+    return (
+      <img
+        src={`https://models.dev/logos/${logo}.svg`}
+        alt=""
+        width={24}
+        height={24}
+        className={cn("size-6 shrink-0 dark:invert", className)}
+        onError={() => setImgFailed(true)}
+      />
+    );
+  }
+
   return (
-    <img
-      src={`https://models.dev/logos/${logo}.svg`}
-      alt=""
-      width={16}
-      height={16}
-      className={cn("size-4 shrink-0 dark:invert", className)}
-      onError={() => setFailed(true)}
-    />
+    <span
+      aria-hidden
+      className={cn(
+        "flex size-6 shrink-0 items-center justify-center rounded-sm bg-muted text-[10px] font-semibold text-muted-foreground",
+        className,
+      )}
+    >
+      {name.charAt(0)}
+    </span>
   );
 }

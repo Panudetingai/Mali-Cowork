@@ -1,45 +1,50 @@
 "use client";
 
 import {
-  loadOpencodeSettings,
-  opencodeAbort,
-  opencodeReplyPermission,
-  requestProviderKey,
-  type PermissionReply,
-  type WorkMode,
-} from "@/features/opencode";
-import {
-  attachFolder,
-  createChat,
-  endRun,
-  getChat,
-  getRun,
-  sessionMode,
-  startRun,
-  updateChat,
-  updateChatMessages,
-  updateRun,
-  useChatRuns,
-  useChatSessions,
-  type ChatSession,
+    attachFolder,
+    createChat,
+    endRun,
+    getChat,
+    getRun,
+    sessionMode,
+    startRun,
+    updateChat,
+    updateChatMessages,
+    updateRun,
+    useChatRuns,
+    useChatSessions,
+    type ChatSession,
 } from "@/features/chat-history";
+import { codexAbort } from "@/features/codex";
 import { cursorAbort, requestCursorLogin } from "@/features/cursor";
+import { geminiAbort } from "@/features/gemini";
+import { hasEnabledMcp, syncMcpServers } from "@/features/mcp";
+import {
+    loadOpencodeSettings,
+    opencodeAbort,
+    opencodeReplyPermission,
+    requestProviderKey,
+    type PermissionReply,
+    type WorkMode,
+} from "@/features/opencode";
 import { findGrant, grantsFor, normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import type {
-  HistoryMessage,
-  PermissionRequest,
-  StreamMetadata,
+    HistoryMessage,
+    PermissionRequest,
+    StreamMetadata,
 } from "@/pages/chat/api/chat";
-import { generateStream } from "@/pages/chat/api/router";
+import { generateStream, runModelIdFor } from "@/pages/chat/api/router";
 import { useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { contextUsage } from "../context-usage";
 import {
-  isCursorModel,
-  isOpencodeModel,
-  opencodeProviderOf,
-  type AiModel,
-  type ContextBudget,
+    isCodexModel,
+    isCursorModel,
+    isGeminiModel,
+    isOpencodeModel,
+    opencodeProviderOf,
+    type AiModel,
+    type ContextBudget,
 } from "../models";
 import type { ActivityItem, ChatMessage } from "../types";
 
@@ -71,7 +76,6 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
     const id = requestAnimationFrame(() => {
       el.scrollTo({
         top: el.scrollHeight,
-        // Smooth scroll on every stream chunk feels stuck; snap while generating.
         behavior: isLoading ? "auto" : "smooth",
       });
     });
@@ -124,10 +128,20 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
   const containerRef = useScroll({ messages, isLoading });
   const promptInputRef = usePromptInput({ isLoading });
 
-  /** Resolves false when the message was not sent (e.g. folder access declined). */
-  const sendMessage = useCallback(
-    async ({ prompt, model, budget }: SendMessage): Promise<boolean> => {
-      const modelId = model.id;
+  /**
+   * The shared send pipeline. Both new prompts and retries run through here,
+   * so a retry reproduces the original model and context budget exactly.
+   */
+  const executeSend = useCallback(
+    async ({
+      prompt,
+      resend,
+    }: {
+      prompt: string;
+      resend: NonNullable<ChatMessage["resend"]>;
+    }): Promise<boolean> => {
+      const modelId = resend.modelId;
+      const budget = { maxTokens: resend.maxTokens, autoNewChat: resend.autoNewChat };
       let chat = chatId ? getChat(chatId) : undefined;
       const chatMode = chat ? sessionMode(chat) : newChatMode;
 
@@ -164,29 +178,56 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
       const assistantId = crypto.randomUUID();
       const isOpencode = isOpencodeModel(modelId);
       const isCursor = isCursorModel(modelId);
+      const isCodex = isCodexModel(modelId);
+      const isGemini = isGeminiModel(modelId);
       let hasErrored = false;
+
+      if (hasEnabledMcp() && (isOpencode || isCodex)) {
+        const cwd =
+          chatMode === "chat"
+            ? normalizeFolder(loadOpencodeSettings().cwd)
+            : folders[0];
+        const mcpSync = cwd
+          ? syncMcpServers({
+              cwd,
+              mode: chatMode === "chat" ? "chat" : undefined,
+              liveConnect: isOpencode,
+            })
+          : isCodex
+            ? syncMcpServers({ liveConnect: false })
+            : undefined;
+        await mcpSync?.catch(() => undefined);
+      }
 
       updateChatMessages(chatKey, (prev) => [
         ...prev,
-        createUserMessage(prompt),
+        createUserMessage(prompt, resend),
         createAssistantPlaceholder(modelId, assistantId),
       ]);
-      startRun(chatKey, modelId);
+      const runToken = startRun(chatKey, runModelIdFor(modelId));
 
       const update = (fn: (message: ChatMessage) => ChatMessage) =>
         updateChatMessages(chatKey, (prev) => prev.map((m) => (m.id === assistantId ? fn(m) : m)));
+
+      // The reply and the sidebar spinner must finish together: settle the
+      // message and end the run in the same tick.
+      const finish = () => {
+        update((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
+        endRun(chatKey, runToken);
+      };
 
       const handleError = (content: string) => {
         if (hasErrored) return;
         hasErrored = true;
         updateChatMessages(chatKey, (prev) => replaceAssistantWithError(prev, assistantId, content));
+        endRun(chatKey, runToken);
         if (isCursor && isAuthError(content)) {
           requestCursorLogin();
           return;
         }
         const providerId = opencodeProviderOf(modelId);
         if (providerId && isAuthError(content)) {
-          requestProviderKey({ providerId, modelName: model.name, invalid: true });
+          requestProviderKey({ providerId, modelName: resend.modelName, invalid: true });
         }
       };
 
@@ -194,12 +235,16 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
         await generateStream(
           {
             prompt,
-            modelId,
+            modelId: runModelIdFor(modelId),
             sessionId: isOpencode
               ? chat.opencodeSessionId
               : isCursor
                 ? chat.cursorSessionId
-                : undefined,
+                : isCodex
+                  ? chat.codexSessionId
+                  : isGemini
+                    ? chat.geminiSessionId
+                    : undefined,
             history,
             mode: chatMode,
             runId: chatKey,
@@ -214,10 +259,16 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
             onActivity: (activity) =>
               update((m) => withActivity(m, activity)),
             onMetadata: (data) => {
-              if ((isOpencode || isCursor) && data.sessionId) {
+              if ((isOpencode || isCursor || isCodex || isGemini) && data.sessionId) {
                 const sessionId = data.sessionId;
                 updateChat(chatKey, (s) =>
-                  isCursor ? { ...s, cursorSessionId: sessionId } : { ...s, opencodeSessionId: sessionId },
+                  isCursor
+                    ? { ...s, cursorSessionId: sessionId }
+                    : isCodex
+                      ? { ...s, codexSessionId: sessionId }
+                      : isGemini
+                        ? { ...s, geminiSessionId: sessionId }
+                        : { ...s, opencodeSessionId: sessionId },
                 );
                 updateRun(chatKey, (r) => ({ ...r, agentSessionId: sessionId }));
               }
@@ -230,12 +281,16 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
                 ...r,
                 permissions: r.permissions.filter((p) => p.id !== permissionId),
               })),
-            onDone: (doneModelId) =>
+            onDone: (doneModelId) => {
               update((m) => ({
                 ...m,
                 modelId: doneModelId || m.modelId,
-                isStreaming: false,
-              })),
+                activities: m.activities?.map((a) =>
+                  a.done ? a : { ...a, done: true },
+                ),
+              }));
+              finish();
+            },
             onError: handleError,
           },
         );
@@ -243,12 +298,59 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
         handleError(formatChatError(error));
       } finally {
         // A reply that ended without `done` must not keep its spinner.
-        update((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
-        endRun(chatKey);
+        finish();
       }
       return true;
     },
     [chatId, newChatMode, navigate],
+  );
+
+  /** Resolves false when the message was not sent (e.g. folder access declined). */
+  const sendMessage = useCallback(
+    async ({ prompt, model, budget }: SendMessage): Promise<boolean> =>
+      executeSend({
+        prompt,
+        resend: {
+          modelId: model.id,
+          modelName: model.name,
+          maxTokens: budget.maxTokens,
+          autoNewChat: budget.autoNewChat,
+        },
+      }),
+    [executeSend],
+  );
+
+  /**
+   * Drop the user message and everything after it, then resend it with the
+   * same model and budget. Only the latest exchange can be retried while a
+   * run is in flight nothing happens.
+   */
+  const retryMessage = useCallback(
+    async (userMessageId: string): Promise<boolean> => {
+      if (!chatId || getRun(chatId)) return false;
+      const chat = getChat(chatId);
+      const index = chat?.messages.findIndex((m) => m.id === userMessageId && m.role === "user") ?? -1;
+      const original = index >= 0 ? chat!.messages[index] : undefined;
+      if (!chat || !original?.resend) return false;
+      updateChatMessages(chatId, (prev) => prev.slice(0, index));
+      return executeSend({ prompt: original.content, resend: original.resend });
+    },
+    [chatId, executeSend],
+  );
+
+  /** Thumbs up/down on an assistant reply; tapping again clears it. */
+  const rateMessage = useCallback(
+    (messageId: string, value: "up" | "down") => {
+      if (!chatId) return;
+      updateChatMessages(chatId, (prev) =>
+        prev.map((m) =>
+          m.id === messageId && m.role === "assistant"
+            ? { ...m, feedback: m.feedback === value ? undefined : value }
+            : m,
+        ),
+      );
+    },
+    [chatId],
   );
 
   const addError = useCallback(
@@ -308,7 +410,12 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
     [chatId, replyPermission, addError],
   );
 
-  const canStop = !!run && (isOpencodeModel(run.modelId) || isCursorModel(run.modelId));
+  const canStop =
+    !!run &&
+    (isOpencodeModel(run.modelId) ||
+      isCursorModel(run.modelId) ||
+      isCodexModel(run.modelId) ||
+      isGeminiModel(run.modelId));
 
   const stop = useCallback(async () => {
     if (!chatId) return;
@@ -318,6 +425,14 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
     if (isCursorModel(activeRun.modelId)) {
       // Cursor runs as a child process, keyed by the chat it belongs to.
       return cursorAbort(chatId).catch(addError);
+    }
+    if (isCodexModel(activeRun.modelId)) {
+      // Same pattern as cursor: child process keyed by chat.
+      return codexAbort(chatId).catch(addError);
+    }
+    if (isGeminiModel(activeRun.modelId)) {
+      // Same pattern: child process keyed by chat.
+      return geminiAbort(chatId).catch(addError);
     }
     if (!activeRun.agentSessionId) return;
     await opencodeAbort({
@@ -336,6 +451,8 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
     containerRef,
     promptInputRef,
     sendMessage,
+    retryMessage,
+    rateMessage,
     permissions: run?.permissions ?? [],
     replyPermission,
     allowFolder,
@@ -361,11 +478,12 @@ function toHistory(messages: ChatMessage[]): HistoryMessage[] {
     .map((m) => ({ role: m.role, content: m.content }));
 }
 
-function createUserMessage(prompt: string): ChatMessage {
+function createUserMessage(prompt: string, resend: NonNullable<ChatMessage["resend"]>): ChatMessage {
   return {
     id: crypto.randomUUID(),
     role: "user",
     content: prompt,
+    resend,
   };
 }
 
@@ -401,6 +519,10 @@ function formatChatError(error: unknown): string {
   return raw;
 }
 
+function finalizeActivities(activities: ActivityItem[]) {
+  return activities.map((a) => (a.done ? a : { ...a, done: true }));
+}
+
 /** Merge a streamed activity into the message's step list. */
 function withActivity(message: ChatMessage, activity: ActivityItem): ChatMessage {
   const prev = message.activities ?? [];
@@ -411,7 +533,10 @@ function withActivity(message: ChatMessage, activity: ActivityItem): ChatMessage
       activities[index] = { ...prev[index], ...activity };
       return { ...message, activities };
     }
-    return { ...message, activities: [...prev, activity] };
+    return {
+      ...message,
+      activities: [...finalizeActivities(prev), activity],
+    };
   }
   const last = prev[prev.length - 1];
   // Same step reporting progress: update it in place.
@@ -421,7 +546,10 @@ function withActivity(message: ChatMessage, activity: ActivityItem): ChatMessage
       activities: [...prev.slice(0, -1), { ...last, ...activity }],
     };
   }
-  return { ...message, activities: [...prev, activity] };
+  return {
+    ...message,
+    activities: [...finalizeActivities(prev), activity],
+  };
 }
 
 function withMetadata(message: ChatMessage, data: StreamMetadata): ChatMessage {
@@ -451,4 +579,16 @@ function replaceAssistantWithError(
     ...messages.filter((item) => item.id !== assistantId),
     createErrorMessage(content),
   ];
+}
+
+// scroll to bottom of chain of thought steps
+export function useScrollToBottomOfChainOfThoughtSteps() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const scrollToBottom = useCallback(() => {
+    containerRef.current?.scrollTo({
+      top: containerRef.current?.scrollHeight,
+      behavior: "smooth",
+    });
+  }, []);
+  return { containerRef, scrollToBottom };
 }

@@ -31,12 +31,12 @@ pub struct ChatRequest {
     pub history: Vec<HistoryMessage>,
 }
 
-struct ProviderInfo {
-    base_url: &'static str,
-    env_var: Option<&'static str>,
+pub(crate) struct ProviderInfo {
+    pub base_url: &'static str,
+    pub env_var: Option<&'static str>,
 }
 
-fn provider_info(provider: &str) -> Result<ProviderInfo, String> {
+pub(crate) fn provider_info(provider: &str) -> Result<ProviderInfo, String> {
     let (base_url, env_var) = match provider {
         "anthropic" => ("https://api.anthropic.com/v1/", Some("ANTHROPIC_API_KEY")),
         "openai" => ("https://api.openai.com/v1", Some("OPENAI_API_KEY")),
@@ -56,6 +56,7 @@ fn provider_info(provider: &str) -> Result<ProviderInfo, String> {
         "openrouter" => ("https://openrouter.ai/api/v1", Some("OPENROUTER_API_KEY")),
         "groq" => ("https://api.groq.com/openai/v1", Some("GROQ_API_KEY")),
         "ollama" => ("http://localhost:11434/v1", None),
+        "ollama-cloud" => ("https://ollama.com/v1", Some("OLLAMA_API_KEY")),
         other => return Err(format!("Unknown provider: {other}")),
     };
     Ok(ProviderInfo { base_url, env_var })
@@ -91,7 +92,7 @@ fn resolve_api_key(request: &ChatRequest, info: &ProviderInfo) -> Result<String,
 pub fn providers_with_env_key() -> Vec<String> {
     [
         "anthropic", "openai", "google", "xai", "deepseek", "mistral", "alibaba", "zai",
-        "moonshotai", "openrouter", "groq",
+        "moonshotai", "openrouter", "groq", "ollama-cloud",
     ]
     .into_iter()
     .filter(|id| {

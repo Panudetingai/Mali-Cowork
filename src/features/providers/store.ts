@@ -94,6 +94,29 @@ export function requestConfigFor(providerId: string) {
   };
 }
 
-export function ollamaListModels(baseUrl: string) {
-  return invoke<string[]>("ollama_list_models", { baseUrl: baseUrl || null });
+export function ollamaListModels(baseUrl: string, apiKey?: string) {
+  return invoke<string[]>("ollama_list_models", {
+    baseUrl: baseUrl || null,
+    apiKey: apiKey?.trim() || null,
+  });
+}
+
+/**
+ * Hand every provider's settings to OpenCode so Cowork, and Chat with MCP
+ * servers on, can use the same models and keys. Restarts the agent server
+ * only when the provider config actually changed.
+ */
+export async function syncCliProviders() {
+  const configs = configStore.get();
+  const providers = PROVIDERS.map((provider) => {
+    const config = configs[provider.id];
+    return {
+      id: provider.id,
+      baseUrl: config?.baseUrl.trim() || provider.defaultBaseUrl,
+      // Unconfigured providers send no models, which removes them.
+      models: config ? splitModels(config.models) : [],
+      apiKey: config?.apiKey.trim() || null,
+    };
+  });
+  return invoke<{ restarted: boolean }>("opencode_configure_providers", { providers });
 }

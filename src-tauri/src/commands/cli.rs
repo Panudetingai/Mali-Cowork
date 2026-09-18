@@ -480,11 +480,19 @@ pub struct CliCheckResult {
 
 #[tauri::command]
 pub async fn check_cli(agent: String) -> CliCheckResult {
+    // Only known agents: this runs `<bin> --version` on the user's machine.
     let bin = match agent.as_str() {
         "opencode" => "opencode",
         "cursor" => "cursor-agent",
         "codex" => "codex",
-        other => other,
+        other => {
+            return CliCheckResult {
+                available: false,
+                version: None,
+                path: None,
+                error: Some(format!("Unknown agent: {other}")),
+            }
+        }
     };
     let Some(path) = resolve_bin(bin) else {
         return CliCheckResult { available: false, version: None, path: None, error: Some(format!("{bin} not found in PATH")) };

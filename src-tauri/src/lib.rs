@@ -4,11 +4,15 @@ mod commands;
 
 use commands::chat::{chat_generate, ollama_list_models, provider_env_keys};
 use commands::cli::{check_cli, cli_generate};
+use commands::codex::{codex_abort, codex_check, codex_generate, codex_list_models};
 use commands::cursor::{
     cursor_abort, cursor_check, cursor_generate, cursor_list_models, cursor_login,
 };
+use commands::gemini::{gemini_abort, gemini_check, gemini_generate, gemini_list_models};
+use commands::mcp::{mcp_diagnose, mcp_status, mcp_sync};
 use commands::opencode::{
-    opencode_abort, opencode_check, opencode_default_cwd, opencode_delete_session,
+    opencode_abort, opencode_check, opencode_configure_providers, opencode_default_cwd,
+    opencode_delete_session,
     opencode_generate, opencode_list_models, opencode_permission_reply, opencode_set_auth,
     opencode_warm, shutdown_server, warm_up_server,
 };
@@ -55,11 +59,23 @@ pub fn run() {
             opencode_set_auth,
             opencode_delete_session,
             opencode_warm,
+            opencode_configure_providers,
+            mcp_sync,
+            mcp_status,
+            mcp_diagnose,
             cursor_generate,
             cursor_check,
             cursor_login,
             cursor_list_models,
             cursor_abort,
+            codex_generate,
+            codex_check,
+            codex_list_models,
+            codex_abort,
+            gemini_generate,
+            gemini_check,
+            gemini_list_models,
+            gemini_abort,
             provider_env_keys,
             ollama_list_models
         ])

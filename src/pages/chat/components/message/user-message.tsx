@@ -13,13 +13,13 @@ export function UserMessage({ content }: Props) {
     <Message from="user" className="py-3">
       <MessageContent
         className={cn(
-          "max-w-[min(85%,100%)] rounded-2xl rounded-tr-sm bg-primary px-5 py-3 text-primary-foreground shadow-sm",
-          "break-words",
+          "max-w-[min(85%,100%)] rounded-2xl rounded-tr-sm bg-primary/20! text-primary-foreground! px-5 py-3",
+          "wrap-break-word",
         )}
       >
         <ExpandableClamp
           maxHeightClass="max-h-48"
-          className="[&_button]:text-primary-foreground/80 [&_button:hover]:text-primary-foreground"
+          className="[&_button]:text-foreground/80 [&_button:hover]:text-foreground"
         >
           <p className="whitespace-pre-wrap">{content}</p>
         </ExpandableClamp>

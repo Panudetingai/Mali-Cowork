@@ -41,6 +41,8 @@ export type OpencodeModel = {
   connected: boolean;
   /** Context window in tokens, when known. */
   contextLimit?: number | null;
+  /** Can call tools (files, MCP); null when the model has no metadata. */
+  toolCall?: boolean | null;
 };
 
 export type OpencodeProvider = {

@@ -18,8 +18,16 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const LISTENING_MARKER: &str = "listening on ";
 /// Config layered over the user's own. Snapshots (git copies of the working
 /// folder taken every step, for undo) cost seconds in folders with
-/// `node_modules` or `target`, and this app never offers undo.
-const APP_CONFIG: &str = r#"{"snapshot":false}"#;
+/// `node_modules` or `target`, and this app never offers undo. Providers set
+/// up in Settings → Models (Ollama, OpenRouter) are added on top.
+fn app_config() -> String {
+    let mut config = serde_json::json!({ "snapshot": false });
+    let providers = super::providers::load_overlay();
+    if !providers.is_empty() {
+        config["provider"] = serde_json::Value::Object(providers);
+    }
+    config.to_string()
+}
 
 struct Running {
     child: Child,
@@ -58,6 +66,16 @@ pub async fn ensure_server() -> Result<OpencodeClient, String> {
     Ok(client)
 }
 
+/// Stop the running server so the next call starts one with fresh config.
+pub async fn restart() {
+    let mut guard = state().lock().await;
+    if let Some(mut running) = guard.take() {
+        let _ = running.child.start_kill();
+        let _ = tokio::time::timeout(Duration::from_secs(5), running.child.wait()).await;
+    }
+    *server_pid().lock().unwrap() = None;
+}
+
 /// Kill the server. Called from the app exit hook, outside the async runtime.
 pub fn shutdown() {
     let Some(pid) = server_pid().lock().unwrap().take() else {
@@ -80,8 +98,11 @@ async fn spawn_server() -> Result<Running, String> {
     let mut cmd = opencode_command(bin, &["serve", "--hostname", "127.0.0.1", "--port", "0"]);
     // Respect a config the user injected themselves.
     if std::env::var_os("OPENCODE_CONFIG_CONTENT").is_none() {
-        cmd.env("OPENCODE_CONFIG_CONTENT", APP_CONFIG);
+        cmd.env("OPENCODE_CONFIG_CONTENT", app_config());
     }
+    // Skills in ~/.claude/skills belong to Claude Code; offered here, they
+    // pull the agent away from the MCP servers set up in this app.
+    cmd.env("OPENCODE_DISABLE_CLAUDE_CODE_SKILLS", "1");
     cmd.env("OPENCODE_SERVER_PASSWORD", &password)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

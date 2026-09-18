@@ -33,4 +33,13 @@ export type ChatMessage = {
   sessionId?: string;
   usage?: AgentUsage;
   durationMs?: number;
+  /** Thumbs up/down on a finished assistant reply. */
+  feedback?: "up" | "down";
+  /** What the user asked with: lets "retry" resend without the picker. */
+  resend?: {
+    modelId: string;
+    modelName: string;
+    maxTokens: number;
+    autoNewChat: boolean;
+  };
 };

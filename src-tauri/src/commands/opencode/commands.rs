@@ -15,6 +15,7 @@ use super::{
     cwd::get_default_public_dir,
     events::{EventTranslator, Outcome, PermissionAsk},
     policy::{Decision, FolderPolicy},
+    providers::{overlay_model_ids, APP_PROVIDERS},
     server::{ensure_server, not_found_message},
     OpencodeCheckResult, OpencodeModel, OpencodeModelsResult, OpencodeProvider, OpencodeRequest,
     FolderGrant, PermissionReplyRequest, SetAuthRequest,
@@ -74,12 +75,16 @@ pub async fn opencode_list_models(cwd: Option<String>) -> Result<OpencodeModelsR
         .filter_map(Value::as_str)
         .collect();
 
+    let app_models = overlay_model_ids();
     let mut models = Vec::new();
     let mut providers = Vec::new();
     for provider in body["all"].as_array().into_iter().flatten() {
         let provider_id = provider["id"].as_str().unwrap_or_default();
         let is_connected = connected.contains(&provider_id);
-        if !is_connected && !SUGGESTED_PROVIDERS.contains(&provider_id) {
+        if !is_connected
+            && !SUGGESTED_PROVIDERS.contains(&provider_id)
+            && !APP_PROVIDERS.contains(&provider_id)
+        {
             continue;
         }
         let provider_name = provider["name"].as_str().unwrap_or(provider_id);
@@ -93,7 +98,9 @@ pub async fn opencode_list_models(cwd: Option<String>) -> Result<OpencodeModelsR
         for (model_id, model) in provider["models"].as_object().into_iter().flatten() {
             let context_limit = model["limit"]["context"].as_u64().filter(|&n| n > 0);
             // Speech, image and deprecated models can't hold a conversation.
-            if context_limit.is_none() || model["status"] == "deprecated" {
+            // Models the user added in Settings have no metadata but are chat models.
+            let added_by_user = app_models.contains(&format!("{provider_id}/{model_id}"));
+            if (context_limit.is_none() && !added_by_user) || model["status"] == "deprecated" {
                 continue;
             }
             let cost = &model["cost"];
@@ -107,6 +114,9 @@ pub async fn opencode_list_models(cwd: Option<String>) -> Result<OpencodeModelsR
                 free,
                 connected: is_connected,
                 context_limit,
+                tool_call: model["capabilities"]["toolcall"]
+                    .as_bool()
+                    .or_else(|| model["tool_call"].as_bool()),
             });
         }
     }
@@ -272,7 +282,8 @@ async fn run_prompt(
         client.set_permissions(&directory, &session_id, rules).await?;
     }
 
-    let options = prompt_options(request, &policy.lock().unwrap(), &directory, model);
+    let mcp = connected_mcp(&client, &directory, request.is_chat()).await;
+    let options = prompt_options(request, &policy.lock().unwrap(), &directory, model, &mcp);
     client
         .prompt_async(&directory, &session_id, prompt, &options)
         .await?;
@@ -352,29 +363,70 @@ const CHAT_SYSTEM: &str = "You are Mali Cowork in Chat mode: a friendly, concise
 Answer from your own knowledge. You cannot read or change the user's files in this mode; \
 if the task needs that, suggest switching to Cowork mode.";
 
-/// Tools that touch the file system or run commands.
+/// Tools that touch the file system or run commands, including the
+/// Filesystem MCP server's.
 const WORKSPACE_TOOLS: &[&str] = &[
     "bash", "edit", "write", "patch", "multiedit", "read", "grep", "glob", "list", "task",
-    "todowrite", "todoread",
+    "todowrite", "todoread", "filesystem_*",
 ];
+
+/// MCP servers connected in this folder's instance. Chat leaves out the
+/// Filesystem server, whose tools it disables.
+async fn connected_mcp(client: &OpencodeClient, directory: &str, chat: bool) -> Vec<String> {
+    let Ok(status) = client.mcp_status(Some(directory)).await else {
+        return Vec::new();
+    };
+    let mut ids: Vec<String> = status
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(id, entry)| entry["status"] == "connected" && !(chat && *id == "filesystem"))
+        .map(|(id, _)| id.clone())
+        .collect();
+    ids.sort();
+    ids
+}
+
+/// Points the model at the MCP tools; without it, models tend to write
+/// scripts or hunt for instructions instead.
+fn mcp_note(servers: &[String]) -> Option<String> {
+    if servers.is_empty() {
+        return None;
+    }
+    let list = servers
+        .iter()
+        .map(|id| format!("- {id} (tools named `{id}_*`)"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(format!(
+        "Connected MCP servers:\n{list}\n\nWhen one of these servers covers the task \
+         (e.g. `word_*` for Word documents), call its tools directly. Do not look for skills \
+         or instruction files, and do not write scripts for what those tools already do."
+    ))
+}
 
 fn prompt_options<'a>(
     request: &OpencodeRequest,
     policy: &FolderPolicy,
     directory: &str,
     model: Option<&'a str>,
+    mcp: &[String],
 ) -> PromptOptions<'a> {
+    let mcp_note = mcp_note(mcp);
     if request.is_chat() {
+        let system = [Some(CHAT_SYSTEM.to_string()), mcp_note].into_iter().flatten();
         return PromptOptions {
             model,
             disabled_tools: WORKSPACE_TOOLS,
-            system: Some(CHAT_SYSTEM.into()),
+            system: Some(system.collect::<Vec<_>>().join("\n\n")),
         };
     }
+    let mut notes = policy.describe(directory);
+    notes.extend(mcp_note);
     PromptOptions {
         model,
         disabled_tools: &[],
-        system: Some(policy.describe(directory).join("\n\n")),
+        system: Some(notes.join("\n\n")),
     }
 }
 
@@ -400,7 +452,7 @@ pub async fn opencode_warm(cwd: Option<String>, mode: Option<String>) -> Result<
 }
 
 /// Chat sessions live in a private scratch folder; cowork sessions in the chosen folder.
-fn session_dir(mode: Option<&str>, cwd: Option<&str>) -> PathBuf {
+pub(crate) fn session_dir(mode: Option<&str>, cwd: Option<&str>) -> PathBuf {
     if mode == Some("chat") {
         return dirs::data_local_dir()
             .unwrap_or_else(std::env::temp_dir)

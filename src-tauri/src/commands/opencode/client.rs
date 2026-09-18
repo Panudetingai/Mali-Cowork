@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 
 const USERNAME: &str = "opencode";
 const SHORT_TIMEOUT: Duration = Duration::from_secs(15);
+const MCP_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// Per-prompt settings beyond the text itself.
 #[derive(Default)]
@@ -190,6 +191,41 @@ impl OpencodeClient {
             .request(Method::POST, &format!("/permission/{request_id}/reply"), Some(directory))
             .json(&body)
             .timeout(SHORT_TIMEOUT);
+        Self::send(req).await.map(|_| ())
+    }
+
+    /// MCP servers registered for a workspace (or global when `directory` is `None`).
+    pub async fn mcp_status(&self, directory: Option<&str>) -> Result<Value, String> {
+        let req = self
+            .request(Method::GET, "/mcp", directory)
+            .timeout(MCP_TIMEOUT);
+        Self::send(req).await?.json().await.map_err(|e| e.to_string())
+    }
+
+    pub async fn mcp_add(
+        &self,
+        directory: Option<&str>,
+        name: &str,
+        config: &Value,
+    ) -> Result<Value, String> {
+        let req = self
+            .request(Method::POST, "/mcp", directory)
+            .json(&json!({ "name": name, "config": config }))
+            .timeout(MCP_TIMEOUT);
+        Self::send(req).await?.json().await.map_err(|e| e.to_string())
+    }
+
+    pub async fn mcp_connect(&self, directory: Option<&str>, name: &str) -> Result<(), String> {
+        let req = self
+            .request(Method::POST, &format!("/mcp/{name}/connect"), directory)
+            .timeout(MCP_TIMEOUT);
+        Self::send(req).await.map(|_| ())
+    }
+
+    pub async fn mcp_disconnect(&self, directory: Option<&str>, name: &str) -> Result<(), String> {
+        let req = self
+            .request(Method::POST, &format!("/mcp/{name}/disconnect"), directory)
+            .timeout(MCP_TIMEOUT);
         Self::send(req).await.map(|_| ())
     }
 

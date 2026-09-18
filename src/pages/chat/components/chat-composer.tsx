@@ -18,7 +18,7 @@ type Props = {
   onReplyPermission: (request: PermissionRequest, reply: PermissionReply) => Promise<void>;
   onAllowFolder: (request: PermissionRequest, folder: string) => Promise<void>;
   onStop: () => void;
-  onNewChat: () => void;
+  onNewChat: (options?: { cwd?: string }) => void;
   onModeChange: (mode: WorkMode) => void;
   onSubmit: (payload: SendMessage) => Promise<boolean>;
 };

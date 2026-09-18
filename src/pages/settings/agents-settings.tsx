@@ -1,210 +1,273 @@
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
-import { open } from "@tauri-apps/plugin-dialog";
-import { CheckCircle2, FolderOpenIcon, RefreshCwIcon, XCircleIcon } from "lucide-react";
-import { useEffect, useState } from "react";
-import { checkCli, type CliCheckResult } from "@/pages/chat/api/cli";
 import { CursorLoginDialog, requestCursorLogin, useCursor } from "@/features/cursor";
+import { useGemini } from "@/features/gemini";
 import { useOpencode } from "@/features/opencode";
-
-type CliItem = {
-  id: string;
-  label: string;
-  bin: string;
-  installHint: string;
-};
-
-const CLI_ITEMS: CliItem[] = [
-  { id: "codex", label: "Codex (OpenAI)", bin: "codex", installHint: "npm i -g @openai/codex" },
-];
+import {
+  PROVIDERS,
+  ProviderLogo,
+  useEnvKeys,
+  useProviderConfigs,
+  type ProviderDef,
+} from "@/features/providers";
+import { cn } from "@/lib/utils";
+import { checkCli, type CliCheckResult } from "@/pages/chat/api/cli";
+import { open } from "@tauri-apps/plugin-dialog";
+import { Codex, Cursor, GeminiCLI, OpenCode } from "@lobehub/icons";
+import { FolderOpenIcon, RefreshCwIcon } from "lucide-react";
+import { useEffect, useId, useState } from "react";
+import { ProviderDialog, providerStatus } from "./provider-dialog";
+import {
+  CardGrid,
+  CopyCommand,
+  Field,
+  GroupLabel,
+  IconTile,
+  IntegrationCard,
+  SectionHeader,
+  StatusPill,
+} from "./ui";
 
 export function AgentsSettings() {
   const opencode = useOpencode();
   const cursor = useCursor();
+  const gemini = useGemini();
+  const configs = useProviderConfigs();
+  const envKeys = useEnvKeys();
+  const folderId = useId();
   const [cwdDraft, setCwdDraft] = useState(opencode.cwd);
-  const [cliStatuses, setCliStatuses] = useState<Record<string, CliCheckResult | null>>({});
-  const opencodeCheckResult = opencode.loading ? null : opencode.check;
-  const modelCount = opencode.models?.models.length ?? 0;
+  const [codex, setCodex] = useState<CliCheckResult | null>(null);
+  const [provider, setProvider] = useState<ProviderDef | null>(null);
 
   useEffect(() => setCwdDraft(opencode.cwd), [opencode.cwd]);
 
-  async function loadCliStatuses() {
-    await Promise.all(
-      CLI_ITEMS.map(async (item) => {
-        const res = await checkCli(item.id).catch(
-          (): CliCheckResult => ({ available: false, error: "check failed" }),
-        );
-        setCliStatuses((prev) => ({ ...prev, [item.id]: res }));
-      }),
-    );
-  }
-
-  useEffect(() => {
-    loadCliStatuses();
-  }, []);
+  const loadCodex = () => {
+    setCodex(null);
+    checkCli("codex")
+      .then(setCodex)
+      .catch(() => setCodex({ available: false, error: "check failed" }));
+  };
+  useEffect(loadCodex, []);
 
   function refreshAll() {
-    setCliStatuses({});
     opencode.refresh();
     cursor.refresh();
-    loadCliStatuses();
+    gemini.refresh();
+    loadCodex();
   }
 
-  async function handlePickFolder() {
-    const sel = await open({ directory: true, multiple: false, defaultPath: opencode.cwd || undefined, title: "Choose the folder OpenCode works in" });
-    if (typeof sel === "string" && sel) opencode.update({ cwd: sel });
+  async function pickFolder() {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      defaultPath: opencode.cwd || undefined,
+      title: "เลือกโฟลเดอร์ที่ OpenCode ทำงาน",
+    });
+    if (typeof selected === "string" && selected) opencode.update({ cwd: selected });
   }
+
+  const oc = opencode.loading ? null : opencode.check;
+  const ocModels = opencode.models?.models.length ?? 0;
+  const cursorReady = !!cursor.check?.available && !!cursor.check.loggedIn;
+  const geminiReady = !!gemini.check?.available && !!gemini.check.loggedIn;
+  const refreshing = opencode.loading || cursor.loading || gemini.loading;
 
   return (
-    <div className="flex w-full flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-base font-semibold">Agents</h2>
-          <p className="text-sm text-muted-foreground">สถานะ Local CLI และโฟลเดอร์ทำงานของ OpenCode — เลือก model ได้ที่ช่องพิมพ์ในหน้าแชท</p>
+    <div className="flex flex-col gap-8">
+      <SectionHeader
+        title="Agents"
+        description="Agent ที่รันบนเครื่องนี้สำหรับโหมด Cowork — เลือก model ได้ที่ช่องพิมพ์ในหน้าแชท"
+        actions={
+          <Button variant="outline" size="sm" onClick={refreshAll} disabled={refreshing} className="gap-1.5">
+            <RefreshCwIcon className={cn("size-3.5", refreshing && "animate-spin")} />
+            รีเฟรช
+          </Button>
+        }
+      />
+
+      <CardGrid className="lg:grid-cols-3 2xl:grid-cols-3">
+        <IntegrationCard
+          icon={
+            <IconTile>
+              <OpenCode size={24} />
+            </IconTile>
+          }
+          title="OpenCode"
+          badge={<StatusPill tone="neutral">แนะนำ</StatusPill>}
+          description={
+            oc?.available
+              ? `${oc.version ? `v${oc.version} · ` : ""}${ocModels} models · ถามก่อนแก้หรือลบไฟล์`
+              : oc?.error || "Agent หลักของ Cowork — รองรับ MCP, OpenRouter และ Ollama"
+          }
+          status={
+            !oc ? (
+              <StatusPill tone="pending">กำลังตรวจ…</StatusPill>
+            ) : oc.available ? (
+              <StatusPill tone="success">Ready</StatusPill>
+            ) : (
+              <StatusPill tone="danger">Not installed</StatusPill>
+            )
+          }
+        />
+        <IntegrationCard
+          icon={
+            <IconTile>
+              <Cursor size={24} />
+            </IconTile>
+          }
+          title="Cursor Agent"
+          description={
+            cursor.check?.account ||
+            (cursor.models.length ? `${cursor.models.length} models · ใช้ subscription ของคุณ` : "ใช้ subscription Cursor ของคุณผ่าน cursor-agent")
+          }
+          status={
+            cursor.loading ? (
+              <StatusPill tone="pending">กำลังตรวจ…</StatusPill>
+            ) : cursorReady ? (
+              <StatusPill tone="success">Signed in</StatusPill>
+            ) : cursor.check?.available ? (
+              <StatusPill tone="warning">Not signed in</StatusPill>
+            ) : (
+              <StatusPill tone="neutral">Not installed</StatusPill>
+            )
+          }
+          control={
+            !cursor.loading && !cursorReady ? (
+              <Button type="button" size="sm" variant="outline" onClick={() => requestCursorLogin()}>
+                {cursor.check?.available ? "Sign in" : "วิธีติดตั้ง"}
+              </Button>
+            ) : undefined
+          }
+        />
+        <IntegrationCard
+          icon={
+            <IconTile>
+              <Codex size={24} />
+            </IconTile>
+          }
+          title="Codex"
+          description={codex?.available ? codex.version || codex.path || "พร้อมใช้งาน" : "OpenAI Codex CLI"}
+          status={
+            !codex ? (
+              <StatusPill tone="pending">กำลังตรวจ…</StatusPill>
+            ) : codex.available ? (
+              <StatusPill tone="success">Ready</StatusPill>
+            ) : (
+              <StatusPill tone="neutral">Not installed</StatusPill>
+            )
+          }
+        />
+        <IntegrationCard
+          icon={
+            <IconTile>
+              <GeminiCLI size={24} />
+            </IconTile>
+          }
+          title="Gemini CLI"
+          description={
+            gemini.check?.account ||
+            (gemini.models.length ? `${gemini.models.length} models · ใช้ Google account ของคุณ` : "ใช้ Google account ของคุณผ่าน gemini CLI")
+          }
+          status={
+            gemini.loading ? (
+              <StatusPill tone="pending">กำลังตรวจ…</StatusPill>
+            ) : geminiReady ? (
+              <StatusPill tone="success">Signed in</StatusPill>
+            ) : gemini.check?.available ? (
+              <StatusPill tone="warning">Not signed in</StatusPill>
+            ) : (
+              <StatusPill tone="neutral">Not installed</StatusPill>
+            )
+          }
+        />
+      </CardGrid>
+
+      {gemini.check && !gemini.check.available && (
+        <div className="flex max-w-xl flex-col gap-2">
+          <p className="text-sm text-muted-foreground">ติดตั้ง Gemini CLI แล้วเปิดแอปใหม่ (หรือตั้ง GEMINI_BIN):</p>
+          <CopyCommand command="npm i -g @google/gemini-cli" />
         </div>
-        <Button variant="outline" size="sm" onClick={refreshAll} disabled={opencode.loading} className="gap-1.5">
-          <RefreshCwIcon className={cn("size-3.5", opencode.loading && "animate-spin")} />
-          รีเฟรช
-        </Button>
-      </div>
+      )}
 
-      {/* OpenCode แยกโมดูล */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            OpenCode
-          </CardTitle>
-          <CardDescription>
-            แอปจะเปิด <code className="rounded bg-muted px-1">opencode serve</code> ค้างไว้ในเบื้องหลัง ทำให้ส่งข้อความได้ทันทีและถามสิทธิ์ก่อนแก้หรือลบไฟล์ ({modelCount} models)
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          {/* Check */}
-          <div className="flex items-center gap-2 rounded-lg border bg-card p-3">
-            {opencodeCheckResult ? (
-              opencodeCheckResult.available ? (
-                <CheckCircle2 className="size-5 shrink-0 text-emerald-600" />
-              ) : (
-                <XCircleIcon className="size-5 shrink-0 text-red-600" />
-              )
-            ) : (
-              <RefreshCwIcon className="size-5 animate-spin text-muted-foreground" />
-            )}
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium">
-                {opencodeCheckResult ? (opencodeCheckResult.available ? `พร้อมใช้งาน ${opencodeCheckResult.version || ""}` : "ไม่พบ opencode CLI") : "กำลังตรวจ..."}
-              </div>
-              <div className="truncate text-xs text-muted-foreground" title={opencodeCheckResult?.path || opencodeCheckResult?.error || ""}>
-                {opencodeCheckResult?.path || opencodeCheckResult?.error || "—"}
-              </div>
-            </div>
-            <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-xs font-medium", opencodeCheckResult?.available ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300")}>
-              {opencodeCheckResult ? (opencodeCheckResult.available ? "พร้อม" : "ไม่พร้อม") : "—"}
-            </span>
-          </div>
-          {!opencodeCheckResult?.available && (
-            <p className="rounded bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-              ติดตั้งด้วย <code className="rounded bg-background px-1">npm i -g opencode-ai</code> แล้ว restart แอป — หรือตั้ง <code>OPENCODE_BIN</code> ชี้ไปที่ไฟล์ opencode
-            </p>
-          )}
+      {oc && !oc.available && (
+        <div className="flex max-w-xl flex-col gap-2">
+          <p className="text-sm text-muted-foreground">ติดตั้ง OpenCode แล้วเปิดแอปใหม่ (หรือตั้ง OPENCODE_BIN):</p>
+          <CopyCommand command="npm i -g opencode-ai" />
+        </div>
+      )}
 
-          {/* Folder */}
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs font-medium">โฟลเดอร์ทำงาน (cwd)</Label>
-            <div className="flex items-center gap-2">
-              <Input value={cwdDraft} onChange={(e) => setCwdDraft(e.target.value)} onBlur={() => opencode.update({ cwd: cwdDraft.trim() })} placeholder="เช่น D:\mali_cowork\public หรือ C:\Users\Public" className="h-8 flex-1 text-xs" />
-              <Button type="button" variant="outline" size="sm" onClick={handlePickFolder} className="h-8 gap-1.5 text-xs">
-                <FolderOpenIcon className="size-3.5" />
-                เลือก
+      <section className="flex flex-col gap-3">
+        <GroupLabel>โฟลเดอร์ทำงานเริ่มต้น</GroupLabel>
+        <div className="rounded-xl border bg-card p-4">
+          <Field
+            label="โฟลเดอร์ของ OpenCode"
+            htmlFor={folderId}
+            hint="ใช้เมื่อแชท Cowork ยังไม่ได้เลือกโฟลเดอร์ — agent จะอ่าน/แก้ไฟล์ได้เฉพาะโฟลเดอร์ที่อนุญาตในแท็บ Folders"
+          >
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                id={folderId}
+                value={cwdDraft}
+                onChange={(e) => setCwdDraft(e.target.value)}
+                onBlur={() => cwdDraft.trim() !== opencode.cwd && opencode.update({ cwd: cwdDraft.trim() })}
+                placeholder="เช่น ~/Public"
+                spellCheck={false}
+                className="font-mono text-xs"
+              />
+              <Button type="button" variant="outline" onClick={pickFolder} className="gap-1.5">
+                <FolderOpenIcon className="size-4" />
+                เลือก…
               </Button>
             </div>
-            <p className="text-[11px] text-muted-foreground">
-              default คือโฟลเดอร์ <code>public</code> ของเครื่อง User (เช่น <code>C:\Users\Public</code> หรือ <code>~/Public</code> ถ้าไม่มีจะ fallback เป็น <code>.\public</code> ของโปรเจค) — เลือกได้ว่าจะให้ agent ไปอ่าน/แก้ไขไฟล์ที่ไหน
-            </p>
-          </div>
+          </Field>
+        </div>
+      </section>
 
-        </CardContent>
-      </Card>
-
-      {/* Cursor Agent CLI */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">Cursor Agent</CardTitle>
-          <CardDescription>
-            รันผ่าน <code className="rounded bg-muted px-1">cursor-agent</code> บนเครื่องนี้ ใช้ subscription
-            ของคุณเอง — Chat ใช้โหมด ask (อ่านไม่ได้เขียน), Cowork ทำงานในโฟลเดอร์ที่อนุญาต
-            {cursor.models.length > 0 ? ` (${cursor.models.length} models)` : ""}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <div className="flex items-center gap-2 rounded-lg border bg-card p-3">
-            {cursor.loading ? (
-              <RefreshCwIcon className="size-5 animate-spin text-muted-foreground" />
-            ) : cursor.check?.available && cursor.check.loggedIn ? (
-              <CheckCircle2 className="size-5 shrink-0 text-emerald-600" />
-            ) : (
-              <XCircleIcon className="size-5 shrink-0 text-red-600" />
-            )}
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium">
-                {cursor.loading
-                  ? "กำลังตรวจ..."
-                  : !cursor.check?.available
-                    ? "ไม่พบ cursor-agent CLI"
-                    : cursor.check.loggedIn
-                      ? `พร้อมใช้งาน ${cursor.check.version ?? ""}`
-                      : "ยังไม่ได้ login"}
-              </div>
-              <div
-                className="truncate text-xs text-muted-foreground"
-                title={cursor.check?.path || cursor.check?.error || ""}
-              >
-                {cursor.check?.account || cursor.check?.error || cursor.check?.path || "—"}
-              </div>
-            </div>
-            {!cursor.loading && !(cursor.check?.available && cursor.check.loggedIn) && (
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => requestCursorLogin()}
-                className="shrink-0 gap-1.5"
-              >
-                {cursor.check?.available ? "Login" : "วิธีติดตั้ง"}
-              </Button>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Codex — แยกไฟล์แล้วแต่ยังไม่โฟกัส */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Local CLI อื่นๆ</CardTitle>
-          <CardDescription>เช็คว่า codex ติดตั้งบนเครื่องนี้หรือไม่</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {CLI_ITEMS.map((item) => {
-            const st = cliStatuses[item.id];
+      <section className="flex flex-col gap-3">
+        <div className="space-y-1">
+          <GroupLabel>Models สำหรับ agent</GroupLabel>
+          <p className="text-sm text-muted-foreground">
+            ตั้งค่าครั้งเดียวใช้ได้ทั้ง Chat และ Cowork — แอปส่ง key ให้ OpenCode เก็บเองบนเครื่องนี้
+          </p>
+        </div>
+        <CardGrid className="lg:grid-cols-3 2xl:grid-cols-3">
+          {PROVIDERS.map((p) => {
+            const status = providerStatus(p, configs[p.id], envKeys);
+            const inAgent = opencode.models?.providers.find((x) => x.id === p.id)?.connected;
             return (
-              <div key={item.id} className="flex items-center gap-3 rounded-lg border p-3">
-                {st ? (st.available ? <CheckCircle2 className="size-5 shrink-0 text-emerald-600" /> : <XCircleIcon className="size-5 shrink-0 text-red-600" />) : <RefreshCwIcon className="size-5 animate-spin text-muted-foreground" />}
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium">{item.label} <span className="font-mono text-xs text-muted-foreground">({item.bin})</span></div>
-                  <div className="truncate text-xs text-muted-foreground" title={st?.path || st?.error || ""}>{st ? (st.path || st.error || (st.available ? st.version || "พร้อม" : "ไม่พบ")) : "กำลังตรวจ..."}</div>
-                  {!st?.available && <div className="text-[11px] text-muted-foreground">ติดตั้ง: <code className="rounded bg-muted px-1">{item.installHint}</code></div>}
-                </div>
-                <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-xs font-medium", st?.available ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" : st ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" : "bg-muted text-muted-foreground")}>
-                  {st ? (st.available ? "พร้อม" : "ไม่พร้อม") : "—"}
-                </span>
-              </div>
+              <IntegrationCard
+                key={p.id}
+                icon={
+                  <IconTile>
+                    <ProviderLogo logo={p.logo} name={p.name} className="size-6" />
+                  </IconTile>
+                }
+                title={p.name}
+                description={p.description}
+                onOpen={() => setProvider(p)}
+                openLabel={`ตั้งค่า ${p.name}`}
+                highlight={inAgent ? "success" : undefined}
+                status={
+                  inAgent ? (
+                    <StatusPill tone="success">Connected</StatusPill>
+                  ) : status.tone === "success" ? (
+                    <StatusPill tone="warning">Chat only</StatusPill>
+                  ) : (
+                    <StatusPill tone="neutral">Not connected</StatusPill>
+                  )
+                }
+                control={
+                  <Button type="button" variant="outline" size="sm" onClick={() => setProvider(p)}>
+                    {status.tone === "success" ? "Manage" : "Set up"}
+                  </Button>
+                }
+              />
             );
           })}
-        </CardContent>
-      </Card>
+        </CardGrid>
+      </section>
 
+      <ProviderDialog provider={provider} onClose={() => setProvider(null)} />
       <CursorLoginDialog />
     </div>
   );

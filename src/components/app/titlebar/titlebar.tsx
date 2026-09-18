@@ -1,5 +1,7 @@
+import { CoworkBot, CoworkBotPicker } from "@/components/anim/cowork-bot";
 import { useSidebar } from "@/components/animate-ui/components/radix/sidebar";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -7,10 +9,8 @@ import {
     ChevronRight,
     Copy,
     Minus,
-    Monitor,
-    Share,
     Square,
-    X,
+    X
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -111,24 +111,21 @@ export function Titlebar() {
       {/* ปุ่มควบคุมหน้าต่าง */}
       <div className="relative z-50 flex shrink-0 items-center border-b border-border bg-background">
         <div className="mr-1 flex items-center gap-0.5 px-1">
-          <button
-            type="button"
-            className="flex size-7 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            aria-label="Share"
-            title="Share"
-            onClick={() => console.log("share")}
-          >
-            <Share className="size-3.5" strokeWidth={1.75} />
-          </button>
-          <button
-            type="button"
-            className="flex size-7 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            aria-label="Pop out"
-            title="Pop out"
-            onClick={() => console.log("popout")}
-          >
-            <Monitor className="size-3.5" strokeWidth={1.75} />
-          </button>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                aria-label="Choose cowork bot"
+                title="Cowork bot — click to choose"
+              >
+                <CoworkBot size={32} />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-64 p-2">
+              <CoworkBotPicker />
+            </PopoverContent>
+          </Popover>
         </div>
         <div className="flex h-full">
           <button

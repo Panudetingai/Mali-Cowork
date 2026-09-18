@@ -1,23 +1,23 @@
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
 } from "@/components/ui/dialog";
 import { createStore } from "@/lib/local-store";
 import { cn } from "@/lib/utils";
 import { EyeIcon, FolderLockIcon, PencilLineIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
-  findGrant,
-  folderName,
-  grantFolder,
-  normalizeFolder,
-  type FolderAccess,
-  type FolderGrant,
+    findGrant,
+    folderName,
+    grantFolder,
+    normalizeFolder,
+    type FolderAccess,
+    type FolderGrant,
 } from "./folder-access";
 
 type Options = {
@@ -115,11 +115,11 @@ export function FolderAccessDialog() {
 
   return (
     <Dialog open={!!request} onOpenChange={(open) => !open && request && settle(request, null)}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" showCloseButton={false}>
         {request && (
           <>
             <DialogHeader>
-              <span className="mb-1 flex size-9 items-center justify-center rounded-xl bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">
+              <span className="mb-1 flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary">
                 <FolderLockIcon className="size-4" />
               </span>
               <DialogTitle>Allow access to “{folderName(scope || request.path)}”?</DialogTitle>

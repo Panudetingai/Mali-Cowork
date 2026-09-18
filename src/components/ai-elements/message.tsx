@@ -29,6 +29,7 @@ import {
   useState,
 } from "react";
 import { Streamdown } from "streamdown";
+import { MarkdownPre } from "./markdown-pre";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
@@ -323,20 +324,35 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
 const streamdownPlugins = { cjk, code, math, mermaid };
 
+/** Plain `<pre>` fallback when Streamdown emits a non-fenced block (nested markdown, etc.). */
+const markdownComponents = {
+  pre: MarkdownPre as unknown as NonNullable<MessageResponseProps["components"]>["pre"],
+};
+
 export const MessageResponse = memo(
-  ({ className, ...props }: MessageResponseProps) => (
+  ({ className, components, isAnimating, animated, ...props }: MessageResponseProps) => (
     <Streamdown
       className={cn(
-        "chat-markdown size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+        "chat-markdown size-full text-foreground [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className
       )}
       plugins={streamdownPlugins}
+      components={{ ...markdownComponents, ...components }}
+      isAnimating={isAnimating}
+      animated={
+        animated ??
+        (isAnimating ? { animation: "fadeIn", stagger: 36, duration: 260 } : false)
+      }
+      lineNumbers={false}
+      codeBlockMaxHeight={420}
       {...props}
     />
   ),
   (prevProps, nextProps) =>
     prevProps.children === nextProps.children &&
-    nextProps.isAnimating === prevProps.isAnimating
+    prevProps.isAnimating === nextProps.isAnimating &&
+    prevProps.animated === nextProps.animated &&
+    prevProps.components === nextProps.components
 );
 
 MessageResponse.displayName = "MessageResponse";
