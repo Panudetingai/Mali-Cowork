@@ -5,7 +5,8 @@ import {
   opencodeDefaultCwd,
   opencodeListModels,
 } from "./api";
-import { getMcpConnections, syncMcpServers } from "@/features/mcp";
+import { hasEnabledMcp, syncMcpServers } from "@/features/mcp";
+import { syncCliProviders } from "@/features/providers";
 import { loadOpencodeSettings, saveOpencodeSettings } from "./settings";
 import type {
   OpencodeCheckResult,
@@ -27,9 +28,11 @@ let statusPromise: Promise<void> | null = null;
 async function fetchStatus(cwd: string) {
   const check = await opencodeCheck();
   if (!check.available) return { check, models: null };
+  // Ollama / OpenRouter from Settings → Models, before listing models.
+  await syncCliProviders().catch((e) => console.warn("[opencode] provider sync failed", e));
   const models = await opencodeListModels(cwd).catch(() => null);
-  if (Object.values(getMcpConnections()).some((c) => c.enabled)) {
-    await syncMcpServers(getMcpConnections(), cwd).catch(() => undefined);
+  if (hasEnabledMcp()) {
+    await syncMcpServers({ cwd }).catch(() => undefined);
   }
   return { check, models };
 }

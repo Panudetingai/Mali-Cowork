@@ -24,7 +24,7 @@ import {
     type PermissionReply,
     type WorkMode,
 } from "@/features/opencode";
-import { getMcpConnections, syncMcpServers } from "@/features/mcp";
+import { hasEnabledMcp, syncMcpServers } from "@/features/mcp";
 import { findGrant, grantsFor, normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import type {
     HistoryMessage,
@@ -166,8 +166,8 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
       const isCursor = isCursorModel(modelId);
       let hasErrored = false;
 
-      if (isOpencode && chatMode === "cowork" && folders[0]) {
-        await syncMcpServers(getMcpConnections(), folders[0]).catch(() => undefined);
+      if (isOpencode && chatMode === "cowork" && folders[0] && hasEnabledMcp()) {
+        await syncMcpServers({ cwd: folders[0] }).catch(() => undefined);
       }
 
       updateChatMessages(chatKey, (prev) => [
@@ -175,15 +175,23 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
         createUserMessage(prompt),
         createAssistantPlaceholder(modelId, assistantId),
       ]);
-      startRun(chatKey, modelId);
+      const runToken = startRun(chatKey, modelId);
 
       const update = (fn: (message: ChatMessage) => ChatMessage) =>
         updateChatMessages(chatKey, (prev) => prev.map((m) => (m.id === assistantId ? fn(m) : m)));
+
+      // The reply and the sidebar spinner must finish together: settle the
+      // message and end the run in the same tick.
+      const finish = () => {
+        update((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
+        endRun(chatKey, runToken);
+      };
 
       const handleError = (content: string) => {
         if (hasErrored) return;
         hasErrored = true;
         updateChatMessages(chatKey, (prev) => replaceAssistantWithError(prev, assistantId, content));
+        endRun(chatKey, runToken);
         if (isCursor && isAuthError(content)) {
           requestCursorLogin();
           return;
@@ -234,15 +242,16 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
                 ...r,
                 permissions: r.permissions.filter((p) => p.id !== permissionId),
               })),
-            onDone: (doneModelId) =>
+            onDone: (doneModelId) => {
               update((m) => ({
                 ...m,
                 modelId: doneModelId || m.modelId,
-                isStreaming: false,
                 activities: m.activities?.map((a) =>
                   a.done ? a : { ...a, done: true },
                 ),
-              })),
+              }));
+              finish();
+            },
             onError: handleError,
           },
         );
@@ -250,8 +259,7 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
         handleError(formatChatError(error));
       } finally {
         // A reply that ended without `done` must not keep its spinner.
-        update((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
-        endRun(chatKey);
+        finish();
       }
       return true;
     },

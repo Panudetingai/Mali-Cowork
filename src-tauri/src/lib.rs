@@ -9,7 +9,8 @@ use commands::cursor::{
 };
 use commands::mcp::{mcp_diagnose, mcp_status, mcp_sync};
 use commands::opencode::{
-    opencode_abort, opencode_check, opencode_default_cwd, opencode_delete_session,
+    opencode_abort, opencode_check, opencode_configure_providers, opencode_default_cwd,
+    opencode_delete_session,
     opencode_generate, opencode_list_models, opencode_permission_reply, opencode_set_auth,
     opencode_warm, shutdown_server, warm_up_server,
 };
@@ -56,6 +57,7 @@ pub fn run() {
             opencode_set_auth,
             opencode_delete_session,
             opencode_warm,
+            opencode_configure_providers,
             mcp_sync,
             mcp_status,
             mcp_diagnose,

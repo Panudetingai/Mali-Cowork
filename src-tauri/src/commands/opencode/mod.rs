@@ -12,6 +12,7 @@
 //! - `opencode_set_auth`         — store an API key for a provider
 //! - `opencode_delete_session`   — remove a session when its chat is deleted
 //! - `opencode_warm`             — load a folder's instance before the first prompt
+//! - `opencode_configure_providers` — OpenRouter / Ollama / Ollama Cloud for the agent
 
 mod bin;
 mod client;
@@ -19,6 +20,7 @@ mod commands;
 mod cwd;
 mod events;
 mod policy;
+mod providers;
 mod server;
 
 pub(crate) use client::OpencodeClient;
@@ -27,6 +29,7 @@ pub use commands::{
     opencode_generate, opencode_list_models, opencode_permission_reply, opencode_set_auth,
     opencode_warm,
 };
+pub use providers::opencode_configure_providers;
 pub use server::{ensure_server as warm_up_server, shutdown as shutdown_server};
 
 use serde::{Deserialize, Serialize};

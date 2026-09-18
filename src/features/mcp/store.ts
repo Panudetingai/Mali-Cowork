@@ -1,4 +1,5 @@
 import { createStore } from "@/lib/local-store";
+import { catalogServer } from "./catalog";
 
 export type McpConnection = {
   enabled: boolean;
@@ -23,6 +24,15 @@ function normalizeState(raw: McpState): Record<string, McpConnection> {
         variantId: value.variantId,
         customCommand: value.customCommand,
       };
+    }
+    const conn = out[id];
+    const server = catalogServer(id);
+    // Launch methods removed from the catalog (e.g. the old word-mcp-live) fall back to the default.
+    if (conn && server && conn.variantId && !server.variants?.some((v) => v.id === conn.variantId)) {
+      conn.variantId = undefined;
+    }
+    if (conn && id === "word" && conn.customCommand && /word[-_]mcp[-_]live/.test(conn.customCommand)) {
+      conn.customCommand = undefined;
     }
   }
   return out;
@@ -82,4 +92,8 @@ export function toggleMcpConnected(id: string) {
 
 export function connectedMcpCount() {
   return Object.values(store.get()).filter((c) => c.enabled).length;
+}
+
+export function removeMcpConnection(id: string) {
+  store.set(({ [id]: _removed, ...rest }) => rest);
 }

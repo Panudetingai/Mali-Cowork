@@ -17,6 +17,10 @@ export type ProviderDef = {
    * continues in a new chat instead of failing (e.g. Groq's free-tier TPM cap).
    */
   contextLimit?: number;
+  /** Also usable by the OpenCode agent (Cowork), synced on save. */
+  cli?: boolean;
+  /** Where to get an API key. */
+  keyUrl?: string;
 };
 
 export const PROVIDERS: ProviderDef[] = [
@@ -29,6 +33,20 @@ export const PROVIDERS: ProviderDef[] = [
     defaultBaseUrl: "http://localhost:11434/v1",
     defaultModels: "",
     keyRequired: false,
+    cli: true,
+  },
+  {
+    id: "ollama-cloud",
+    name: "Ollama Cloud",
+    description: "Large open models hosted by Ollama — no GPU needed.",
+    logo: "ollama-cloud",
+    group: "cloud",
+    defaultBaseUrl: "https://ollama.com/v1",
+    defaultModels: "gpt-oss:120b",
+    keyRequired: true,
+    envVar: "OLLAMA_API_KEY",
+    cli: true,
+    keyUrl: "https://ollama.com/settings/keys",
   },
   {
     id: "google",
@@ -40,6 +58,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModels: "gemini-2.5-flash",
     keyRequired: true,
     envVar: "GOOGLE_API_KEY",
+    keyUrl: "https://aistudio.google.com/app/apikey",
   },
   {
     id: "openai",
@@ -51,6 +70,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModels: "gpt-4o",
     keyRequired: true,
     envVar: "OPENAI_API_KEY",
+    keyUrl: "https://platform.openai.com/api-keys",
   },
   {
     id: "anthropic",
@@ -62,6 +82,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModels: "claude-sonnet-5, claude-opus-5",
     keyRequired: true,
     envVar: "ANTHROPIC_API_KEY",
+    keyUrl: "https://console.anthropic.com/settings/keys",
   },
   {
     id: "xai",
@@ -73,6 +94,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModels: "grok-4",
     keyRequired: true,
     envVar: "XAI_API_KEY",
+    keyUrl: "https://console.x.ai",
   },
   {
     id: "alibaba",
@@ -84,6 +106,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModels: "qwen-plus",
     keyRequired: true,
     envVar: "DASHSCOPE_API_KEY",
+    keyUrl: "https://modelstudio.console.alibabacloud.com/?tab=playground#/api-key",
   },
   {
     id: "zai",
@@ -95,6 +118,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModels: "glm-4.6",
     keyRequired: true,
     envVar: "ZAI_API_KEY",
+    keyUrl: "https://z.ai/manage-apikey/apikey-list",
   },
   {
     id: "moonshotai",
@@ -106,6 +130,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModels: "kimi-k2-0905-preview",
     keyRequired: true,
     envVar: "MOONSHOT_API_KEY",
+    keyUrl: "https://platform.moonshot.ai/console/api-keys",
   },
   {
     id: "deepseek",
@@ -117,6 +142,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModels: "deepseek-chat",
     keyRequired: true,
     envVar: "DEEPSEEK_API_KEY",
+    keyUrl: "https://platform.deepseek.com/api_keys",
   },
   {
     id: "mistral",
@@ -128,6 +154,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModels: "mistral-large-latest",
     keyRequired: true,
     envVar: "MISTRAL_API_KEY",
+    keyUrl: "https://console.mistral.ai/api-keys",
   },
   {
     id: "openrouter",
@@ -139,6 +166,8 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModels: "z-ai/glm-5.2:free",
     keyRequired: true,
     envVar: "OPENROUTER_API_KEY",
+    cli: true,
+    keyUrl: "https://openrouter.ai/settings/keys",
   },
   {
     id: "groq",
@@ -150,6 +179,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultModels: "openai/gpt-oss-120b",
     keyRequired: true,
     envVar: "GROQ_API_KEY",
+    keyUrl: "https://console.groq.com/keys",
     // Free tier allows 6K–12K tokens per minute depending on the model.
     contextLimit: 8000,
   },

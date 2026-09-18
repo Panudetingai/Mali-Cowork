@@ -20,7 +20,7 @@ export function ChatMessages({ messages, isLoading }: Props) {
           {index > 0 && (
             <div className="absolute top-0 right-0 left-0 h-px bg-gradient-to-r from-transparent via-border to-transparent opacity-60" />
           )}
-          <ChatMessageItem message={msg} />
+          <ChatMessageItem message={msg} streaming={!!msg.isStreaming && !!isLoading} />
         </div>
       ))}
     </div>

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCustomMcps } from "./custom";
+import { getMcpConnections } from "./store";
 import { buildMcpSyncPayload, type McpSyncResult } from "./sync";
-import type { McpState } from "./store";
 
 export type McpBinaryStatus = {
   binary: string;
@@ -10,7 +11,7 @@ export type McpBinaryStatus = {
 
 export type McpDiagnoseResult = {
   binaries: McpBinaryStatus[];
-  microsoftWord: boolean | null;
+  platform: "windows" | "macos" | "linux" | null;
 };
 
 function isTauri() {
@@ -20,18 +21,29 @@ function isTauri() {
   );
 }
 
-/** Push enabled MCP servers into OpenCode (config + running server). */
-export async function syncMcpServers(
-  connections: McpState,
-  coworkCwd?: string,
-): Promise<McpSyncResult | null> {
+export type McpSyncOptions = {
+  /** Cowork folder: the Filesystem server gets it, and servers run there. */
+  cwd?: string;
+  /** Only (re)connect these ids; everything is still written to the config. */
+  targets?: string[];
+  /** Custom servers the user deleted. */
+  removed?: string[];
+};
+
+/** Push the saved MCP servers into OpenCode (config + running server). */
+export async function syncMcpServers({ cwd, targets, removed }: McpSyncOptions = {}): Promise<McpSyncResult | null> {
   if (!isTauri()) return null;
-  const paths = coworkCwd ? [coworkCwd] : undefined;
-  const servers = buildMcpSyncPayload(connections, paths);
+  const servers = buildMcpSyncPayload(getMcpConnections(), getCustomMcps(), cwd ? [cwd] : undefined);
   return invoke<McpSyncResult>("mcp_sync", {
     servers,
-    directory: coworkCwd ?? null,
+    directory: cwd ?? null,
+    options: { targets: targets ?? null, removed: removed ?? [] },
   });
+}
+
+/** True when at least one MCP server is switched on. */
+export function hasEnabledMcp() {
+  return Object.values(getMcpConnections()).some((c) => c.enabled);
 }
 
 export async function fetchMcpStatus(coworkCwd?: string) {
@@ -43,8 +55,6 @@ export async function fetchMcpStatus(coworkCwd?: string) {
 
 /** Which launcher binaries (uvx, npx, docker, …) exist on this machine. */
 export async function diagnoseMcpBinaries(): Promise<McpDiagnoseResult> {
-  if (!isTauri()) {
-    return { binaries: [], microsoftWord: null };
-  }
+  if (!isTauri()) return { binaries: [], platform: null };
   return invoke<McpDiagnoseResult>("mcp_diagnose");
 }

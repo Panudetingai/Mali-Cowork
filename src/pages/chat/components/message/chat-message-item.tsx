@@ -8,9 +8,11 @@ import { UserMessage } from "./user-message";
 
 type Props = {
   message: ChatMessage;
+  /** The chat's run is still active; the sidebar spinner uses the same state. */
+  streaming?: boolean;
 };
 
-export const ChatMessageItem = memo(function ChatMessageItem({ message }: Props) {
+export const ChatMessageItem = memo(function ChatMessageItem({ message, streaming }: Props) {
   switch (message.role) {
     case "user":
       return <UserMessage content={message.content} />;
@@ -21,7 +23,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({ message }: Props)
           reasoning={message.reasoning}
           activities={message.activities}
           modelId={message.modelId}
-          isStreaming={message.isStreaming}
+          isStreaming={streaming ?? message.isStreaming}
           usage={message.usage}
           sessionId={message.sessionId}
           durationMs={message.durationMs}

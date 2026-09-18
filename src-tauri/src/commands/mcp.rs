@@ -5,32 +5,78 @@
 //!   `uvx`/`npx` may resolve in a terminal but not for the opencode server.
 //!   We resolve the binary to an absolute path before registering it.
 //! - `uvx <pkg>` downloads on first run (slow). Config gets a generous
-//!   `timeout`, and the UI sends fallback launch methods (uvx → pip binary →
-//!   `python -m` → docker) which we try in order until one connects.
-//! - Errors from `mcp_add` / `mcp_connect` are captured per server instead of
-//!   ignored, so the UI can tell the user what to install.
+//!   `timeout`, and the UI sends fallback launch methods which we try in
+//!   order until one connects.
+//! - Only servers the app manages are written to `opencode.json`; entries the
+//!   user added by hand are kept. The file is replaced atomically.
+//! - Syncs are serialized, and a server already connected with the same
+//!   config is left alone, so syncing before every prompt stays cheap.
+//! - Everything coming from the UI is validated: ids end up in URL paths and
+//!   commands are spawned, so neither may be arbitrary.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::opencode::OpencodeClient;
 use super::opencode::warm_up_server as ensure_server;
+use super::secure_fs::write_private;
 
-#[derive(Debug, Deserialize)]
+const DEFAULT_TIMEOUT_MS: u64 = 60_000;
+const MAX_TIMEOUT_MS: u64 = 600_000;
+/// Ids of servers the user created in Settings → MCP (see `features/mcp/custom.ts`).
+const CUSTOM_PREFIX: &str = "custom-";
+
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpServerEntry {
     pub id: String,
     pub enabled: bool,
+    /// `local` (spawn a command) or `remote` (connect to a URL).
+    #[serde(default = "default_kind")]
+    pub kind: String,
+    #[serde(default)]
     pub command: Vec<String>,
     #[serde(default)]
     pub fallbacks: Vec<Vec<String>>,
     #[serde(default)]
     pub environment: HashMap<String, String>,
     #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+    #[serde(default)]
     pub timeout_ms: Option<u64>,
+}
+
+fn default_kind() -> String {
+    "local".into()
+}
+
+impl McpServerEntry {
+    fn is_remote(&self) -> bool {
+        self.kind == "remote"
+    }
+
+    fn timeout(&self) -> u64 {
+        self.timeout_ms
+            .unwrap_or(DEFAULT_TIMEOUT_MS)
+            .clamp(5_000, MAX_TIMEOUT_MS)
+    }
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct McpSyncOptions {
+    /// Only (re)connect these ids live; the config file still gets every server.
+    #[serde(default)]
+    pub targets: Option<Vec<String>>,
+    /// Ids the app no longer manages (deleted custom servers).
+    #[serde(default)]
+    pub removed: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -59,23 +105,117 @@ pub struct McpBinaryStatus {
 #[serde(rename_all = "camelCase")]
 pub struct McpDiagnoseResult {
     pub binaries: Vec<McpBinaryStatus>,
-    /// Desktop Microsoft Word (Word MCP live edit on Windows). `null` off Windows.
-    pub microsoft_word: Option<bool>,
+    /// `windows`, `macos` or `linux`, for platform-specific install hints.
+    pub platform: &'static str,
 }
 
-/// Extra folders where `uv`/`uvx` usually live but GUI `PATH` may miss.
+// ── validation ──
+
+fn valid_id(id: &str) -> bool {
+    let mut chars = id.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphanumeric())
+        && id.len() <= 64
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+fn valid_env_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
+        && name.len() <= 128
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+fn valid_header_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_!#$%&'*+.^`|~".contains(c))
+}
+
+fn no_control_chars(value: &str) -> bool {
+    !value.chars().any(|c| c.is_control())
+}
+
+/// Remote servers must use HTTPS, except on this machine.
+fn validate_url(raw: &str) -> Result<String, String> {
+    let url = reqwest::Url::parse(raw.trim()).map_err(|_| format!("URL ไม่ถูกต้อง: {raw}"))?;
+    let local = matches!(
+        url.host_str(),
+        Some("localhost") | Some("127.0.0.1") | Some("[::1]") | Some("::1")
+    );
+    match url.scheme() {
+        "https" => Ok(url.to_string()),
+        "http" if local => Ok(url.to_string()),
+        "http" => Err("Remote MCP ต้องใช้ https:// (http ใช้ได้เฉพาะ localhost)".into()),
+        other => Err(format!("ไม่รองรับ scheme {other}:// — ใช้ https://")),
+    }
+}
+
+fn validate(server: &McpServerEntry) -> Result<(), String> {
+    if !valid_id(&server.id) {
+        return Err(format!(
+            "MCP id '{}' ไม่ถูกต้อง — ใช้ a-z, 0-9, - หรือ _ (สูงสุด 64 ตัว)",
+            server.id
+        ));
+    }
+    if !server.enabled {
+        return Ok(());
+    }
+    match server.kind.as_str() {
+        "local" => {
+            if server.command.first().is_none_or(|c| c.trim().is_empty()) {
+                return Err(format!("{}: ต้องระบุคำสั่ง (command)", server.id));
+            }
+            let argv_ok = std::iter::once(&server.command)
+                .chain(server.fallbacks.iter())
+                .flatten()
+                .all(|arg| no_control_chars(arg));
+            if !argv_ok {
+                return Err(format!("{}: คำสั่งมีอักขระที่ไม่อนุญาต", server.id));
+            }
+            for (name, value) in &server.environment {
+                if !valid_env_name(name) || !no_control_chars(value) {
+                    return Err(format!("{}: ตัวแปร env '{name}' ไม่ถูกต้อง", server.id));
+                }
+            }
+        }
+        "remote" => {
+            validate_url(server.url.as_deref().unwrap_or_default())
+                .map_err(|e| format!("{}: {e}", server.id))?;
+            for (name, value) in &server.headers {
+                if !valid_header_name(name) || !no_control_chars(value) {
+                    return Err(format!("{}: header '{name}' ไม่ถูกต้อง", server.id));
+                }
+            }
+        }
+        other => return Err(format!("{}: ไม่รู้จักชนิด '{other}'", server.id)),
+    }
+    Ok(())
+}
+
+// ── binaries ──
+
+/// Extra folders where `uv`/`uvx`/`node` usually live but GUI `PATH` may miss.
 fn extra_bin_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     if let Some(home) = dirs::home_dir() {
         dirs.push(home.join(".local").join("bin"));
         dirs.push(home.join(".cargo").join("bin"));
+        dirs.push(home.join(".bun").join("bin"));
         #[cfg(windows)]
         {
             dirs.push(home.join("AppData").join("Local").join("Programs").join("uv"));
-            // astral install.ps1 default
-            dirs.push(home.join(".local").join("bin"));
+            dirs.push(home.join("AppData").join("Roaming").join("npm"));
         }
     }
+    #[cfg(target_os = "macos")]
+    {
+        dirs.push(PathBuf::from("/opt/homebrew/bin"));
+        dirs.push(PathBuf::from("/usr/local/bin"));
+    }
+    #[cfg(windows)]
+    dirs.push(PathBuf::from(r"C:\Program Files\nodejs"));
     dirs
 }
 
@@ -94,7 +234,6 @@ fn executable_candidates(dir: &Path, base: &str) -> Vec<PathBuf> {
     }
     #[cfg(not(windows))]
     {
-        let _ = base;
         vec![dir.join(base)]
     }
 }
@@ -110,134 +249,169 @@ fn find_binary(binary: &str) -> Option<PathBuf> {
         search.extend(std::env::split_paths(&path));
     }
     search.extend(extra_bin_dirs());
-    for dir in search {
-        for candidate in executable_candidates(&dir, binary) {
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-    }
-    None
+    search
+        .iter()
+        .flat_map(|dir| executable_candidates(dir, binary))
+        .find(|candidate| candidate.is_file())
 }
 
 /// Replace `argv[0]` with its absolute path when found. Keeps argv unchanged
 /// when the binary cannot be resolved (server will report the spawn error).
 fn resolve_argv(argv: &[String]) -> Vec<String> {
-    if argv.is_empty() {
-        return Vec::new();
-    }
     let mut out = argv.to_vec();
-    if let Some(full) = find_binary(&argv[0]) {
+    if let Some(full) = argv.first().and_then(|bin| find_binary(bin)) {
         out[0] = full.to_string_lossy().to_string();
     }
     out
 }
 
-fn microsoft_word_installed() -> bool {
-    #[cfg(windows)]
-    {
-        if find_binary("winword").is_some() {
-            return true;
+/// `PATH` for the MCP child, so `npx` can find `node` even from a GUI launch.
+fn child_path() -> Option<String> {
+    let mut paths: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    for dir in extra_bin_dirs() {
+        if dir.is_dir() && !paths.contains(&dir) {
+            paths.push(dir);
         }
-        let roots = [
-            r"C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE",
-            r"C:\Program Files (x86)\Microsoft Office\root\Office16\WINWORD.EXE",
-            r"C:\Program Files\Microsoft Office\Office16\WINWORD.EXE",
-        ];
-        return roots.iter().any(|p| Path::new(p).is_file());
     }
-    #[cfg(not(windows))]
-    {
-        false
+    std::env::join_paths(paths)
+        .ok()
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+fn uv_install_hint() -> &'static str {
+    if cfg!(windows) {
+        "ติดตั้ง uv: powershell -c \"irm https://astral.sh/uv/install.ps1 | iex\" แล้วเปิดแอปใหม่"
+    } else {
+        "ติดตั้ง uv: curl -LsSf https://astral.sh/uv/install.sh | sh แล้วเปิดแอปใหม่"
     }
 }
 
-fn word_failure_hint(_binary: &str, detail: &str) -> String {
+fn word_failure_hint(detail: &str) -> String {
     let mut steps: Vec<&str> = Vec::new();
-    if find_binary("uvx").is_none() && find_binary("uv").is_none() {
-        steps.push("ติดตั้ง uv: powershell -c \"irm https://astral.sh/uv/install.ps1 | iex\"");
-        steps.push("ปิดแล้วเปิด Mali Cowork ใหม่ (ให้ PATH มี uvx)");
+    if find_binary("uvx").is_none() {
+        steps.push(uv_install_hint());
     }
-    if detail.contains("Connection closed") || detail.contains("-32000") {
-        steps.push("ครั้งแรก uvx โหลด word-mcp-live อาจใช้ 1–2 นาที — กด Connect แล้วรอ (timeout 2 นาที)");
+    if detail.contains("Connection closed") || detail.contains("-32000") || detail.contains("timed out") {
+        steps.push("ครั้งแรก uvx ต้องโหลด office-word-mcp-server (~1 นาที) — กด Connect แล้วรอ");
     }
-    #[cfg(windows)]
-    if !microsoft_word_installed() {
-        steps.push("ติดตั้ง Microsoft Word (Desktop) — live edit ใช้ Word COM บน Windows");
-    }
-    if steps.is_empty() {
-        return format!(
-            "{detail} — ลองวิธีเชื่อมอื่นในเมนู “วิธีเชื่อม” หรือ pip install word-mcp-live"
-        );
-    }
+    steps.push("หรือติดตั้งเอง: pip install office-word-mcp-server แล้วเลือกวิธี \"pip\"");
     format!("{detail} — {}", steps.join(" · "))
 }
 
 fn hint_for_binary(binary: &str) -> &'static str {
-    match binary {
-        "uvx" | "uv" => "ติดตั้ง uv ก่อน: powershell -c \"irm https://astral.sh/uv/install.ps1 | iex\" แล้ว restart แอป (ครั้งแรก uvx จะโหลด package อาจช้า 1–2 นาที)",
+    let name = Path::new(binary)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(binary);
+    match name {
+        "uvx" | "uv" => uv_install_hint(),
         "npx" | "bunx" | "node" | "npm" | "bun" => "ต้องมี Node.js (หรือ Bun) และต่อเน็ตโหลด package ครั้งแรก",
-        "docker" => "ต้องมี Docker Desktop รันอยู่ — โหมด Docker ของ Word ใช้ได้เฉพาะ cross-platform tools (live edit ต้องติดตั้งแบบ native)",
-        "python" | "python3" | "py" => "ต้องมี Python 3.11+ และ pip install word-mcp-live",
-        "word-mcp-live" => "ต้อง pip install word-mcp-live ก่อน หรือใช้วิธี uvx แทน",
-        _ => "ตรวจว่าโปรแกรมนี้อยู่ใน PATH แล้วลองใหม่",
+        "docker" => "ต้องมี Docker Desktop รันอยู่",
+        "python" | "python3" | "py" => "ต้องมี Python 3.11+ ใน PATH",
+        _ => "ตรวจว่าคำสั่งนี้รันได้ใน terminal และอยู่ใน PATH แล้วลองใหม่",
     }
 }
+
+// ── config ──
 
 fn opencode_config_path() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or("Cannot resolve home directory")?;
     Ok(home.join(".config").join("opencode").join("opencode.json"))
 }
 
-fn write_opencode_mcp_config(servers: &[McpServerEntry]) -> Result<(), String> {
-    let path = opencode_config_path()?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+fn server_config(server: &McpServerEntry, command: &[String]) -> Value {
+    if server.is_remote() {
+        let mut config = json!({
+            "type": "remote",
+            "url": server.url.as_deref().unwrap_or_default().trim(),
+            "enabled": true,
+            "timeout": server.timeout(),
+        });
+        if !server.headers.is_empty() {
+            config["headers"] = json!(server.headers);
+        }
+        return config;
     }
 
-    let mut config: Value = if path.is_file() {
-        let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        serde_json::from_str(&raw).unwrap_or(json!({}))
-    } else {
-        json!({})
-    };
-
-    let mut mcp = serde_json::Map::new();
-    for server in servers {
-        if server.enabled {
-            let mut entry = json!({
-                "type": "local",
-                "command": resolve_argv(&server.command),
-                "enabled": true,
-                "timeout": server.timeout_ms.unwrap_or(60_000),
-            });
-            if !server.environment.is_empty() {
-                entry["environment"] = json!(server.environment);
-            }
-            mcp.insert(server.id.clone(), entry);
-        } else {
-            mcp.insert(server.id.clone(), json!({ "enabled": false }));
+    let mut environment = server.environment.clone();
+    if !environment.contains_key("PATH") {
+        if let Some(path) = child_path() {
+            environment.insert("PATH".into(), path);
         }
+    }
+    json!({
+        "type": "local",
+        "command": resolve_argv(command),
+        "enabled": true,
+        "timeout": server.timeout(),
+        "environment": environment,
+    })
+}
+
+fn write_opencode_mcp_config(servers: &[McpServerEntry], removed: &[String]) -> Result<(), String> {
+    let path = opencode_config_path()?;
+    let mut config: Value = if path.is_file() {
+        let raw = std::fs::read_to_string(&path)
+            .map_err(|e| format!("อ่าน {} ไม่ได้: {e}", path.display()))?;
+        if raw.trim().is_empty() {
+            json!({})
+        } else {
+            // Never overwrite a file we cannot parse: it is the user's own config.
+            serde_json::from_str(&raw).map_err(|e| {
+                format!("{} ไม่ใช่ JSON ที่ถูกต้อง ({e}) — แก้ไฟล์ก่อนแล้วลองใหม่", path.display())
+            })?
+        }
+    } else {
+        json!({ "$schema": "https://opencode.ai/config.json" })
+    };
+    if !config.is_object() {
+        return Err(format!("{} ต้องเป็น JSON object", path.display()));
+    }
+
+    let mut mcp = config
+        .get("mcp")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    for id in removed {
+        mcp.remove(id);
+    }
+    // Custom servers are always sent in full, so a `custom-*` id that is
+    // missing was deleted (perhaps while OpenCode was not running).
+    let sent: HashSet<&str> = servers.iter().map(|s| s.id.as_str()).collect();
+    mcp.retain(|id, _| !id.starts_with(CUSTOM_PREFIX) || sent.contains(id.as_str()));
+    for server in servers {
+        let entry = if server.enabled {
+            server_config(server, &server.command)
+        } else {
+            // opencode accepts a bare `enabled: false` to switch a server off.
+            json!({ "enabled": false })
+        };
+        mcp.insert(server.id.clone(), entry);
     }
     config["mcp"] = Value::Object(mcp);
 
     let pretty = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
-    std::fs::write(&path, pretty).map_err(|e| format!("Cannot write {}: {e}", path.display()))?;
-    Ok(())
+    write_private(&path, &pretty)
 }
 
-fn local_config(command: &[String], environment: &HashMap<String, String>, timeout_ms: Option<u64>) -> Value {
-    let mut config = json!({
-        "type": "local",
-        "command": resolve_argv(command),
-        "enabled": true,
-        "timeout": timeout_ms.unwrap_or(60_000),
-    });
-    if !environment.is_empty() {
-        config["environment"] = json!(environment);
-    }
-    config
+// ── live server ──
+
+/// Config last applied per `(directory, id)` that reached `connected`.
+fn applied() -> &'static Mutex<HashMap<(String, String), String>> {
+    static APPLIED: OnceLock<Mutex<HashMap<(String, String), String>>> = OnceLock::new();
+    APPLIED.get_or_init(Default::default)
+}
+
+fn sync_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+fn applied_key(directory: Option<&str>, id: &str) -> (String, String) {
+    (directory.unwrap_or_default().to_string(), id.to_string())
 }
 
 fn parse_status(id: &str, value: &Value, fallback_error: Option<String>) -> McpServerStatus {
@@ -258,8 +432,20 @@ fn parse_status(id: &str, value: &Value, fallback_error: Option<String>) -> McpS
     }
 }
 
-fn status_map(status: &Value) -> Option<&serde_json::Map<String, Value>> {
-    status.as_object()
+async fn live_entry(client: &OpencodeClient, directory: Option<&str>, id: &str) -> Result<Option<Value>, String> {
+    let status = client.mcp_status(directory).await?;
+    Ok(status.get(id).cloned())
+}
+
+fn failure_message(server: &McpServerEntry, detail: String) -> String {
+    if server.id == "word" {
+        return word_failure_hint(&detail);
+    }
+    if server.is_remote() {
+        return format!("{detail} — ตรวจ URL, header/token และว่าเซิร์ฟเวอร์เปิดอยู่");
+    }
+    let binary = server.command.first().map(String::as_str).unwrap_or_default();
+    format!("{detail} — วิธีแก้: {}", hint_for_binary(binary))
 }
 
 /// Try every launch variant for one server until the live status is `connected`.
@@ -268,134 +454,79 @@ async fn connect_server(
     directory: Option<&str>,
     server: &McpServerEntry,
 ) -> McpServerStatus {
-    let mut candidates: Vec<&Vec<String>> = Vec::with_capacity(1 + server.fallbacks.len());
-    candidates.push(&server.command);
-    for fallback in &server.fallbacks {
-        if !fallback.is_empty() && fallback != &server.command {
-            candidates.push(fallback);
+    let mut candidates: Vec<&Vec<String>> = vec![&server.command];
+    if !server.is_remote() {
+        for fallback in &server.fallbacks {
+            if !fallback.is_empty() && !candidates.contains(&fallback) {
+                candidates.push(fallback);
+            }
+        }
+    }
+
+    // Already connected with one of these configs: nothing to do.
+    let key = applied_key(directory, &server.id);
+    let known = applied().lock().unwrap().get(&key).cloned();
+    if let Some(known) = known {
+        let same = candidates
+            .iter()
+            .any(|c| server_config(server, c).to_string() == known);
+        if same {
+            if let Ok(Some(entry)) = live_entry(client, directory, &server.id).await {
+                if entry["status"] == "connected" {
+                    return parse_status(&server.id, &entry, None);
+                }
+            }
         }
     }
 
     let mut last_error: Option<String> = None;
-    let binary = server
-        .command
-        .first()
-        .cloned()
-        .unwrap_or_default();
-
     for (attempt, candidate) in candidates.iter().enumerate() {
-        let config = local_config(candidate, &server.environment, server.timeout_ms);
+        let config = server_config(server, candidate);
+        let method = attempt + 1;
         if let Err(e) = client.mcp_add(directory, &server.id, &config).await {
-            last_error = Some(format!("register failed (วิธีที่ {}): {e}", attempt + 1));
+            last_error = Some(format!("ลงทะเบียนไม่สำเร็จ (วิธีที่ {method}): {e}"));
             continue;
         }
         if let Err(e) = client.mcp_connect(directory, &server.id).await {
-            last_error = Some(format!("connect failed (วิธีที่ {}): {e}", attempt + 1));
+            last_error = Some(format!("เชื่อมไม่สำเร็จ (วิธีที่ {method}): {e}"));
             continue;
         }
-        match client.mcp_status(directory).await {
-            Ok(status) => {
-                if let Some(map) = status_map(&status) {
-                    if let Some(entry) = map.get(&server.id) {
-                        let st = entry
-                            .get("status")
-                            .and_then(Value::as_str)
-                            .unwrap_or("unknown");
-                        if st == "connected" {
-                            return parse_status(&server.id, entry, None);
-                        }
-                        let server_error = entry
-                            .get("error")
-                            .and_then(Value::as_str)
-                            .map(str::to_string);
-                        last_error = server_error.or_else(|| {
-                            Some(format!("server รายงานสถานะ '{st}' (วิธีที่ {})", attempt + 1))
-                        });
-                        // `failed` may still succeed with another launcher; anything
-                        // else (e.g. oauth flow) is final.
-                        if st != "failed" && st != "unknown" {
-                            return parse_status(&server.id, entry, last_error);
-                        }
-                    }
+        match live_entry(client, directory, &server.id).await {
+            Ok(Some(entry)) => {
+                let st = entry["status"].as_str().unwrap_or("unknown");
+                if st == "connected" {
+                    applied().lock().unwrap().insert(key, config.to_string());
+                    return parse_status(&server.id, &entry, None);
+                }
+                last_error = entry["error"]
+                    .as_str()
+                    .map(str::to_string)
+                    .or_else(|| Some(format!("สถานะ '{st}' (วิธีที่ {method})")));
+                // `failed` may still succeed with another launcher; anything
+                // else (e.g. an OAuth flow) is final.
+                if st != "failed" && st != "unknown" {
+                    return parse_status(&server.id, &entry, last_error);
                 }
             }
-            Err(e) => {
-                last_error = Some(format!("อ่านสถานะไม่ได้ (วิธีที่ {}): {e}", attempt + 1));
-            }
+            Ok(None) => last_error = Some(format!("ไม่พบสถานะหลังเชื่อม (วิธีที่ {method})")),
+            Err(e) => last_error = Some(format!("อ่านสถานะไม่ได้ (วิธีที่ {method}): {e}")),
         }
     }
 
-    // All variants exhausted — attach an actionable hint.
-    match client.mcp_status(directory).await {
-        Ok(status) => {
-            if let Some(map) = status_map(&status) {
-                if let Some(entry) = map.get(&server.id) {
-                    let mut st = parse_status(&server.id, entry, last_error.clone());
-                    if st.status != "connected" {
-                        let hint = hint_for_binary(&binary);
-                        let detail = st.error.unwrap_or_else(|| "เชื่อมไม่ได้".into());
-                        if server.id == "word" {
-                            st.error = Some(word_failure_hint(&binary, &detail));
-                        } else {
-                            st.error = Some(format!("{detail} — วิธีแก้: {hint}"));
-                        }
-                    }
-                    return st;
-                }
-            }
-            McpServerStatus {
-                id: server.id.clone(),
-                status: "failed".into(),
-                error: last_error,
-            }
-        }
-        Err(e) => McpServerStatus {
-            id: server.id.clone(),
-            status: "failed".into(),
-            error: Some(format!(
-                "{}. วิธีแก้: {}",
-                last_error.unwrap_or(e),
-                hint_for_binary(&binary)
-            )),
-        },
+    applied().lock().unwrap().remove(&key);
+    McpServerStatus {
+        id: server.id.clone(),
+        status: "failed".into(),
+        error: Some(failure_message(
+            server,
+            last_error.unwrap_or_else(|| "เชื่อมไม่ได้".into()),
+        )),
     }
 }
 
-async fn apply_live(
-    client: &OpencodeClient,
-    directory: Option<&str>,
-    servers: &[McpServerEntry],
-) -> Result<Vec<McpServerStatus>, String> {
-    let mut out = Vec::new();
-    for server in servers {
-        if server.enabled {
-            out.push(connect_server(client, directory, server).await);
-        } else {
-            let _ = client.mcp_disconnect(directory, &server.id).await;
-            // Confirm the disabled state when the status map still lists it.
-            match client.mcp_status(directory).await {
-                Ok(status) => {
-                    if let Some(map) = status_map(&status) {
-                        if let Some(entry) = map.get(&server.id) {
-                            out.push(parse_status(&server.id, entry, None));
-                            continue;
-                        }
-                    }
-                    out.push(McpServerStatus {
-                        id: server.id.clone(),
-                        status: "disabled".into(),
-                        error: None,
-                    });
-                }
-                Err(_) => out.push(McpServerStatus {
-                    id: server.id.clone(),
-                    status: "disabled".into(),
-                    error: None,
-                }),
-            }
-        }
-    }
-    Ok(out)
+async fn disconnect_server(client: &OpencodeClient, directory: Option<&str>, id: &str) {
+    applied().lock().unwrap().remove(&applied_key(directory, id));
+    let _ = client.mcp_disconnect(directory, id).await;
 }
 
 /// Persist MCP choices to `~/.config/opencode/opencode.json` and register them on the running server.
@@ -403,53 +534,155 @@ async fn apply_live(
 pub async fn mcp_sync(
     servers: Vec<McpServerEntry>,
     directory: Option<String>,
+    options: Option<McpSyncOptions>,
 ) -> Result<McpSyncResult, String> {
-    write_opencode_mcp_config(&servers)?;
+    let options = options.unwrap_or_default();
+    for server in &servers {
+        validate(server)?;
+    }
+    let mut seen = HashSet::new();
+    if let Some(dup) = servers.iter().find(|s| !seen.insert(s.id.as_str())) {
+        return Err(format!("MCP id ซ้ำ: {}", dup.id));
+    }
+    let removed: Vec<String> = options
+        .removed
+        .into_iter()
+        .filter(|id| valid_id(id) && !seen.contains(id.as_str()))
+        .collect();
+
+    let _guard = sync_lock().lock().await;
+    write_opencode_mcp_config(&servers, &removed)?;
+
     let client = ensure_server().await?;
-    let dir = directory.as_deref().filter(|d| !d.trim().is_empty());
-    let statuses = apply_live(&client, dir, &servers).await?;
-    Ok(McpSyncResult { servers: statuses })
+    let dir = directory.as_deref().map(str::trim).filter(|d| !d.is_empty());
+    let targets: Option<HashSet<&str>> = options
+        .targets
+        .as_ref()
+        .map(|t| t.iter().map(String::as_str).collect());
+
+    for id in &removed {
+        disconnect_server(&client, dir, id).await;
+    }
+
+    let mut out = Vec::new();
+    for server in &servers {
+        if targets.as_ref().is_some_and(|t| !t.contains(server.id.as_str())) {
+            continue;
+        }
+        if server.enabled {
+            out.push(connect_server(&client, dir, server).await);
+        } else {
+            disconnect_server(&client, dir, &server.id).await;
+            out.push(McpServerStatus {
+                id: server.id.clone(),
+                status: "disabled".into(),
+                error: None,
+            });
+        }
+    }
+    Ok(McpSyncResult { servers: out })
 }
 
 /// Read MCP status from the running OpenCode server without changing config.
 #[tauri::command]
 pub async fn mcp_status(directory: Option<String>) -> Result<Vec<McpServerStatus>, String> {
     let client = ensure_server().await?;
-    let dir = directory.as_deref().filter(|d| !d.trim().is_empty());
+    let dir = directory.as_deref().map(str::trim).filter(|d| !d.is_empty());
     let status = client.mcp_status(dir).await?;
-    let mut out = Vec::new();
-    if let Some(map) = status.as_object() {
-        for (id, entry) in map {
-            out.push(parse_status(id, entry, None));
-        }
-    }
-    Ok(out)
+    Ok(status
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(id, entry)| parse_status(id, entry, None))
+        .collect())
 }
 
 /// Check which launcher binaries (uvx, npx, docker, …) exist for MCP diagnostics.
 #[tauri::command]
 pub fn mcp_diagnose() -> McpDiagnoseResult {
-    let binaries = ["uvx", "uv", "python", "node", "npx", "bunx", "docker"]
+    let binaries = ["uvx", "npx", "node", "python3", "docker"]
         .into_iter()
-        .map(|binary| match find_binary(binary) {
-            Some(path) => McpBinaryStatus {
+        .map(|binary| {
+            let found = find_binary(binary).or_else(|| {
+                // Windows installs Python as `python`.
+                (binary == "python3").then(|| find_binary("python")).flatten()
+            });
+            McpBinaryStatus {
                 binary: binary.to_string(),
-                found: true,
-                path: Some(path.to_string_lossy().to_string()),
-            },
-            None => McpBinaryStatus {
-                binary: binary.to_string(),
-                found: false,
-                path: None,
-            },
+                found: found.is_some(),
+                path: found.map(|p| p.to_string_lossy().to_string()),
+            }
         })
         .collect();
-    #[cfg(windows)]
-    let microsoft_word = Some(microsoft_word_installed());
-    #[cfg(not(windows))]
-    let microsoft_word = None;
-    McpDiagnoseResult {
-        binaries,
-        microsoft_word,
+    let platform = if cfg!(windows) {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    McpDiagnoseResult { binaries, platform }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(id: &str) -> McpServerEntry {
+        McpServerEntry {
+            id: id.into(),
+            enabled: true,
+            kind: "local".into(),
+            command: vec!["npx".into(), "-y".into(), "pkg".into()],
+            fallbacks: vec![],
+            environment: HashMap::new(),
+            url: None,
+            headers: HashMap::new(),
+            timeout_ms: None,
+        }
+    }
+
+    #[test]
+    fn rejects_ids_that_could_escape_url_paths() {
+        assert!(validate(&entry("word")).is_ok());
+        assert!(validate(&entry("custom-my_server1")).is_ok());
+        for bad in ["", "../x", "a/b", "a b", "-x", "ก"] {
+            assert!(validate(&entry(bad)).is_err(), "{bad:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn remote_requires_https_except_localhost() {
+        let mut server = entry("remote");
+        server.kind = "remote".into();
+        server.url = Some("http://example.com/mcp".into());
+        assert!(validate(&server).is_err());
+        server.url = Some("https://example.com/mcp".into());
+        assert!(validate(&server).is_ok());
+        server.url = Some("http://localhost:3000/mcp".into());
+        assert!(validate(&server).is_ok());
+        server.url = Some("file:///etc/passwd".into());
+        assert!(validate(&server).is_err());
+    }
+
+    #[test]
+    fn rejects_bad_env_and_headers() {
+        let mut server = entry("x");
+        server.environment.insert("BAD NAME".into(), "v".into());
+        assert!(validate(&server).is_err());
+
+        let mut remote = entry("y");
+        remote.kind = "remote".into();
+        remote.url = Some("https://example.com".into());
+        remote.headers.insert("Authorization".into(), "Bearer a\r\nX-Evil: 1".into());
+        assert!(validate(&remote).is_err());
+    }
+
+    #[test]
+    fn disabled_entries_skip_command_checks() {
+        let mut server = entry("off");
+        server.enabled = false;
+        server.command.clear();
+        assert!(validate(&server).is_ok());
     }
 }

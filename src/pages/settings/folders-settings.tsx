@@ -1,5 +1,12 @@
 import { Button } from "@/components/ui/button";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   FolderAccessDialog,
   folderName,
   grantFolder,
@@ -10,6 +17,7 @@ import {
 } from "@/features/workspace";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderIcon, FolderPlusIcon, Trash2Icon } from "lucide-react";
+import { IconTile, SectionHeader } from "./ui";
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 
@@ -22,66 +30,70 @@ export function FoldersSettings() {
   };
 
   return (
-    <section className="rounded-3xl bg-muted/60 p-5">
-      <div className="flex items-start justify-between gap-3 pb-3">
-        <div>
-          <h2 className="text-base font-semibold">Folder access</h2>
-          <p className="text-sm text-muted-foreground">
-            Cowork only works in folders you allow here. Chat never reads your files.
-          </p>
-        </div>
-        <Button type="button" variant="outline" size="sm" onClick={addFolder} className="shrink-0 gap-1.5">
-          <FolderPlusIcon className="size-4" />
-          Allow folder
-        </Button>
-      </div>
-      <div className="mb-4 h-px bg-border" />
+    <div className="flex flex-col gap-6">
+      <SectionHeader
+        title="Folder access"
+        description="Cowork ทำงานได้เฉพาะโฟลเดอร์ที่อนุญาตที่นี่ — โหมด Chat ไม่อ่านไฟล์ของคุณ"
+        actions={
+          <Button type="button" size="sm" onClick={addFolder} className="gap-1.5">
+            <FolderPlusIcon className="size-4" />
+            Allow folder
+          </Button>
+        }
+      />
 
       {grants.length === 0 ? (
-        <p className="rounded-2xl bg-background p-5 text-sm text-muted-foreground shadow-xs">
-          No folders allowed yet. You’ll be asked the first time Cowork needs one.
-        </p>
+        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed p-8 text-center">
+          <FolderIcon className="size-6 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">
+            ยังไม่มีโฟลเดอร์ — แอปจะถามเมื่อ Cowork ต้องใช้โฟลเดอร์ครั้งแรก
+          </p>
+        </div>
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul className="flex flex-col divide-y rounded-xl border bg-card">
           {grants.map((grant) => (
-            <li
-              key={grant.path}
-              className="flex items-center gap-3 rounded-2xl bg-background p-3 shadow-xs"
-            >
-              <FolderIcon className="size-4 shrink-0 text-muted-foreground" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{folderName(grant.path)}</p>
-                <p className="truncate font-mono text-xs text-muted-foreground" title={grant.path}>
-                  {grant.path}
-                </p>
-                <p className="text-[11px] text-muted-foreground">
-                  Allowed {dateFormat.format(grant.grantedAt)}
-                </p>
+            <li key={grant.path} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <IconTile className="size-10 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                  <FolderIcon />
+                </IconTile>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{folderName(grant.path)}</p>
+                  <p className="truncate font-mono text-xs text-muted-foreground" title={grant.path}>
+                    {grant.path}
+                  </p>
+                  <p className="text-xs text-muted-foreground">อนุญาตเมื่อ {dateFormat.format(grant.grantedAt)}</p>
+                </div>
               </div>
-              <select
-                aria-label={`Access for ${folderName(grant.path)}`}
-                value={grant.access}
-                onChange={(event) => grantFolder(grant.path, event.target.value as FolderAccess)}
-                className="h-8 rounded-full border bg-muted/50 px-3 text-xs"
-              >
-                <option value="read">Read only</option>
-                <option value="write">Read & write</option>
-              </select>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Revoke ${folderName(grant.path)}`}
-                onClick={() => revokeFolder(grant.path)}
-                className="text-muted-foreground hover:text-destructive"
-              >
-                <Trash2Icon className="size-4" />
-              </Button>
+              <div className="flex items-center gap-2 self-end sm:self-auto">
+                <Select
+                  value={grant.access}
+                  onValueChange={(value) => grantFolder(grant.path, value as FolderAccess)}
+                >
+                  <SelectTrigger size="sm" aria-label={`Access for ${folderName(grant.path)}`} className="w-36">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="read">Read only</SelectItem>
+                    <SelectItem value="write">Read & write</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Revoke ${folderName(grant.path)}`}
+                  onClick={() => revokeFolder(grant.path)}
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2Icon className="size-4" />
+                </Button>
+              </div>
             </li>
           ))}
         </ul>
       )}
       <FolderAccessDialog />
-    </section>
+    </div>
   );
 }

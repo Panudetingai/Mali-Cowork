@@ -15,6 +15,7 @@ use super::{
     cwd::get_default_public_dir,
     events::{EventTranslator, Outcome, PermissionAsk},
     policy::{Decision, FolderPolicy},
+    providers::{overlay_model_ids, APP_PROVIDERS},
     server::{ensure_server, not_found_message},
     OpencodeCheckResult, OpencodeModel, OpencodeModelsResult, OpencodeProvider, OpencodeRequest,
     FolderGrant, PermissionReplyRequest, SetAuthRequest,
@@ -74,12 +75,16 @@ pub async fn opencode_list_models(cwd: Option<String>) -> Result<OpencodeModelsR
         .filter_map(Value::as_str)
         .collect();
 
+    let app_models = overlay_model_ids();
     let mut models = Vec::new();
     let mut providers = Vec::new();
     for provider in body["all"].as_array().into_iter().flatten() {
         let provider_id = provider["id"].as_str().unwrap_or_default();
         let is_connected = connected.contains(&provider_id);
-        if !is_connected && !SUGGESTED_PROVIDERS.contains(&provider_id) {
+        if !is_connected
+            && !SUGGESTED_PROVIDERS.contains(&provider_id)
+            && !APP_PROVIDERS.contains(&provider_id)
+        {
             continue;
         }
         let provider_name = provider["name"].as_str().unwrap_or(provider_id);
@@ -93,7 +98,9 @@ pub async fn opencode_list_models(cwd: Option<String>) -> Result<OpencodeModelsR
         for (model_id, model) in provider["models"].as_object().into_iter().flatten() {
             let context_limit = model["limit"]["context"].as_u64().filter(|&n| n > 0);
             // Speech, image and deprecated models can't hold a conversation.
-            if context_limit.is_none() || model["status"] == "deprecated" {
+            // Models the user added in Settings have no metadata but are chat models.
+            let added_by_user = app_models.contains(&format!("{provider_id}/{model_id}"));
+            if (context_limit.is_none() && !added_by_user) || model["status"] == "deprecated" {
                 continue;
             }
             let cost = &model["cost"];

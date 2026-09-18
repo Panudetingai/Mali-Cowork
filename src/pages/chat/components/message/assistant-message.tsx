@@ -192,16 +192,33 @@ export function AssistantMessage({
         ) : null}
       </MessageContent>
 
-      {showAgentSpinner && (
+      {showAgentSpinner ? (
         <div className="mb-2 flex items-center gap-2">
           <BotFace size={32} />
           <span className="text-[11px] text-muted-foreground animate-pulse">
             {isCli ? `Running ${agentName}…` : "Thinking…"}
           </span>
         </div>
+      ) : (
+        isStreaming && (
+          <div
+            role="status"
+            aria-label="Writing reply"
+            className="mt-2 flex h-7 items-center gap-1 text-muted-foreground"
+          >
+            {[0, 150, 300].map((delay) => (
+              <span
+                key={delay}
+                className="size-1.5 animate-bounce rounded-full bg-current"
+                style={{ animationDelay: `${delay}ms` }}
+              />
+            ))}
+          </div>
+        )
       )}
 
-      {(hasContent || hasReasoning) && (!isStreaming || !showAgentSpinner) && (
+      {/* Copy and usage only once the reply is complete. */}
+      {(hasContent || hasReasoning) && !isStreaming && (
         <MessageActions className="mt-2">
           <MessageAction
             tooltip={copied ? "Copied" : "Copy"}
