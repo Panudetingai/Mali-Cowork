@@ -50,7 +50,14 @@ GitHub Actions workflow [`.github/workflows/release.yml`](./.github/workflows/re
 
 ### Brand assets
 
-Official icon (PNG): [`docs/brand/mali-cowork-icon.png`](./docs/brand/mali-cowork-icon.png) (white background master). Transparent master: [`docs/brand/mali-cowork-icon-transparent.png`](./docs/brand/mali-cowork-icon-transparent.png). Web UI favicons and Open Graph image live under [`public/`](./public/) (`icon.png`, `favicon-*.png`, `icon-512.png`).
+Official icon (PNG): [`docs/brand/mali-cowork-icon.png`](./docs/brand/mali-cowork-icon.png) — **must** be Luke’s chat master (~1337×1177, white background). Transparent master: [`docs/brand/mali-cowork-icon-transparent.png`](./docs/brand/mali-cowork-icon-transparent.png). Web UI favicons and Open Graph image live under [`public/`](./public/) (`icon.png`, `favicon-*.png`, `icon-512.png`).
+
+Regenerate all derived icons from the master (Tauri bundle + `public/`):
+
+```bash
+cp /path/to/mali-cowork-icon.png ./mali-cowork-icon.png   # chat attachment master
+./scripts/regenerate-brand-from-master.sh
+```
 
 To set the GitHub repository **social preview** image, upload `docs/brand/mali-cowork-icon.png` in the repo **Settings → General → Social preview** (API upload requires elevated token scopes from maintainers).
 
