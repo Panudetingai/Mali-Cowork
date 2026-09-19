@@ -14,6 +14,7 @@ use super::{
     client::{OpencodeClient, PromptOptions},
     cwd::get_default_public_dir,
     events::{EventTranslator, Outcome, PermissionAsk},
+    lease_instance,
     policy::{Decision, FolderPolicy},
     providers::{overlay_model_ids, APP_PROVIDERS},
     server::{ensure_server, not_found_message},
@@ -22,6 +23,8 @@ use super::{
 };
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Silence on the event stream after which the server is checked.
+const STREAM_IDLE: Duration = Duration::from_secs(90);
 
 #[tauri::command]
 pub async fn opencode_check() -> OpencodeCheckResult {
@@ -252,6 +255,8 @@ async fn run_prompt(
     std::fs::create_dir_all(&cwd)
         .map_err(|e| format!("Cannot create working folder {}: {e}", cwd.display()))?;
     let directory = path_str(&cwd);
+    // Keep this folder's instance (and its MCP servers) open until the reply ends.
+    let _instance = lease_instance(&directory).await;
 
     let client = ensure_server().await?;
     let session_id = open_session(&client, &directory, request.session_id.as_deref()).await?;
@@ -297,8 +302,9 @@ async fn run_prompt(
     } else {
         Vec::new()
     };
-    let options =
+    let mut options =
         prompt_options(request, &policy.lock().unwrap(), &directory, model, tool_call, &mcp);
+    options.files = file_parts(&request.files)?;
     client
         .prompt_async(&directory, &session_id, prompt, &options)
         .await?;
@@ -306,7 +312,19 @@ async fn run_prompt(
     let auto_approve = request.auto_approve.unwrap_or(false);
     let mut translator = EventTranslator::new(session_id.clone(), request.thinking.unwrap_or(false));
 
-    while let Some(event) = events.next().await? {
+    loop {
+        let event = match tokio::time::timeout(STREAM_IDLE, events.next()).await {
+            Ok(next) => match next? {
+                Some(event) => event,
+                None => break,
+            },
+            // Quiet for a while: a long tool call is fine, a hung server is not.
+            Err(_) if client.health().await.is_ok() => continue,
+            Err(_) => {
+                let _ = client.abort(&directory, &session_id).await;
+                return Err("opencode stopped responding. Send the message again to retry.".into());
+            }
+        };
         for outcome in translator.handle(&event) {
             let sent = match outcome {
                 Outcome::Emit(ev) => emit(on_event, ev),
@@ -407,19 +425,22 @@ const CHAT_SYSTEM: &str = "You are Mali Cowork in Chat mode: a friendly, concise
 Answer from your own knowledge. You cannot read or change the user's files in this mode; \
 if the task needs that, suggest switching to Cowork mode.";
 
-/// Tools that touch the file system or run commands, including the
-/// Filesystem MCP server's.
+/// Tools that touch the file system or run commands, including those of the
+/// MCP servers in [`WORKSPACE_MCP`].
 const WORKSPACE_TOOLS: &[&str] = &[
     "bash", "edit", "write", "patch", "multiedit", "read", "grep", "glob", "list", "task",
-    "todowrite", "todoread", "filesystem_*",
+    "todowrite", "todoread", "filesystem_*", "exec_*",
 ];
+
+/// MCP servers that read files or run commands, which Chat mode never offers.
+const WORKSPACE_MCP: &[&str] = &["filesystem", "exec"];
 
 /// For models without tool calling: providers such as Groq reject a request
 /// that offers any tool ("`tool calling` is not supported with this model").
 const ALL_TOOLS: &[&str] = &["*"];
 
 /// MCP servers connected in this folder's instance. Chat leaves out the
-/// Filesystem server, whose tools it disables.
+/// [`WORKSPACE_MCP`] servers, whose tools it disables.
 async fn connected_mcp(client: &OpencodeClient, directory: &str, chat: bool) -> Vec<String> {
     let Ok(status) = client.mcp_status(Some(directory)).await else {
         return Vec::new();
@@ -428,7 +449,7 @@ async fn connected_mcp(client: &OpencodeClient, directory: &str, chat: bool) -> 
         .as_object()
         .into_iter()
         .flatten()
-        .filter(|(id, entry)| entry["status"] == "connected" && !(chat && *id == "filesystem"))
+        .filter(|(id, entry)| entry["status"] == "connected" && !(chat && WORKSPACE_MCP.contains(&id.as_str())))
         .map(|(id, _)| id.clone())
         .collect();
     ids.sort();
@@ -462,21 +483,42 @@ fn prompt_options<'a>(
     mcp: &[String],
 ) -> PromptOptions<'a> {
     let mcp_note = mcp_note(mcp);
+    let instructions = request
+        .instructions
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string);
     if request.is_chat() {
-        let system = [Some(CHAT_SYSTEM.to_string()), mcp_note].into_iter().flatten();
+        let system = [Some(CHAT_SYSTEM.to_string()), mcp_note, instructions].into_iter().flatten();
         return PromptOptions {
             model,
             disabled_tools: if tool_call { WORKSPACE_TOOLS } else { ALL_TOOLS },
             system: Some(system.collect::<Vec<_>>().join("\n\n")),
+            ..Default::default()
         };
     }
     let mut notes = policy.describe(directory);
     notes.extend(mcp_note);
+    notes.extend(instructions);
     PromptOptions {
         model,
         disabled_tools: &[],
         system: Some(notes.join("\n\n")),
+        ..Default::default()
     }
+}
+
+/// Attachments as inline `file` parts. Inline data needs no folder access,
+/// so Chat mode can look at a picture too.
+fn file_parts(paths: &[String]) -> Result<Vec<Value>, String> {
+    paths
+        .iter()
+        .map(|path| {
+            let (url, mime, filename) = crate::commands::attachments::data_url(path)?;
+            Ok(serde_json::json!({ "type": "file", "mime": mime, "filename": filename, "url": url }))
+        })
+        .collect()
 }
 
 /// Shown in the step list when a change to a read-only folder was refused.
@@ -579,7 +621,7 @@ impl SseStream {
 
 #[cfg(test)]
 mod tests {
-    use super::super::server::shutdown;
+    use crate::commands::supervisor::shutdown_all as shutdown;
     use super::*;
 
     /// A model without tool calling (Groq Compound) still answers in Chat.
@@ -604,6 +646,8 @@ mod tests {
             auto_approve: Some(false),
             mode: Some("chat".into()),
             folders: Vec::new(),
+            files: Vec::new(),
+            instructions: None,
         };
         let result = run_prompt(&request, &channel).await;
         shutdown();
@@ -647,6 +691,8 @@ mod tests {
             auto_approve: Some(false),
             mode: Some("cowork".into()),
             folders: vec![grant(&work, "write"), grant(&rw, "write"), grant(&ro, "read")],
+            files: Vec::new(),
+            instructions: None,
         };
         let result = run_prompt(&request, &channel).await;
         shutdown();

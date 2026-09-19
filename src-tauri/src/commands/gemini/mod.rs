@@ -15,6 +15,11 @@ mod stream;
 
 pub use commands::{gemini_abort, gemini_check, gemini_generate, gemini_list_models};
 
+/// The CLI's path, if it's installed.
+pub(crate) fn installed_bin() -> Option<&'static str> {
+    bin::gemini_bin()
+}
+
 use serde::{Deserialize, Serialize};
 
 use super::opencode::FolderGrant;
@@ -36,6 +41,9 @@ pub struct GeminiRequest {
     pub folders: Vec<FolderGrant>,
     /// Identifies this run so it can be stopped.
     pub run_id: String,
+    /// Attached pictures (paths from `attachment_import`).
+    #[serde(default)]
+    pub images: Vec<String>,
     /// Gemini API key from Settings → Models. Headless `gemini -p` only reads
     /// the key from `GEMINI_API_KEY`, never the one saved by its `/auth` screen.
     #[serde(default)]

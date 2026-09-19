@@ -19,19 +19,26 @@ mod client;
 mod commands;
 mod cwd;
 mod events;
+mod instances;
 mod policy;
 mod providers;
 mod server;
 
 pub(crate) use client::OpencodeClient;
 pub(crate) use commands::session_dir;
+pub(crate) use instances::{lease as lease_instance, DEFAULT as DEFAULT_INSTANCE};
 pub use commands::{
     opencode_abort, opencode_check, opencode_default_cwd, opencode_delete_session,
     opencode_generate, opencode_list_models, opencode_permission_reply, opencode_set_auth,
     opencode_warm,
 };
 pub use providers::opencode_configure_providers;
-pub use server::{ensure_server as warm_up_server, shutdown as shutdown_server};
+pub use server::ensure_server as warm_up_server;
+
+/// The CLI's path, if it's installed.
+pub(crate) fn installed_bin() -> Option<&'static str> {
+    bin::opencode_bin()
+}
 
 use serde::{Deserialize, Serialize};
 
@@ -54,6 +61,12 @@ pub struct OpencodeRequest {
     /// Cowork: folders the user granted, the working folder included.
     #[serde(default)]
     pub folders: Vec<FolderGrant>,
+    /// Attached pictures and documents (paths from `attachment_import`).
+    #[serde(default)]
+    pub files: Vec<String>,
+    /// The user's custom instructions and enabled skills.
+    #[serde(default)]
+    pub instructions: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

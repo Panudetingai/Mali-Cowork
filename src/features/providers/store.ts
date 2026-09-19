@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect } from "react";
+import { bindSecrets, stripSecrets, whenVaultReady } from "@/features/secrets";
 import { createStore } from "@/lib/local-store";
 import { getProvider, PROVIDERS, splitModels, type ProviderDef } from "./catalog";
 
@@ -12,7 +13,23 @@ export type ProviderConfig = {
   contextLimit?: string;
 };
 
-const configStore = createStore<Record<string, ProviderConfig>>({}, { key: "mali_provider_configs" });
+type Configs = Record<string, ProviderConfig>;
+
+// API keys live in the OS keychain; localStorage keeps the rest.
+const apiKeys = {
+  read: (configs: Configs) =>
+    Object.fromEntries(Object.entries(configs).map(([id, c]) => [id, c.apiKey?.trim() ?? ""])),
+  write: (configs: Configs, keys: Record<string, string>) =>
+    Object.fromEntries(
+      Object.entries(configs).map(([id, c]) => [id, id in keys ? { ...c, apiKey: keys[id] } : c]),
+    ),
+};
+
+const configStore = createStore<Configs>({}, {
+  key: "mali_provider_configs",
+  persist: (configs) => stripSecrets(configs, apiKeys),
+});
+bindSecrets(configStore, { prefix: "provider:", ...apiKeys });
 // Providers whose key is set in `.env`; fetched once from the backend.
 const envStore = createStore<string[]>([]);
 let envRequested = false;
@@ -107,6 +124,8 @@ export function ollamaListModels(baseUrl: string, apiKey?: string) {
  * only when the provider config actually changed.
  */
 export async function syncCliProviders() {
+  // Keys come from the keychain; syncing before they load would drop them.
+  await whenVaultReady();
   const configs = configStore.get();
   const providers = PROVIDERS.map((provider) => {
     const config = configs[provider.id];

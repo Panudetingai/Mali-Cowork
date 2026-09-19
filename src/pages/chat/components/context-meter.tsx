@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { folderName } from "@/features/workspace";
 import { cn } from "@/lib/utils";
-import { FolderIcon, SquarePenIcon } from "lucide-react";
+import { FolderIcon, ListCollapseIcon, SquarePenIcon } from "lucide-react";
 import type { ContextUsage } from "../context-usage";
 import type { ContextBudget } from "../models";
 
@@ -22,12 +22,14 @@ type Props = {
   /** Folders this chat can read; their files count toward the context. */
   folders: string[];
   onNewChat?: () => void;
+  /** Start a new chat carrying a summary of this one. */
+  onSummarize?: () => void;
 };
 
 const compact = new Intl.NumberFormat("en-US", { notation: "compact" });
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 4 });
 
-export function ContextMeter({ usage, budget, folders, onNewChat }: Props) {
+export function ContextMeter({ usage, budget, folders, onNewChat, onSummarize }: Props) {
   const used = Math.min(usage.usedTokens, budget.maxTokens);
   const ratio = used / budget.maxTokens;
   const tone =
@@ -64,7 +66,7 @@ export function ContextMeter({ usage, budget, folders, onNewChat }: Props) {
           )}
           {budget.autoNewChat && (
             <p className="text-[11px] text-muted-foreground">
-              A new chat starts automatically at {compact.format(budget.maxTokens)} tokens.
+              At {compact.format(budget.maxTokens)} tokens a new chat starts with a summary of this one.
             </p>
           )}
           {folders.length > 0 && (
@@ -85,6 +87,19 @@ export function ContextMeter({ usage, budget, folders, onNewChat }: Props) {
           <span className="text-muted-foreground">Total cost</span>
           <span className="flex items-center gap-2">
             {usd.format(totals.cost)}
+            {onSummarize && ratio >= CONTEXT_WARN_RATIO / 2 && (
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                className="gap-1"
+                onClick={onSummarize}
+                title="Start a new chat that remembers this one through a summary"
+              >
+                <ListCollapseIcon className="size-3" />
+                Summarize & continue
+              </Button>
+            )}
             {onNewChat && ratio >= CONTEXT_WARN_RATIO && (
               <Button type="button" size="xs" variant="outline" className="gap-1" onClick={onNewChat}>
                 <SquarePenIcon className="size-3" />

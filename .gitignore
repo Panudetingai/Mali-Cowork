@@ -25,3 +25,8 @@ dist-ssr
 
 # Local aisdk upstream PR workspace (separate git repo)
 _aisdk-upstream-pr/
+
+# Local secrets: API keys live here, never in git
+.env
+.env.*
+!.env.example

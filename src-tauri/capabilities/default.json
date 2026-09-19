@@ -12,9 +12,8 @@
     "fs:allow-read",
     "fs:allow-read-dir",
     "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
     "fs:allow-exists",
-    "fs:allow-mkdir",
-    "fs:allow-write",
     {
       "identifier": "fs:scope",
       "allow": [
@@ -24,10 +23,27 @@
         "$RESOURCE/**",
         "$TEMP/**",
         "C:/Users/Public/**",
-        "D:/mali_cowork/**",
         "D:/**"
       ],
-      "deny": []
+      "deny": [
+        "$HOME/.ssh/**",
+        "$HOME/.aws/**",
+        "$HOME/.gnupg/**",
+        "$HOME/.docker/**",
+        "$HOME/.kube/**",
+        "$HOME/.config/gh/**",
+        "$HOME/.config/opencode/**",
+        "$HOME/.local/share/opencode/**",
+        "$HOME/.codex/**",
+        "$HOME/.cursor/**",
+        "$HOME/.gemini/**",
+        "$HOME/.netrc",
+        "$HOME/.npmrc",
+        "$HOME/.git-credentials",
+        "$HOME/Library/Keychains/**",
+        "**/.env",
+        "**/.env.*"
+      ]
     },
     "core:window:allow-close",
     "core:window:allow-minimize",
@@ -35,6 +51,10 @@
     "core:window:allow-unmaximize",
     "core:window:allow-is-maximized",
     "core:window:allow-toggle-maximize",
-    "core:window:allow-start-dragging"
+    "core:window:allow-start-dragging",
+    "notification:default",
+    "notification:allow-notify",
+    "notification:allow-request-permission",
+    "notification:allow-is-permission-granted"
   ]
 }

@@ -13,6 +13,8 @@ export type ChatRequest = {
   apiKey: string | null;
   baseUrl: string | null;
   history: HistoryMessage[];
+  /** Custom instructions and enabled skills, sent as the system message. */
+  system?: string | null;
 };
 
 export type StreamMetadata = {
@@ -31,11 +33,19 @@ export type PermissionRequest = {
   detail?: string | null;
 };
 
+export type TodoItem = {
+  id?: string;
+  text: string;
+  status?: string;
+  done?: boolean;
+};
+
 export type ChatStreamEvent =
   | { event: "started" }
   | { event: "chunk"; data: { text: string } }
   | { event: "reasoning"; data: { reasoning: string } }
   | { event: "activity"; data: ActivityItem }
+  | { event: "todos"; data: { items: TodoItem[] } }
   | { event: "metadata"; data: StreamMetadata }
   | { event: "permission"; data: PermissionRequest }
   | { event: "permissionResolved"; data: { id: string } }
@@ -47,6 +57,7 @@ export type ChatStreamHandlers = {
   onChunk: (text: string) => void;
   onReasoning?: (reasoning: string) => void;
   onActivity?: (activity: ActivityItem) => void;
+  onTodos?: (items: TodoItem[]) => void;
   onMetadata?: (data: StreamMetadata) => void;
   onPermission?: (request: PermissionRequest) => void;
   onPermissionResolved?: (id: string) => void;
@@ -70,6 +81,9 @@ export function createStreamChannel(handlers: ChatStreamHandlers) {
         break;
       case "activity":
         handlers.onActivity?.(message.data);
+        break;
+      case "todos":
+        handlers.onTodos?.(message.data.items);
         break;
       case "metadata":
         handlers.onMetadata?.(message.data);

@@ -8,6 +8,7 @@ use tauri::ipc::Channel;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::chat_stream::ChatStreamEvent;
+use crate::commands::supervisor;
 
 use super::bin::{cursor_bin, cursor_command, not_found_message};
 use super::stream::{CursorStream, Outcome};
@@ -114,8 +115,9 @@ pub fn build_args(request: &CursorRequest) -> Vec<String> {
         // Plan mode analyses and proposes, but cannot edit.
         args.extend(["--mode".into(), "plan".into()]);
     } else {
-        // The user granted this folder for writing, and `--print` cannot ask.
-        args.push("--force".into());
+        // The user granted this folder for writing, and `--print` cannot ask,
+        // so commands run on their own, but only inside Cursor's sandbox.
+        args.extend(["--force".into(), "--sandbox".into(), "enabled".into()]);
     }
 
     if let Some(model) = request.model.as_deref().map(str::trim).filter(|m| !m.is_empty() && *m != "auto") {
@@ -175,22 +177,16 @@ async fn run_prompt(
     args.push(prompt_with_notes(request));
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
 
-    let mut cmd = cursor_command(bin, &arg_refs);
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+    // Supervised, so the agent and the tools and MCP servers it starts
+    // always stop together.
+    let mut cmd = supervisor::command(cursor_command(bin, &arg_refs));
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     if let Some(cwd) = request.workspace() {
         cmd.current_dir(cwd);
     }
-    // Own process group, so stopping also stops the tools it started.
-    #[cfg(unix)]
-    cmd.process_group(0);
-
-    let mut child = cmd
-        .spawn()
+    let (mut child, mut tree) = supervisor::spawn(&mut cmd, "cursor-agent")
         .map_err(|e| format!("Failed to start cursor-agent ({bin}): {e}"))?;
-    let _running = child.id().map(|pid| Running::register(&request.run_id, pid));
+    let _running = Running::register(&request.run_id, tree.pid());
 
     let stdout = child.stdout.take().ok_or("cursor-agent has no stdout")?;
     let stderr = child.stderr.take().ok_or("cursor-agent has no stderr")?;
@@ -217,7 +213,7 @@ async fn run_prompt(
                 Outcome::Emit(event) => {
                     if let Err(e) = on_event.send(event) {
                         // The window went away: stop the agent.
-                        let _ = child.start_kill();
+                        tree.stop();
                         return Err(e.to_string());
                     }
                 }
@@ -302,15 +298,8 @@ pub fn cursor_abort(run_id: String) -> Result<(), String> {
     let Some(pid) = Running::registry().lock().unwrap().get(&run_id).copied() else {
         return Ok(());
     };
-    // Negative pid targets the whole group, so spawned tools stop too.
-    #[cfg(unix)]
-    let _ = std::process::Command::new("kill")
-        .args(["-TERM", &format!("-{pid}")])
-        .status();
-    #[cfg(windows)]
-    let _ = std::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .status();
+    // Stops the whole tree, so the tools it started stop too.
+    supervisor::terminate(pid);
     Ok(())
 }
 
@@ -364,6 +353,7 @@ mod tests {
     fn cowork_with_write_access_may_act() {
         let args = build_args(&request("cowork", vec![grant("/w", "write")]));
         assert!(args.iter().any(|a| a == "--force"));
+        assert!(args.windows(2).any(|w| w == ["--sandbox", "enabled"]), "--force only runs sandboxed");
         assert!(args.windows(2).any(|w| w == ["--workspace", "/w"]));
         assert!(args.windows(2).any(|w| w == ["--model", "composer-2.5"]));
         assert!(args.iter().any(|a| a == "--trust"), "non-interactive runs need --trust");

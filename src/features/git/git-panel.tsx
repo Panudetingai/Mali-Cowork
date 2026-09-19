@@ -1,0 +1,284 @@
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/animate-ui/primitives/radix/dropdown-menu";
+import { cn } from "@/lib/utils";
+import {
+    ArrowDownIcon,
+    ArrowRightIcon,
+    ArrowUpIcon,
+    CheckIcon,
+    CopyIcon,
+    GitBranchIcon,
+    LoaderIcon,
+    Maximize2Icon,
+    Minimize2Icon,
+    MoreHorizontalIcon,
+    PanelRightCloseIcon,
+    RefreshCwIcon,
+} from "lucide-react";
+import { useEffect, useState } from "react";
+import { gitApi } from "./api";
+import { BranchesView } from "./branches-view";
+import { ChangesView as ChangesTab, menuClass, menuItemClass } from "./changes-view";
+import { CommitMenu, useSync } from "./commit-menu";
+import { CommitsView } from "./commits-view";
+import { useGitRepo, type GitTab } from "./git-context";
+import type { ChangedFile, GitCommit, GitStatus } from "./types";
+
+/** The Git side panel, shown only for folders inside a repository. */
+export function GitPanel() {
+  const git = useGitRepo();
+  const [head, setHead] = useState<GitCommit>();
+  const [copied, setCopied] = useState(false);
+  const folder = git?.folder;
+  const version = git?.version;
+
+  // The latest commit is the panel's title, as a pull request's is.
+  useEffect(() => {
+    if (!folder) return;
+    let cancelled = false;
+    gitApi
+      .log(folder, 0, 1)
+      .then((list) => !cancelled && setHead(list[0]))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [folder, version, git?.status?.branch.commit]);
+
+  if (!git || !git.panel.open || !git.status) return null;
+  const { status, changes, panel, setTab, closePanel, toggleWide, busy, agentRunning } = git;
+  const branch = status.branch;
+
+  const copyHash = async () => {
+    if (!head) return;
+    await navigator.clipboard.writeText(head.hash);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
+  };
+
+  return (
+    <aside
+      className={cn(
+        "relative z-10 flex h-full shrink-0 flex-col overflow-hidden border-l bg-background transition-[width] duration-200",
+        panel.wide ? "w-[clamp(320px,62%,1000px)]" : "w-[clamp(320px,44%,480px)]",
+      )}
+    >
+      {/* Top strip: the panel's tab and window controls. */}
+      <div className="flex h-11 shrink-0 items-center gap-1 border-b px-2">
+        <span className="flex items-center gap-2 rounded-lg bg-muted px-2.5 py-1 text-sm">
+          <GitBranchIcon className="size-4 text-emerald-500" />
+          Git
+        </span>
+        {(busy || agentRunning) && (
+          <span className="flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
+            <LoaderIcon className="size-3 animate-spin" />
+            {busy ?? "Agent is working…"}
+          </span>
+        )}
+        <div className="ml-auto flex items-center">
+          <StripButton label={panel.wide ? "Narrow" : "Widen"} onClick={toggleWide}>
+            {panel.wide ? <Minimize2Icon className="size-4" /> : <Maximize2Icon className="size-4" />}
+          </StripButton>
+          <StripButton label="Close" onClick={closePanel}>
+            <PanelRightCloseIcon className="size-4" />
+          </StripButton>
+        </div>
+      </div>
+
+      <header className="flex shrink-0 flex-col gap-3 border-b px-4 pt-3 pb-2">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <StatePill status={status} changes={changes} />
+          <span className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
+            <span className="truncate text-foreground/80" title={branch.head}>
+              {branch.head ?? `detached ${branch.commit ?? ""}`}
+            </span>
+            {branch.upstream && (
+              <>
+                <ArrowRightIcon className="size-3.5 shrink-0" />
+                <span className="truncate">{branch.upstream}</span>
+              </>
+            )}
+          </span>
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            <MoreMenu />
+            <CommitMenu variant="panel" />
+          </div>
+        </div>
+
+        <div className="flex min-w-0 items-center gap-2">
+          <h2 className="min-w-0 truncate text-[19px] font-medium" title={head?.subject}>
+            {head?.subject ?? (branch.commit ? "…" : "No commits yet")}
+          </h2>
+          {head && (
+            <>
+              <span className="shrink-0 font-mono text-[15px] text-muted-foreground">#{head.short}</span>
+              <button type="button" onClick={() => void copyHash()} title="Copy commit id" className="shrink-0 text-muted-foreground hover:text-foreground">
+                {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
+              </button>
+            </>
+          )}
+        </div>
+
+        <nav className="-mx-1 flex items-center gap-1">
+          <TabButton tab="changes" current={panel.tab} onSelect={setTab} label="Changes" count={changes.length} />
+          <TabButton tab="commits" current={panel.tab} onSelect={setTab} label="Commits" />
+          <TabButton tab="branches" current={panel.tab} onSelect={setTab} label="Branches" />
+          <SyncState status={status} />
+        </nav>
+      </header>
+
+      {/* One scroll area, so file headers stick to its top. */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {panel.tab === "changes" && <ChangesTab />}
+        {panel.tab === "commits" && <CommitsView />}
+        {panel.tab === "branches" && <BranchesView />}
+      </div>
+    </aside>
+  );
+}
+
+
+/** Like a PR's Open/Merged badge: where the working folder stands. */
+function StatePill({ status, changes }: { status: GitStatus; changes: ChangedFile[] }) {
+  const { branch } = status;
+  const [label, tone] = changes.some((c) => c.kind === "conflicted")
+    ? ["Conflicts", "red"]
+    : status.operation
+      ? [status.operation[0].toUpperCase() + status.operation.slice(1), "amber"]
+      : changes.length > 0
+        ? ["Uncommitted", "amber"]
+        : branch.ahead > 0
+          ? ["Unpushed", "sky"]
+          : branch.behind > 0
+            ? ["Behind", "violet"]
+            : !branch.upstream
+              ? ["Local", "muted"]
+              : ["Up to date", "green"];
+  const tones: Record<string, string> = {
+    red: "bg-red-500/15 text-red-700 dark:text-red-300",
+    amber: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+    sky: "bg-sky-500/15 text-sky-700 dark:text-sky-300",
+    violet: "bg-violet-500/15 text-violet-700 dark:text-violet-300",
+    green: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+    muted: "bg-muted text-muted-foreground",
+  };
+  return <span className={cn("shrink-0 rounded-full px-3 py-1 text-[13px] font-medium", tones[tone])}>{label}</span>;
+}
+
+/** ↑2 ↓1 against the upstream, at the end of the tab row. */
+function SyncState({ status }: { status: GitStatus }) {
+  const { ahead, behind, upstream } = status.branch;
+  if (!upstream || (!ahead && !behind)) return null;
+  return (
+    <span className="ml-auto flex items-center gap-2 pr-1 text-xs text-muted-foreground" title={`Compared with ${upstream}`}>
+      {ahead > 0 && (
+        <span className="flex items-center gap-0.5">
+          <ArrowUpIcon className="size-3" />
+          {ahead}
+        </span>
+      )}
+      {behind > 0 && (
+        <span className="flex items-center gap-0.5">
+          <ArrowDownIcon className="size-3" />
+          {behind}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function MoreMenu() {
+  const git = useGitRepo();
+  const sync = useSync();
+  if (!git) return null;
+  const hasRemote = (git.status?.remotes.length ?? 0) > 0;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" aria-label="More" className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+          <MoreHorizontalIcon className="size-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" sideOffset={6} className={menuClass}>
+        <DropdownMenuItem className={menuItemClass} onSelect={() => void git.refresh()}>
+          <RefreshCwIcon className="size-4 text-muted-foreground" />
+          Refresh
+        </DropdownMenuItem>
+        {hasRemote && (
+          <DropdownMenuItem className={menuItemClass} onSelect={sync.fetch}>
+            <RefreshCwIcon className="size-4 text-muted-foreground" />
+            Fetch from remote
+          </DropdownMenuItem>
+        )}
+        {sync.canPull && (
+          <DropdownMenuItem className={menuItemClass} onSelect={sync.pull}>
+            <ArrowDownIcon className="size-4 text-muted-foreground" />
+            Pull
+          </DropdownMenuItem>
+        )}
+        {sync.canPush && (
+          <DropdownMenuItem className={menuItemClass} onSelect={sync.push}>
+            <ArrowUpIcon className="size-4 text-muted-foreground" />
+            {git.status?.branch.upstream ? "Push" : "Publish branch"}
+          </DropdownMenuItem>
+        )}
+        {git.status?.branch.head && (
+          <DropdownMenuItem
+            className={menuItemClass}
+            onSelect={() => void navigator.clipboard.writeText(git.status!.branch.head!)}
+          >
+            <CopyIcon className="size-4 text-muted-foreground" />
+            Copy branch name
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function TabButton({
+  tab,
+  current,
+  onSelect,
+  label,
+  count,
+}: {
+  tab: GitTab;
+  current: GitTab;
+  onSelect: (tab: GitTab) => void;
+  label: string;
+  count?: number;
+}) {
+  const active = tab === current;
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(tab)}
+      className={cn(
+        "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[14px] transition-colors",
+        active ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {label}
+      {!!count && <span className="text-muted-foreground tabular-nums">{count}</span>}
+    </button>
+  );
+}
+
+function StripButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+      className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+    >
+      {children}
+    </button>
+  );
+}

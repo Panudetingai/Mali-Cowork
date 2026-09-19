@@ -16,6 +16,10 @@ export type OpencodeRequest = {
   mode?: WorkMode;
   /** Cowork: folders the user granted, the working folder first. */
   folders?: FolderGrantInput[];
+  /** Attached pictures and documents (attachment paths). */
+  files?: string[];
+  /** Custom instructions and enabled skills, added to the system prompt. */
+  instructions?: string;
 };
 
 export type FolderGrantInput = { path: string; access: "read" | "write" };

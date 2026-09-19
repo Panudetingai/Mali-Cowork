@@ -17,6 +17,7 @@ import { Codex, Cursor, GeminiCLI, OpenCode } from "@lobehub/icons";
 import { FolderOpenIcon, RefreshCwIcon } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { ProviderDialog, providerStatus } from "./provider-dialog";
+import { OnboardingButton } from "@/features/onboarding";
 import {
   CardGrid,
   CopyCommand,
@@ -25,6 +26,7 @@ import {
   IconTile,
   IntegrationCard,
   SectionHeader,
+  SettingsSection,
   StatusPill,
 } from "./ui";
 
@@ -61,7 +63,7 @@ export function AgentsSettings() {
       directory: true,
       multiple: false,
       defaultPath: opencode.cwd || undefined,
-      title: "เลือกโฟลเดอร์ที่ OpenCode ทำงาน",
+      title: "Choose OpenCode’s working folder",
     });
     if (typeof selected === "string" && selected) opencode.update({ cwd: selected });
   }
@@ -73,15 +75,18 @@ export function AgentsSettings() {
   const refreshing = opencode.loading || cursor.loading || gemini.loading;
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-10">
       <SectionHeader
         title="Agents"
-        description="Agent ที่รันบนเครื่องนี้สำหรับโหมด Cowork — เลือก model ได้ที่ช่องพิมพ์ในหน้าแชท"
+        description="Local agents for Cowork. Pick a model from the chat box."
         actions={
-          <Button variant="outline" size="sm" onClick={refreshAll} disabled={refreshing} className="gap-1.5">
-            <RefreshCwIcon className={cn("size-3.5", refreshing && "animate-spin")} />
-            รีเฟรช
-          </Button>
+          <div className="flex items-center gap-2">
+            <OnboardingButton className="h-8 text-xs" />
+            <Button variant="outline" size="sm" onClick={refreshAll} disabled={refreshing} className="gap-1.5">
+              <RefreshCwIcon className={cn("size-3.5", refreshing && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
         }
       />
 
@@ -93,15 +98,15 @@ export function AgentsSettings() {
             </IconTile>
           }
           title="OpenCode"
-          badge={<StatusPill tone="neutral">แนะนำ</StatusPill>}
+          badge={<StatusPill tone="neutral">Recommended</StatusPill>}
           description={
             oc?.available
-              ? `${oc.version ? `v${oc.version} · ` : ""}${ocModels} models · ถามก่อนแก้หรือลบไฟล์`
-              : oc?.error || "Agent หลักของ Cowork — รองรับ MCP, OpenRouter และ Ollama"
+              ? `${oc.version ? `v${oc.version} · ` : ""}${ocModels} models · asks before changing files`
+              : oc?.error || "Cowork’s main agent. Supports MCP, OpenRouter and Ollama."
           }
           status={
             !oc ? (
-              <StatusPill tone="pending">กำลังตรวจ…</StatusPill>
+              <StatusPill tone="pending">Checking…</StatusPill>
             ) : oc.available ? (
               <StatusPill tone="success">Ready</StatusPill>
             ) : (
@@ -118,11 +123,11 @@ export function AgentsSettings() {
           title="Cursor Agent"
           description={
             cursor.check?.account ||
-            (cursor.models.length ? `${cursor.models.length} models · ใช้ subscription ของคุณ` : "ใช้ subscription Cursor ของคุณผ่าน cursor-agent")
+            (cursor.models.length ? `${cursor.models.length} models · uses your subscription` : "Uses your Cursor subscription")
           }
           status={
             cursor.loading ? (
-              <StatusPill tone="pending">กำลังตรวจ…</StatusPill>
+              <StatusPill tone="pending">Checking…</StatusPill>
             ) : cursorReady ? (
               <StatusPill tone="success">Signed in</StatusPill>
             ) : cursor.check?.available ? (
@@ -134,7 +139,7 @@ export function AgentsSettings() {
           control={
             !cursor.loading && !cursorReady ? (
               <Button type="button" size="sm" variant="outline" onClick={() => requestCursorLogin()}>
-                {cursor.check?.available ? "Sign in" : "วิธีติดตั้ง"}
+                {cursor.check?.available ? "Sign in" : "How to install"}
               </Button>
             ) : undefined
           }
@@ -146,10 +151,10 @@ export function AgentsSettings() {
             </IconTile>
           }
           title="Codex"
-          description={codex?.available ? codex.version || codex.path || "พร้อมใช้งาน" : "OpenAI Codex CLI"}
+          description={codex?.available ? codex.version || codex.path || "Ready" : "OpenAI Codex CLI"}
           status={
             !codex ? (
-              <StatusPill tone="pending">กำลังตรวจ…</StatusPill>
+              <StatusPill tone="pending">Checking…</StatusPill>
             ) : codex.available ? (
               <StatusPill tone="success">Ready</StatusPill>
             ) : (
@@ -166,11 +171,11 @@ export function AgentsSettings() {
           title="Gemini CLI"
           description={
             gemini.check?.account ||
-            (gemini.models.length ? `${gemini.models.length} models · ใช้ Google account ของคุณ` : "ใช้ Google account ของคุณผ่าน gemini CLI")
+            (gemini.models.length ? `${gemini.models.length} models · uses your Google account` : "Uses your Google account")
           }
           status={
             gemini.loading ? (
-              <StatusPill tone="pending">กำลังตรวจ…</StatusPill>
+              <StatusPill tone="pending">Checking…</StatusPill>
             ) : geminiReady ? (
               <StatusPill tone="success">Signed in</StatusPill>
             ) : gemini.check?.available ? (
@@ -184,25 +189,25 @@ export function AgentsSettings() {
 
       {gemini.check && !gemini.check.available && (
         <div className="flex max-w-xl flex-col gap-2">
-          <p className="text-sm text-muted-foreground">ติดตั้ง Gemini CLI แล้วเปิดแอปใหม่ (หรือตั้ง GEMINI_BIN):</p>
+          <p className="text-sm text-muted-foreground">Install Gemini CLI, then restart the app (or set GEMINI_BIN):</p>
           <CopyCommand command="npm i -g @google/gemini-cli" />
         </div>
       )}
 
       {oc && !oc.available && (
         <div className="flex max-w-xl flex-col gap-2">
-          <p className="text-sm text-muted-foreground">ติดตั้ง OpenCode แล้วเปิดแอปใหม่ (หรือตั้ง OPENCODE_BIN):</p>
+          <p className="text-sm text-muted-foreground">Install OpenCode, then restart the app (or set OPENCODE_BIN):</p>
           <CopyCommand command="npm i -g opencode-ai" />
         </div>
       )}
 
-      <section className="flex flex-col gap-3">
-        <GroupLabel>โฟลเดอร์ทำงานเริ่มต้น</GroupLabel>
-        <div className="rounded-xl border bg-card p-4">
+      <SettingsSection>
+        <GroupLabel>Default working folder</GroupLabel>
+        <div className="rounded-2xl border border-border/60 bg-card p-4">
           <Field
-            label="โฟลเดอร์ของ OpenCode"
+            label="OpenCode folder"
             htmlFor={folderId}
-            hint="ใช้เมื่อแชท Cowork ยังไม่ได้เลือกโฟลเดอร์ — agent จะอ่าน/แก้ไฟล์ได้เฉพาะโฟลเดอร์ที่อนุญาตในแท็บ Folders"
+            hint="Used when a Cowork chat has no folder yet. Access follows the Folders tab."
           >
             <div className="flex flex-col gap-2 sm:flex-row">
               <Input
@@ -210,24 +215,24 @@ export function AgentsSettings() {
                 value={cwdDraft}
                 onChange={(e) => setCwdDraft(e.target.value)}
                 onBlur={() => cwdDraft.trim() !== opencode.cwd && opencode.update({ cwd: cwdDraft.trim() })}
-                placeholder="เช่น ~/Public"
+                placeholder="e.g. ~/Public"
                 spellCheck={false}
                 className="font-mono text-xs"
               />
               <Button type="button" variant="outline" onClick={pickFolder} className="gap-1.5">
                 <FolderOpenIcon className="size-4" />
-                เลือก…
+                Choose…
               </Button>
             </div>
           </Field>
         </div>
-      </section>
+      </SettingsSection>
 
-      <section className="flex flex-col gap-3">
-        <div className="space-y-1">
-          <GroupLabel>Models สำหรับ agent</GroupLabel>
-          <p className="text-sm text-muted-foreground">
-            ตั้งค่าครั้งเดียวใช้ได้ทั้ง Chat และ Cowork — แอปส่ง key ให้ OpenCode เก็บเองบนเครื่องนี้
+      <SettingsSection>
+        <div className="flex flex-col gap-1">
+          <GroupLabel>Agent models</GroupLabel>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            Set once for Chat and Cowork. Keys stay on this device.
           </p>
         </div>
         <CardGrid className="lg:grid-cols-3 2xl:grid-cols-3">
@@ -245,7 +250,7 @@ export function AgentsSettings() {
                 title={p.name}
                 description={p.description}
                 onOpen={() => setProvider(p)}
-                openLabel={`ตั้งค่า ${p.name}`}
+                openLabel={`Set up ${p.name}`}
                 highlight={inAgent ? "success" : undefined}
                 status={
                   inAgent ? (
@@ -265,7 +270,7 @@ export function AgentsSettings() {
             );
           })}
         </CardGrid>
-      </section>
+      </SettingsSection>
 
       <ProviderDialog provider={provider} onClose={() => setProvider(null)} />
       <CursorLoginDialog />

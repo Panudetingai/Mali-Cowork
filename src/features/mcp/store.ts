@@ -1,3 +1,4 @@
+import { bindSecrets, stripSecrets } from "@/features/secrets";
 import { createStore } from "@/lib/local-store";
 import { catalogServer } from "./catalog";
 
@@ -38,10 +39,42 @@ function normalizeState(raw: McpState): Record<string, McpConnection> {
   return out;
 }
 
-const store = createStore<Record<string, McpConnection>>({}, {
+type Connections = Record<string, McpConnection>;
+
+// Variables often hold tokens (GitHub, Slack, Brave…), so they live in the
+// OS keychain as JSON; localStorage keeps the rest of the connection.
+const envSecrets = {
+  read: (state: Connections) =>
+    Object.fromEntries(
+      Object.entries(state).map(([id, conn]) => {
+        const env = Object.entries(conn.env ?? {}).filter(([, v]) => v.trim());
+        return [id, env.length ? JSON.stringify(Object.fromEntries(env)) : ""];
+      }),
+    ),
+  write: (state: Connections, secrets: Record<string, string>) =>
+    Object.fromEntries(
+      Object.entries(state).map(([id, conn]) => {
+        if (!(id in secrets)) return [id, conn];
+        return [id, { ...conn, env: secrets[id] ? parseEnv(secrets[id]) : undefined }];
+      }),
+    ),
+};
+
+function parseEnv(json: string): Record<string, string> | undefined {
+  try {
+    const value = JSON.parse(json);
+    return value && typeof value === "object" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const store = createStore<Connections>({}, {
   key: "mcp_connections",
   revive: (value) => normalizeState(value as McpState),
+  persist: (state) => stripSecrets(state, envSecrets),
 });
+bindSecrets(store, { prefix: "mcp-env:", ...envSecrets });
 
 export function useMcpConnections() {
   return store.use();

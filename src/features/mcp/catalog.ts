@@ -38,22 +38,29 @@ export type McpDef = {
   timeoutMs?: number;
   /** One-line setup note shown in the details dialog. */
   setup?: string;
+  /** MCP Registry id, shown in the connection dialog. */
+  registryName?: string;
+  /** Package version label in the connection dialog. */
+  packageVersion?: string;
+  repositoryUrl?: string;
+  /** Shown under the run command (e.g. Docker download). */
+  runWarning?: string;
 };
 
 export const MCP_SERVERS: McpDef[] = [
   {
     id: "word",
     name: "Word",
-    description: "สร้างและแก้ไขไฟล์ .docx — ข้อความ ตาราง รูปแบบ คอมเมนต์ (Office-Word-MCP-Server)",
+    description: "Create and edit .docx files: text, tables, styles, comments.",
     icon: "word",
     tile: "bg-blue-600 text-white",
-    command: "uvx --from office-word-mcp-server word_mcp_server",
+    command: "uvx --from office-word-mcp-server==1.1.11 word_mcp_server",
     variants: [
-      { id: "uvx", label: "uvx (แนะนำ)", command: "uvx --from office-word-mcp-server word_mcp_server" },
+      { id: "uvx", label: "uvx (recommended)", command: "uvx --from office-word-mcp-server==1.1.11 word_mcp_server" },
       {
         id: "github",
-        label: "uvx จาก GitHub (โค้ดล่าสุด ต้องมี git)",
-        command: "uvx --from git+https://github.com/GongRzhe/Office-Word-MCP-Server word_mcp_server",
+        label: "uvx from GitHub (pinned, needs git)",
+        command: "uvx --from git+https://github.com/GongRzhe/Office-Word-MCP-Server@a3bbbb6d6167e68cf855d73ef7dc6cd8cfbfedba word_mcp_server",
       },
       { id: "pip", label: "pip install office-word-mcp-server", command: "word_mcp_server" },
       { id: "python", label: "python -m", command: "python3 -m word_document_server.main" },
@@ -61,47 +68,66 @@ export const MCP_SERVERS: McpDef[] = [
     category: "Documents",
     timeoutMs: 180_000,
     setup:
-      "ใช้ github.com/GongRzhe/Office-Word-MCP-Server (54 tools: เอกสาร ตาราง รูปแบบ คอมเมนต์ footnote) — ทำงานได้ทั้ง Windows, macOS, Linux ไม่ต้องมี Microsoft Word ต้องมี uv (uvx) หรือ Python 3.11+",
+      "Office-Word-MCP-Server. Works without Microsoft Word; needs uv (uvx) or Python 3.11+.",
   },
   {
     id: "exec",
     name: "Exec",
-    description: "รันคำสั่ง shell / สคริปต์บนเครื่องนี้ผ่าน agent",
+    description: "Let the agent run shell commands on this device.",
     icon: "exec",
     tile: "bg-zinc-900 text-white dark:bg-zinc-700",
-    command: "npx -y @mkusaka/mcp-shell-server",
+    command: "npx -y @mkusaka/mcp-shell-server@0.1.1",
     variants: [
-      { id: "npx", label: "npx", command: "npx -y @mkusaka/mcp-shell-server" },
-      { id: "bunx", label: "bunx", command: "bunx @mkusaka/mcp-shell-server" },
+      { id: "npx", label: "npx", command: "npx -y @mkusaka/mcp-shell-server@0.1.1" },
+      { id: "bunx", label: "bunx", command: "bunx @mkusaka/mcp-shell-server@0.1.1" },
     ],
     category: "Execute",
   },
   {
     id: "filesystem",
     name: "Filesystem",
-    description: "ให้ agent อ่าน–เขียนไฟล์ในโฟลเดอร์งาน (ใส่ path โฟลเดอร์ให้อัตโนมัติ)",
+    description: "Read and write files in the working folder.",
     icon: "filesystem",
     tile: "bg-amber-500 text-white",
-    command: "npx -y @modelcontextprotocol/server-filesystem",
+    command: "npx -y @modelcontextprotocol/server-filesystem@2026.8.31",
     variants: [
-      { id: "npx", label: "npx", command: "npx -y @modelcontextprotocol/server-filesystem" },
-      { id: "bunx", label: "bunx", command: "bunx @modelcontextprotocol/server-filesystem" },
+      { id: "npx", label: "npx", command: "npx -y @modelcontextprotocol/server-filesystem@2026.8.31" },
+      { id: "bunx", label: "bunx", command: "bunx @modelcontextprotocol/server-filesystem@2026.8.31" },
     ],
     category: "Dev",
   },
   {
     id: "github",
     name: "GitHub",
-    description: "ค้นหา repo, เปิด issue/PR, อ่านโค้ดผ่าน GitHub API",
+    description:
+      "Connect AI assistants to GitHub — manage repos, issues, PRs, and workflows via API.",
     icon: "github",
     tile: "bg-neutral-900 text-white dark:bg-neutral-700",
-    command: "npx -y @modelcontextprotocol/server-github",
+    command: "npx -y @modelcontextprotocol/server-github@2025.4.8",
+    variants: [
+      {
+        id: "npx",
+        label: "npx — @modelcontextprotocol/server-github",
+        command: "npx -y @modelcontextprotocol/server-github@2025.4.8",
+      },
+      {
+        id: "docker",
+        label: "Docker — ghcr.io/github/github-mcp-server",
+        command:
+          "docker run -i --rm -e GITHUB_PERSONAL_ACCESS_TOKEN ghcr.io/github/github-mcp-server",
+      },
+    ],
     category: "Dev",
+    registryName: "io.github.github/github-mcp-server",
+    packageVersion: "2025.4.8",
+    repositoryUrl: "https://github.com/github/github-mcp-server",
+    runWarning:
+      "Docker pulls a container image and runs it with your account permissions. Install Docker Desktop first if needed.",
     envVars: [
       {
         var: "GITHUB_PERSONAL_ACCESS_TOKEN",
-        label: "Personal access token",
-        required: true,
+        label: "GitHub personal access token",
+        required: false,
         secret: true,
         placeholder: "ghp_…",
       },
@@ -110,38 +136,38 @@ export const MCP_SERVERS: McpDef[] = [
   {
     id: "fetch",
     name: "Fetch",
-    description: "เปิดเว็บและดึงเนื้อหาหน้าเว็บให้ agent (Puppeteer)",
+    description: "Open web pages and read their content.",
     icon: "fetch",
     tile: "bg-sky-500 text-white",
-    command: "npx -y @modelcontextprotocol/server-puppeteer",
+    command: "npx -y @modelcontextprotocol/server-puppeteer@2025.5.12",
     category: "Web",
   },
   {
     id: "playwright",
     name: "Playwright",
-    description: "สั่งเบราว์เซอร์อัตโนมัติ ทดสอบเว็บ ถ่ายสกรีนช็อต",
+    description: "Automate a browser, test sites, take screenshots.",
     icon: "playwright",
     tile: "bg-emerald-600 text-white",
-    command: "npx -y @playwright/mcp",
+    command: "npx -y @playwright/mcp@0.0.82",
     category: "Web",
     timeoutMs: 90_000,
   },
   {
     id: "sqlite",
     name: "SQLite",
-    description: "คิวรีไฟล์ .db ในเครื่องด้วยภาษาธรรมชาติ",
+    description: "Query local .db files.",
     icon: "sqlite",
     tile: "bg-cyan-700 text-white",
-    command: "npx -y mcp-sqlite",
+    command: "npx -y mcp-sqlite@1.0.9",
     category: "Data",
   },
   {
     id: "postgres",
     name: "Postgres",
-    description: "เชื่อมฐานข้อมูล Postgres คิวรีตารางโดยตรง",
+    description: "Query a Postgres database.",
     icon: "postgres",
     tile: "bg-indigo-600 text-white",
-    command: "npx -y @modelcontextprotocol/server-postgres",
+    command: "npx -y @modelcontextprotocol/server-postgres@0.6.2",
     category: "Data",
     envVars: [
       {
@@ -156,38 +182,38 @@ export const MCP_SERVERS: McpDef[] = [
   {
     id: "memory",
     name: "Memory",
-    description: "หน่วยความจำระยะยาว จำบริบทข้ามเซสชัน",
+    description: "Long-term memory across sessions.",
     icon: "memory",
     tile: "bg-violet-600 text-white",
-    command: "npx -y @modelcontextprotocol/server-memory",
+    command: "npx -y @modelcontextprotocol/server-memory@2026.8.31",
     category: "Memory",
   },
   {
     id: "sequential-thinking",
     name: "Sequential Thinking",
-    description: "ให้ agent คิดเป็นขั้นเป็นตอน งานซับซ้อนแม่นขึ้น",
+    description: "Step-by-step thinking for complex tasks.",
     icon: "thinking",
     tile: "bg-fuchsia-600 text-white",
-    command: "npx -y @modelcontextprotocol/server-sequential-thinking",
+    command: "npx -y @modelcontextprotocol/server-sequential-thinking@2026.8.31",
     category: "Memory",
   },
   {
     id: "brave-search",
     name: "Brave Search",
-    description: "ค้นเว็บเรียลไทม์พร้อมคำตอบสรุป",
+    description: "Live web search.",
     icon: "search",
     tile: "bg-orange-500 text-white",
-    command: "npx -y @modelcontextprotocol/server-brave-search",
+    command: "npx -y @modelcontextprotocol/server-brave-search@0.6.2",
     category: "Web",
     envVars: [{ var: "BRAVE_API_KEY", label: "Brave Search API key", required: true, secret: true }],
   },
   {
     id: "slack",
     name: "Slack",
-    description: "อ่าน–ส่งข้อความใน Slack channel ที่เชื่อมไว้",
+    description: "Read and post in Slack channels.",
     icon: "slack",
     tile: "bg-[#4A154B] text-white",
-    command: "npx -y @modelcontextprotocol/server-slack",
+    command: "npx -y @modelcontextprotocol/server-slack@2025.4.25",
     category: "Dev",
     envVars: [
       { var: "SLACK_BOT_TOKEN", label: "Bot token", required: true, secret: true, placeholder: "xoxb-…" },

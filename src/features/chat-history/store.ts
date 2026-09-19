@@ -1,5 +1,8 @@
 import { opencodeAbort, opencodeDeleteSession, type WorkMode } from "@/features/opencode";
+import { syncToDatabase } from "@/lib/db-sync";
+import { loadHistorySnapshot, type HistorySnapshot } from "@/lib/history-db";
 import { createStore } from "@/lib/local-store";
+import { invoke } from "@tauri-apps/api/core";
 import type { PermissionRequest } from "@/pages/chat/api/chat";
 import type { ChatMessage } from "@/pages/chat/types";
 
@@ -10,6 +13,8 @@ export type ChatSession = {
   updatedAt: number;
   messages: ChatMessage[];
   pinned?: boolean;
+  /** The project this chat belongs to, if any. */
+  projectId?: string;
   /** Plain conversation or agent work; older chats are inferred. */
   mode?: WorkMode;
   /** Cowork: the folder the agent session was opened in. */
@@ -25,10 +30,17 @@ export type ChatSession = {
   /** Gemini session id, so `gemini -r <id>` keeps the conversation. */
   geminiSessionId?: string;
   /** Chat this one continues after the context limit was reached. */
-  continuedFrom?: { id: string; title: string };
+  continuedFrom?: {
+    id: string;
+    title: string;
+    /** What the earlier chat covered; the model gets it as context. */
+    summary?: string;
+    /** True while the summary is being written. */
+    summarizing?: boolean;
+  };
 };
 
-type NewChat = Pick<ChatSession, "mode" | "cwd" | "continuedFrom">;
+type NewChat = Pick<ChatSession, "mode" | "cwd" | "continuedFrom" | "projectId">;
 
 /** In-flight state for a chat; never persisted. */
 export type ChatRun = {
@@ -37,17 +49,67 @@ export type ChatRun = {
   modelId: string;
   agentSessionId?: string;
   permissions: PermissionRequest[];
+  /** Cowork: snapshot taken before this turn, so it can be undone. */
+  checkpointId?: string;
 };
 
 const TITLE_MAX = 60;
 
-const sessionStore = createStore<ChatSession[]>([], {
-  key: "mali_chat_sessions",
-  throttleMs: 400,
-  revive: (sessions) =>
-    Array.isArray(sessions) ? sessions.map(settleInterruptedReplies) : [],
-});
+/** Where older versions kept the history; read once, then moved to SQLite. */
+const LEGACY_KEY = "mali_chat_sessions";
+
+// Held in memory; saved to SQLite (see `loadChatHistory`).
+const sessionStore = createStore<ChatSession[]>([]);
 const runStore = createStore<Record<string, ChatRun>>({});
+const database = syncToDatabase(sessionStore, "chats");
+
+/**
+ * Load the history from SQLite before the app renders. The first time, chats
+ * from localStorage (older versions) are copied in and then removed there.
+ */
+export async function loadChatHistory() {
+  try {
+    let snapshot = await loadHistorySnapshot<ChatSession, unknown>();
+    if (!snapshot.legacyImported) {
+      await invoke("history_import_legacy", { chats: readLegacy() });
+      snapshot = await invoke<HistorySnapshot<ChatSession>>("history_load");
+      localStorage.removeItem(LEGACY_KEY);
+    }
+    const chats = snapshot.chats.filter(isChat);
+    // Replies cut off by a quit are settled, and saved again as settled.
+    database.start(chats);
+    sessionStore.set(chats.map(settleInterruptedReplies));
+  } catch (error) {
+    // Outside the desktop app (or if the database can't open) keep using localStorage.
+    console.error("[chat-history] SQLite unavailable, using localStorage", error);
+    sessionStore.set(readLegacy().map(settleInterruptedReplies));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    sessionStore.subscribe(() => {
+      timer ??= setTimeout(() => {
+        timer = undefined;
+        try {
+          localStorage.setItem(LEGACY_KEY, JSON.stringify(sessionStore.get()));
+        } catch {
+          // Storage full; the chats still live for this session.
+        }
+      }, 400);
+    });
+  }
+}
+
+function readLegacy(): ChatSession[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(LEGACY_KEY) ?? "[]");
+    return Array.isArray(value) ? value.filter(isChat) : [];
+  } catch {
+    return [];
+  }
+}
+
+function isChat(value: unknown): value is ChatSession {
+  const chat = value as ChatSession;
+  return !!chat && typeof chat.id === "string" && Array.isArray(chat.messages);
+}
 
 export const useChatSessions = sessionStore.use;
 export const useChatRuns = runStore.use;
@@ -89,6 +151,20 @@ export function updateChatMessages(id: string, fn: (messages: ChatMessage[]) => 
 export function renameChat(id: string, title: string) {
   const trimmed = title.trim();
   if (trimmed) updateChat(id, (s) => ({ ...s, title: trimmed }));
+}
+
+/** Put a chat in a project, or with `undefined` take it out. */
+export function moveChatToProject(id: string, projectId: string | undefined) {
+  updateChat(id, (s) => ({ ...s, projectId }));
+}
+
+/** Chats of a project that was deleted go back to the plain history. */
+export function releaseProjectChats(projectId: string) {
+  sessionStore.set((prev) =>
+    prev.some((s) => s.projectId === projectId)
+      ? prev.map((s) => (s.projectId === projectId ? { ...s, projectId: undefined } : s))
+      : prev,
+  );
 }
 
 export function togglePinChat(id: string) {

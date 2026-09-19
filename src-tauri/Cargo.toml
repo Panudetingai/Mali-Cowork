@@ -30,8 +30,27 @@ futures = "0.3"
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["json", "stream"] }
 dirs = "6"
+base64 = "0.22"
 toml_edit = "0.22"
 uuid = { version = "1", features = ["v4"] }
+tauri-plugin-notification = "2.4.0"
+sha2 = "0.10"
+walkdir = "2.5"
+similar = "2"
+quick-xml = "0.42"
+hex = "0.4"
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+rusqlite = { version = "0.39", features = ["bundled"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+keyring = { version = "3", features = ["windows-native"] }
 
 [patch.crates-io]
 aisdk = { path = "vendor/aisdk" }

@@ -4,3 +4,8 @@ export * from "./store";
 export * from "./sync";
 export * from "./api";
 export * from "./word-setup";
+export * from "./registry";
+export * from "./connectors";
+export * from "./agent-install";
+export * from "./oauth-limits";
+export * from "./export";

@@ -1,6 +1,17 @@
 use serde::Serialize;
 
 #[derive(Clone, Serialize)]
+pub struct TodoItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub done: Option<bool>,
+}
+
+#[derive(Clone, Serialize)]
 pub struct AgentUsage {
     #[serde(rename = "inputTokens")]
     pub input_tokens: Option<u64>,
@@ -57,6 +68,8 @@ pub enum ChatStreamEvent {
     },
     /// A pending permission was answered (by the user or automatically).
     PermissionResolved { id: String },
+    /// Agent task plan / todo checklist update.
+    Todos { items: Vec<TodoItem> },
     Done { model_id: String },
     Error { message: String },
 }

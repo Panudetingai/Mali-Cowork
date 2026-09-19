@@ -1,34 +1,43 @@
 import {
-    Tab,
-    TabGroup,
-    TabHighlight,
-    TabHighlightItem,
-    TabList,
-    TabPanel,
-    TabPanels,
+  Tab,
+  TabGroup,
+  TabHighlight,
+  TabHighlightItem,
+  TabList,
+  TabPanel,
+  TabPanels,
 } from "@/components/animate-ui/primitives/headless/tabs";
-import { cn } from "cn";
-import { BotIcon, FolderIcon, SparklesIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { BotIcon, FolderIcon, NotebookPenIcon, SparklesIcon } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { AgentsSettings } from "./agents-settings";
 import { FoldersSettings } from "./folders-settings";
+import { InstructionsSettings } from "./instructions-settings";
 import { McpTabIcon } from "./mcp/mcp-icon";
 import { McpSettings } from "./mcp/mcp-settings";
 import { ModelsSettings } from "./models-settings";
 
 const TABS = [
-  { id: "models", label: "Models", icon: SparklesIcon },
-  { id: "agents", label: "Agents", icon: BotIcon },
-  { id: "mcp", label: "MCP", lobeMcp: true as const },
-  { id: "folders", label: "Folders", icon: FolderIcon },
+  { id: "models", label: "Models", description: "AI providers & keys", icon: SparklesIcon },
+  { id: "agents", label: "Agents", description: "Cowork CLIs", icon: BotIcon },
+  { id: "instructions", label: "Instructions", description: "Skills & tone", icon: NotebookPenIcon },
+  { id: "mcp", label: "Connectors", description: "Apps & MCP tools", lobeMcp: true as const },
+  { id: "folders", label: "Folders", description: "Disk access", icon: FolderIcon },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
+
+const TAB = cn(
+  "flex min-h-9 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium text-muted-foreground transition-colors",
+  "hover:text-foreground",
+  "data-active:text-foreground",
+);
 
 export default function SettingsPage() {
   const [params, setParams] = useSearchParams();
   const tab: TabId = TABS.find((t) => t.id === params.get("tab"))?.id ?? "models";
   const selectedIndex = Math.max(0, TABS.findIndex((t) => t.id === tab));
+  const active = TABS[selectedIndex];
 
   const goTo = (index: number) => {
     const id = TABS[index]?.id ?? "models";
@@ -36,63 +45,68 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col px-4 pt-5 pb-10 sm:px-6 lg:px-8">
-      <header className="space-y-1">
-        <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground">
-          Models, agents, integrations and folder access for Mali Cowork.
-        </p>
-      </header>
+    <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:py-10">
+      <TabGroup selectedIndex={selectedIndex} onChange={goTo} className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-12">
+        <aside className="flex w-full shrink-0 flex-col gap-6 lg:w-56 xl:w-60">
+          <header className="flex flex-col gap-1">
+            <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Configure models, agents, and what Cowork can access on your Mac.
+            </p>
+          </header>
 
-      <TabGroup selectedIndex={selectedIndex} onChange={goTo} className="mt-5 flex flex-col">
-        <nav
-          aria-label="Settings sections"
-          className="scroll-hidden -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0"
-        >
-          <div className="relative inline-flex min-w-0">
-            <TabHighlight className="absolute inset-0 z-0 rounded-lg border border-transparent bg-background shadow-sm ring-1 ring-foreground/10 dark:border-input dark:bg-input/30">
-              <TabList className="relative inline-flex gap-1 rounded-xl border bg-muted/50 p-1">
+          <nav aria-label="Settings sections" className="scroll-hidden -mx-1 overflow-x-auto px-1 lg:mx-0 lg:overflow-visible lg:px-0">
+            <TabHighlight className="rounded-xl bg-muted/40 p-1 lg:bg-muted/30">
+              <TabList className="relative flex min-w-min flex-row gap-0.5 lg:min-w-0 lg:flex-col">
                 {TABS.map((item, index) => {
                   const Icon = "icon" in item ? item.icon : null;
                   return (
-                    <TabHighlightItem key={item.id} index={index}>
-                      <Tab
-                        index={index}
-                        className={cn(
-                          "flex h-8 items-center gap-1.5 rounded-lg px-3 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors duration-500 ease-in-out",
-                          "hover:text-foreground",
-                          "data-active:text-foreground",
-                        )}
-                      >
+                    <TabHighlightItem key={item.id} index={index} className="lg:w-full">
+                      <Tab index={index} className={cn(TAB, "lg:justify-start")}>
                         {"lobeMcp" in item && item.lobeMcp ? (
                           <McpTabIcon />
                         ) : (
-                          Icon && <Icon className="size-4" />
+                          Icon && <Icon className="size-4 shrink-0 opacity-80" />
                         )}
-                        {item.label}
+                        <span className="flex min-w-0 flex-col items-start leading-tight">
+                          <span className="truncate">{item.label}</span>
+                          <span className="hidden text-[11px] font-normal text-muted-foreground lg:block">
+                            {item.description}
+                          </span>
+                        </span>
                       </Tab>
                     </TabHighlightItem>
                   );
                 })}
               </TabList>
             </TabHighlight>
-          </div>
-        </nav>
+          </nav>
+        </aside>
 
-        <TabPanels mode="layout" className="mt-5 border-t pt-6">
-          <TabPanel>
-            <ModelsSettings />
-          </TabPanel>
-          <TabPanel>
-            <AgentsSettings />
-          </TabPanel>
-          <TabPanel>
-            <McpSettings />
-          </TabPanel>
-          <TabPanel>
-            <FoldersSettings />
-          </TabPanel>
-        </TabPanels>
+        <div className="min-w-0 flex-1">
+          <div className="mb-6 flex flex-col gap-0.5 border-b border-border/60 pb-6 lg:hidden">
+            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{active.label}</p>
+            <p className="text-sm text-muted-foreground">{active.description}</p>
+          </div>
+
+          <TabPanels mode="layout">
+            <TabPanel>
+              <ModelsSettings />
+            </TabPanel>
+            <TabPanel>
+              <AgentsSettings />
+            </TabPanel>
+            <TabPanel>
+              <InstructionsSettings />
+            </TabPanel>
+            <TabPanel>
+              <McpSettings />
+            </TabPanel>
+            <TabPanel>
+              <FoldersSettings />
+            </TabPanel>
+          </TabPanels>
+        </div>
       </TabGroup>
     </div>
   );

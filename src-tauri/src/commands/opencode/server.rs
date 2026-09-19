@@ -5,17 +5,23 @@
 //! prompts immediately and exposes the permission API that `run` lacks.
 
 use std::process::Stdio;
-use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Child;
 
 use super::bin::{opencode_bin, opencode_command};
 use super::client::OpencodeClient;
+use super::instances;
+use crate::commands::supervisor::{self, Tree};
 
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const LISTENING_MARKER: &str = "listening on ";
+/// A health check this recent is trusted without asking again.
+const HEALTH_FRESH: Duration = Duration::from_secs(10);
+/// Failed checks in a row before a running server counts as hung.
+const HEALTH_ATTEMPTS: u32 = 3;
 /// Config layered over the user's own. Snapshots (git copies of the working
 /// folder taken every step, for undo) cost seconds in folders with
 /// `node_modules` or `target`, and this app never offers undo. Providers set
@@ -31,7 +37,13 @@ fn app_config() -> String {
 
 struct Running {
     child: Child,
+    /// The server and everything it started (MCP servers, their helpers).
+    tree: Tree,
     client: OpencodeClient,
+    /// Last time the server answered a health check.
+    checked: Instant,
+    /// Closes idle folder instances; see [`instances`].
+    sweeper: tokio::task::JoinHandle<()>,
 }
 
 /// Serializes startup so concurrent callers share a single server.
@@ -40,62 +52,74 @@ fn state() -> &'static tokio::sync::Mutex<Option<Running>> {
     STATE.get_or_init(|| tokio::sync::Mutex::new(None))
 }
 
-/// Process id of the running server, readable from the sync exit hook.
-fn server_pid() -> &'static Mutex<Option<u32>> {
-    static PID: OnceLock<Mutex<Option<u32>>> = OnceLock::new();
-    PID.get_or_init(|| Mutex::new(None))
-}
-
 /// Return a client for a healthy server, starting or restarting it as needed.
+///
+/// A server that is still running is only replaced after it failed several
+/// health checks in a row. Replacing it on one slow answer used to pile up
+/// servers (each with its own MCP servers) exactly when the machine was
+/// already busy.
 pub async fn ensure_server() -> Result<OpencodeClient, String> {
     let mut guard = state().lock().await;
 
     if let Some(running) = guard.as_mut() {
-        let exited = matches!(running.child.try_wait(), Ok(Some(_)));
-        if !exited && running.client.health().await.is_ok() {
-            return Ok(running.client.clone());
+        match running.child.try_wait() {
+            Ok(None) => {
+                if running.checked.elapsed() < HEALTH_FRESH || responsive(&running.client).await {
+                    running.checked = Instant::now();
+                    return Ok(running.client.clone());
+                }
+                eprintln!("[opencode] server stopped answering; restarting it");
+            }
+            Ok(Some(status)) => eprintln!("[opencode] server exited ({status}); restarting it"),
+            Err(e) => eprintln!("[opencode] can't check the server ({e}); restarting it"),
         }
-        let _ = running.child.start_kill();
-        *guard = None;
+        if let Some(running) = guard.take() {
+            stop(running).await;
+        }
     }
 
     let running = spawn_server().await?;
     let client = running.client.clone();
-    *server_pid().lock().unwrap() = running.child.id();
     *guard = Some(running);
     Ok(client)
 }
 
-/// Stop the running server so the next call starts one with fresh config.
-pub async fn restart() {
-    let mut guard = state().lock().await;
-    if let Some(mut running) = guard.take() {
-        let _ = running.child.start_kill();
-        let _ = tokio::time::timeout(Duration::from_secs(5), running.child.wait()).await;
+/// A few health checks with a pause between them.
+async fn responsive(client: &OpencodeClient) -> bool {
+    for attempt in 1..=HEALTH_ATTEMPTS {
+        if client.health().await.is_ok() {
+            return true;
+        }
+        if attempt < HEALTH_ATTEMPTS {
+            tokio::time::sleep(Duration::from_secs(attempt.into())).await;
+        }
     }
-    *server_pid().lock().unwrap() = None;
+    false
 }
 
-/// Kill the server. Called from the app exit hook, outside the async runtime.
-pub fn shutdown() {
-    let Some(pid) = server_pid().lock().unwrap().take() else {
-        return;
-    };
+/// Stop the server and everything it started, waiting briefly for it to exit.
+async fn stop(mut running: Running) {
+    running.sweeper.abort();
+    running.tree.stop();
+    let _ = tokio::time::timeout(Duration::from_secs(5), running.child.wait()).await;
+    instances::reset();
+}
 
-    #[cfg(unix)]
-    let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
-
-    #[cfg(windows)]
-    let _ = std::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .status();
+/// Stop the running server so the next call starts one with fresh config.
+pub async fn restart() {
+    if let Some(running) = state().lock().await.take() {
+        stop(running).await;
+    }
 }
 
 async fn spawn_server() -> Result<Running, String> {
     let bin = opencode_bin().ok_or_else(not_found_message)?;
     let password = uuid::Uuid::new_v4().simple().to_string();
 
-    let mut cmd = opencode_command(bin, &["serve", "--hostname", "127.0.0.1", "--port", "0"]);
+    let mut cmd = supervisor::command(opencode_command(
+        bin,
+        &["serve", "--hostname", "127.0.0.1", "--port", "0"],
+    ));
     // Respect a config the user injected themselves.
     if std::env::var_os("OPENCODE_CONFIG_CONTENT").is_none() {
         cmd.env("OPENCODE_CONFIG_CONTENT", app_config());
@@ -104,16 +128,13 @@ async fn spawn_server() -> Result<Running, String> {
     // pull the agent away from the MCP servers set up in this app.
     cmd.env("OPENCODE_DISABLE_CLAUDE_CODE_SKILLS", "1");
     cmd.env("OPENCODE_SERVER_PASSWORD", &password)
-        .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+        .stderr(Stdio::piped());
     if let Some(home) = dirs::home_dir() {
         cmd.current_dir(home);
     }
 
-    let mut child = cmd
-        .spawn()
+    let (mut child, mut tree) = supervisor::spawn(&mut cmd, "opencode serve")
         .map_err(|e| format!("Failed to start opencode server ({bin}): {e}"))?;
 
     let stdout = child.stdout.take().ok_or("opencode server has no stdout")?;
@@ -135,7 +156,8 @@ async fn spawn_server() -> Result<Running, String> {
     .flatten();
 
     let Some(base_url) = base_url else {
-        let _ = child.start_kill();
+        tree.stop();
+        let _ = tokio::time::timeout(Duration::from_secs(5), child.wait()).await;
         return Err("opencode server did not report a listening address".into());
     };
 
@@ -147,9 +169,14 @@ async fn spawn_server() -> Result<Running, String> {
     });
 
     eprintln!("[opencode] server ready at {base_url}");
+    instances::reset();
+    let client = OpencodeClient::new(base_url, password);
     Ok(Running {
         child,
-        client: OpencodeClient::new(base_url, password),
+        tree,
+        sweeper: instances::spawn_sweeper(client.clone()),
+        client,
+        checked: Instant::now(),
     })
 }
 

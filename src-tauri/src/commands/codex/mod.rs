@@ -15,6 +15,11 @@ mod stream;
 
 pub use commands::{codex_abort, codex_check, codex_generate, codex_list_models};
 
+/// The CLI's path, if it's installed.
+pub(crate) fn installed_bin() -> Option<&'static str> {
+    bin::codex_bin()
+}
+
 use serde::{Deserialize, Serialize};
 
 use super::opencode::FolderGrant;
@@ -36,6 +41,9 @@ pub struct CodexRequest {
     pub folders: Vec<FolderGrant>,
     /// Identifies this run so it can be stopped.
     pub run_id: String,
+    /// Attached pictures (paths from `attachment_import`).
+    #[serde(default)]
+    pub images: Vec<String>,
 }
 
 impl CodexRequest {

@@ -2,7 +2,8 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+} from "@/components/animate-ui/primitives/radix/collapsible";
+import { TextShimmer } from "@/components/ui/text-shimmer";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -20,7 +21,9 @@ import {
   TerminalIcon,
   XIcon,
 } from "lucide-react";
+import { useState } from "react";
 import type { ActivityItem } from "../../types";
+import { StepDetail } from "./step-detail";
 
 /** A reply cut at its steps: text, the steps run there, more text, … */
 export type ReplySegment =
@@ -78,64 +81,162 @@ function kindIcon(step: ActivityItem): LucideIcon {
   }
 }
 
-function StatusIcon({ step, running }: { step: ActivityItem; running: boolean }) {
+/** Home-directory prefixes read as `~`; the full text stays in the tooltip. */
+function tidyPath(text: string) {
+  return text.replace(/(?:\/Users|\/home)\/[^/\s"'`]+/g, "~");
+}
+
+function formatDuration(ms: number) {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
+}
+
+const isFailed = (step: ActivityItem) => /\(failed\)$/.test(step.title);
+
+function StatusIcon({ failed, done, running }: { failed: boolean; done: boolean; running: boolean }) {
   if (running) return <LoaderIcon className="size-3.5 animate-spin text-foreground" />;
-  if (/\(failed\)$/.test(step.title)) return <XIcon className="size-3.5 text-red-500" />;
-  if (step.done) return <CheckIcon className="size-3.5 text-emerald-600 dark:text-emerald-400" />;
+  if (failed) return <XIcon className="size-3.5 text-red-500" />;
+  if (done) return <CheckIcon className="size-3.5 text-emerald-600/80 dark:text-emerald-400/80" />;
   return <CircleIcon className="size-2 text-muted-foreground/60" />;
 }
 
 function StepRow({ step, running }: { step: ActivityItem; running: boolean }) {
-  const { verb, subject } = splitTitle(step.title.replace(/ \(failed\)$/, ""));
+  const title = step.title.replace(/ \(failed\)$/, "");
+  const { verb, subject } = splitTitle(title);
   const detail = step.detail?.trim();
+  const failed = isFailed(step);
   const Icon = kindIcon(step);
 
   const label = (
     <>
       <span className="flex size-4 shrink-0 items-center justify-center">
-        <StatusIcon step={step} running={running} />
+        <StatusIcon failed={failed} done={step.done} running={running} />
       </span>
-      <Icon className="size-3.5 shrink-0 opacity-60" />
-      <span className={cn("shrink-0 font-medium", running ? "text-foreground" : "text-foreground/80")}>
-        {verb}
-      </span>
-      {subject && (
-        <code className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
-          {subject}
-        </code>
+      <Icon className="size-3.5 shrink-0 text-muted-foreground/70" />
+      {running ? (
+        <TextShimmer duration={2} className="w-12 shrink-0 truncate font-normal">
+          {verb}
+        </TextShimmer>
+      ) : (
+        <span className="w-12 shrink-0 truncate text-muted-foreground">{verb}</span>
+      )}
+      {subject &&
+        (running ? (
+          <TextShimmer duration={2} className="min-w-0 flex-1 truncate font-mono text-[11px] font-normal">
+            {tidyPath(subject)}
+          </TextShimmer>
+        ) : (
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate font-mono text-[11px]",
+              failed ? "text-red-600 dark:text-red-400" : "text-foreground/75",
+            )}
+          >
+            {tidyPath(subject)}
+          </span>
+        ))}
+      {step.durationMs != null && (
+        <span className="ml-auto shrink-0 pl-2 text-[10px] tabular-nums text-muted-foreground/70">
+          {formatDuration(step.durationMs)}
+        </span>
       )}
     </>
   );
 
+  const row = "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-xs";
   if (!detail) {
-    return <div className="flex min-w-0 items-center gap-2 py-1 text-xs">{label}</div>;
+    return (
+      <div className={row} title={title}>
+        {label}
+      </div>
+    );
   }
   return (
     <Collapsible>
-      <CollapsibleTrigger className="group flex w-full min-w-0 items-center gap-2 rounded-md py-1 text-left text-xs hover:bg-muted/50">
+      <CollapsibleTrigger className={cn(row, "group hover:bg-muted/60")} title={title}>
         {label}
-        <ChevronRightIcon className="ml-auto size-3.5 shrink-0 text-muted-foreground opacity-0 transition group-hover:opacity-100 group-data-[state=open]:rotate-90 group-data-[state=open]:opacity-100" />
+        <ChevronRightIcon
+          className={cn(
+            "size-3.5 shrink-0 text-muted-foreground opacity-0 transition group-hover:opacity-100 group-data-[state=open]:rotate-90 group-data-[state=open]:opacity-100",
+            step.durationMs == null && "ml-auto",
+          )}
+        />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <pre className="mt-1 mb-2 ml-6 max-h-60 overflow-auto rounded-md border bg-muted/40 px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-words text-muted-foreground">
-          {detail}
-        </pre>
+        <StepDetail detail={detail} verb={verb} />
       </CollapsibleContent>
     </Collapsible>
   );
 }
 
+/** Longer runs start folded once finished; the header sums them up. */
+const FOLD_AFTER = 4;
+
+function summarize(steps: ActivityItem[]) {
+  const counts = new Map<string, number>();
+  for (const step of steps) {
+    const verb = splitTitle(step.title.replace(/ \(failed\)$/, "")).verb.toLowerCase();
+    counts.set(verb, (counts.get(verb) ?? 0) + 1);
+  }
+  const kinds = [...counts].sort((a, b) => b[1] - a[1]).map(([verb, n]) => `${verb} ${n}`);
+  const failed = steps.filter(isFailed).length;
+  const totalMs = steps.reduce((sum, step) => sum + (step.durationMs ?? 0), 0);
+  return { kinds, failed, totalMs };
+}
+
 /** The steps an agent ran between two pieces of its reply. */
 export function AgentSteps({ steps, runningIndex }: { steps: ActivityItem[]; runningIndex?: number }) {
+  const [toggled, setToggled] = useState<boolean>();
+  const running = runningIndex !== undefined && runningIndex >= 0 && runningIndex < steps.length;
+
+  const rows = steps.map((step, index) => (
+    <StepRow key={step.id ?? `${index}-${step.title}`} step={step} running={index === runningIndex} />
+  ));
+
+  if (steps.length === 1) {
+    return <div className="not-prose my-2 -mx-2">{rows}</div>;
+  }
+
+  const open = toggled ?? (running || steps.length <= FOLD_AFTER);
+  const { kinds, failed, totalMs } = summarize(steps);
+
   return (
-    <div className="not-prose my-2 flex flex-col border-l-2 border-border pl-3">
-      {steps.map((step, index) => (
-        <StepRow
-          key={step.id ?? `${index}-${step.title}`}
-          step={step}
-          running={index === runningIndex}
+    <Collapsible
+      open={open}
+      onOpenChange={setToggled}
+      className=""
+    >
+      <CollapsibleTrigger className="group flex w-full min-w-0 items-center gap-2 py-2 text-left text-xs hover:bg-muted/50">
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          <StatusIcon failed={failed > 0} done={steps.every((step) => step.done)} running={running} />
+        </span>
+        {running ? (
+          <TextShimmer duration={2} className="shrink-0">
+            Running {steps.length} steps
+          </TextShimmer>
+        ) : (
+          <span className="shrink-0 font-medium text-foreground/90">Ran {steps.length} steps</span>
+        )}
+        <span className="min-w-0 truncate text-muted-foreground">
+          {kinds.join(" · ")}
+          {failed > 0 && <span className="text-red-500"> · {failed} failed</span>}
+        </span>
+        {totalMs > 0 && (
+          <span className="ml-auto shrink-0 pl-2 text-[10px] tabular-nums text-muted-foreground/70">
+            {formatDuration(totalMs)}
+          </span>
+        )}
+        <ChevronRightIcon
+          className={cn(
+            "size-3.5 shrink-0 text-muted-foreground transition group-data-[state=open]:rotate-90",
+            totalMs === 0 && "ml-auto",
+          )}
         />
-      ))}
-    </div>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="flex flex-col border-t px-1 py-1">{rows}</div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }

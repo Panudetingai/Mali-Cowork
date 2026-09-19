@@ -14,6 +14,8 @@ export type CodexRequest = {
   folders?: FolderGrantInput[];
   /** Identifies the run so it can be stopped. */
   runId: string;
+  /** Attached pictures (attachment paths). */
+  images?: string[];
 };
 
 export type CodexCheckResult = {

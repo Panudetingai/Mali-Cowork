@@ -8,6 +8,7 @@ use tauri::ipc::Channel;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::chat_stream::ChatStreamEvent;
+use crate::commands::supervisor;
 
 use super::bin::{gemini_bin, gemini_command, not_found_message};
 use super::stream::{GeminiStream, Outcome};
@@ -103,12 +104,16 @@ pub async fn gemini_list_models() -> Result<Vec<GeminiModel>, String> {
 pub fn build_args(request: &GeminiRequest) -> Vec<String> {
     let mut args: Vec<String> = vec!["--output-format".into(), "stream-json".into()];
 
-    // Non-interactive like cursor `--trust`: never prompt for approval.
-    // `yolo` may act in the workspace; `plan` is read-only.
+    // Non-interactive: gemini can't ask, so pick what it may do up front.
+    // `plan` is read-only. Writing runs `yolo` only inside the macOS seatbelt
+    // sandbox, which confines writes to the working folder; elsewhere there's
+    // no sandbox to rely on, so `auto_edit` edits files but runs no commands.
     if request.is_chat() || request.read_only() {
         args.extend(["--approval-mode".into(), "plan".into()]);
+    } else if cfg!(target_os = "macos") {
+        args.extend(["--approval-mode".into(), "yolo".into(), "--sandbox".into()]);
     } else {
-        args.extend(["--approval-mode".into(), "yolo".into()]);
+        args.extend(["--approval-mode".into(), "auto_edit".into()]);
     }
 
     if let Some(model) = request
@@ -173,15 +178,25 @@ async fn run_prompt(
     let bin = gemini_bin().ok_or_else(not_found_message)?;
 
     let mut args = build_args(request);
+    // Pictures are `@path` references, which gemini reads only inside its
+    // workspace, so each picture's folder joins it.
+    let mut prompt = prompt_with_notes(request);
+    for image in &request.images {
+        let path = crate::commands::attachments::resolve(image)?;
+        if let Some(dir) = path.parent() {
+            args.extend(["--include-directories".into(), dir.to_string_lossy().into_owned()]);
+        }
+        // `@` paths end at a space unless it's escaped.
+        prompt.push_str(&format!("\n@{}", path.display().to_string().replace(' ', "\\ ")));
+    }
     // `-p` forces headless mode; it also accepts piped stdin, which we close.
-    args.extend(["-p".into(), prompt_with_notes(request)]);
+    args.extend(["-p".into(), prompt]);
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
 
-    let mut cmd = gemini_command(bin, &arg_refs);
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+    // Supervised, so the agent and the tools and MCP servers it starts
+    // always stop together.
+    let mut cmd = supervisor::command(gemini_command(bin, &arg_refs));
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     if let Some((key, _)) = api_key_for(request.api_key.as_deref()) {
         cmd.env("GEMINI_API_KEY", key);
     }
@@ -189,14 +204,9 @@ async fn run_prompt(
     if let Some(cwd) = request.workspace() {
         cmd.current_dir(cwd);
     }
-    // Own process group, so stopping also stops the tools it started.
-    #[cfg(unix)]
-    cmd.process_group(0);
-
-    let mut child = cmd
-        .spawn()
+    let (mut child, mut tree) = supervisor::spawn(&mut cmd, "gemini")
         .map_err(|e| format!("Failed to start gemini ({bin}): {e}"))?;
-    let _running = child.id().map(|pid| Running::register(&request.run_id, pid));
+    let _running = Running::register(&request.run_id, tree.pid());
 
     let stdout = child.stdout.take().ok_or("gemini has no stdout")?;
     let stderr = child.stderr.take().ok_or("gemini has no stderr")?;
@@ -223,7 +233,7 @@ async fn run_prompt(
                 Outcome::Emit(event) => {
                     if let Err(e) = on_event.send(event) {
                         // The window went away: stop the agent.
-                        let _ = child.start_kill();
+                        tree.stop();
                         return Err(e.to_string());
                     }
                 }
@@ -345,15 +355,8 @@ pub fn gemini_abort(run_id: String) -> Result<(), String> {
     let Some(pid) = Running::registry().lock().unwrap().get(&run_id).copied() else {
         return Ok(());
     };
-    // Negative pid targets the whole group, so spawned tools stop too.
-    #[cfg(unix)]
-    let _ = std::process::Command::new("kill")
-        .args(["-TERM", &format!("-{pid}")])
-        .status();
-    #[cfg(windows)]
-    let _ = std::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .status();
+    // Stops the whole tree, so the tools it started stop too.
+    supervisor::terminate(pid);
     Ok(())
 }
 
@@ -387,6 +390,7 @@ mod tests {
             mode: Some(mode.into()),
             folders,
             run_id: "run1".into(),
+            images: Vec::new(),
             api_key: None,
         }
     }
@@ -409,7 +413,12 @@ mod tests {
     #[test]
     fn cowork_with_write_access_may_act() {
         let args = build_args(&request("cowork", vec![grant("/w", "write")]));
-        assert!(args.windows(2).any(|w| w == ["--approval-mode", "yolo"]));
+        if cfg!(target_os = "macos") {
+            assert!(args.windows(2).any(|w| w == ["--approval-mode", "yolo"]));
+            assert!(args.iter().any(|a| a == "--sandbox"), "yolo only runs sandboxed");
+        } else {
+            assert!(args.windows(2).any(|w| w == ["--approval-mode", "auto_edit"]));
+        }
         assert!(args.windows(2).any(|w| w == ["-m", "gemini-2.5-pro"]));
     }
 

@@ -138,8 +138,14 @@ fn build_overlay(providers: &[CliProviderConfig]) -> Result<Map<String, Value>, 
                 "models": models,
             }),
             "ollama-cloud" => {
-                let mut options = json!({ "baseURL": base_url(provider.base_url.as_deref(), OLLAMA_CLOUD_URL)? });
-                if !has_key && std::env::var_os("OLLAMA_API_KEY").is_some() {
+                let url = base_url(provider.base_url.as_deref(), OLLAMA_CLOUD_URL)?;
+                // The key from the environment only goes to Ollama's own host.
+                let official = reqwest::Url::parse(&url)
+                    .ok()
+                    .and_then(|u| u.host_str().map(|h| h == "ollama.com" || h.ends_with(".ollama.com")))
+                    .unwrap_or(false);
+                let mut options = json!({ "baseURL": url });
+                if !has_key && official && std::env::var_os("OLLAMA_API_KEY").is_some() {
                     options["apiKey"] = json!("{env:OLLAMA_API_KEY}");
                 }
                 json!({

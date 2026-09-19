@@ -30,6 +30,7 @@ type Props = {
   canAddFolder: boolean;
   onPickWorkingFolder: () => void;
   onAddFolder: () => void;
+  onAddFiles: () => void;
 };
 
 const itemClass =
@@ -45,6 +46,7 @@ export function PromptOptionsMenu({
   canAddFolder,
   onPickWorkingFolder,
   onAddFolder,
+  onAddFiles,
 }: Props) {
   const isCowork = mode === "cowork";
   return (
@@ -66,7 +68,7 @@ export function PromptOptionsMenu({
         sideOffset={8}
         className="z-50 w-72 rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg"
       >
-        <DropdownMenuItem className={itemClass} onSelect={() => console.log("Add file")}>
+        <DropdownMenuItem className={itemClass} onSelect={onAddFiles}>
           <PaperclipIcon className="size-4 text-muted-foreground" />
           Add files or photos
         </DropdownMenuItem>

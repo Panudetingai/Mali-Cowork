@@ -1,3 +1,5 @@
+import { buildAttachmentAppendix, type Attachment } from "@/features/attachments";
+import type { Skill } from "@/features/instructions";
 import { codexGenerateStream } from "@/features/codex";
 import { cursorGenerateStream } from "@/features/cursor";
 import { geminiGenerateStream } from "@/features/gemini";
@@ -22,6 +24,7 @@ import {
     OPENCODE_PREFIX,
     opencodeModelOf,
 } from "../models";
+import { withSummary } from "../summary";
 import { chatGenerateStream, type ChatStreamHandlers, type HistoryMessage } from "./chat";
 import { cliGenerateStream } from "./cli";
 
@@ -39,7 +42,38 @@ export type GenerateRequest = {
   cwd?: string;
   /** Cowork: every folder the user granted for this chat, `cwd` first. */
   folders?: FolderGrantInput[];
+  /** Files and pictures attached to this prompt. */
+  attachments?: Attachment[];
+  /** Custom instructions and enabled skills (Settings → Instructions). */
+  instructions?: string;
+  /** Summary of the chat this one continues. */
+  summary?: string;
+  /** Skills the user called with `/name` in this prompt. */
+  skills?: Skill[];
 };
+
+/** Skills called with `/name` travel with this one prompt, for every backend. */
+function withCalledSkills(prompt: string, skills: Skill[] = []) {
+  if (skills.length === 0) return prompt;
+  const blocks = skills.map((k) => `<skill name="${k.name}">\n${k.instructions.trim()}\n</skill>`);
+  const names = skills.map((k) => k.name).join(", ");
+  return `${blocks.join("\n\n")}\n\nThe user called the skill${skills.length > 1 ? "s" : ""} ${names}: follow ${skills.length > 1 ? "them" : "it"} for this request.\n\n${prompt}`;
+}
+
+/** Agents that keep their own session: instructions go into its first prompt. */
+function withInstructions(prompt: string, request: GenerateRequest) {
+  const instructions = request.instructions?.trim();
+  if (!instructions || request.sessionId) return prompt;
+  return `<instructions>\n${instructions}\n</instructions>\n\n${prompt}`;
+}
+
+/** The earlier chat's summary, heard once by agents that keep a session. */
+function withEarlierSummary(prompt: string, request: GenerateRequest) {
+  return request.summary && !request.sessionId ? withSummary(prompt, request.summary) : prompt;
+}
+
+const NO_IMAGES = (name: string) =>
+  `${name} can't look at pictures here. Remove the picture, or pick an OpenCode, Codex or Gemini model.`;
 
 /**
  * The model id a prompt actually runs on. Provider API models only stream
@@ -60,10 +94,30 @@ export async function generateStream(
   request: GenerateRequest,
   handlers: ChatStreamHandlers,
 ): Promise<void> {
-  const { prompt, modelId } = request;
+  let { modelId } = request;
+  const attachments = request.attachments ?? [];
+  const images = attachments.filter((a) => a.kind === "image").map((a) => a.path);
+  const pdfs = attachments.filter((a) => a.mime === "application/pdf").map((a) => a.path);
+
+  // Provider APIs here only take text; OpenCode can send the same model a picture.
+  const api = apiModelOf(modelId);
+  if (api && images.length > 0) {
+    const agentId = `${api.provider}/${api.model}`;
+    const agentModel = getOpencodeModels()?.models.find((m) => m.id === agentId);
+    if (!agentModel?.connected) return handlers.onError(NO_IMAGES(api.model));
+    modelId = `${OPENCODE_PREFIX}${agentId}`;
+  }
+
+  const opencode = isOpencodeModel(modelId);
+  // OpenCode takes PDFs as files; elsewhere their path is mentioned instead.
+  const withFiles =
+    withCalledSkills(request.prompt, request.skills) +
+    (await buildAttachmentAppendix(attachments, { filesInline: opencode }));
+  // Provider APIs get the summary through the history instead.
+  const prompt = api && !opencode ? withFiles : withEarlierSummary(withFiles, request);
 
   // OpenCode: opencode:<provider/model>
-  if (isOpencodeModel(modelId)) {
+  if (opencode) {
     const settings = loadOpencodeSettings();
     return opencodeGenerateStream(
       {
@@ -76,6 +130,8 @@ export async function generateStream(
         autoApprove: request.mode === "cowork" && settings.autoApprove,
         mode: request.mode,
         folders: request.folders,
+        files: [...images, ...pdfs],
+        instructions: request.instructions,
       },
       handlers,
     );
@@ -83,9 +139,10 @@ export async function generateStream(
 
   // Cursor Agent CLI: cursor:<model>
   if (isCursorModel(modelId)) {
+    if (images.length) return handlers.onError(NO_IMAGES("Cursor"));
     return cursorGenerateStream(
       {
-        prompt,
+        prompt: withInstructions(prompt, request),
         model: cursorModelOf(modelId),
         cwd: request.cwd,
         sessionId: request.sessionId,
@@ -101,13 +158,14 @@ export async function generateStream(
   if (isCodexModel(modelId)) {
     return codexGenerateStream(
       {
-        prompt,
+        prompt: withInstructions(prompt, request),
         model: codexModelOf(modelId),
         cwd: request.cwd,
         sessionId: request.sessionId,
         mode: request.mode,
         folders: request.folders,
         runId: request.runId,
+        images,
       },
       handlers,
     );
@@ -117,13 +175,14 @@ export async function generateStream(
   if (isGeminiModel(modelId)) {
     return geminiGenerateStream(
       {
-        prompt,
+        prompt: withInstructions(prompt, request),
         model: geminiModelOf(modelId),
         cwd: request.cwd,
         sessionId: request.sessionId,
         mode: request.mode,
         folders: request.folders,
         runId: request.runId,
+        images,
       },
       handlers,
     );
@@ -131,11 +190,14 @@ export async function generateStream(
 
   // Other local CLIs: cli:<agent>
   if (modelId.startsWith("cli:")) {
-    return cliGenerateStream({ prompt, agent: modelId.slice(4), cwd: request.cwd }, handlers);
+    if (images.length) return handlers.onError(NO_IMAGES(modelId.slice(4)));
+    return cliGenerateStream(
+      { prompt: withInstructions(prompt, request), agent: modelId.slice(4), cwd: request.cwd },
+      handlers,
+    );
   }
 
   // Provider API: api:<provider>/<model>
-  const api = apiModelOf(modelId);
   if (!api) {
     handlers.onError(`Unknown model: ${modelId}. Pick another model or configure one in Settings.`);
     return;
@@ -146,7 +208,16 @@ export async function generateStream(
       provider: api.provider,
       model: api.model,
       ...requestConfigFor(api.provider),
-      history: request.history ?? [],
+      history: [
+        ...(request.summary
+          ? ([
+              { role: "user", content: withSummary("(The chat continues below.)", request.summary) },
+              { role: "assistant", content: "Understood. I have the context from the earlier conversation." },
+            ] satisfies HistoryMessage[])
+          : []),
+        ...(request.history ?? []),
+      ],
+      system: request.instructions || null,
     },
     handlers,
   );

@@ -27,6 +27,7 @@ export async function codexGenerateStream(
       mode: request.mode ?? "cowork",
       folders: request.folders ?? [],
       runId: request.runId,
+      images: request.images ?? [],
     },
     onEvent: createStreamChannel(handlers),
   });

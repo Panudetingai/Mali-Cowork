@@ -1,14 +1,15 @@
 //! Locating and invoking the `opencode` binary.
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
 use tokio::process::Command;
 
-/// Resolve the opencode binary once and cache the result for the app lifetime.
+use crate::commands::bin_cache::BinCache;
+
+/// The binary's path; see [`BinCache`] for when it is looked up.
 pub fn opencode_bin() -> Option<&'static str> {
-    static BIN: OnceLock<Option<String>> = OnceLock::new();
-    BIN.get_or_init(resolve_opencode_bin).as_deref()
+    static BIN: BinCache = BinCache::new();
+    BIN.get(resolve_opencode_bin)
 }
 
 /// Search order:
@@ -92,23 +93,9 @@ fn extra_bin_dirs() -> Vec<PathBuf> {
 
 /// Build a command for the binary with a `PATH` that can find `node`/`bun`.
 ///
-/// On Windows, `.cmd`/`.bat` shims must run through `cmd /C`.
+/// Windows `.cmd` shims run without a shell; see [`crate::commands::process`].
 pub fn opencode_command(bin: &str, args: &[&str]) -> Command {
-    #[cfg(windows)]
-    let mut cmd = {
-        let lower = bin.to_lowercase();
-        if lower.ends_with(".cmd") || lower.ends_with(".bat") {
-            let mut c = Command::new("cmd");
-            c.args(["/D", "/S", "/C", bin]);
-            c
-        } else {
-            Command::new(bin)
-        }
-    };
-    #[cfg(not(windows))]
-    let mut cmd = Command::new(bin);
-
-    cmd.args(args);
+    let mut cmd = crate::commands::process::command(bin, args);
     if let Ok(path) = std::env::join_paths(search_dirs()) {
         cmd.env("PATH", path);
     }

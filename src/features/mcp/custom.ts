@@ -1,5 +1,6 @@
+import { bindSecrets, stripSecrets } from "@/features/secrets";
 import { createStore } from "@/lib/local-store";
-import { MCP_SERVERS } from "./catalog";
+import { MCP_SERVERS, type McpEnvVar } from "./catalog";
 
 /** An MCP server the user added by hand in Settings → MCP. */
 export type CustomMcp = {
@@ -14,6 +15,18 @@ export type CustomMcp = {
   headers?: Record<string, string>;
   timeoutMs?: number;
   createdAt: number;
+  /** Installed from the MCP Registry (Connectors → Discover, or asked for in chat). */
+  registry?: {
+    name: string;
+    version?: string;
+    icons?: string[];
+    websiteUrl?: string;
+    repositoryUrl?: string;
+    /** How it was installed, e.g. "npx · npm". */
+    method?: string;
+  };
+  /** Settings the server takes, so they can be edited later. */
+  envVars?: McpEnvVar[];
 };
 
 export const CUSTOM_PREFIX = "custom-";
@@ -31,7 +44,32 @@ function revive(value: unknown): CustomMcp[] {
   );
 }
 
-const store = createStore<CustomMcp[]>([], { key: "mcp_custom_servers", revive });
+// Headers usually carry `Authorization`, so they live in the OS keychain.
+const headerSecrets = {
+  read: (servers: CustomMcp[]) =>
+    Object.fromEntries(
+      servers.map((s) => [s.id, s.headers && Object.keys(s.headers).length ? JSON.stringify(s.headers) : ""]),
+    ),
+  write: (servers: CustomMcp[], secrets: Record<string, string>) =>
+    servers.map((s) => (s.id in secrets ? { ...s, headers: parseHeaders(secrets[s.id]) } : s)),
+};
+
+function parseHeaders(json: string): Record<string, string> | undefined {
+  if (!json) return undefined;
+  try {
+    const value = JSON.parse(json);
+    return value && typeof value === "object" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const store = createStore<CustomMcp[]>([], {
+  key: "mcp_custom_servers",
+  revive,
+  persist: (servers) => stripSecrets(servers, headerSecrets),
+});
+bindSecrets(store, { prefix: "mcp-headers:", ...headerSecrets });
 
 export const useCustomMcps = store.use;
 export const getCustomMcps = store.get;

@@ -8,6 +8,7 @@ use tauri::ipc::Channel;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::chat_stream::ChatStreamEvent;
+use crate::commands::supervisor;
 
 use super::bin::{codex_bin, codex_command, not_found_message};
 use super::stream::{CodexStream, Outcome};
@@ -179,25 +180,27 @@ async fn run_prompt(
     } else {
         build_args(request)
     };
+    if request.is_chat() || request.read_only() {
+        // The sandbox doesn't reach MCP servers: leave out those that write or run commands.
+        args.extend(crate::commands::mcp::codex_workspace_mcp_overrides());
+    }
+    for image in &request.images {
+        let path = crate::commands::attachments::resolve(image)?;
+        args.extend(["--image".into(), path.to_string_lossy().into_owned()]);
+    }
     args.push(prompt_with_notes(request));
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
 
-    let mut cmd = codex_command(bin, &arg_refs);
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+    // Supervised, so the agent and the tools and MCP servers it starts
+    // always stop together.
+    let mut cmd = supervisor::command(codex_command(bin, &arg_refs));
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     if let Some(cwd) = request.workspace() {
         cmd.current_dir(cwd);
     }
-    // Own process group, so stopping also stops the tools it started.
-    #[cfg(unix)]
-    cmd.process_group(0);
-
-    let mut child = cmd
-        .spawn()
+    let (mut child, mut tree) = supervisor::spawn(&mut cmd, "codex")
         .map_err(|e| format!("Failed to start codex ({bin}): {e}"))?;
-    let _running = child.id().map(|pid| Running::register(&request.run_id, pid));
+    let _running = Running::register(&request.run_id, tree.pid());
 
     let stdout = child.stdout.take().ok_or("codex has no stdout")?;
     let stderr = child.stderr.take().ok_or("codex has no stderr")?;
@@ -224,7 +227,7 @@ async fn run_prompt(
                 Outcome::Emit(event) => {
                     if let Err(e) = on_event.send(event) {
                         // The window went away: stop the agent.
-                        let _ = child.start_kill();
+                        tree.stop();
                         return Err(e.to_string());
                     }
                 }
@@ -306,15 +309,8 @@ pub fn codex_abort(run_id: String) -> Result<(), String> {
     let Some(pid) = Running::registry().lock().unwrap().get(&run_id).copied() else {
         return Ok(());
     };
-    // Negative pid targets the whole group, so spawned tools stop too.
-    #[cfg(unix)]
-    let _ = std::process::Command::new("kill")
-        .args(["-TERM", &format!("-{pid}")])
-        .status();
-    #[cfg(windows)]
-    let _ = std::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .status();
+    // Stops the whole tree, so the tools it started stop too.
+    supervisor::terminate(pid);
     Ok(())
 }
 
@@ -348,6 +344,7 @@ mod tests {
             mode: Some(mode.into()),
             folders,
             run_id: "run1".into(),
+            images: Vec::new(),
         }
     }
 

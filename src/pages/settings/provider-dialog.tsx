@@ -119,7 +119,7 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
 
       <p className="text-sm text-muted-foreground">
         {provider.description}
-        {" ใช้ได้ทั้งหน้าแชท และ agent ในโหมด Cowork (OpenCode) พร้อม MCP ที่ตั้งไว้ — บันทึกแล้วซิงก์ให้อัตโนมัติ"}
+        {" Works in Chat and in Cowork agents, with your MCP tools. Syncs on save."}
       </p>
 
       <Field
@@ -128,31 +128,31 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
         optional={!provider.keyRequired}
         hint={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            {hasEnvKey && <span>ใช้ {provider.envVar} จาก .env อยู่ — ใส่ใหม่เพื่อแทนที่</span>}
+            {hasEnvKey && <span>Using {provider.envVar} from .env. Enter a key to override.</span>}
             {provider.keyUrl && (
               <button
                 type="button"
                 onClick={() => void openUrl(provider.keyUrl!)}
                 className="inline-flex items-center gap-1 underline-offset-2 hover:text-foreground hover:underline"
               >
-                ขอ API key
+                Get an API key
                 <ExternalLinkIcon className="size-3" />
               </button>
             )}
-            {!provider.keyRequired && !provider.keyUrl && "ไม่ต้องใช้กับ server ในเครื่อง"}
+            {!provider.keyRequired && !provider.keyUrl && "Not needed for a local server"}
           </span>
         }
-        error={attempted && missingKey ? "ต้องใส่ API key" : null}
+        error={attempted && missingKey ? "API key is required" : null}
       >
         <SecretInput
           id={ids.key}
           value={draft.apiKey}
           onChange={(e) => set({ apiKey: e.target.value })}
-          placeholder={hasEnvKey ? `ใช้ ${provider.envVar} จาก .env` : provider.keyRequired ? "วาง API key" : "ไม่จำเป็น"}
+          placeholder={hasEnvKey ? `Using ${provider.envVar} from .env` : provider.keyRequired ? "Paste API key" : "Optional"}
         />
       </Field>
 
-      <Field label="Base URL" htmlFor={ids.host} error={attempted && badUrl ? "ต้องขึ้นต้นด้วย http:// หรือ https://" : null}>
+      <Field label="Base URL" htmlFor={ids.host} error={attempted && badUrl ? "Must start with http:// or https://" : null}>
         <Input
           id={ids.host}
           value={draft.baseUrl}
@@ -166,14 +166,14 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
       <Field
         label="Models"
         htmlFor={ids.models}
-        hint="คั่นด้วย , — แต่ละตัวจะอยู่ในตัวเลือก model ของหน้าแชท"
-        error={attempted && models.length === 0 ? "ใส่อย่างน้อย 1 model" : null}
+        hint="Comma-separated. Each appears in the model picker."
+        error={attempted && models.length === 0 ? "Add at least one model" : null}
       >
         <Input
           id={ids.models}
           value={draft.models}
           onChange={(e) => set({ models: e.target.value })}
-          placeholder={provider.defaultModels || "เช่น llama3.2, qwen3:8b"}
+          placeholder={provider.defaultModels || "e.g. llama3.2, qwen3:8b"}
           spellCheck={false}
           className="font-mono text-xs"
         />
@@ -195,8 +195,8 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
         optional
         hint={
           provider.contextLimit
-            ? `ค่าเริ่มต้น ${provider.contextLimit.toLocaleString()} ตาม free tier ของ ${provider.name}`
-            : "เว้นว่าง = ไม่จำกัด เกินแล้วแชทจะต่อในห้องใหม่"
+            ? `Default ${provider.contextLimit.toLocaleString()} (${provider.name} free tier)`
+            : "Empty = no limit. Past it, a new chat starts."
         }
       >
         <Input
@@ -204,13 +204,13 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
           inputMode="numeric"
           value={draft.contextLimit ?? ""}
           onChange={(e) => set({ contextLimit: e.target.value.replace(/[^\d]/g, "") })}
-          placeholder={provider.contextLimit ? String(provider.contextLimit) : "ไม่จำกัด"}
+          placeholder={provider.contextLimit ? String(provider.contextLimit) : "No limit"}
           className="w-40"
         />
       </Field>
 
       {syncError && (
-        <Notice tone="warning" title="บันทึกแล้ว แต่ซิงก์ไป Cowork ไม่สำเร็จ">
+        <Notice tone="warning" title="Saved, but syncing to Cowork failed">
           {syncError}
         </Notice>
       )}
@@ -279,7 +279,7 @@ function OllamaModels({
   return (
     <div className="rounded-xl border bg-muted/30 p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="text-sm font-medium">{cloud ? "Cloud models" : "Models ในเครื่อง"}</p>
+        <p className="text-sm font-medium">{cloud ? "Cloud models" : "Local models"}</p>
         <Button
           type="button"
           variant="outline"
@@ -299,17 +299,17 @@ function OllamaModels({
           {!cloud && (
             <>
               {" "}
-              — เปิด <code className="font-mono">ollama serve</code> แล้วกด Detect
+              — run <code className="font-mono">ollama serve</code>, then Detect
             </>
           )}
         </p>
       ) : available === null ? (
         <p className="text-xs text-muted-foreground">
-          {loading ? "กำลังค้นหา…" : cloud ? "ใส่ API key แล้วกด Detect เพื่อดูรายชื่อ model" : "กด Detect เพื่อดู model"}
+          {loading ? "Searching…" : cloud ? "Add an API key, then Detect models" : "Detect to list models"}
         </p>
       ) : available.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          ยังไม่มี model — ลอง <code className="font-mono">ollama pull llama3.2</code>
+          No models yet. Try <code className="font-mono">ollama pull llama3.2</code>
         </p>
       ) : (
         <div className="scroll-hidden flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
@@ -337,8 +337,8 @@ function OllamaModels({
       )}
       {!cloud && (
         <p className="mt-2 text-xs text-muted-foreground">
-          ใช้ cloud model ผ่าน Ollama ในเครื่องได้: รัน <code className="font-mono">ollama signin</code> แล้วเพิ่ม
-          model ที่ลงท้าย <code className="font-mono">-cloud</code> เช่น gpt-oss:120b-cloud
+          For cloud models via local Ollama, run <code className="font-mono">ollama signin</code> and add
+          a <code className="font-mono">-cloud</code> model, e.g. gpt-oss:120b-cloud
         </p>
       )}
     </div>
@@ -348,5 +348,5 @@ function OllamaModels({
 function formatOllamaError(raw: string) {
   const clean = raw.replace(/\(error sending request for url[^)]+\)/gi, "").trim();
   if (clean.length > 280) return `${clean.slice(0, 277)}…`;
-  return clean || "เชื่อมต่อไม่ได้ ตรวจ Base URL";
+  return clean || "Can’t connect. Check the base URL.";
 }

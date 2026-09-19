@@ -17,14 +17,19 @@ import {
     ThumbsUpIcon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import type { TodoItem } from "../../api/chat";
 import type { ActivityItem } from "../../types";
 import { AgentSteps, segmentReply } from "./agent-steps";
+import { AgentTaskPlan } from "./agent-task-plan";
+import { ConnectorSuggestions } from "./connector-suggestions";
+import { extractConnectorBlocks } from "@/features/mcp/agent-install";
 import { ExpandableClamp } from "./expandable-clamp";
 
 type Props = {
   content: string;
   reasoning?: string;
   activities?: ActivityItem[];
+  todos?: TodoItem[];
   modelId?: string;
   isStreaming?: boolean;
   usage?: {
@@ -47,6 +52,7 @@ export function AssistantMessage({
   content,
   reasoning,
   activities,
+  todos,
   modelId,
   isStreaming,
   usage,
@@ -63,6 +69,8 @@ export function AssistantMessage({
   const agentName = isOpencode ? "OpenCode" : id.split(":")[1];
 
   const hasReasoning = Boolean(reasoning?.trim());
+  // ```connector blocks become install cards instead of code.
+  const { text: visibleContent, suggestions } = useMemo(() => extractConnectorBlocks(content), [content]);
   const hasContent = Boolean(content.trim());
   const hasActivities = (activities?.length ?? 0) > 0;
   const showEmptyState =
@@ -75,7 +83,7 @@ export function AssistantMessage({
   // The step still running, if any: only the last one can be.
   const runningIndex = isStreaming && waitingOnTool ? activities!.length - 1 : undefined;
 
-  const segments = useMemo(() => segmentReply(content, activities), [content, activities]);
+  const segments = useMemo(() => segmentReply(visibleContent, activities), [visibleContent, activities]);
 
   const handleCopy = async () => {
     const text = [reasoning, content].filter(Boolean).join("\n\n");
@@ -91,9 +99,10 @@ export function AssistantMessage({
           "w-full max-w-none bg-transparent px-0 py-0 shadow-none",
         )}
       >
+        {todos && todos.length > 0 && <AgentTaskPlan todos={todos} />}
         {segments.length > 0 ? (
           <ExpandableClamp
-            maxHeightClass="max-h-[min(70vh,32rem)]"
+            maxHeightClass="max-h-full"
             disabled={isStreaming}
           >
             {/* Text and steps in the order they happened. */}
@@ -122,6 +131,7 @@ export function AssistantMessage({
             No response received.
           </div>
         ) : null}
+        {suggestions.length > 0 && <ConnectorSuggestions suggestions={suggestions} />}
       </MessageContent>
 
       {showAgentSpinner ? (

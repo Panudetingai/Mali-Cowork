@@ -1,13 +1,14 @@
 import {
-  fetchMcpStatus,
-  getMcpConnections,
+  applyConnector,
   patchMcpConnection,
-  removeCustomMcp,
-  removeMcpConnection,
-  setMcpConnections,
-  syncMcpServers,
+  refreshMcpLive,
+  removeConnector,
+  signInConnector,
+  signOutConnector,
   useCustomMcps,
+  useMcpBusy,
   useMcpConnections,
+  useMcpLive,
   type McpConnection,
   type McpServerStatus,
 } from "@/features/mcp";
@@ -18,79 +19,37 @@ function message(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Saved MCP choices plus live status from OpenCode, with safe apply/rollback. */
+/** Saved connector choices plus live status from OpenCode (shared with the chat's install cards). */
 export function useMcpManager() {
   const opencode = useOpencode();
   const connections = useMcpConnections();
   const custom = useCustomMcps();
-  const [live, setLive] = useState<Record<string, McpServerStatus>>({});
-  const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
+  const live = useMcpLive();
+  const busyMap = useMcpBusy();
   const [error, setError] = useState<string | null>(null);
   const available = !!opencode.check?.available;
-  const cwd = opencode.cwd || undefined;
-
-  const mergeLive = (rows: McpServerStatus[]) =>
-    setLive((prev) => ({ ...prev, ...Object.fromEntries(rows.map((r) => [r.id, r])) }));
-
-  const refreshLive = useCallback(async () => {
-    if (!available) return;
-    try {
-      const rows = await fetchMcpStatus(cwd);
-      setLive(Object.fromEntries(rows.map((r) => [r.id, r])));
-    } catch {
-      // Status is best effort; the cards fall back to the saved state.
-    }
-  }, [available, cwd]);
 
   useEffect(() => {
-    void refreshLive();
-  }, [refreshLive]);
+    if (available) void refreshMcpLive();
+  }, [available, opencode.cwd]);
 
-  const setBusyFor = (id: string, on: boolean) =>
-    setBusy((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
+  const run = useCallback(async (work: () => Promise<unknown>) => {
+    setError(null);
+    try {
+      await work();
+      return true;
+    } catch (e) {
+      setError(message(e));
+      return false;
+    }
+  }, []);
 
-  /** Save `patch` for one server and apply it; rolls back if OpenCode refuses. */
+  /** Save `patch` for one connector and apply it; rolls back if OpenCode refuses. */
   const apply = useCallback(
-    async (id: string, patch: Partial<McpConnection>) => {
-      const before = getMcpConnections();
-      patchMcpConnection(id, patch);
-      // Without OpenCode just keep the choice; it syncs when OpenCode starts.
-      if (!available) return true;
-      setBusyFor(id, true);
-      setError(null);
-      try {
-        const result = await syncMcpServers({ cwd, targets: [id] });
-        if (result) mergeLive(result.servers);
-        return true;
-      } catch (e) {
-        setMcpConnections(before);
-        setError(message(e));
-        return false;
-      } finally {
-        setBusyFor(id, false);
-      }
-    },
-    [available, cwd],
-  );
-
-  const removeCustom = useCallback(
-    async (id: string) => {
-      removeCustomMcp(id);
-      removeMcpConnection(id);
-      setLive(({ [id]: _gone, ...rest }) => rest);
-      if (!available) return;
-      try {
-        await syncMcpServers({ cwd, targets: [], removed: [id] });
-      } catch (e) {
-        setError(message(e));
-      }
-    },
-    [available, cwd],
+    (id: string, patch: Partial<McpConnection>) =>
+      // Without OpenCode the choice is kept and syncs once it starts.
+      available ? run(() => applyConnector(id, patch)) : run(async () => patchMcpConnection(id, patch)),
+    [available, run],
   );
 
   return {
@@ -99,12 +58,17 @@ export function useMcpManager() {
     connections,
     custom,
     live,
-    busy,
+    busy: new Set(Object.keys(busyMap)) as ReadonlySet<string>,
+    busyMap,
     error,
     clearError: () => setError(null),
     apply,
-    removeCustom,
-    refreshLive,
+    removeCustom: (id: string) => run(() => removeConnector(id)).then(() => undefined),
+    // Cancelling the browser sign-in isn't an error worth showing.
+    signIn: (id: string) =>
+      run(() => signInConnector(id).catch((e) => (String(e).includes("cancelled") ? undefined : Promise.reject(e)))),
+    signOut: (id: string) => run(() => signOutConnector(id)),
+    refreshLive: refreshMcpLive,
   };
 }
 

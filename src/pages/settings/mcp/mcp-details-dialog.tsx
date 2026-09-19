@@ -2,9 +2,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
-  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -22,9 +20,16 @@ import {
   type McpDef,
   type McpServerStatus,
 } from "@/features/mcp";
-import { ChevronRightIcon, LoaderIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { AlertTriangleIcon, ChevronRightIcon, LoaderIcon } from "lucide-react";
 import { useId, useState, type ChangeEvent, type FormEvent } from "react";
-import { CopyCommand, Field, Notice, SecretInput, StatusPill } from "../ui";
+import { Field, Notice, SecretInput, StatusPill } from "../ui";
+import {
+  EnvFieldHint,
+  KeychainNote,
+  McpMeta,
+  RunOnDeviceBlock,
+} from "./mcp-connection-ui";
 import { McpIcon } from "./mcp-icon";
 import type { CardState } from "./use-mcp-manager";
 
@@ -37,7 +42,7 @@ export type McpDetailsTarget = {
 export function McpErrorHelp({ error }: { error: string }) {
   const { title, steps } = parseMcpErrorMessage(error);
   return (
-    <Notice tone="danger" title="เชื่อมต่อไม่สำเร็จ">
+    <Notice tone="danger" title="Couldn’t connect">
       <p className="font-mono text-xs">{title}</p>
       {steps.length > 0 && (
         <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs">
@@ -71,7 +76,7 @@ export function McpDetailsDialog({
 }) {
   return (
     <Dialog open={!!target} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[calc(100svh-2rem)] gap-5 overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[calc(100svh-2rem)] gap-0 overflow-y-auto p-0 sm:max-w-xl">
         {target && (
           <DetailsForm
             key={target.server.id}
@@ -125,6 +130,13 @@ function DetailsForm({
   };
   const missing = (server.envVars ?? []).filter((f) => f.required && !env[f.var]?.trim());
   const willConnect = enabled || !!connectOnSave;
+  const runCommand = effectiveCommand(server, draft);
+  const activeVariant = server.variants?.find((v) => v.id === variantId);
+  const runWarning =
+    server.runWarning ??
+    (activeVariant?.id === "docker" || runCommand.startsWith("docker ")
+      ? "Downloads a container image and runs it with your permissions."
+      : undefined);
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -144,113 +156,129 @@ function DetailsForm({
   }
 
   return (
-    <form onSubmit={save} className="flex flex-col gap-5">
-      <DialogHeader className="flex-row items-center gap-3 space-y-0 pr-8 text-left">
-        <McpIcon server={server} />
-        <div className="min-w-0">
-          <DialogTitle className="truncate">{server.name}</DialogTitle>
-          <DialogDescription className="flex flex-wrap items-center gap-2 pt-1">
-            <span>{server.category}</span>
-            <StatusPill tone={state.tone}>{state.label === "Connect" ? "Not connected" : state.label}</StatusPill>
-          </DialogDescription>
-        </div>
-      </DialogHeader>
+    <form onSubmit={save} className="flex flex-col">
+      <div className="flex flex-col gap-5 px-6 pt-6 pb-2">
+        <header className="flex gap-4 pr-6">
+          <McpIcon server={server} className="size-14 rounded-2xl [&_svg]:size-7" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <DialogTitle className="text-left text-xl font-semibold tracking-tight">
+              {server.name}
+            </DialogTitle>
+            <p className="text-sm leading-relaxed text-muted-foreground">{server.description}</p>
+            <McpMeta server={server} />
+            <StatusPill tone={state.tone} className="mt-1 w-fit">
+              {state.label === "Connect" ? "Not connected" : state.label}
+            </StatusPill>
+          </div>
+        </header>
 
-      <p className="text-sm text-muted-foreground">{server.description}</p>
-      {server.setup && <Notice>{server.setup}</Notice>}
-      {enabled && live?.status === "failed" && live.error && <McpErrorHelp error={live.error} />}
+        {server.setup && <Notice>{server.setup}</Notice>}
+        {enabled && live?.status === "failed" && live.error && <McpErrorHelp error={live.error} />}
 
-      {server.envVars?.length ? (
-        <div className="flex flex-col gap-4">
-          {server.envVars.map((field) => {
-            const id = `${ids}-${field.var}`;
-            const props = {
-              id,
-              value: env[field.var] ?? "",
-              onChange: (e: ChangeEvent<HTMLInputElement>) =>
-                setEnv((prev) => ({ ...prev, [field.var]: e.target.value })),
-              placeholder: field.placeholder,
-              "aria-invalid": (submitted && field.required && !env[field.var]?.trim()) || undefined,
-            };
-            return (
-              <Field
-                key={field.var}
-                label={field.label}
-                htmlFor={id}
-                optional={!field.required}
-                hint={<code className="font-mono">{field.var}</code>}
-                error={submitted && field.required && !env[field.var]?.trim() ? "จำเป็นต้องกรอก" : null}
-              >
-                {field.secret ? <SecretInput {...props} /> : <Input {...props} spellCheck={false} />}
-              </Field>
-            );
-          })}
-          <p className="text-xs text-muted-foreground">
-            ค่าเหล่านี้เก็บบนเครื่องนี้เท่านั้น และส่งให้ MCP server ผ่าน environment
-          </p>
-        </div>
-      ) : null}
-
-      {server.variants && !advanced && (
-        <Field label="วิธีรัน" htmlFor={`${ids}-variant`} hint="ถ้าวิธีแรกใช้ไม่ได้ แอปจะลองวิธีอื่นให้อัตโนมัติ">
-          <Select value={variantId} onValueChange={setVariantId}>
-            <SelectTrigger id={`${ids}-variant`} className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {server.variants.map((v) => (
-                <SelectItem key={v.id} value={v.id}>
-                  {v.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-      )}
-
-      <div className="flex flex-col gap-2">
-        <button
-          type="button"
-          onClick={() => setAdvanced((v) => !v)}
-          aria-expanded={advanced}
-          className="flex w-fit items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
-        >
-          <ChevronRightIcon className={advanced ? "size-4 rotate-90 transition-transform" : "size-4 transition-transform"} />
-          ขั้นสูง: กำหนดคำสั่งเอง
-        </button>
-        {advanced ? (
-          <Field
-            label="คำสั่ง"
-            htmlFor={`${ids}-cmd`}
-            hint='รันตรง ไม่ผ่าน shell — ใส่ "…" ครอบ path ที่มีช่องว่าง เว้นว่างเพื่อใช้ค่าเริ่มต้น'
-          >
-            <Input
-              id={`${ids}-cmd`}
-              value={customCommand}
-              onChange={(e) => setCustomCommand(e.target.value)}
-              placeholder={server.command}
-              spellCheck={false}
-              className="font-mono text-xs"
-            />
+        {server.variants && !advanced && (
+          <Field label="Connection mode" htmlFor={`${ids}-variant`}>
+            <Select value={variantId} onValueChange={setVariantId}>
+              <SelectTrigger id={`${ids}-variant`} className="h-11 w-full text-sm">
+                <SelectValue placeholder="Choose how to run this server" />
+              </SelectTrigger>
+              <SelectContent>
+                {server.variants.map((v) => (
+                  <SelectItem key={v.id} value={v.id} className="py-2.5">
+                    {v.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Field>
+        )}
+
+        {server.envVars?.length ? (
+          <div className="flex flex-col gap-4">
+            {server.envVars.map((field) => {
+              const id = `${ids}-${field.var}`;
+              const props = {
+                id,
+                value: env[field.var] ?? "",
+                onChange: (e: ChangeEvent<HTMLInputElement>) =>
+                  setEnv((prev) => ({ ...prev, [field.var]: e.target.value })),
+                placeholder: field.placeholder,
+                "aria-invalid": (submitted && field.required && !env[field.var]?.trim()) || undefined,
+              };
+              return (
+                <div key={field.var} className="flex flex-col gap-1.5">
+                  <label htmlFor={id} className="text-xs font-semibold tracking-wide text-foreground uppercase">
+                    {field.var}
+                    {!field.required && (
+                      <span className="ml-1.5 font-normal normal-case text-muted-foreground">(optional)</span>
+                    )}
+                  </label>
+                  {field.secret ? <SecretInput {...props} /> : <Input {...props} spellCheck={false} />}
+                  <EnvFieldHint field={field} />
+                  {submitted && field.required && !env[field.var]?.trim() && (
+                    <p className="text-xs text-red-600 dark:text-red-400">Required</p>
+                  )}
+                </div>
+              );
+            })}
+            <KeychainNote />
+          </div>
         ) : (
-          <CopyCommand command={effectiveCommand(server, draft)} />
+          <KeychainNote />
+        )}
+
+        {!advanced && <RunOnDeviceBlock command={runCommand} />}
+
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => setAdvanced((v) => !v)}
+            aria-expanded={advanced}
+            className="flex w-fit items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
+          >
+            <ChevronRightIcon
+              className={cn("size-4 transition-transform duration-200", advanced && "rotate-90")}
+            />
+            Advanced: custom command
+          </button>
+          {advanced && (
+            <Field
+              label="Command"
+              htmlFor={`${ids}-cmd`}
+              hint='Runs without a shell. Quote paths with spaces; leave empty for the default.'
+            >
+              <Input
+                id={`${ids}-cmd`}
+                value={customCommand}
+                onChange={(e) => setCustomCommand(e.target.value)}
+                placeholder={server.command}
+                spellCheck={false}
+                className="font-mono text-xs"
+              />
+            </Field>
+          )}
+        </div>
+
+        {runWarning && (
+          <div className="flex gap-2.5 rounded-xl border border-border/80 bg-muted/30 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+            <AlertTriangleIcon className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <p>{runWarning}</p>
+          </div>
+        )}
+
+        {!available && (
+          <Notice tone="warning">Start OpenCode first (see the Agents tab).</Notice>
         )}
       </div>
 
-      {!available && (
-        <Notice tone="warning">เปิด OpenCode ก่อน (ดูแท็บ Agents) แล้วจึงเชื่อมต่อได้</Notice>
-      )}
-
-      <DialogFooter className="gap-2 sm:justify-between">
+      <DialogFooter className="mt-2 flex-col gap-2 border-t bg-muted/20 px-6 py-4 sm:flex-row sm:justify-between">
         {enabled ? (
           <Button type="button" variant="destructive" disabled={busy} onClick={disconnect}>
             Disconnect
           </Button>
         ) : (
-          <span />
+          <span className="hidden sm:block" />
         )}
-        <div className="flex flex-col-reverse gap-2 sm:flex-row">
+        <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row">
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
@@ -261,7 +289,9 @@ function DetailsForm({
         </div>
       </DialogFooter>
       {busy && server.id === "word" && (
-        <p className="-mt-2 text-right text-xs text-muted-foreground">ครั้งแรกอาจใช้ 1–2 นาทีเพื่อดาวน์โหลด</p>
+        <p className="px-6 pb-3 text-right text-xs text-muted-foreground">
+          First run may take 1–2 min to download.
+        </p>
       )}
     </form>
   );

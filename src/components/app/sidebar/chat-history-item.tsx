@@ -3,6 +3,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/animate-ui/primitives/radix/dropdown-menu";
 import { SidebarMenuItem } from "@/components/animate-ui/components/radix/sidebar";
@@ -17,15 +20,21 @@ import {
 } from "@/components/ui/dialog";
 import {
   deleteChat,
+  moveChatToProject,
   renameChat,
   sessionMode,
   togglePinChat,
   type ChatSession,
 } from "@/features/chat-history";
+import { useProjects } from "@/features/projects";
 import { cn } from "@/lib/utils";
 import {
   CircleAlertIcon,
+  ChevronRightIcon,
   CircleCheckIcon,
+  FolderInputIcon,
+  FolderKanbanIcon,
+  FolderMinusIcon,
   LoaderCircleIcon,
   MessageCircleIcon,
   MoreHorizontalIcon,
@@ -64,6 +73,7 @@ export function ChatHistoryItem({ session, running }: { session: ChatSession; ru
   const [draft, setDraft] = useState(session.title);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const projects = useProjects();
 
   useEffect(() => {
     if (!renaming) return;
@@ -157,9 +167,53 @@ export function ChatHistoryItem({ session, running }: { session: ChatSession; ru
               <PencilIcon className="size-4 text-muted-foreground" />
               Rename
             </DropdownMenuItem>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className={cn(menuItemClass, "data-[state=open]:bg-accent")}>
+                <FolderInputIcon className="size-4 text-muted-foreground" />
+                Move to project
+                <ChevronRightIcon className="ml-auto size-3.5 text-muted-foreground" />
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent
+                sideOffset={6}
+                className="z-50 max-h-72 w-52 overflow-y-auto rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg"
+              >
+                {projects.length === 0 && (
+                  <DropdownMenuItem className={menuItemClass} onSelect={() => navigate("/projects")}>
+                    <FolderKanbanIcon className="size-4 text-muted-foreground" />
+                    Create a project…
+                  </DropdownMenuItem>
+                )}
+                {projects.map((project) => (
+                  <DropdownMenuItem
+                    key={project.id}
+                    className={menuItemClass}
+                    disabled={project.id === session.projectId}
+                    onSelect={() => moveChatToProject(session.id, project.id)}
+                  >
+                    <FolderKanbanIcon className="size-4 text-muted-foreground" />
+                    <span className="truncate">{project.name}</span>
+                    {project.id === session.projectId && (
+                      <CircleCheckIcon className="ml-auto size-3.5 text-muted-foreground" />
+                    )}
+                  </DropdownMenuItem>
+                ))}
+                {session.projectId && (
+                  <>
+                    <DropdownMenuSeparator className="-mx-1 my-1 h-px bg-border" />
+                    <DropdownMenuItem
+                      className={menuItemClass}
+                      onSelect={() => moveChatToProject(session.id, undefined)}
+                    >
+                      <FolderMinusIcon className="size-4 text-muted-foreground" />
+                      Remove from project
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
             <DropdownMenuSeparator className="-mx-1 my-1 h-px bg-border" />
             <DropdownMenuItem
-              className={cn(menuItemClass, "text-destructive data-[highlighted]:text-destructive")}
+              className={cn(menuItemClass, "text-destructive data-highlighted:text-destructive")}
               onSelect={() => setConfirmDelete(true)}
             >
               <Trash2Icon className="size-4" />

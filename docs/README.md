@@ -27,6 +27,7 @@
 | 04 | [Local CLI / Agent](./04-local-cli-agent-integration.md) | เรียก opencode, cursor CLI, หรือ CLI ใดๆ จาก Rust |
 | 05 | [Local Port / Socket](./05-local-port-socket-integration.md) | รัน Local Agent Server (TCP / Unix Socket / WebSocket / HTTP) |
 | 06 | [Frontend Integration](./06-frontend-integration.md) | React เรียก Rust ผ่าน Tauri IPC + Streaming Channel |
+| — | [Features](./FEATURES.md) | สรุป features ปัจจุบัน + แนวทาง feature ถัดไป |
 
 ## เริ่มตรงไหนดี?
 

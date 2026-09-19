@@ -15,10 +15,18 @@ import {
     useChatSessions,
     type ChatSession,
 } from "@/features/chat-history";
+import type { Attachment } from "@/features/attachments";
+import {
+    addCheckpointFolder,
+    beginCheckpoint,
+    finishCheckpoint,
+    type TurnFiles,
+} from "@/features/checkpoints";
 import { codexAbort } from "@/features/codex";
 import { cursorAbort, requestCursorLogin } from "@/features/cursor";
 import { geminiAbort } from "@/features/gemini";
-import { hasEnabledMcp, syncMcpServers } from "@/features/mcp";
+import { notifyPermissionPending, notifyTaskDone } from "@/features/notifications/notify";
+import { connectorInstructionsFor, hasEnabledMcp, syncMcpServers } from "@/features/mcp";
 import {
     loadOpencodeSettings,
     opencodeAbort,
@@ -27,16 +35,20 @@ import {
     type PermissionReply,
     type WorkMode,
 } from "@/features/opencode";
-import { findGrant, grantsFor, normalizeFolder, requestFolderAccess } from "@/features/workspace";
+import { buildInstructions, getInstructions, skillsInPrompt } from "@/features/instructions";
+import { getProject, projectContext } from "@/features/projects";
+import { findGrant, grantsFor, isWithin, normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import type {
     HistoryMessage,
     PermissionRequest,
     StreamMetadata,
+    TodoItem,
 } from "@/pages/chat/api/chat";
 import { generateStream, runModelIdFor } from "@/pages/chat/api/router";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { contextUsage } from "../context-usage";
+import { summarizeConversation } from "../summary";
 import {
     isCodexModel,
     isCursorModel,
@@ -53,36 +65,167 @@ type ScrollProps = {
   isLoading?: boolean;
 };
 
+/** How close to the bottom still counts as "at the bottom". */
+const STICK_DISTANCE = 48;
+/** Time constant of the glide toward the bottom; smaller catches up faster. */
+const GLIDE_MS = 90;
+const UP_KEYS = new Set(["ArrowUp", "PageUp", "Home"]);
+
+function distanceToBottom(el: HTMLElement) {
+  return el.scrollHeight - el.scrollTop - el.clientHeight;
+}
+
+/**
+ * Keeps the reply in view while it streams, gliding smoothly instead of
+ * jumping on every chunk. Scrolling up (wheel, touch, keys, scrollbar) lets
+ * go right away and shows a "jump to latest" button; scrolling back to the
+ * bottom, the button, or sending a message follows again.
+ */
 export function useScroll({ messages, isLoading }: ScrollProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const stickRef = useRef(true);
+  const followRef = useRef(true);
+  const rafRef = useRef(0);
+  const loadingRef = useRef(isLoading);
+  loadingRef.current = isLoading;
+  const [atBottom, setAtBottom] = useState(true);
+  const atBottomRef = useRef(true);
 
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el || !messages) return;
-
-    const onScroll = () => {
-      stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
-    };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
+  const updateAtBottom = useCallback((value: boolean) => {
+    if (atBottomRef.current === value) return;
+    atBottomRef.current = value;
+    setAtBottom(value);
   }, []);
 
+  /** Glide to the bottom, frame by frame, until caught up (and, while streaming, keep following). */
+  const glide = useCallback(() => {
+    if (rafRef.current) return;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    let last = performance.now();
+    const step = (now: number) => {
+      const el = containerRef.current;
+      if (!el || !followRef.current) {
+        rafRef.current = 0;
+        return;
+      }
+      const target = el.scrollHeight - el.clientHeight;
+      const gap = target - el.scrollTop;
+      if (gap > 0.5) {
+        const dt = Math.min(64, now - last);
+        const move = reduced ? gap : Math.max(1, gap * (1 - Math.exp(-dt / GLIDE_MS)));
+        el.scrollTop = Math.min(target, el.scrollTop + move);
+      } else if (!loadingRef.current) {
+        // Caught up and nothing is streaming: rest until content changes.
+        rafRef.current = 0;
+        updateAtBottom(true);
+        return;
+      }
+      last = now;
+      rafRef.current = requestAnimationFrame(step);
+    };
+    rafRef.current = requestAnimationFrame(step);
+  }, [updateAtBottom]);
+
+  const stopFollowing = useCallback(() => {
+    followRef.current = false;
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = 0;
+  }, []);
+
+  /** Follow the conversation again (the button, or a new prompt). */
+  const scrollToBottom = useCallback(() => {
+    followRef.current = true;
+    updateAtBottom(true);
+    glide();
+  }, [glide, updateAtBottom]);
+
   useEffect(() => {
     const el = containerRef.current;
-    if (!el || !messages) return;
-    if (!stickRef.current && isLoading) return;
+    const content = el?.firstElementChild;
+    if (!el || !content) return;
 
-    const id = requestAnimationFrame(() => {
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: isLoading ? "auto" : "smooth",
-      });
-    });
-    return () => cancelAnimationFrame(id);
-  }, [messages, isLoading]);
+    let lastTop = el.scrollTop;
+    const onScroll = () => {
+      const distance = distanceToBottom(el);
+      if (distance < STICK_DISTANCE) {
+        if (!followRef.current) {
+          followRef.current = true;
+          glide();
+        }
+        updateAtBottom(true);
+      } else {
+        // Our glide only moves down, and content shrinking at the bottom stays
+        // near it; moving up away from the bottom is the user (e.g. the scrollbar).
+        if (el.scrollTop < lastTop - 1) stopFollowing();
+        if (!followRef.current) updateAtBottom(false);
+      }
+      lastTop = el.scrollTop;
+    };
+    // Let go the moment the user reaches up, before the next frame pulls back down.
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0 && el.scrollTop > 0) stopFollowing();
+    };
+    let touchY = 0;
+    const onTouchStart = (event: TouchEvent) => {
+      touchY = event.touches[0]?.clientY ?? 0;
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      if ((event.touches[0]?.clientY ?? 0) > touchY + 4) stopFollowing();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (UP_KEYS.has(event.key)) stopFollowing();
+    };
+    const onContentChange = () => {
+      if (followRef.current) glide();
+      else updateAtBottom(distanceToBottom(el) < STICK_DISTANCE);
+    };
 
-  return containerRef;
+    el.addEventListener("scroll", onScroll, { passive: true });
+    el.addEventListener("wheel", onWheel, { passive: true });
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: true });
+    el.addEventListener("keydown", onKeyDown);
+    const resize = new ResizeObserver(onContentChange);
+    resize.observe(content);
+    resize.observe(el);
+    const mutation = new MutationObserver(onContentChange);
+    mutation.observe(content, { childList: true, subtree: true, characterData: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("keydown", onKeyDown);
+      resize.disconnect();
+      mutation.disconnect();
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+    };
+  }, [glide, stopFollowing, updateAtBottom]);
+
+  // While a reply streams, keep gliding with it (markdown and steps grow in bursts).
+  useEffect(() => {
+    if (isLoading && followRef.current) glide();
+  }, [isLoading, glide]);
+
+  // Opening a chat lands on its latest message at once; a new prompt glides there.
+  const chatKey = messages?.[0]?.id;
+  const lastUserId = messages?.filter((m) => m.role === "user").at(-1)?.id;
+  const openedRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!lastUserId) return;
+    if (openedRef.current !== chatKey) {
+      openedRef.current = chatKey;
+      const el = containerRef.current;
+      followRef.current = true;
+      if (el) el.scrollTop = el.scrollHeight;
+      updateAtBottom(true);
+      if (loadingRef.current) glide();
+      return;
+    }
+    scrollToBottom();
+  }, [chatKey, lastUserId, scrollToBottom, glide, updateAtBottom]);
+
+  return { containerRef, atBottom, scrollToBottom };
 }
 
 export function usePromptInput({ isLoading }: { isLoading?: boolean }) {
@@ -109,13 +252,14 @@ export type SendMessage = {
   prompt: string;
   model: AiModel;
   budget: ContextBudget;
+  attachments?: Attachment[];
 };
 
 const MAX_HISTORY = 40;
 const NO_MESSAGES: ChatMessage[] = [];
 
 /** A chat backed by the history store, so replies keep streaming while you browse other chats. */
-export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
+export function useChat(chatId: string | undefined, newChatMode: WorkMode, newChatProjectId?: string) {
   const navigate = useNavigate();
   const sessions = useChatSessions();
   const runs = useChatRuns();
@@ -125,7 +269,7 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
   const isLoading = !!run;
   const mode = session ? sessionMode(session) : newChatMode;
 
-  const containerRef = useScroll({ messages, isLoading });
+  const { containerRef, atBottom, scrollToBottom } = useScroll({ messages, isLoading });
   const promptInputRef = usePromptInput({ isLoading });
 
   /**
@@ -136,14 +280,20 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
     async ({
       prompt,
       resend,
+      attachments = [],
     }: {
       prompt: string;
       resend: NonNullable<ChatMessage["resend"]>;
+      attachments?: Attachment[];
     }): Promise<boolean> => {
       const modelId = resend.modelId;
       const budget = { maxTokens: resend.maxTokens, autoNewChat: resend.autoNewChat };
       let chat = chatId ? getChat(chatId) : undefined;
       const chatMode = chat ? sessionMode(chat) : newChatMode;
+      // A project gives its chats instructions and skills (its folder is set
+      // as the default before a new chat opens, see `newProjectChatUrl`).
+      const projectId = chat ? chat.projectId : newChatProjectId;
+      const project = getProject(projectId);
 
       let folders: string[] = [];
       if (chatMode === "cowork") {
@@ -154,20 +304,23 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
         folders = [cwd, ...extra];
       }
 
-      // Past the provider's budget: carry on in a fresh chat instead of failing.
+      // Past the provider's budget: carry on in a fresh chat, with a summary
+      // of this one, instead of failing.
       let continuedFrom: ChatSession["continuedFrom"];
+      let previous: ChatSession | undefined;
       if (
         chat &&
         chat.messages.length > 0 &&
         budget.autoNewChat &&
         contextUsage(chat.messages, prompt).usedTokens > budget.maxTokens
       ) {
-        continuedFrom = { id: chat.id, title: chat.title };
+        continuedFrom = { id: chat.id, title: chat.title, summarizing: true };
+        previous = chat;
         chat = undefined;
       }
 
       if (!chat) {
-        chat = createChat(prompt, { mode: chatMode, cwd: folders[0], continuedFrom });
+        chat = createChat(prompt, { mode: chatMode, cwd: folders[0], continuedFrom, projectId: project?.id });
         navigate(`/chat/${chat.id}`);
       } else if (chatMode === "cowork" && !chat.cwd) {
         updateChat(chat.id, (s) => ({ ...s, cwd: folders[0] }));
@@ -183,12 +336,16 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
       let hasErrored = false;
 
       // Show the prompt right away; anything slow (MCP sync) runs after.
+      const userMessage = createUserMessage(prompt, resend, attachments);
       updateChatMessages(chatKey, (prev) => [
         ...prev,
-        createUserMessage(prompt, resend),
+        userMessage,
         createAssistantPlaceholder(modelId, assistantId),
       ]);
       const runToken = startRun(chatKey, runModelIdFor(modelId));
+      if (previous) {
+        await summarizeInto(chatKey, previous, runModelIdFor(modelId), budget.maxTokens);
+      }
 
       const update = (fn: (message: ChatMessage) => ChatMessage) =>
         updateChatMessages(chatKey, (prev) => prev.map((m) => (m.id === assistantId ? fn(m) : m)));
@@ -215,6 +372,7 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
         }
       };
 
+      let checkpointId: string | undefined;
       try {
         // Live-connecting MCP servers can take seconds; the reply placeholder
         // already shows the run as started meanwhile.
@@ -235,6 +393,13 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
           await mcpSync?.catch(() => undefined);
         }
 
+        // Cowork: save the folders the agent may change, so the turn can be undone.
+        if (chatMode === "cowork") {
+          checkpointId = await beginCheckpoint(writableFolders(folders));
+          const id = checkpointId;
+          if (id) updateRun(chatKey, (r) => ({ ...r, checkpointId: id }));
+        }
+
         await generateStream(
           {
             prompt,
@@ -253,6 +418,12 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
             runId: chatKey,
             cwd: folders[0],
             folders: grantsFor(folders),
+            attachments,
+            instructions: [buildInstructions(undefined, projectContext(project)), connectorInstructionsFor(prompt)]
+              .filter(Boolean)
+              .join("\n\n"),
+            skills: skillsInPrompt(prompt, [...(project?.skills ?? []), ...getInstructions().skills]),
+            summary: getChat(chatKey)?.continuedFrom?.summary,
           },
           {
             onChunk: (text) => update((m) => withChunk(m, text)),
@@ -260,6 +431,8 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
               update((m) => ({ ...m, reasoning: (m.reasoning ?? "") + reasoning })),
             onActivity: (activity) =>
               update((m) => withActivity(m, activity)),
+            onTodos: (items) =>
+              update((m) => withTodos(m, items)),
             onMetadata: (data) => {
               if ((isOpencode || isCursor || isCodex || isGemini) && data.sessionId) {
                 const sessionId = data.sessionId;
@@ -302,16 +475,29 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
         // A reply that ended without `done` must not keep its spinner.
         finish();
       }
+      if (checkpointId) {
+        const changes = await finishCheckpoint(checkpointId);
+        if (changes?.changes.length) {
+          const turn: TurnFiles = {
+            checkpointId: changes.id,
+            changes: changes.changes,
+            partial: changes.partial || undefined,
+            state: "applied",
+          };
+          updateChatMessages(chatKey, (prev) => withTurn(prev, assistantId, userMessage.id, turn));
+        }
+      }
       return true;
     },
-    [chatId, newChatMode, navigate],
+    [chatId, newChatMode, newChatProjectId, navigate],
   );
 
   /** Resolves false when the message was not sent (e.g. folder access declined). */
   const sendMessage = useCallback(
-    async ({ prompt, model, budget }: SendMessage): Promise<boolean> =>
+    async ({ prompt, model, budget, attachments }: SendMessage): Promise<boolean> =>
       executeSend({
         prompt,
+        attachments,
         resend: {
           modelId: model.id,
           modelName: model.name,
@@ -335,9 +521,41 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
       const original = index >= 0 ? chat!.messages[index] : undefined;
       if (!chat || !original?.resend) return false;
       updateChatMessages(chatId, (prev) => prev.slice(0, index));
-      return executeSend({ prompt: original.content, resend: original.resend });
+      return executeSend({
+        prompt: original.content,
+        resend: original.resend,
+        attachments: original.attachments,
+      });
     },
     [chatId, executeSend],
+  );
+
+  /**
+   * Start a new chat that carries a summary of this one, so a long
+   * conversation can go on without its full weight.
+   */
+  const summarizeAndContinue = useCallback(
+    async (model: AiModel, budget: ContextBudget) => {
+      if (!chatId || getRun(chatId)) return;
+      const chat = getChat(chatId);
+      if (!chat || chat.messages.length === 0) return;
+      const next = createChat(chat.title, {
+        mode: sessionMode(chat),
+        cwd: chat.cwd,
+        projectId: chat.projectId,
+        continuedFrom: { id: chat.id, title: chat.title, summarizing: true },
+      });
+      if (chat.folders?.length) updateChat(next.id, (s) => ({ ...s, folders: chat.folders }));
+      navigate(`/chat/${next.id}`);
+      const modelId = runModelIdFor(model.id);
+      const token = startRun(next.id, modelId);
+      try {
+        await summarizeInto(next.id, chat, modelId, budget.maxTokens);
+      } finally {
+        endRun(next.id, token);
+      }
+    },
+    [chatId, navigate],
   );
 
   /** Thumbs up/down on an assistant reply; tapping again clears it. */
@@ -389,10 +607,12 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
       if (!chatId) return;
       const grant = await requestFolderAccess(folder, {
         reason: "OpenCode asked to use this folder for the current task.",
-        allowWider: true,
       });
       if (!grant) return replyPermission(request, "reject");
       attachFolder(chatId, grant.path);
+      // Save the folder before the agent gets to change it, so undo covers it.
+      const checkpointId = getRun(chatId)?.checkpointId;
+      if (checkpointId && grant.access === "write") await addCheckpointFolder(checkpointId, grant.path);
       const sessionId = getRun(chatId)?.agentSessionId;
       try {
         await opencodeReplyPermission(
@@ -444,6 +664,27 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
     }).catch(addError);
   }, [chatId, addError]);
 
+  // Notify when a Cowork task finishes while the app is in the background.
+  const wasLoadingRef = useRef(isLoading);
+  useEffect(() => {
+    const wasLoading = wasLoadingRef.current;
+    wasLoadingRef.current = isLoading;
+    if (wasLoading && !isLoading && session && messages.length > 0) {
+      void notifyTaskDone(session.title);
+    }
+  }, [isLoading, session, messages.length]);
+
+  // Notify when a permission request is waiting for the user.
+  const permissionCountRef = useRef(run?.permissions.length ?? 0);
+  useEffect(() => {
+    const count = run?.permissions.length ?? 0;
+    const previous = permissionCountRef.current;
+    permissionCountRef.current = count;
+    if (count > 0 && count > previous) {
+      void notifyPermissionPending(count);
+    }
+  }, [run?.permissions.length]);
+
   return {
     session,
     mode,
@@ -451,16 +692,43 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode) {
     isLoading,
     hasMessages: messages.length > 0 || isLoading,
     containerRef,
+    atBottom,
+    scrollToBottom,
     promptInputRef,
     sendMessage,
     retryMessage,
     rateMessage,
+    summarizeAndContinue,
     permissions: run?.permissions ?? [],
     replyPermission,
     allowFolder,
     canStop,
     stop,
   };
+}
+
+/**
+ * The folders an agent can change: those granted read & write, and writable
+ * folders granted inside read-only ones.
+ */
+function writableFolders(folders: string[]) {
+  return grantsFor(folders)
+    .filter((g) => g.access === "write" && folders.some((f) => isWithin(g.path, f)))
+    .map((g) => g.path);
+}
+
+/**
+ * Keep a turn's file changes on the reply that ended it: the assistant
+ * message, or the error that replaced it.
+ */
+function withTurn(messages: ChatMessage[], assistantId: string, userId: string, turn: TurnFiles) {
+  let index = messages.findIndex((m) => m.id === assistantId);
+  if (index < 0) {
+    const start = messages.findIndex((m) => m.id === userId);
+    index = start < 0 ? -1 : messages.findIndex((m, i) => i > start && m.role !== "user");
+  }
+  if (index < 0) return messages;
+  return messages.map((m, i) => (i === index ? { ...m, turn } : m));
 }
 
 function isAuthError(message: string) {
@@ -480,13 +748,41 @@ function toHistory(messages: ChatMessage[]): HistoryMessage[] {
     .map((m) => ({ role: m.role, content: m.content }));
 }
 
-function createUserMessage(prompt: string, resend: NonNullable<ChatMessage["resend"]>): ChatMessage {
+function createUserMessage(
+  prompt: string,
+  resend: NonNullable<ChatMessage["resend"]>,
+  attachments: Attachment[],
+): ChatMessage {
   return {
     id: crypto.randomUUID(),
     role: "user",
     content: prompt,
     resend,
+    ...(attachments.length ? { attachments } : {}),
   };
+}
+
+/**
+ * Write a summary of `previous` into chat `chatKey`'s `continuedFrom`. A
+ * failed summary leaves the new chat without one, as before summaries existed.
+ */
+async function summarizeInto(chatKey: string, previous: ChatSession, modelId: string, maxTokens: number) {
+  const settle = (summary?: string) =>
+    updateChat(chatKey, (s) =>
+      s.continuedFrom ? { ...s, continuedFrom: { ...s.continuedFrom, summary, summarizing: false } } : s,
+    );
+  try {
+    // An earlier summary is part of what this chat knew.
+    const earlier = previous.continuedFrom?.summary;
+    const messages: ChatMessage[] = earlier
+      ? [{ id: "earlier", role: "assistant", content: `Summary of an even earlier chat:\n${earlier}` }, ...previous.messages]
+      : previous.messages;
+    settle(
+      (await summarizeConversation(messages, { modelId, runId: chatKey, maxTokens })) || undefined,
+    );
+  } catch {
+    settle();
+  }
 }
 
 function createAssistantPlaceholder(
@@ -566,6 +862,29 @@ function withActivity(message: ChatMessage, incoming: ActivityItem): ChatMessage
     ...message,
     activities: [...finalizeActivities(prev), activity],
   };
+}
+
+/** Merge streamed todo updates into the message's task plan. */
+function withTodos(message: ChatMessage, items: TodoItem[]): ChatMessage {
+  const MAX_TODOS = 50;
+  const trimmed = items.slice(0, MAX_TODOS);
+  const prev = message.todos ?? [];
+  // Replace by id when available; otherwise append.
+  const map = new Map<string | number, TodoItem>();
+  for (const [index, item] of prev.entries()) {
+    map.set(item.id ?? index, item);
+  }
+  for (const item of trimmed) {
+    if (item.id) {
+      map.set(item.id, item);
+    } else {
+      // Match by text for agents that don't send ids.
+      const key = [...map.entries()].find(([, v]) => v.text === item.text)?.[0];
+      if (key != null) map.set(key, item);
+      else map.set(map.size, item);
+    }
+  }
+  return { ...message, todos: [...map.values()].slice(0, MAX_TODOS) };
 }
 
 function withMetadata(message: ChatMessage, data: StreamMetadata): ChatMessage {

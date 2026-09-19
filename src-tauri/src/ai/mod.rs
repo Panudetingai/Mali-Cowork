@@ -29,6 +29,9 @@ pub struct ChatRequest {
     pub base_url: Option<String>,
     #[serde(default)]
     pub history: Vec<HistoryMessage>,
+    /// The user's custom instructions and enabled skills.
+    #[serde(default)]
+    pub system: Option<String>,
 }
 
 pub(crate) struct ProviderInfo {
@@ -57,7 +60,7 @@ pub(crate) fn provider_info(provider: &str) -> Result<ProviderInfo, String> {
         "groq" => ("https://api.groq.com/openai/v1", Some("GROQ_API_KEY")),
         "ollama" => ("http://localhost:11434/v1", None),
         "ollama-cloud" => ("https://ollama.com/v1", Some("OLLAMA_API_KEY")),
-        other => return Err(format!("Unknown provider: {other}")),
+        _ => return Err(format!("Unknown provider: {provider}")),
     };
     Ok(ProviderInfo { base_url, env_var })
 }
@@ -75,7 +78,7 @@ fn non_empty(value: Option<&str>) -> Option<String> {
     value.map(clean).filter(|v| !v.is_empty())
 }
 
-fn resolve_api_key(request: &ChatRequest, info: &ProviderInfo) -> Result<String, String> {
+fn resolve_api_key(request: &ChatRequest, info: &ProviderInfo, base_url: &str) -> Result<String, String> {
     if let Some(key) = non_empty(request.api_key.as_deref()) {
         return Ok(key);
     }
@@ -83,16 +86,32 @@ fn resolve_api_key(request: &ChatRequest, info: &ProviderInfo) -> Result<String,
         // Local servers such as Ollama ignore the key, but the client requires one.
         return Ok(request.provider.clone());
     };
+    // A key from the environment only ever goes to its own provider.
+    if !same_host(base_url, info.base_url) {
+        return Err(format!(
+            "{} uses a custom base URL, so the key in {var} isn't sent there. Enter the API key in Settings → Models.",
+            request.provider
+        ));
+    }
     non_empty(std::env::var(var).ok().as_deref()).ok_or_else(|| {
         format!("No API key for {}. Add it in Settings → Models, or set {var} in .env.", request.provider)
     })
+}
+
+fn same_host(url: &str, default: &str) -> bool {
+    let host = |u: &str| {
+        reqwest::Url::parse(u)
+            .ok()
+            .map(|u| (u.scheme().to_string(), u.host_str().map(str::to_ascii_lowercase), u.port_or_known_default()))
+    };
+    host(url).is_some() && host(url) == host(default)
 }
 
 /// Provider ids whose API key is already set in the environment.
 pub fn providers_with_env_key() -> Vec<String> {
     [
         "anthropic", "openai", "google", "xai", "deepseek", "mistral", "alibaba", "zai",
-        "moonshotai", "openrouter", "groq", "ollama-cloud",
+        "moonshotai", "openrouter", "groq", "ollama-cloud", "kimi",
     ]
     .into_iter()
     .filter(|id| {
@@ -200,9 +219,9 @@ async fn run(request: &ChatRequest, on_event: &Channel<ChatStreamEvent>) -> Resu
     }
 
     let info = provider_info(&request.provider)?;
-    let api_key = resolve_api_key(request, &info)?;
     let base_url =
         non_empty(request.base_url.as_deref()).unwrap_or_else(|| info.base_url.to_string());
+    let api_key = resolve_api_key(request, &info, &base_url)?;
 
     let mut conversation = Message::conversation_builder();
     for message in &request.history {
@@ -215,7 +234,10 @@ async fn run(request: &ChatRequest, on_event: &Channel<ChatStreamEvent>) -> Resu
             _ => conversation,
         };
     }
-    let messages = conversation.user(prompt).build();
+    let mut messages = conversation.user(prompt).build();
+    if let Some(system) = non_empty(request.system.as_deref()) {
+        messages.insert(0, Message::System(system.into()));
+    }
 
     if request.provider == "anthropic" {
         let model = Anthropic::<DynamicModel>::builder()

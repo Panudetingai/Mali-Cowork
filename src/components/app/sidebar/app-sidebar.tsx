@@ -11,10 +11,11 @@ import {
 } from "@/components/animate-ui/components/radix/sidebar";
 import { Input } from "@/components/ui/input";
 import { sessionMode, useChatRuns, useChatSessions, type ChatSession } from "@/features/chat-history";
+import { useProjects, type Project } from "@/features/projects";
 import type { LucideIcon } from "lucide-react";
-import { SearchIcon, Settings2Icon, SparklesIcon, SquarePenIcon } from "lucide-react";
+import { FolderKanbanIcon, SearchIcon, Settings2Icon, SparklesIcon, SquarePenIcon } from "lucide-react";
 import { useMemo, useState } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useMatch } from "react-router-dom";
 import { ChatHistoryItem } from "./chat-history-item";
 import { sidebarItemClass } from "./sidebar-styles";
 
@@ -62,9 +63,59 @@ function HistoryGroup({ label, sessions }: { label: string; sessions: ChatSessio
   );
 }
 
+/** Most recently used projects; the rest are on the Projects page. */
+const SIDEBAR_PROJECTS = 5;
+
+function ProjectsGroup({ projects }: { projects: Project[] }) {
+  if (projects.length === 0) return null;
+  return (
+    <SidebarGroup className="py-1 group-data-[collapsible=icon]:hidden">
+      <SidebarGroupLabel className="h-7 text-xs font-normal text-sidebar-foreground/55">Projects</SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu className="gap-0.5">
+          {projects.slice(0, SIDEBAR_PROJECTS).map((project) => (
+            <ProjectItem key={project.id} project={project} />
+          ))}
+          {projects.length > SIDEBAR_PROJECTS && (
+            <SidebarMenuItem>
+              <NavLink to="/projects" className={sidebarItemClass}>
+                <span className="truncate pl-6 text-muted-foreground">All projects ({projects.length})</span>
+              </NavLink>
+            </SidebarMenuItem>
+          )}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
+function ProjectItem({ project }: { project: Project }) {
+  const url = `/projects/${project.id}`;
+  const isActive = !!useMatch(url);
+  return (
+    <SidebarMenuItem>
+      <NavLink to={url} title={project.name} data-active={isActive} className={sidebarItemClass}>
+        <FolderKanbanIcon strokeWidth={1.75} className="text-muted-foreground" />
+        <span className="truncate">{project.name}</span>
+      </NavLink>
+    </SidebarMenuItem>
+  );
+}
+
 export function AppSidebar() {
   const sessions = useChatSessions();
+  const projects = useProjects();
   const [query, setQuery] = useState("");
+  const recentProjects = useMemo(() => {
+    // A project counts as used when it or one of its chats changed.
+    const lastUsed = new Map(projects.map((p) => [p.id, p.updatedAt]));
+    for (const s of sessions) {
+      if (s.projectId && lastUsed.has(s.projectId)) {
+        lastUsed.set(s.projectId, Math.max(lastUsed.get(s.projectId) ?? 0, s.updatedAt));
+      }
+    }
+    return [...projects].sort((a, b) => (lastUsed.get(b.id) ?? 0) - (lastUsed.get(a.id) ?? 0));
+  }, [projects, sessions]);
 
   const { pinned, chats, cowork } = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -90,6 +141,7 @@ export function AppSidebar() {
         <SidebarMenu className="gap-0.5">
           <NavItem title="New chat" url="/?mode=chat" icon={SquarePenIcon} />
           <NavItem title="Cowork" url="/?mode=cowork" icon={SparklesIcon} />
+          <NavItem title="Projects" url="/projects" icon={FolderKanbanIcon} />
           <NavItem title="Settings" url="/settings" icon={Settings2Icon} />
         </SidebarMenu>
         <div className="relative mt-1 group-data-[collapsible=icon]:hidden">
@@ -106,6 +158,7 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className="gap-0 pb-3">
+        {!query.trim() && <ProjectsGroup projects={recentProjects} />}
         <HistoryGroup label="Pinned" sessions={pinned} />
         <HistoryGroup label="Chats" sessions={chats} />
         <HistoryGroup label="Cowork" sessions={cowork} />

@@ -14,7 +14,7 @@ export function parseMcpErrorMessage(raw: string): { title: string; steps: strin
   const rest = parts.slice(1).join(" — ");
   const steps = rest
     .split(/\s*·\s*/)
-    .map((s) => s.replace(/^วิธีแก้:\s*/, "").trim())
+    .map((s) => s.replace(/^(?:วิธีแก้|Fix):\s*/, "").trim())
     .filter(Boolean);
   return { title, steps };
 }

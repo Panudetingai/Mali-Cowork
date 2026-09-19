@@ -36,6 +36,7 @@ export async function geminiGenerateStream(
       mode: request.mode ?? "cowork",
       folders: request.folders ?? [],
       runId: request.runId,
+      images: request.images ?? [],
       apiKey: settingsApiKey(),
     },
     onEvent: createStreamChannel(handlers),

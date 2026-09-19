@@ -1,3 +1,7 @@
+import type { Attachment } from "@/features/attachments";
+import type { TurnFiles } from "@/features/checkpoints";
+import type { TodoItem } from "./api/chat";
+
 export type ChatRole = "user" | "assistant" | "error";
 
 export type AgentUsage = {
@@ -31,6 +35,10 @@ export type ChatMessage = {
   content: string;
   reasoning?: string;
   activities?: ActivityItem[];
+  /** Agent task plan / todo checklist. */
+  todos?: TodoItem[];
+  /** Cowork: files the turn ending with this message changed, with undo. */
+  turn?: TurnFiles;
   modelId?: string;
   createdAt?: number;
   isStreaming?: boolean;
@@ -38,6 +46,8 @@ export type ChatMessage = {
   sessionId?: string;
   usage?: AgentUsage;
   durationMs?: number;
+  /** Files and pictures sent with a user message. */
+  attachments?: Attachment[];
   /** Thumbs up/down on a finished assistant reply. */
   feedback?: "up" | "down";
   /** What the user asked with: lets "retry" resend without the picker. */

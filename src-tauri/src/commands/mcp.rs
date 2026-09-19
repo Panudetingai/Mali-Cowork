@@ -22,8 +22,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Table, Value as TomlValue};
 
-use super::opencode::{session_dir, OpencodeClient};
+use super::opencode::{lease_instance, session_dir, OpencodeClient, DEFAULT_INSTANCE};
 use super::opencode::warm_up_server as ensure_server;
+use super::mcp_clients;
+use super::mcp_oauth::{self, Callback};
 use super::secure_fs::write_private;
 
 const DEFAULT_TIMEOUT_MS: u64 = 60_000;
@@ -60,6 +62,11 @@ fn default_kind() -> String {
 impl McpServerEntry {
     fn is_remote(&self) -> bool {
         self.kind == "remote"
+    }
+
+    /// Startup timeout in ms, for other clients' configs.
+    pub fn timeout_ms(&self) -> u64 {
+        self.timeout()
     }
 
     fn timeout(&self) -> u64 {
@@ -146,7 +153,7 @@ fn no_control_chars(value: &str) -> bool {
 
 /// Remote servers must use HTTPS, except on this machine.
 fn validate_url(raw: &str) -> Result<String, String> {
-    let url = reqwest::Url::parse(raw.trim()).map_err(|_| format!("URL ไม่ถูกต้อง: {raw}"))?;
+    let url = reqwest::Url::parse(raw.trim()).map_err(|_| format!("Invalid URL: {raw}"))?;
     let local = matches!(
         url.host_str(),
         Some("localhost") | Some("127.0.0.1") | Some("[::1]") | Some("::1")
@@ -154,15 +161,15 @@ fn validate_url(raw: &str) -> Result<String, String> {
     match url.scheme() {
         "https" => Ok(url.to_string()),
         "http" if local => Ok(url.to_string()),
-        "http" => Err("Remote MCP ต้องใช้ https:// (http ใช้ได้เฉพาะ localhost)".into()),
-        other => Err(format!("ไม่รองรับ scheme {other}:// — ใช้ https://")),
+        "http" => Err("Remote MCP needs https:// (http is for localhost only)".into()),
+        other => Err(format!("Unsupported scheme {other}:// — use https://")),
     }
 }
 
 fn validate(server: &McpServerEntry) -> Result<(), String> {
     if !valid_id(&server.id) {
         return Err(format!(
-            "MCP id '{}' ไม่ถูกต้อง — ใช้ a-z, 0-9, - หรือ _ (สูงสุด 64 ตัว)",
+            "Invalid MCP id '{}' — use a-z, 0-9, - or _ (max 64)",
             server.id
         ));
     }
@@ -172,18 +179,18 @@ fn validate(server: &McpServerEntry) -> Result<(), String> {
     match server.kind.as_str() {
         "local" => {
             if server.command.first().is_none_or(|c| c.trim().is_empty()) {
-                return Err(format!("{}: ต้องระบุคำสั่ง (command)", server.id));
+                return Err(format!("{}: command is required", server.id));
             }
             let argv_ok = std::iter::once(&server.command)
                 .chain(server.fallbacks.iter())
                 .flatten()
                 .all(|arg| no_control_chars(arg));
             if !argv_ok {
-                return Err(format!("{}: คำสั่งมีอักขระที่ไม่อนุญาต", server.id));
+                return Err(format!("{}: command has invalid characters", server.id));
             }
             for (name, value) in &server.environment {
                 if !valid_env_name(name) || !no_control_chars(value) {
-                    return Err(format!("{}: ตัวแปร env '{name}' ไม่ถูกต้อง", server.id));
+                    return Err(format!("{}: invalid env variable '{name}'", server.id));
                 }
             }
         }
@@ -192,11 +199,11 @@ fn validate(server: &McpServerEntry) -> Result<(), String> {
                 .map_err(|e| format!("{}: {e}", server.id))?;
             for (name, value) in &server.headers {
                 if !valid_header_name(name) || !no_control_chars(value) {
-                    return Err(format!("{}: header '{name}' ไม่ถูกต้อง", server.id));
+                    return Err(format!("{}: invalid header '{name}'", server.id));
                 }
             }
         }
-        other => return Err(format!("{}: ไม่รู้จักชนิด '{other}'", server.id)),
+        other => return Err(format!("{}: unknown type '{other}'", server.id)),
     }
     Ok(())
 }
@@ -328,9 +335,9 @@ fn child_path() -> Option<String> {
 
 fn uv_install_hint() -> &'static str {
     if cfg!(windows) {
-        "ติดตั้ง uv: powershell -c \"irm https://astral.sh/uv/install.ps1 | iex\" แล้วเปิดแอปใหม่"
+        "Install uv: powershell -c \"irm https://astral.sh/uv/install.ps1 | iex\", then restart the app"
     } else {
-        "ติดตั้ง uv: curl -LsSf https://astral.sh/uv/install.sh | sh แล้วเปิดแอปใหม่"
+        "Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh, then restart the app"
     }
 }
 
@@ -340,9 +347,9 @@ fn word_failure_hint(detail: &str) -> String {
         steps.push(uv_install_hint());
     }
     if detail.contains("Connection closed") || detail.contains("-32000") || detail.contains("timed out") {
-        steps.push("ครั้งแรก uvx ต้องโหลด office-word-mcp-server (~1 นาที) — กด Connect แล้วรอ");
+        steps.push("First run downloads office-word-mcp-server (~1 min); press Connect and wait");
     }
-    steps.push("หรือติดตั้งเอง: pip install office-word-mcp-server แล้วเลือกวิธี \"pip\"");
+    steps.push("Or install it yourself: pip install office-word-mcp-server, then choose \"pip\"");
     format!("{detail} — {}", steps.join(" · "))
 }
 
@@ -353,10 +360,10 @@ fn hint_for_binary(binary: &str) -> &'static str {
         .unwrap_or(binary);
     match name {
         "uvx" | "uv" => uv_install_hint(),
-        "npx" | "bunx" | "node" | "npm" | "bun" => "ต้องมี Node.js (หรือ Bun) และต่อเน็ตโหลด package ครั้งแรก",
-        "docker" => "ต้องมี Docker Desktop รันอยู่",
-        "python" | "python3" | "py" => "ต้องมี Python 3.11+ ใน PATH",
-        _ => "ตรวจว่าคำสั่งนี้รันได้ใน terminal และอยู่ใน PATH แล้วลองใหม่",
+        "npx" | "bunx" | "node" | "npm" | "bun" => "Needs Node.js (or Bun) and internet for the first download",
+        "docker" => "Needs Docker Desktop running",
+        "python" | "python3" | "py" => "Needs Python 3.11+ on PATH",
+        _ => "Check the command runs in a terminal and is on PATH, then retry",
     }
 }
 
@@ -377,6 +384,10 @@ fn server_config(server: &McpServerEntry, command: &[String]) -> Value {
         });
         if !server.headers.is_empty() {
             config["headers"] = json!(server.headers);
+        }
+        // Sign in as Mali Cowork (our registered client) instead of OpenCode.
+        if let Some(oauth) = mcp_oauth::oauth_config_for(&server.id, server.url.as_deref().unwrap_or_default()) {
+            config["oauth"] = oauth;
         }
         return config;
     }
@@ -400,20 +411,20 @@ fn write_opencode_mcp_config(servers: &[McpServerEntry], removed: &[String]) -> 
     let path = opencode_config_path()?;
     let mut config: Value = if path.is_file() {
         let raw = std::fs::read_to_string(&path)
-            .map_err(|e| format!("อ่าน {} ไม่ได้: {e}", path.display()))?;
+            .map_err(|e| format!("Can't read {}: {e}", path.display()))?;
         if raw.trim().is_empty() {
             json!({})
         } else {
             // Never overwrite a file we cannot parse: it is the user's own config.
             serde_json::from_str(&raw).map_err(|e| {
-                format!("{} ไม่ใช่ JSON ที่ถูกต้อง ({e}) — แก้ไฟล์ก่อนแล้วลองใหม่", path.display())
+                format!("{} isn't valid JSON ({e}) — fix the file and retry", path.display())
             })?
         }
     } else {
         json!({ "$schema": "https://opencode.ai/config.json" })
     };
     if !config.is_object() {
-        return Err(format!("{} ต้องเป็น JSON object", path.display()));
+        return Err(format!("{} must be a JSON object", path.display()));
     }
 
     let mut mcp = config
@@ -451,6 +462,23 @@ fn codex_config_path() -> Result<PathBuf, String> {
         .or_else(|| dirs::home_dir().map(|h| h.join(".codex")))
         .ok_or("Cannot resolve Codex home directory")?;
     Ok(base.join("config.toml"))
+}
+
+/// MCP servers in Codex's `config.toml` that read files or run commands.
+/// Codex runs MCP servers outside its sandbox, so read-only runs switch
+/// these off with `-c mcp_servers.<id>.enabled=false`.
+pub(crate) fn codex_workspace_mcp_overrides() -> Vec<String> {
+    let Ok(raw) = codex_config_path().and_then(|p| std::fs::read_to_string(p).map_err(|e| e.to_string())) else {
+        return Vec::new();
+    };
+    let Ok(doc) = raw.parse::<DocumentMut>() else {
+        return Vec::new();
+    };
+    ["exec", "filesystem"]
+        .into_iter()
+        .filter(|id| doc.get("mcp_servers").and_then(|t| t.get(id)).is_some())
+        .flat_map(|id| ["-c".to_string(), format!("mcp_servers.{id}.enabled=false")])
+        .collect()
 }
 
 fn codex_env_table(server: &McpServerEntry) -> InlineTable {
@@ -532,13 +560,13 @@ fn write_codex_mcp_config(servers: &[McpServerEntry], removed: &[String]) -> Res
     let path = codex_config_path()?;
     let mut doc: DocumentMut = if path.is_file() {
         let raw = std::fs::read_to_string(&path)
-            .map_err(|e| format!("อ่าน {} ไม่ได้: {e}", path.display()))?;
+            .map_err(|e| format!("Can't read {}: {e}", path.display()))?;
         if raw.trim().is_empty() {
             DocumentMut::new()
         } else {
             raw.parse().map_err(|e| {
                 format!(
-                    "{} ไม่ใช่ TOML ที่ถูกต้อง ({e}) — แก้ไฟล์ก่อนแล้วลองใหม่",
+                    "{} isn't valid TOML ({e}) — fix the file and retry",
                     path.display()
                 )
             })?
@@ -552,7 +580,7 @@ fn write_codex_mcp_config(servers: &[McpServerEntry], removed: &[String]) -> Res
         .or_insert(Item::Table(Table::new()));
     let mcp = mcp_item
         .as_table_mut()
-        .ok_or("mcp_servers ใน config.toml ต้องเป็น table")?;
+        .ok_or("mcp_servers in config.toml must be a table")?;
 
     for id in removed {
         mcp.remove(id);
@@ -617,10 +645,10 @@ fn failure_message(server: &McpServerEntry, detail: String) -> String {
         return word_failure_hint(&detail);
     }
     if server.is_remote() {
-        return format!("{detail} — ตรวจ URL, header/token และว่าเซิร์ฟเวอร์เปิดอยู่");
+        return format!("{detail} — check the URL, headers/token and that the server is up");
     }
     let binary = server.command.first().map(String::as_str).unwrap_or_default();
-    format!("{detail} — วิธีแก้: {}", hint_for_binary(binary))
+    format!("{detail} — Fix: {}", hint_for_binary(binary))
 }
 
 /// Try every launch variant for one server until the live status is `connected`.
@@ -659,11 +687,11 @@ async fn connect_server(
         let config = server_config(server, candidate);
         let method = attempt + 1;
         if let Err(e) = client.mcp_add(directory, &server.id, &config).await {
-            last_error = Some(format!("ลงทะเบียนไม่สำเร็จ (วิธีที่ {method}): {e}"));
+            last_error = Some(format!("Registration failed (method {method}): {e}"));
             continue;
         }
         if let Err(e) = client.mcp_connect(directory, &server.id).await {
-            last_error = Some(format!("เชื่อมไม่สำเร็จ (วิธีที่ {method}): {e}"));
+            last_error = Some(format!("Connection failed (method {method}): {e}"));
             continue;
         }
         match live_entry(client, directory, &server.id).await {
@@ -676,15 +704,15 @@ async fn connect_server(
                 last_error = entry["error"]
                     .as_str()
                     .map(str::to_string)
-                    .or_else(|| Some(format!("สถานะ '{st}' (วิธีที่ {method})")));
+                    .or_else(|| Some(format!("Status '{st}' (method {method})")));
                 // `failed` may still succeed with another launcher; anything
                 // else (e.g. an OAuth flow) is final.
                 if st != "failed" && st != "unknown" {
                     return parse_status(&server.id, &entry, last_error);
                 }
             }
-            Ok(None) => last_error = Some(format!("ไม่พบสถานะหลังเชื่อม (วิธีที่ {method})")),
-            Err(e) => last_error = Some(format!("อ่านสถานะไม่ได้ (วิธีที่ {method}): {e}")),
+            Ok(None) => last_error = Some(format!("No status after connecting (method {method})")),
+            Err(e) => last_error = Some(format!("Can't read status (method {method}): {e}")),
         }
     }
 
@@ -694,7 +722,7 @@ async fn connect_server(
         status: "failed".into(),
         error: Some(failure_message(
             server,
-            last_error.unwrap_or_else(|| "เชื่อมไม่ได้".into()),
+            last_error.unwrap_or_else(|| "Couldn't connect".into()),
         )),
     }
 }
@@ -717,7 +745,7 @@ pub async fn mcp_sync(
     }
     let mut seen = HashSet::new();
     if let Some(dup) = servers.iter().find(|s| !seen.insert(s.id.as_str())) {
-        return Err(format!("MCP id ซ้ำ: {}", dup.id));
+        return Err(format!("Duplicate MCP id: {}", dup.id));
     }
     let removed: Vec<String> = options
         .removed
@@ -728,6 +756,14 @@ pub async fn mcp_sync(
     let _guard = sync_lock().lock().await;
     write_opencode_mcp_config(&servers, &removed)?;
     write_codex_mcp_config(&servers, &removed)?;
+    // Gemini CLI and Cursor get the same connectors (best effort).
+    for warning in mcp_clients::write_all(&servers, resolve_argv, child_path()) {
+        eprintln!("[mcp] {warning}");
+    }
+    // A deleted connector's sign-in client isn't needed any more.
+    for id in &removed {
+        let _ = mcp_oauth::forget(id);
+    }
 
     if !options.live_connect.unwrap_or(true) {
         return Ok(McpSyncResult { servers: vec![] });
@@ -744,6 +780,8 @@ pub async fn mcp_sync(
     let dir = chat_dir
         .as_deref()
         .or_else(|| directory.as_deref().map(str::trim).filter(|d| !d.is_empty()));
+    // Don't let the idle sweep close this instance while servers connect.
+    let _instance = lease_instance(dir.unwrap_or(DEFAULT_INSTANCE)).await;
     let targets: Option<HashSet<&str>> = options
         .targets
         .as_ref()
@@ -770,6 +808,101 @@ pub async fn mcp_sync(
         }
     }
     Ok(McpSyncResult { servers: out })
+}
+
+/// The folder a live MCP call runs in: Chat mode's session folder or a Cowork folder.
+fn live_dir(directory: Option<String>, mode: Option<&str>) -> Result<Option<String>, String> {
+    if mode == Some("chat") {
+        let dir = session_dir(Some("chat"), None);
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        return Ok(Some(dir.to_string_lossy().into_owned()));
+    }
+    Ok(directory.map(|d| d.trim().to_string()).filter(|d| !d.is_empty()))
+}
+
+/// Sign in to a remote MCP server with OAuth. OpenCode opens the provider's
+/// page in the user's browser, receives the callback on loopback (PKCE) and
+/// keeps the tokens in its owner-only auth file: they never reach the
+/// webview, the chat or the model.
+#[tauri::command]
+pub async fn mcp_auth(
+    app: tauri::AppHandle,
+    id: String,
+    directory: Option<String>,
+    mode: Option<String>,
+) -> Result<McpServerStatus, String> {
+    if !valid_id(&id) {
+        return Err(format!("Invalid MCP id '{id}'"));
+    }
+    let client = ensure_server().await?;
+    let dir = live_dir(directory, mode.as_deref())?;
+    let _instance = lease_instance(dir.as_deref().unwrap_or(DEFAULT_INSTANCE)).await;
+
+    let status = match mcp_oauth::registered_url(&id) {
+        Some(url) => branded_sign_in(&app, &client, dir.as_deref(), &id, &url).await?,
+        // No client of our own (the server has no dynamic registration): OpenCode's flow.
+        None => client.mcp_authenticate(dir.as_deref(), &id).await.map_err(|e| {
+            if e.contains("Unsupported") || e.contains("OAuth") {
+                format!("This server doesn't support sign-in with OAuth. Add its token instead. ({e})")
+            } else if e.contains("timed out") {
+                "Sign-in wasn't finished in time. Try again.".to_string()
+            } else {
+                e
+            }
+        })?,
+    };
+    applied().lock().unwrap().remove(&applied_key(dir.as_deref(), &id));
+    Ok(parse_status(&id, &status, None))
+}
+
+/// OAuth as Mali Cowork: OpenCode prepares the request (PKCE + state) with
+/// our client, we open the browser and take the callback on loopback.
+async fn branded_sign_in(
+    app: &tauri::AppHandle,
+    client: &OpencodeClient,
+    dir: Option<&str>,
+    id: &str,
+    server_url: &str,
+) -> Result<Value, String> {
+    use tauri_plugin_opener::OpenerExt;
+
+    let service = reqwest::Url::parse(server_url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_string))
+        .unwrap_or_else(|| "the service".into());
+    // Bind first: OpenCode then sees the port taken and leaves the callback to us.
+    let mut callback = mcp_oauth::listen(id).await?;
+    let started = client.mcp_auth_start(dir, id).await?;
+    let authorize = started["authorizationUrl"].as_str().unwrap_or_default().to_string();
+    let state = started["oauthState"].as_str().unwrap_or_default().to_string();
+    if authorize.is_empty() {
+        // Already signed in: report the live status.
+        return Ok(live_entry(client, dir, id).await?.unwrap_or_else(|| json!({ "status": "connected" })));
+    }
+    let parsed = reqwest::Url::parse(&authorize).map_err(|_| "The server sent an invalid sign-in link".to_string())?;
+    if parsed.scheme() != "https" {
+        return Err("The server's sign-in page isn't https; not opening it".into());
+    }
+    app.opener()
+        .open_url(parsed.as_str(), None::<&str>)
+        .map_err(|e| format!("Couldn't open the browser: {e}"))?;
+    match callback.wait(&state, &service).await? {
+        Callback::Code(code) => client.mcp_auth_callback(dir, id, &code).await,
+        Callback::Denied(reason) => Err(format!("Sign-in was declined: {reason}")),
+    }
+}
+
+/// Sign out of a remote MCP server: OpenCode deletes its stored tokens.
+#[tauri::command]
+pub async fn mcp_auth_remove(id: String, directory: Option<String>, mode: Option<String>) -> Result<(), String> {
+    if !valid_id(&id) {
+        return Err(format!("Invalid MCP id '{id}'"));
+    }
+    let client = ensure_server().await?;
+    let dir = live_dir(directory, mode.as_deref())?;
+    client.mcp_auth_remove(dir.as_deref(), &id).await?;
+    disconnect_server(&client, dir.as_deref(), &id).await;
+    Ok(())
 }
 
 /// Read MCP status from the running OpenCode server without changing config.

@@ -1,14 +1,15 @@
 //! Locating the `gemini` binary.
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
 use tokio::process::Command;
 
-/// Resolve the binary once and cache it for the app lifetime.
+use crate::commands::bin_cache::BinCache;
+
+/// The binary's path; see [`BinCache`] for when it is looked up.
 pub fn gemini_bin() -> Option<&'static str> {
-    static BIN: OnceLock<Option<String>> = OnceLock::new();
-    BIN.get_or_init(resolve).as_deref()
+    static BIN: BinCache = BinCache::new();
+    BIN.get(resolve)
 }
 
 /// `GEMINI_BIN` first, then `PATH` and the installer's own locations.
@@ -63,24 +64,12 @@ pub fn search_dirs() -> Vec<PathBuf> {
 
 /// A command with a `PATH` the agent's own child processes can use.
 pub fn gemini_command(bin: &str, args: &[&str]) -> Command {
-    #[cfg(windows)]
-    let mut cmd = {
-        let lower = bin.to_lowercase();
-        if lower.ends_with(".cmd") || lower.ends_with(".bat") {
-            let mut cmd = Command::new("cmd");
-            cmd.args(["/D", "/S", "/C", bin]);
-            cmd
-        } else {
-            Command::new(bin)
-        }
-    };
-    #[cfg(not(windows))]
-    let mut cmd = Command::new(bin);
-
-    cmd.args(args);
+    let mut cmd = crate::commands::process::command(bin, args);
     if let Ok(path) = std::env::join_paths(search_dirs()) {
         cmd.env("PATH", path);
     }
+    // A check that times out is dropped; don't leave it running.
+    cmd.kill_on_drop(true);
     cmd
 }
 

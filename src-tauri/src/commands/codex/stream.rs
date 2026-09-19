@@ -6,7 +6,7 @@
 
 use serde_json::Value;
 
-use crate::chat_stream::{AgentUsage, ChatStreamEvent};
+use crate::chat_stream::{AgentUsage, ChatStreamEvent, TodoItem};
 
 const MAX_DETAIL_CHARS: usize = 1200;
 
@@ -234,25 +234,24 @@ fn item_activity(item: &Value, done: bool) -> Option<ChatStreamEvent> {
             (format!("search: {q}"), None)
         }
         "todo_list" => {
-            let steps: Vec<String> = item["items"]
+            let items: Vec<TodoItem> = item["items"]
                 .as_array()
                 .into_iter()
                 .flatten()
+                .take(50)
                 .filter_map(|t| {
                     let text = t["text"].as_str().or_else(|| t["title"].as_str())?;
-                    let status = t["status"].as_str().unwrap_or("");
-                    let mark = match status {
-                        "completed" => "✓",
-                        "in_progress" => "…",
-                        _ => "○",
-                    };
-                    Some(format!("{mark} {text}"))
+                    let status = t["status"].as_str().map(str::to_string);
+                    let done = status.as_deref().map(|s| s == "completed");
+                    Some(TodoItem {
+                        id: t["id"].as_str().map(str::to_string),
+                        text: text.to_string(),
+                        status,
+                        done,
+                    })
                 })
                 .collect();
-            (
-                "plan".to_string(),
-                (!steps.is_empty()).then(|| truncate(&steps.join("\n"))),
-            )
+            return (!items.is_empty()).then(|| ChatStreamEvent::Todos { items });
         }
         _ => return None,
     };

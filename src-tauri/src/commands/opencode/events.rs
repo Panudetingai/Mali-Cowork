@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
-use crate::chat_stream::{AgentUsage, ChatStreamEvent};
+use crate::chat_stream::{AgentUsage, ChatStreamEvent, TodoItem};
 
 const MAX_DETAIL_CHARS: usize = 1200;
 
@@ -146,7 +146,7 @@ impl EventTranslator {
         } else if !id.is_empty() {
             self.running_tools.insert(id.to_string(), part.clone());
         }
-        vec![Outcome::Emit(tool_activity(part))]
+        tool_activity(part).into_iter().map(Outcome::Emit).collect()
     }
 
     fn on_text_part(&mut self, part_id: String, kind: PartKind, part: &Value) -> Vec<Outcome> {
@@ -200,18 +200,22 @@ impl EventTranslator {
         let running: Vec<Value> = self.running_tools.drain().map(|(_, part)| part).collect();
         running
             .into_iter()
-            .map(|mut part| {
+            .filter_map(|mut part| {
                 if let Some(state) = part.get_mut("state").and_then(|s| s.as_object_mut()) {
                     state.insert("status".into(), serde_json::json!("completed"));
                 }
-                Outcome::Emit(tool_activity(&part))
+                tool_activity(&part).map(Outcome::Emit)
             })
             .collect()
     }
 }
 
-fn tool_activity(part: &Value) -> ChatStreamEvent {
+fn tool_activity(part: &Value) -> Option<ChatStreamEvent> {
     let tool = part["tool"].as_str().unwrap_or("tool");
+    if tool == "todowrite" {
+        return todo_items(part).map(|items| ChatStreamEvent::Todos { items });
+    }
+
     let state = &part["state"];
     let input = &state["input"];
     let status = state["status"].as_str().unwrap_or_default();
@@ -244,14 +248,46 @@ fn tool_activity(part: &Value) -> ChatStreamEvent {
         _ => {}
     }
 
-    ChatStreamEvent::Activity {
+    Some(ChatStreamEvent::Activity {
         id: part["id"].as_str().map(str::to_string),
         kind: "tool".into(),
         title,
         detail: (!detail.is_empty()).then(|| detail.join("\n")),
         done: matches!(status, "completed" | "error"),
         duration_ms: duration_ms(&state["time"]),
+    })
+}
+
+/// Extract todo items from a `todowrite` tool part. Supports several likely
+/// shapes because OpenCode does not document a stable schema.
+fn todo_items(part: &Value) -> Option<Vec<TodoItem>> {
+    const MAX_TODOS: usize = 50;
+
+    let input = part["state"]["input"].as_object();
+    let output = part["state"]["output"].as_object();
+    let items: Option<&Vec<Value>> = input
+        .and_then(|o| o.get("items").or_else(|| o.get("todos")))
+        .and_then(|v| v.as_array())
+        .or_else(|| output.and_then(|o| o.get("items").or_else(|| o.get("todos"))).and_then(|v| v.as_array()));
+
+    let items = items?;
+    let mut out = Vec::with_capacity(items.len().min(MAX_TODOS));
+    for item in items.iter().take(MAX_TODOS) {
+        let text = item["text"]
+            .as_str()
+            .or_else(|| item["title"].as_str())
+            .or_else(|| item["description"].as_str())
+            .map(str::to_string)?;
+        let status = item["status"].as_str().map(str::to_string);
+        let done = status.as_deref().map(|s| matches!(s, "completed" | "done")).or(item["done"].as_bool());
+        out.push(TodoItem {
+            id: item["id"].as_str().map(str::to_string),
+            text,
+            status,
+            done,
+        });
     }
+    (!out.is_empty()).then_some(out)
 }
 
 fn step_usage(session_id: &str, part: &Value) -> ChatStreamEvent {

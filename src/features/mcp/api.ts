@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCustomMcps } from "./custom";
 import { getMcpConnections } from "./store";
 import { buildMcpSyncPayload, type McpSyncResult } from "./sync";
+import { whenVaultReady } from "@/features/secrets";
 
 export type McpBinaryStatus = {
   binary: string;
@@ -49,6 +50,8 @@ export async function syncMcpServers({
   liveConnect,
 }: McpSyncOptions = {}): Promise<McpSyncResult | null> {
   if (!isTauri()) return null;
+  // Tokens come from the keychain; syncing before they load would drop them.
+  await whenVaultReady();
   const servers = buildMcpSyncPayload(getMcpConnections(), getCustomMcps(), cwd ? [cwd] : undefined);
   const chatTargets = mode === "chat" ? servers.map((s) => s.id).filter((id) => id !== "filesystem") : undefined;
   return invoke<McpSyncResult>("mcp_sync", {

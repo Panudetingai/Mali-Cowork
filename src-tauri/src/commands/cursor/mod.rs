@@ -15,6 +15,11 @@ pub use commands::{
     cursor_abort, cursor_check, cursor_generate, cursor_list_models, cursor_login,
 };
 
+/// The CLI's path, if it's installed.
+pub(crate) fn installed_bin() -> Option<&'static str> {
+    bin::cursor_bin()
+}
+
 use serde::{Deserialize, Serialize};
 
 use super::opencode::FolderGrant;

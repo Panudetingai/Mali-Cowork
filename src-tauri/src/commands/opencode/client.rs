@@ -5,9 +5,16 @@ use std::time::Duration;
 use reqwest::{Method, RequestBuilder, Response};
 use serde_json::{json, Value};
 
+use super::instances;
+
 const USERNAME: &str = "opencode";
 const SHORT_TIMEOUT: Duration = Duration::from_secs(15);
 const MCP_TIMEOUT: Duration = Duration::from_secs(90);
+/// Time the user has to finish signing in to an MCP server in the browser.
+const MCP_AUTH_TIMEOUT: Duration = Duration::from_secs(300);
+/// A busy server (starting MCP servers, a hot CPU) can take a few seconds to
+/// answer; too short a limit makes a healthy server look dead.
+const HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Per-prompt settings beyond the text itself.
 #[derive(Default)]
@@ -18,6 +25,8 @@ pub struct PromptOptions<'a> {
     pub disabled_tools: &'a [&'a str],
     /// Extra system instructions.
     pub system: Option<String>,
+    /// Attached pictures and documents, as opencode `file` parts.
+    pub files: Vec<Value>,
 }
 
 #[derive(Clone)]
@@ -40,7 +49,16 @@ impl OpencodeClient {
         }
     }
 
+    /// A request to one folder's instance (the server's default one when
+    /// `directory` is `None`), which marks that instance as in use.
     fn request(&self, method: Method, path: &str, directory: Option<&str>) -> RequestBuilder {
+        if !path.starts_with("/global/") && !path.starts_with("/auth/") {
+            instances::touch(directory.unwrap_or(instances::DEFAULT));
+        }
+        self.untracked(method, path, directory)
+    }
+
+    fn untracked(&self, method: Method, path: &str, directory: Option<&str>) -> RequestBuilder {
         let mut req = self
             .http
             .request(method, format!("{}{}", self.base_url, path))
@@ -65,7 +83,7 @@ impl OpencodeClient {
     pub async fn health(&self) -> Result<String, String> {
         let req = self
             .request(Method::GET, "/global/health", None)
-            .timeout(Duration::from_secs(2));
+            .timeout(HEALTH_TIMEOUT);
         let body: Value = Self::send(req).await?.json().await.map_err(|e| e.to_string())?;
         Ok(body["version"].as_str().unwrap_or_default().to_string())
     }
@@ -132,7 +150,9 @@ impl OpencodeClient {
         text: &str,
         options: &PromptOptions<'_>,
     ) -> Result<(), String> {
-        let mut body = json!({ "parts": [{ "type": "text", "text": text }] });
+        let mut parts = vec![json!({ "type": "text", "text": text })];
+        parts.extend(options.files.iter().cloned());
+        let mut body = json!({ "parts": parts });
         if let Some((provider_id, model_id)) = options.model.and_then(|m| m.split_once('/')) {
             body["model"] = json!({ "providerID": provider_id, "modelID": model_id });
         }
@@ -171,6 +191,15 @@ impl OpencodeClient {
         let req = self
             .request(Method::PATCH, &format!("/session/{session_id}"), Some(directory))
             .json(&json!({ "permission": rules }))
+            .timeout(SHORT_TIMEOUT);
+        Self::send(req).await.map(|_| ())
+    }
+
+    /// `POST /instance/dispose` — close a folder's instance and the MCP
+    /// servers it started. The next request to the folder opens a new one.
+    pub async fn dispose_instance(&self, directory: Option<&str>) -> Result<(), String> {
+        let req = self
+            .untracked(Method::POST, "/instance/dispose", directory)
             .timeout(SHORT_TIMEOUT);
         Self::send(req).await.map(|_| ())
     }
@@ -228,6 +257,42 @@ impl OpencodeClient {
         let req = self
             .request(Method::POST, &format!("/mcp/{name}/connect"), directory)
             .timeout(MCP_TIMEOUT);
+        Self::send(req).await.map(|_| ())
+    }
+
+    /// `POST /mcp/{name}/auth/authenticate` — OpenCode opens the sign-in page
+    /// in the browser, waits for the OAuth callback on loopback and stores
+    /// the tokens in its own owner-only auth file. Returns the new status.
+    pub async fn mcp_authenticate(&self, directory: Option<&str>, name: &str) -> Result<Value, String> {
+        let req = self
+            .request(Method::POST, &format!("/mcp/{name}/auth/authenticate"), directory)
+            .timeout(MCP_AUTH_TIMEOUT);
+        Self::send(req).await?.json().await.map_err(|e| e.to_string())
+    }
+
+    /// `POST /mcp/{name}/auth` — start OAuth without opening a browser:
+    /// returns `authorizationUrl` (empty when already signed in) and `oauthState`.
+    pub async fn mcp_auth_start(&self, directory: Option<&str>, name: &str) -> Result<Value, String> {
+        let req = self
+            .request(Method::POST, &format!("/mcp/{name}/auth"), directory)
+            .timeout(MCP_TIMEOUT);
+        Self::send(req).await?.json().await.map_err(|e| e.to_string())
+    }
+
+    /// `POST /mcp/{name}/auth/callback` — finish OAuth with the code the browser brought back.
+    pub async fn mcp_auth_callback(&self, directory: Option<&str>, name: &str, code: &str) -> Result<Value, String> {
+        let req = self
+            .request(Method::POST, &format!("/mcp/{name}/auth/callback"), directory)
+            .json(&json!({ "code": code }))
+            .timeout(MCP_TIMEOUT);
+        Self::send(req).await?.json().await.map_err(|e| e.to_string())
+    }
+
+    /// `DELETE /mcp/{name}/auth` — forget the OAuth tokens (sign out).
+    pub async fn mcp_auth_remove(&self, directory: Option<&str>, name: &str) -> Result<(), String> {
+        let req = self
+            .request(Method::DELETE, &format!("/mcp/{name}/auth"), directory)
+            .timeout(SHORT_TIMEOUT);
         Self::send(req).await.map(|_| ())
     }
 

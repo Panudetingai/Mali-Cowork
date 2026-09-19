@@ -1,2 +1,2 @@
 export * from "./folder-access";
-export { FolderAccessDialog, requestFolderAccess } from "./folder-access-dialog";
+export { requestFolderAccess } from "./folder-access-prompt";

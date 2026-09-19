@@ -1,7 +1,9 @@
 "use client";
 
+import { FilesChanged } from "@/features/checkpoints";
 import type { ChatMessage } from "@/pages/chat/types";
 import { memo } from "react";
+import { useParams } from "react-router-dom";
 import { AssistantMessage } from "./assistant-message";
 import { ErrorMessage } from "./error-message";
 import { UserMessage } from "./user-message";
@@ -16,15 +18,28 @@ type Props = {
 };
 
 export const ChatMessageItem = memo(function ChatMessageItem({ message, streaming, onRetry, onRate }: Props) {
+  const { chatId } = useParams<{ chatId: string }>();
+  const reply = <Reply message={message} streaming={streaming} onRetry={onRetry} onRate={onRate} />;
+  if (!message.turn || !chatId) return reply;
+  return (
+    <>
+      {reply}
+      <FilesChanged chatId={chatId} messageId={message.id} turn={message.turn} />
+    </>
+  );
+});
+
+function Reply({ message, streaming, onRetry, onRate }: Props) {
   switch (message.role) {
     case "user":
-      return <UserMessage content={message.content} />;
+      return <UserMessage content={message.content} attachments={message.attachments} />;
     case "assistant":
       return (
         <AssistantMessage
           content={message.content}
           reasoning={message.reasoning}
           activities={message.activities}
+          todos={message.todos}
           modelId={message.modelId}
           isStreaming={streaming ?? message.isStreaming}
           usage={message.usage}
@@ -40,4 +55,4 @@ export const ChatMessageItem = memo(function ChatMessageItem({ message, streamin
     default:
       return null;
   }
-});
+}

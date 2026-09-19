@@ -1,4 +1,10 @@
 import { Button } from "@/components/ui/button";
+import {
+  AttachmentChip,
+  importAttachment,
+  saveAttachment,
+  type Attachment,
+} from "@/features/attachments";
 import { Textarea } from "@/components/ui/textarea";
 import { attachFolder, detachFolder, type ChatSession } from "@/features/chat-history";
 import { requestCursorLogin, useCursor } from "@/features/cursor";
@@ -22,10 +28,21 @@ import {
   requestFolderAccess,
   useFolderGrants,
 } from "@/features/workspace";
+import { filterSkills, skillSlug, useInstructions, type Skill } from "@/features/instructions";
+import { useProjects } from "@/features/projects";
 import { cn } from "@/lib/utils";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
-import { ArrowUpIcon, EyeIcon, FolderIcon, LoaderIcon, SquareIcon, XIcon } from "lucide-react";
-import { useEffect, useMemo, useState, type FormEvent, type RefObject } from "react";
+import {
+  ArrowUpIcon,
+  EyeIcon,
+  FolderIcon,
+  LoaderIcon,
+  SquareIcon,
+  UploadIcon,
+  XIcon,
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type RefObject } from "react";
 import { contextUsage } from "../context-usage";
 import type { SendMessage } from "../hooks/use-chat";
 import {
@@ -38,12 +55,14 @@ import {
   opencodeProviderOf,
   saveSelectedModelId,
   type AiModel,
+  type ContextBudget,
 } from "../models";
 import type { ChatMessage } from "../types";
 import { useDebouncedValue } from "../hooks/use-debounced-value";
 import { ContextMeter } from "./context-meter";
 import { buildMentionAppendix, parseMentions } from "./mention/mentions";
 import { filterMentions, MentionPopup } from "./mention/mention-popup";
+import { SkillPopup } from "./mention/skill-popup";
 import { useWorkspaceFiles } from "./mention/use-workspace-files";
 import { ModelPicker } from "./model-picker";
 import { PromptOptionsMenu } from "./prompt-options-menu";
@@ -52,6 +71,8 @@ import { WorkModeToggle } from "./work-mode-toggle";
 type Props = {
   ref: RefObject<HTMLTextAreaElement | null>;
   mode: WorkMode;
+  /** The chat's project; its skills join the `/` picker. */
+  projectId?: string;
   session?: ChatSession;
   messages: ChatMessage[];
   isLoading?: boolean;
@@ -59,15 +80,21 @@ type Props = {
   placeholder?: string;
   onStop?: () => void;
   onNewChat: (options?: { cwd?: string }) => void;
+  /** Start a new chat carrying a summary of this one. */
+  onSummarize?: (model: AiModel, budget: ContextBudget) => void;
   onModeChange: (mode: WorkMode) => void;
   onSubmit: (payload: SendMessage) => Promise<boolean>;
 };
 
 const NO_FOLDERS: string[] = [];
+const MAX_ATTACHMENTS = 10;
+/** Sent when the user attaches files but types nothing. */
+const ATTACHMENTS_ONLY_PROMPT = "Please take a look at the attached files.";
 
 export default function PromptInput({
   ref,
   mode,
+  projectId,
   session,
   messages,
   isLoading,
@@ -75,10 +102,15 @@ export default function PromptInput({
   placeholder,
   onStop,
   onNewChat,
+  onSummarize,
   onModeChange,
   onSubmit,
 }: Props) {
   const [prompt, setPrompt] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(0);
+  const [dragging, setDragging] = useState(false);
   const [modelId, setModelId] = useState(() => loadSelectedModelId(mode));
   const opencode = useOpencode();
   const cursor = useCursor();
@@ -190,6 +222,64 @@ export default function PromptInput({
     attachFolder(session.id, path);
   };
 
+  /** Copy files into the app and show them above the text box. */
+  async function addAttachments(sources: (string | File)[]) {
+    setAttachError(null);
+    const room = MAX_ATTACHMENTS - attachments.length;
+    if (sources.length > room) setAttachError(`Up to ${MAX_ATTACHMENTS} files per message.`);
+    const accepted = sources.slice(0, Math.max(room, 0));
+    setImporting((n) => n + accepted.length);
+    await Promise.all(
+      accepted.map(async (source) => {
+        try {
+          const attachment =
+            typeof source === "string" ? await importAttachment(source) : await saveAttachment(source);
+          setAttachments((prev) => [...prev, attachment]);
+        } catch (error) {
+          setAttachError(String(error));
+        } finally {
+          setImporting((n) => n - 1);
+        }
+      }),
+    );
+    ref.current?.focus();
+  }
+
+  const pickFiles = async () => {
+    const picked = await open({ multiple: true, title: "Attach files or pictures" });
+    const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+    if (paths.length) await addAttachments(paths);
+  };
+
+  const pasteFiles = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(event.clipboardData.files);
+    if (files.length === 0) return;
+    event.preventDefault();
+    void addAttachments(files);
+  };
+
+  // Files dragged from Finder / Explorer onto the window.
+  const addRef = useLatest(addAttachments);
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    getCurrentWebview()
+      .onDragDropEvent(({ payload }) => {
+        if (payload.type === "enter" || payload.type === "over") setDragging(true);
+        else if (payload.type === "leave") setDragging(false);
+        else if (payload.type === "drop") {
+          setDragging(false);
+          if (payload.paths.length) void addRef.current(payload.paths);
+        }
+      })
+      .then((fn) => (disposed ? fn() : (unlisten = fn)))
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [addRef]);
+
   // `@` mentions: files and folders under the working folder.
   const mentionRoot = cwd || undefined;
   const { entries: workspaceEntries, loading: workspaceLoading } = useWorkspaceFiles(mentionRoot);
@@ -201,8 +291,26 @@ export default function PromptInput({
     [mention, workspaceEntries],
   );
 
-  /** Recompute an open `@` query from the caret position. */
+  // `/` (or `\`) calls a skill from Settings → Instructions.
+  const { skills: globalSkills } = useInstructions();
+  const projects = useProjects();
+  const skills = useMemo(() => {
+    const project = projects.find((p) => p.id === projectId);
+    return project?.skills.length ? [...project.skills, ...globalSkills] : globalSkills;
+  }, [projects, projectId, globalSkills]);
+  const [slash, setSlash] = useState<{ query: string; start: number } | null>(null);
+  const [slashActive, setSlashActive] = useState(0);
+  const skillMatches = useMemo(() => (slash ? filterSkills(skills, slash.query) : []), [slash, skills]);
+
+  /** Recompute an open `@` or `/` query from the caret position. */
   function updateMention(value: string, caret: number | undefined) {
+    const skill = caret == null ? null : /(?:^|\s)[/\\]([^\s/\\]*)$/.exec(value.slice(0, caret));
+    if (skill && caret != null) {
+      setSlash({ query: skill[1], start: caret - skill[1].length - 1 });
+      setSlashActive(0);
+    } else {
+      setSlash(null);
+    }
     if (caret == null || !mentionRoot) {
       setMention(null);
       return;
@@ -230,6 +338,20 @@ export default function PromptInput({
     });
   }
 
+  function insertSkill(skill: Skill) {
+    if (!slash) return;
+    const caret = ref.current?.selectionStart ?? prompt.length;
+    const token = `/${skillSlug(skill)} `;
+    const next = `${prompt.slice(0, slash.start)}${token}${prompt.slice(caret)}`;
+    const nextCaret = slash.start + token.length;
+    setPrompt(next);
+    setSlash(null);
+    requestAnimationFrame(() => {
+      ref.current?.focus();
+      ref.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+  }
+
   async function withMentions(text: string): Promise<string> {
     if (!mentionRoot || parseMentions(text).length === 0) return text;
     setAttaching(true);
@@ -241,17 +363,26 @@ export default function PromptInput({
   }
 
   async function send(text: string, model: AiModel) {
+    const files = attachments;
     setPrompt("");
+    setAttachments([]);
+    setAttachError(null);
     setMention(null);
-    const full = await withMentions(text);
-    const sent = await onSubmit({ prompt: full, model, budget: contextBudgetFor(model) });
-    if (!sent) setPrompt((current) => current || text);
+    setSlash(null);
+    const full = await withMentions(text || ATTACHMENTS_ONLY_PROMPT);
+    const sent = await onSubmit({ prompt: full, model, budget: contextBudgetFor(model), attachments: files });
+    if (!sent) {
+      setPrompt((current) => current || text);
+      setAttachments((current) => (current.length ? current : files));
+    }
   }
+
+  const canSend = (!!prompt.trim() || attachments.length > 0) && importing === 0;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = prompt.trim();
-    if (!trimmed || isLoading || attaching || opencodeMissing) return;
+    if (!canSend || isLoading || attaching || opencodeMissing) return;
     if (askForAccess(selected, () => void send(trimmed, selected))) return;
     await send(trimmed, selected);
   }
@@ -261,6 +392,29 @@ export default function PromptInput({
       onSubmit={handleSubmit}
       className="relative mx-auto w-full max-w-3xl rounded-2xl border bg-card p-3 shadow-sm transition-shadow focus-within:ring-1 focus-within:ring-amber-300"
     >
+      {dragging && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-amber-400 bg-amber-50/90 text-sm font-medium text-amber-800 dark:bg-amber-950/90 dark:text-amber-200">
+          <UploadIcon className="size-4" />
+          Drop to attach
+        </div>
+      )}
+
+      {(attachments.length > 0 || importing > 0) && (
+        <div className="scroll-hidden mb-2 flex gap-2 overflow-x-auto px-1 pt-1">
+          {attachments.map((attachment) => (
+            <AttachmentChip
+              key={attachment.id}
+              attachment={attachment}
+              onRemove={() => setAttachments((prev) => prev.filter((a) => a.id !== attachment.id))}
+            />
+          ))}
+          {Array.from({ length: importing }, (_, i) => (
+            <span key={`importing-${i}`} className="flex size-12 shrink-0 items-center justify-center rounded-lg border bg-muted/40">
+              <LoaderIcon className="size-4 animate-spin text-muted-foreground" />
+            </span>
+          ))}
+        </div>
+      )}
       {isCowork && extraFolders.length > 0 && session && (
         <div className="mb-1.5 flex flex-wrap gap-1 px-1">
           {extraFolders.map((folder) => (
@@ -285,6 +439,15 @@ export default function PromptInput({
       )}
 
       <div className="relative">
+        {slash && !mention && (
+          <SkillPopup
+            matches={skillMatches}
+            hasSkills={skills.length > 0}
+            active={slashActive}
+            onActiveChange={setSlashActive}
+            onSelect={insertSkill}
+          />
+        )}
         {mention && mentionMatches.length > 0 && (
           <MentionPopup
             query={mention.query}
@@ -308,8 +471,32 @@ export default function PromptInput({
           placeholder={placeholder ?? defaultPlaceholder}
           rows={2}
           disabled={isLoading}
+          onPaste={pasteFiles}
           className="max-h-40 min-h-12 resize-none border-0 bg-transparent p-1 text-[15px] shadow-none placeholder:text-muted-foreground focus-visible:ring-0 dark:bg-transparent"
           onKeyDown={(event) => {
+            if (slash && !mention) {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setSlash(null);
+                return;
+              }
+              if (skillMatches.length > 0) {
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setSlashActive((i) =>
+                    event.key === "ArrowDown"
+                      ? Math.min(i + 1, skillMatches.length - 1)
+                      : Math.max(i - 1, 0),
+                  );
+                  return;
+                }
+                if (event.key === "Enter" || event.key === "Tab") {
+                  event.preventDefault();
+                  insertSkill(skillMatches[slashActive] ?? skillMatches[0]);
+                  return;
+                }
+              }
+            }
             if (mention && mentionMatches.length > 0) {
               if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                 event.preventDefault();
@@ -339,6 +526,15 @@ export default function PromptInput({
         />
       </div>
 
+      {attachError && (
+        <p className="mt-1 flex items-start gap-1 px-1 text-xs text-red-600 dark:text-red-400">
+          <span className="min-w-0 flex-1">{attachError}</span>
+          <button type="button" aria-label="Dismiss" onClick={() => setAttachError(null)}>
+            <XIcon className="size-3" />
+          </button>
+        </p>
+      )}
+
       {opencodeMissing && (
         <p className="mt-1 px-1 text-xs text-red-600 dark:text-red-400">
           {opencode.check?.error ?? "OpenCode CLI is not available."}
@@ -353,6 +549,7 @@ export default function PromptInput({
             canAddFolder={!!session?.cwd}
             onPickWorkingFolder={pickWorkingFolder}
             onAddFolder={addAttachedFolder}
+            onAddFiles={() => void pickFiles()}
           />
           <WorkModeToggle mode={mode} onModeChange={onModeChange} />
           {isCowork && (
@@ -367,7 +564,13 @@ export default function PromptInput({
 
         <div className="ml-auto flex min-w-0 items-center gap-1">
           {(messages.length > 0 || isLoading) && (
-            <ContextMeter usage={usage} budget={budget} folders={folders} onNewChat={onNewChat} />
+            <ContextMeter
+              usage={usage}
+              budget={budget}
+              folders={folders}
+              onNewChat={onNewChat}
+              onSummarize={onSummarize && !isLoading ? () => onSummarize(selected, budget) : undefined}
+            />
           )}
           <ModelPicker
             models={catalog}
@@ -395,7 +598,7 @@ export default function PromptInput({
               type="submit"
               size="icon-sm"
               className="rounded-full"
-              disabled={!prompt.trim() || isLoading || attaching || opencodeMissing}
+              disabled={!canSend || isLoading || attaching || opencodeMissing}
               aria-label={attaching ? "Attaching files" : "Send"}
             >
               {isLoading || attaching ? <LoaderIcon className="animate-spin" /> : <ArrowUpIcon />}
@@ -448,3 +651,9 @@ function FolderChip({
   );
 }
 
+/** A ref that always holds the latest value, for long-lived listeners. */
+function useLatest<T>(value: T) {
+  const ref = useRef(value);
+  ref.current = value;
+  return ref;
+}

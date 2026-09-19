@@ -26,10 +26,12 @@ export function SectionHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-      <div className="min-w-0 space-y-1">
-        <h2 className="text-base font-semibold tracking-tight">{title}</h2>
-        {description && <p className="max-w-2xl text-sm text-muted-foreground">{description}</p>}
+    <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex min-w-0 flex-col gap-1">
+        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        {description && (
+          <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">{description}</p>
+        )}
       </div>
       {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
     </header>
@@ -37,15 +39,56 @@ export function SectionHeader({
 }
 
 export function GroupLabel({ children }: { children: ReactNode }) {
+  return <h3 className="text-sm font-medium text-foreground">{children}</h3>;
+}
+
+export function SettingsSection({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return <section className={cn("flex flex-col gap-4", className)}>{children}</section>;
+}
+
+export function EmptyState({
+  icon,
+  title,
+  description,
+  action,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: ReactNode;
+  action?: ReactNode;
+}) {
   return (
-    <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{children}</h3>
+    <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border/80 bg-muted/20 px-6 py-10 text-center">
+      <span className="flex size-12 items-center justify-center rounded-2xl bg-muted/60 text-muted-foreground [&_svg]:size-5">
+        {icon}
+      </span>
+      <div className="flex max-w-sm flex-col gap-1">
+        <p className="text-sm font-medium">{title}</p>
+        <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
+      </div>
+      {action}
+    </div>
   );
 }
 
-/** Responsive card grid: 1 → 2 → 3 → 4 columns. */
+export function SettingsList({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <ul className={cn("flex flex-col divide-y divide-border/60 overflow-hidden rounded-2xl border border-border/60 bg-card", className)}>
+      {children}
+    </ul>
+  );
+}
+
+/** Responsive card grid: 1 → 2 → 3 columns (settings content is narrower now). */
 export function CardGrid({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4", className)}>
+    <div className={cn("grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3", className)}>
       {children}
     </div>
   );
@@ -55,7 +98,7 @@ export function IconTile({ className, children }: { className?: string; children
   return (
     <span
       className={cn(
-        "flex size-11 shrink-0 items-center justify-center rounded-xl border bg-background shadow-xs [&_svg]:size-5",
+        "flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted/50 text-foreground [&_svg]:size-[1.125rem]",
         className,
       )}
     >
@@ -78,7 +121,7 @@ export function StatusPill({ tone, children, className }: { tone: Tone; children
   return (
     <span
       className={cn(
-        "inline-flex h-6 max-w-full items-center gap-1.5 truncate rounded-md border px-2 text-xs font-medium",
+        "inline-flex h-6 max-w-full items-center gap-1.5 truncate rounded-full border px-2.5 text-[11px] font-medium",
         TONES[tone],
         className,
       )}
@@ -118,10 +161,10 @@ export function IntegrationCard({
   return (
     <div
       className={cn(
-        "group relative flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-4 text-card-foreground shadow-xs transition-colors",
-        onOpen && "hover:border-foreground/20",
-        highlight === "success" && "border-emerald-500/30",
-        highlight === "danger" && "border-red-500/40",
+        "group relative flex min-w-0 flex-col gap-3 rounded-2xl border border-border/70 bg-card p-4 text-card-foreground transition-colors",
+        onOpen && "hover:border-border hover:bg-muted/15",
+        highlight === "success" && "border-emerald-500/35 bg-emerald-500/[0.03]",
+        highlight === "danger" && "border-red-500/35 bg-red-500/[0.03]",
       )}
     >
       {onOpen && (
@@ -137,9 +180,9 @@ export function IntegrationCard({
         {icon}
         {badge}
       </div>
-      <div className="pointer-events-none min-w-0 space-y-1">
-        <h3 className="truncate text-[15px] font-semibold">{title}</h3>
-        <p className="line-clamp-2 min-h-10 text-sm leading-5 text-muted-foreground">{description}</p>
+      <div className="pointer-events-none flex min-w-0 flex-col gap-1">
+        <h3 className="truncate text-[15px] font-semibold tracking-tight">{title}</h3>
+        <p className="line-clamp-2 min-h-10 text-sm leading-relaxed text-muted-foreground">{description}</p>
       </div>
       <div className="mt-auto flex min-h-8 items-center justify-between gap-2">
         <div className="pointer-events-none min-w-0">{status}</div>

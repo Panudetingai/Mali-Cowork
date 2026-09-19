@@ -6,9 +6,20 @@ import {
   useProviderConfigs,
   type ProviderDef,
 } from "@/features/providers";
+import { useVaultStatus } from "@/features/secrets";
+import { LockKeyholeIcon } from "lucide-react";
 import { useState } from "react";
 import { ProviderDialog, providerStatus } from "./provider-dialog";
-import { CardGrid, GroupLabel, IconTile, IntegrationCard, SectionHeader, StatusPill } from "./ui";
+import {
+  CardGrid,
+  GroupLabel,
+  IconTile,
+  IntegrationCard,
+  SectionHeader,
+  SettingsSection,
+  Notice,
+  StatusPill,
+} from "./ui";
 
 const GROUPS: { id: ProviderDef["group"]; label: string }[] = [
   { id: "local", label: "On this computer" },
@@ -23,10 +34,10 @@ export function ModelsSettings() {
   const connected = PROVIDERS.filter((p) => providerStatus(p, configs[p.id], envKeys).tone === "success").length;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-10">
       <SectionHeader
         title="AI Providers"
-        description="เชื่อม provider แล้วเลือก model ได้จากช่องพิมพ์ในหน้าแชท — ผู้ให้บริการที่มีป้าย Chat + Cowork ใช้กับ agent ได้ด้วย"
+        description="Connect a provider, then pick its models in the chat box. “Chat + Cowork” providers also work with agents."
         actions={
           <StatusPill tone={connected > 0 ? "success" : "neutral"}>
             {connected}/{PROVIDERS.length} connected
@@ -34,8 +45,10 @@ export function ModelsSettings() {
         }
       />
 
+      <KeyStorageNotice />
+
       {GROUPS.map((group) => (
-        <section key={group.id} className="flex flex-col gap-3">
+        <SettingsSection key={group.id}>
           <GroupLabel>{group.label}</GroupLabel>
           <CardGrid>
             {PROVIDERS.filter((p) => p.group === group.id).map((provider) => {
@@ -52,7 +65,7 @@ export function ModelsSettings() {
                   title={provider.name}
                   description={provider.description}
                   onOpen={() => setOpen(provider)}
-                  openLabel={`ตั้งค่า ${provider.name}`}
+                  openLabel={`Set up ${provider.name}`}
                   highlight={ready ? "success" : undefined}
                   status={<StatusPill tone={status.tone}>{status.label}</StatusPill>}
                   control={
@@ -64,10 +77,35 @@ export function ModelsSettings() {
               );
             })}
           </CardGrid>
-        </section>
+        </SettingsSection>
       ))}
 
       <ProviderDialog provider={open} onClose={() => setOpen(null)} />
     </div>
+  );
+}
+
+/** Where API keys are kept, so people know they aren't in plain text. */
+function KeyStorageNotice() {
+  const vault = useVaultStatus();
+  if (vault.state === "loading") return null;
+  if (vault.state === "unavailable") {
+    return (
+      <Notice tone="warning" title="Keychain unavailable">
+        API keys are kept in the app’s own storage on this device instead. ({vault.error})
+      </Notice>
+    );
+  }
+  const where =
+    vault.backend === "file"
+      ? "a file only your user account can read"
+      : navigator.userAgent.includes("Windows")
+        ? "Windows Credential Manager"
+        : "the macOS Keychain";
+  return (
+    <p className="-mt-6 flex items-center gap-1.5 text-xs text-muted-foreground">
+      <LockKeyholeIcon className="size-3.5 shrink-0" />
+      API keys and MCP tokens are stored in {where}, not in plain text.
+    </p>
   );
 }

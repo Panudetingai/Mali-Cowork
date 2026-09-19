@@ -7,7 +7,8 @@
 use serde_json::{json, Value};
 
 use super::mcp::{mcp_sync, McpServerEntry, McpSyncOptions};
-use super::opencode::{opencode_configure_providers, opencode_list_models, shutdown_server};
+use super::opencode::{opencode_configure_providers, opencode_list_models};
+use super::supervisor::shutdown_all as shutdown_server;
 
 struct StopServer;
 impl Drop for StopServer {

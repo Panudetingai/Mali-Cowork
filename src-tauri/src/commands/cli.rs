@@ -59,7 +59,7 @@ fn resolve_bin(bin: &str) -> Option<String> {
     {
         let mut candidates: Vec<String> = Vec::new();
         for query in [bin.to_string(), format!("{bin}.cmd"), format!("{bin}.exe"), format!("{bin}.bat")] {
-            if let Ok(out) = std::process::Command::new("where.exe").arg(&query).output() {
+            if let Ok(out) = crate::commands::process::std_command("where.exe").arg(&query).output() {
                 if out.status.success() {
                     let s = String::from_utf8_lossy(&out.stdout);
                     for line in s.lines() {
@@ -81,7 +81,7 @@ fn resolve_bin(bin: &str) -> Option<String> {
     }
     #[cfg(not(windows))]
     {
-        if let Ok(out) = std::process::Command::new("which").arg(bin).output() {
+        if let Ok(out) = crate::commands::process::std_command("which").arg(bin).output() {
             if out.status.success() {
                 let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 if !p.is_empty() && std::path::Path::new(&p).exists() {
@@ -138,35 +138,8 @@ fn resolve_bin(bin: &str) -> Option<String> {
 }
 
 fn build_command(bin_path: &str, args: &[String]) -> Command {
-    #[cfg(windows)]
-    {
-        let lower = bin_path.to_lowercase();
-        if lower.ends_with(".cmd") || lower.ends_with(".bat") {
-            let mut cmd = Command::new("cmd");
-            cmd.args(["/D", "/S", "/C", bin_path]);
-            cmd.args(args);
-            return cmd;
-        }
-        if !lower.contains('.') || (!lower.ends_with(".exe") && !lower.ends_with(".com")) {
-            if std::path::Path::new(bin_path).exists() {
-                if let Ok(content) = std::fs::read_to_string(bin_path) {
-                    if content.starts_with("#!") && content.contains("node") {
-                        let mut cmd = Command::new("node");
-                        cmd.arg(bin_path);
-                        cmd.args(args);
-                        return cmd;
-                    }
-                }
-                let mut cmd = Command::new("cmd");
-                cmd.args(["/D", "/S", "/C", bin_path]);
-                cmd.args(args);
-                return cmd;
-            }
-        }
-    }
-    let mut cmd = Command::new(bin_path);
-    cmd.args(args);
-    cmd
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    super::process::command(bin_path, &args)
 }
 
 fn augment_path_for_child(cmd: &mut Command) {
@@ -324,7 +297,9 @@ pub async fn cli_generate(
     on_event.send(ChatStreamEvent::Started)
         .map_err(|e| e.to_string())?;
 
-    let mut cmd = build_command(&bin_path, &args);
+    // Supervised, so the agent and the MCP servers it starts stop together,
+    // also when this function returns early or the app quits.
+    let mut cmd = super::supervisor::command(build_command(&bin_path, &args));
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
     augment_path_for_child(&mut cmd);
@@ -332,7 +307,7 @@ pub async fn cli_generate(
 
     eprintln!("[cli] spawning: {bin_path} {:?}", args);
 
-    let mut child = cmd.spawn().map_err(|e| {
+    let (mut child, _tree) = super::supervisor::spawn(&mut cmd, "cli agent").map_err(|e| {
         let path = std::env::var("PATH").unwrap_or_default();
         format!("Failed to spawn `{bin}` (resolved: `{bin_path}`): {e}\nPATH={path}\nแก้: where.exe {bin} / ตั้ง {bin}_BIN")
     })?;
@@ -500,7 +475,11 @@ pub async fn check_cli(agent: String) -> CliCheckResult {
     let ver_args: Vec<String> = vec!["--version".to_string()];
     let mut cmd = build_command(&path, &ver_args);
     augment_path_for_child(&mut cmd);
-    match cmd.output().await {
+    cmd.kill_on_drop(true);
+    let output = tokio::time::timeout(std::time::Duration::from_secs(20), cmd.output())
+        .await
+        .unwrap_or_else(|_| Err(std::io::Error::other("`--version` timed out")));
+    match output {
         Ok(out) if out.status.success() => {
             let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
             CliCheckResult { available: true, version: Some(ver), path: Some(path), error: None }

@@ -146,9 +146,12 @@
     background-color: var(--background);
     border-radius: var(--window-radius);
     isolation: isolate;
+    /* Fixed sidebar/titlebar layers sit in the viewport unless #root is the containing block. */
+    transform: translateZ(0);
   }
   html[data-window-maximized="true"] #root {
     border-radius: 0;
+    transform: none;
   }
 
   .scroll-hidden {
@@ -326,4 +329,14 @@
   max-width: 100%;
   border-radius: 0.625em;
   border: 1px solid var(--border);
+}
+
+/* TextShimmer (components/ui/text-shimmer.tsx): sweeps the highlight across. */
+@keyframes shimmer {
+  0% {
+    background-position: 200% 50%;
+  }
+  100% {
+    background-position: -200% 50%;
+  }
 }

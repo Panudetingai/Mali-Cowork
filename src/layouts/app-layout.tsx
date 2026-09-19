@@ -1,6 +1,7 @@
 import { SidebarInset, SidebarProvider } from "@/components/animate-ui/components/radix/sidebar";
 import { AppSidebar } from "@/components/app/sidebar/app-sidebar";
 import { Titlebar } from "@/components/app/titlebar/titlebar";
+import { RegistryInstallDialog } from "@/pages/settings/mcp/registry-install-dialog";
 import { Outlet } from "react-router-dom";
 
 export function AppLayout() {
@@ -9,12 +10,14 @@ export function AppLayout() {
       <Titlebar />
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <AppSidebar />
-        <SidebarInset className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-          <div className="flex flex-1 flex-col gap-4 overflow-auto">
+        <SidebarInset className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+          <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-auto">
             <Outlet />
           </div>
         </SidebarInset>
       </div>
+      {/* Opened from Settings → Connectors and from install cards in chat. */}
+      <RegistryInstallDialog />
     </SidebarProvider>
   );
 }

@@ -1,14 +1,24 @@
 import { AppLayout } from "@/layouts/app-layout";
+import { OnboardingDialog, openOnboarding, isOnboardingDone, FORCE_ONBOARDING } from "@/features/onboarding";
+import { useEffect } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import ChatLayout from "./pages/chat/layout";
+import ProjectsPage from "./pages/projects";
+import ProjectPage from "./pages/projects/project-page";
 import SettingsPage from "./pages/settings";
 
 function App() {
+  useEffect(() => {
+    if (!isOnboardingDone() || FORCE_ONBOARDING) openOnboarding();
+  }, []);
+
   return (
     <Routes>
       <Route element={<AppLayout />}>
         <Route index element={<ChatLayout />} />
         <Route path="chat/:chatId" element={<ChatLayout />} />
+        <Route path="projects" element={<ProjectsPage />} />
+        <Route path="projects/:projectId" element={<ProjectPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
@@ -16,4 +26,11 @@ function App() {
   );
 }
 
-export default App;
+export default function AppWithOnboarding() {
+  return (
+    <>
+      <OnboardingDialog />
+      <App />
+    </>
+  );
+}

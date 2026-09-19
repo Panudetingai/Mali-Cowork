@@ -82,6 +82,8 @@ export async function opencodeGenerateStream(
       autoApprove: request.autoApprove ?? false,
       mode: request.mode ?? "cowork",
       folders: request.folders ?? [],
+      files: request.files ?? [],
+      instructions: request.instructions || null,
     },
     onEvent: createStreamChannel(handlers),
   });
