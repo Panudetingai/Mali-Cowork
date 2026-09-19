@@ -1,4 +1,10 @@
-# Mali Cowork — Tauri Desktop App
+<p align="center">
+  <img src="./docs/brand/mali-cowork-icon.png" width="128" height="128" alt="Mali Cowork logo: yellow blob with two dark pill-shaped eyes" />
+</p>
+
+# Mali Cowork
+
+**Mali Cowork** is a desktop app (Tauri + React + Rust) for talking to AI and running agents on your machine. Use **Chat** for Q&amp;A and writing, or **Cowork** to let an agent read and change files only in folders you allow — via provider APIs (OpenAI, Anthropic, and others), local CLI agents (OpenCode, Codex, Gemini CLI, Cursor Agent), or a local agent server. See [Features](./docs/FEATURES.md) for the full capability list.
 
 > React (WebView) → Rust Core → 3 backends: Local CLI / Agent, Provider API, Local Port/Socket
 
@@ -40,7 +46,13 @@ bun tauri dev          # รัน Tauri + Vite (port 1420)
 
 GitHub Actions workflow [`.github/workflows/release.yml`](./.github/workflows/release.yml) builds installers and attaches them to a GitHub Release.
 
-**Version** must match in `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`.
+**Version** must match in `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`. Current release: **v0.1.2**.
+
+### Brand assets
+
+Official icon (PNG): [`docs/brand/mali-cowork-icon.png`](./docs/brand/mali-cowork-icon.png) (white background master). Transparent master: [`docs/brand/mali-cowork-icon-transparent.png`](./docs/brand/mali-cowork-icon-transparent.png). Web UI favicons and Open Graph image live under [`public/`](./public/) (`icon.png`, `favicon-*.png`, `icon-512.png`).
+
+To set the GitHub repository **social preview** image, upload `docs/brand/mali-cowork-icon.png` in the repo **Settings → General → Social preview** (API upload requires elevated token scopes from maintainers).
 
 ### วิธีปล่อยเวอร์ชันให้คนอื่นดาวน์โหลด
 
@@ -48,8 +60,8 @@ GitHub Actions workflow [`.github/workflows/release.yml`](./.github/workflows/re
 2. สร้าง tag และ push:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 3. รอ workflow **Release** บน GitHub Actions ให้เสร็จ
