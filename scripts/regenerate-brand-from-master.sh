@@ -24,11 +24,11 @@ PY
 mkdir -p "$ROOT/docs/brand"
 cp "$MASTER" "$ROOT/docs/brand/mali-cowork-icon.png"
 
-python3 << 'PY'
+python3 << PY
 from PIL import Image
 from pathlib import Path
 
-root = Path("""$ROOT""")
+root = Path("$ROOT")
 master = Image.open(root / "docs/brand/mali-cowork-icon.png").convert("RGBA")
 
 # Transparent variant: white -> alpha
