@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerate Mali Cowork brand + app icons from Luke's white-background master PNG.
+# Regenerate Mali Cowork brand + app icons from Luke's transparent master PNG (~1337×1177).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MASTER="${1:-$ROOT/mali-cowork-icon.png}"
@@ -12,65 +12,62 @@ fi
 python3 << PY
 from PIL import Image
 from pathlib import Path
-master = Path("$MASTER")
-im = Image.open(master)
-print("master", master, im.size, im.mode)
-if im.size[0] < 1000 or im.size[1] < 1000:
-    raise SystemExit(
-        f"expected ~1337x1177 master from chat attachment, got {im.size}"
-    )
-PY
-
-mkdir -p "$ROOT/docs/brand"
-cp "$MASTER" "$ROOT/docs/brand/mali-cowork-icon.png"
-
-python3 << PY
-from PIL import Image
-from pathlib import Path
 
 root = Path("$ROOT")
-master = Image.open(root / "docs/brand/mali-cowork-icon.png").convert("RGBA")
+master_path = Path("$MASTER")
+master = Image.open(master_path).convert("RGBA")
+print("master", master_path, master.size, master.mode)
+if master.size[0] < 1000 or master.size[1] < 1000:
+    raise SystemExit(f"expected ~1337x1177 master, got {master.size}")
 
-# Transparent variant: white -> alpha
-px = master.load()
-w, h = master.size
-transparent = Image.new("RGBA", (w, h))
-for y in range(h):
-    for x in range(w):
-        r, g, b, a = px[x, y]
-        if a == 0:
-            continue
-        if r > 245 and g > 245 and b > 245:
-            transparent.putpixel((x, y), (255, 255, 255, 0))
-        else:
-            transparent.putpixel((x, y), (r, g, b, a))
-transparent.save(root / "docs/brand/mali-cowork-icon-transparent.png")
+corner = master.getpixel((0, 0))
+if corner[3] > 16:
+    print("warning: top-left pixel is not transparent:", corner)
 
-# Square 1024 canvas (fit blob, white bg) for tauri icon CLI
-blob = transparent.getbbox()
+brand_dir = root / "docs/brand"
+brand_dir.mkdir(parents=True, exist_ok=True)
+
+# Primary brand masters (transparent)
+for dest in (
+    root / "mali-cowork-icon.png",
+    brand_dir / "mali-cowork-icon.png",
+    brand_dir / "mali-cowork-icon-transparent.png",
+):
+    master.save(dest, optimize=True)
+
+# Optional white-background export for GitHub social preview only (not used for app icons)
+social = Image.new("RGBA", master.size, (255, 255, 255, 255))
+social.paste(master, (0, 0), master)
+social.convert("RGB").save(brand_dir / "mali-cowork-icon-social-preview.png", optimize=True)
+
+# Square 1024 canvas, transparent — for Tauri icon CLI
+blob = master.getbbox()
 if not blob:
     raise SystemExit("no opaque pixels in master")
-cropped = transparent.crop(blob)
+cropped = master.crop(blob)
 side = max(cropped.size)
-canvas = Image.new("RGBA", (side, side), (255, 255, 255, 255))
+canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
 ox = (side - cropped.width) // 2
 oy = (side - cropped.height) // 2
 canvas.paste(cropped, (ox, oy), cropped)
 up = canvas.resize((1024, 1024), Image.Resampling.LANCZOS)
-up.convert("RGB").save(root / "docs/brand/mali-cowork-icon-1024.png", optimize=True)
+up.save(brand_dir / "mali-cowork-icon-1024.png", optimize=True)
 
-# Public web icons (square crop of blob on white)
+# Public web icons (keep alpha — no white matte)
+public = root / "public"
+public.mkdir(parents=True, exist_ok=True)
 for size in (16, 32, 180, 512):
-    out = up.resize((size, size), Image.Resampling.LANCZOS).convert("RGB")
+    out = up.resize((size, size), Image.Resampling.LANCZOS)
     if size == 180:
-        out.save(root / "public/apple-touch-icon.png", optimize=True)
+        out.save(public / "apple-touch-icon.png", optimize=True)
     elif size == 512:
-        out.save(root / "public/icon-512.png", optimize=True)
-        out.save(root / "public/icon.png", optimize=True)
+        out.save(public / "icon-512.png", optimize=True)
+        out.save(public / "icon.png", optimize=True)
     else:
-        out.save(root / f"public/favicon-{size}x{size}.png", optimize=True)
-Image.open(root / "public/favicon-32x32.png").save(root / "public/favicon.png")
-print("wrote docs/brand + public icons")
+        out.save(public / f"favicon-{size}x{size}.png", optimize=True)
+out32 = Image.open(public / "favicon-32x32.png")
+out32.save(public / "favicon.png", optimize=True)
+print("wrote transparent docs/brand + public icons")
 PY
 
 (
