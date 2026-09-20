@@ -5,10 +5,8 @@ import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
-  DialogTitle,
 } from "@/components/ui/dialog";
 import { setMcpConnected } from "@/features/mcp/store";
 import { cn } from "@/lib/utils";
@@ -17,7 +15,6 @@ import {
   CheckCircleIcon,
   ChevronRightIcon,
   LoaderIcon,
-  SparklesIcon,
   TerminalIcon,
   WandSparklesIcon,
   XCircleIcon,

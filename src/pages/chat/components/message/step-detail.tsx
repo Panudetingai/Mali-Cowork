@@ -6,7 +6,6 @@ import {
   CodeBlockTitle,
 } from "@/components/ai-elements/code-block";
 import { cn } from "@/lib/utils";
-import { TerminalIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import type { BundledLanguage } from "shiki";
 
