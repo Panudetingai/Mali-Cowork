@@ -1,7 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { PermissionRequest } from "@/pages/chat/api/chat";
-import { ShieldAlertIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { PermissionReply } from "./types";

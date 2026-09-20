@@ -1,7 +1,5 @@
 import type { ChatSession } from "@/features/chat-history";
 import {
-  PERMISSION_PREVIEW_ENABLED,
-  PERMISSION_PREVIEW_REQUESTS,
   PermissionPrompt,
   type PermissionReply,
   type WorkMode,
