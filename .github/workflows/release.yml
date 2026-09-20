@@ -2,6 +2,11 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      version_tag:
+        description: "Release tag (must match src-tauri/tauri.conf.json), e.g. v0.1.2"
+        required: false
+        default: ""
   push:
     tags:
       - "v*"
@@ -31,6 +36,26 @@ jobs:
         uses: actions/checkout@v4
 
       # Fail in seconds, not after the Rust build, on config the bundler rejects.
+      - name: Resolve release tag
+        id: release_tag
+        shell: bash
+        run: |
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          expected="v${version}"
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            tag="${{ github.ref_name }}"
+          elif [[ -n "${{ inputs.version_tag }}" ]]; then
+            tag="${{ inputs.version_tag }}"
+          else
+            tag="$expected"
+          fi
+          if [[ "$tag" != "$expected" ]]; then
+            echo "::error::tag $tag does not match tauri.conf.json version $version (expected $expected)"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Check release config
         shell: bash
         run: |
@@ -71,7 +96,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           # The pushed tag; a manual run releases the version in tauri.conf.json.
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || steps.release_tag.outputs.tag }}
           releaseName: Mali Cowork v__VERSION__
           releaseBody: |
             ## Install
