@@ -25,7 +25,7 @@ pub struct Attachment {
     pub path: String,
     pub mime: String,
     pub size: u64,
-    /// `image` (sent as a picture), `text` (inlined) or `file` (anything else).
+    /// `image`, `video`, `text` (inlined), or `file` (anything else).
     pub kind: &'static str,
 }
 
@@ -96,6 +96,8 @@ fn describe(path: &Path) -> Result<Attachment, String> {
     let mime = mime_for(path);
     let kind = if mime.starts_with("image/") {
         "image"
+    } else if mime.starts_with("video/") {
+        "video"
     } else if size <= MAX_TEXT_BYTES && looks_like_text(path) {
         "text"
     } else {
@@ -191,6 +193,11 @@ pub fn mime_for(path: &Path) -> &'static str {
         "jpg" | "jpeg" => "image/jpeg",
         "gif" => "image/gif",
         "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "mp4" | "m4v" => "video/mp4",
+        "webm" => "video/webm",
+        "mov" => "video/quicktime",
+        "mkv" => "video/x-matroska",
         "pdf" => "application/pdf",
         "md" | "markdown" => "text/markdown",
         "csv" => "text/csv",

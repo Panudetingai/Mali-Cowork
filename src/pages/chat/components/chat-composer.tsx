@@ -1,13 +1,14 @@
 import type { ChatSession } from "@/features/chat-history";
 import {
   PermissionPrompt,
+  QuestionPrompt,
   type PermissionReply,
   type WorkMode,
 } from "@/features/opencode";
 import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
 import type { RefObject } from "react";
-import type { PermissionRequest } from "../api/chat";
+import type { PermissionRequest, QuestionRequest } from "../api/chat";
 import type { SendMessage } from "../hooks/use-chat";
 import type { AiModel, ContextBudget } from "../models";
 import type { ChatMessage } from "../types";
@@ -23,8 +24,11 @@ type Props = {
   canStop: boolean;
   promptInputRef: RefObject<HTMLTextAreaElement | null>;
   permissions: PermissionRequest[];
+  /** Questions the agent asked; the turn waits until one is answered. */
+  questions: QuestionRequest[];
   placeholder?: string;
   onReplyPermission: (request: PermissionRequest, reply: PermissionReply) => Promise<void>;
+  onAnswerQuestion: (request: QuestionRequest, answers: string[][]) => Promise<void>;
   onAllowFolder: (request: PermissionRequest, folder: string) => Promise<void>;
   onStop: () => void;
   onNewChat: (options?: { cwd?: string }) => void;
@@ -42,8 +46,10 @@ export function ChatComposer({
   canStop,
   promptInputRef,
   permissions,
+  questions,
   placeholder,
   onReplyPermission,
+  onAnswerQuestion,
   onAllowFolder,
   onStop,
   onNewChat,
@@ -53,6 +59,10 @@ export function ChatComposer({
 }: Props) {
   const permissionRequests = permissions;
   const hasPermission = permissionRequests.length > 0;
+  // A question and a permission never wait at the same time, but if they did,
+  // the permission blocks the tool that would ask, so it comes first.
+  const hasQuestion = !hasPermission && questions.length > 0;
+  const waiting = hasPermission || hasQuestion;
 
   const replyPermission = async (request: PermissionRequest, reply: PermissionReply) => {
     await onReplyPermission(request, reply);
@@ -69,12 +79,17 @@ export function ChatComposer({
           <PermissionPrompt stacked requests={permissionRequests} onReply={replyPermission} onAllowFolder={allowFolder} />
         </div>
       )}
+      {hasQuestion && (
+        <div className="relative z-0 -mb-2.5">
+          <QuestionPrompt stacked requests={questions} onAnswer={onAnswerQuestion} />
+        </div>
+      )}
       <motion.div
         layout
         transition={{ type: "spring", stiffness: 420, damping: 34 }}
         className={cn(
           "relative z-10",
-          hasPermission && "rounded-2xl ring-1 ring-border/80 shadow-md",
+          waiting && "rounded-2xl ring-1 ring-border/80 shadow-md",
         )}
       >
         <PromptInput

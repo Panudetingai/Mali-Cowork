@@ -97,6 +97,7 @@ export async function generateStream(
   let { modelId } = request;
   const attachments = request.attachments ?? [];
   const images = attachments.filter((a) => a.kind === "image").map((a) => a.path);
+  const videos = attachments.filter((a) => a.kind === "video").map((a) => a.path);
   const pdfs = attachments.filter((a) => a.mime === "application/pdf").map((a) => a.path);
 
   // Provider APIs here only take text; OpenCode can send the same model a picture.
@@ -130,7 +131,7 @@ export async function generateStream(
         autoApprove: request.mode === "cowork" && settings.autoApprove,
         mode: request.mode,
         folders: request.folders,
-        files: [...images, ...pdfs],
+        files: [...images, ...pdfs, ...videos],
         instructions: request.instructions,
       },
       handlers,

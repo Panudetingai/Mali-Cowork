@@ -3,7 +3,7 @@ import { syncToDatabase } from "@/lib/db-sync";
 import { loadHistorySnapshot, type HistorySnapshot } from "@/lib/history-db";
 import { createStore } from "@/lib/local-store";
 import { invoke } from "@tauri-apps/api/core";
-import type { PermissionRequest } from "@/pages/chat/api/chat";
+import type { PermissionRequest, QuestionRequest } from "@/pages/chat/api/chat";
 import type { ChatMessage } from "@/pages/chat/types";
 
 export type ChatSession = {
@@ -49,6 +49,8 @@ export type ChatRun = {
   modelId: string;
   agentSessionId?: string;
   permissions: PermissionRequest[];
+  /** Questions the agent asked; the prompt waits until they are answered. */
+  questions: QuestionRequest[];
   /** Cowork: snapshot taken before this turn, so it can be undone. */
   checkpointId?: string;
 };
@@ -179,6 +181,22 @@ export function attachFolder(id: string, folder: string) {
   );
 }
 
+/** Drop stored agent session ids so the next prompt opens a fresh backend session. */
+export function clearAgentSessions(chatId?: string) {
+  const strip = (s: ChatSession): ChatSession => ({
+    ...s,
+    opencodeSessionId: undefined,
+    cursorSessionId: undefined,
+    codexSessionId: undefined,
+    geminiSessionId: undefined,
+  });
+  if (chatId) {
+    updateChat(chatId, strip);
+    return;
+  }
+  sessionStore.set((prev) => prev.map(strip));
+}
+
 export function detachFolder(id: string, folder: string) {
   updateChat(id, (s) => ({ ...s, folders: s.folders?.filter((f) => f !== folder) }));
 }
@@ -204,7 +222,7 @@ export function deleteChat(id: string) {
 /** Returns the run's token for `endRun`. */
 export function startRun(id: string, modelId: string) {
   const token = crypto.randomUUID();
-  runStore.set((prev) => ({ ...prev, [id]: { token, modelId, permissions: [] } }));
+  runStore.set((prev) => ({ ...prev, [id]: { token, modelId, permissions: [], questions: [] } }));
   return token;
 }
 

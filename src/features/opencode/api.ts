@@ -44,6 +44,17 @@ export function opencodeReplyPermission(
   });
 }
 
+/**
+ * Answer a question the agent asked: one list of chosen labels per question,
+ * in the order they were asked. An empty list withdraws the question, so the
+ * agent stops waiting and carries on.
+ */
+export function opencodeReplyQuestion(id: string, directory: string, answers: string[][]) {
+  return invoke<void>("opencode_question_reply", {
+    request: { id, directory, answers },
+  });
+}
+
 const warmed = new Set<string>();
 
 /** Load a folder's OpenCode instance ahead of the first prompt (once per folder). */

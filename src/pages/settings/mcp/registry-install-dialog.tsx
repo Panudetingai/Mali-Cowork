@@ -58,7 +58,7 @@ export function RegistryInstallDialog() {
 
   return (
     <Dialog open={!!request} onOpenChange={(open) => !open && close()}>
-      <DialogContent className="max-h-[calc(100svh-2rem)] gap-5 overflow-y-auto sm:max-w-lg">
+      <DialogContent className="flex max-h-[calc(100svh-2rem)] min-w-0 flex-col gap-5 overflow-x-hidden overflow-y-auto sm:max-w-xl">
         {request &&
           (picked ? (
             <InstallForm key={picked.name} server={picked} fromChat={!!request.fromChat} onClose={close} />
@@ -82,8 +82,8 @@ function PickServer({ query, onPick, onClose }: { query: string; onPick: (s: Reg
   }, [query]);
 
   return (
-    <>
-      <DialogHeader className="pr-8">
+    <div className="flex min-w-0 flex-col gap-5">
+      <DialogHeader className="pr-10">
         <DialogTitle>Choose a connector</DialogTitle>
         <DialogDescription>Results for “{query}” in the MCP Registry.</DialogDescription>
       </DialogHeader>
@@ -114,12 +114,12 @@ function PickServer({ query, onPick, onClose }: { query: string; onPick: (s: Reg
           ))}
         </ul>
       )}
-      <DialogFooter>
+      <DialogFooter className="min-w-0 flex-wrap gap-2">
         <Button type="button" variant="ghost" onClick={onClose}>
           Cancel
         </Button>
       </DialogFooter>
-    </>
+    </div>
   );
 }
 
@@ -161,17 +161,17 @@ function InstallForm({ server, fromChat, onClose }: { server: RegistryServer; fr
 
   if (!option) {
     return (
-      <>
+      <div className="flex min-w-0 flex-col gap-5">
         <Header server={server} />
         <Notice tone="warning" title="Can’t install this one here">
           It has no install method this app supports (npm, PyPI, Docker or a remote https server).
         </Notice>
-        <DialogFooter>
+        <DialogFooter className="min-w-0 flex-wrap gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>
             Close
           </Button>
         </DialogFooter>
-      </>
+      </div>
     );
   }
 
@@ -221,7 +221,7 @@ function InstallForm({ server, fromChat, onClose }: { server: RegistryServer; fr
   const secretFields = option.fields.some((f) => f.secret);
 
   return (
-    <>
+    <div className="flex min-w-0 flex-col gap-5">
       <Header server={server} />
 
       {fromChat && !status && (
@@ -325,13 +325,13 @@ function InstallForm({ server, fromChat, onClose }: { server: RegistryServer; fr
               </p>
             </div>
           ) : (
-            <div className="flex flex-col gap-1">
+            <div className="flex min-w-0 flex-col gap-2 rounded-xl border border-border/60 bg-muted/25 px-3 py-2.5">
               <p className="text-sm font-medium">Connects to</p>
-              <p className="flex items-center gap-1.5 truncate font-mono text-xs text-muted-foreground">
-                <GlobeIcon className="size-3.5 shrink-0" />
-                {built.url}
+              <p className="flex min-w-0 items-start gap-1.5 font-mono text-xs leading-relaxed break-all text-muted-foreground">
+                <GlobeIcon className="mt-0.5 size-3.5 shrink-0" />
+                <span>{built.url}</span>
               </p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs leading-relaxed text-muted-foreground">
                 {/^http:\/\/(127\.0\.0\.1|localhost)/.test(built.url ?? "")
                   ? "A server running on this computer; nothing is sent over the internet."
                   : `If it needs an account, you’ll sign in with ${hostOf(built.url) || "the service"} in your browser.`}
@@ -392,7 +392,7 @@ function InstallForm({ server, fromChat, onClose }: { server: RegistryServer; fr
       )}
       {!available && !done && <Notice tone="warning">Connectors run through OpenCode. Set it up in Settings → Agents.</Notice>}
 
-      <DialogFooter>
+      <DialogFooter className="min-w-0 flex-wrap gap-2">
         {phase === "signing-in" && signingInId ? (
           <Button type="button" variant="ghost" onClick={() => cancelSignIn(signingInId)}>
             Cancel sign-in
@@ -432,19 +432,19 @@ function InstallForm({ server, fromChat, onClose }: { server: RegistryServer; fr
           ))}
         </ul>
       )}
-    </>
+    </div>
   );
 }
 
 function Header({ server }: { server: RegistryServer }) {
   return (
-    <DialogHeader className="flex-row items-start gap-3 space-y-0 pr-8 text-left">
-      <RegistryIcon icons={server.icons} size={44} className="rounded-xl" />
+    <DialogHeader className="min-w-0 flex-row items-start gap-3 space-y-0 pr-10 text-left">
+      <RegistryIcon icons={server.icons} size={44} className="shrink-0 rounded-xl" />
       <div className="min-w-0 flex-1">
-        <DialogTitle className="truncate">{server.title}</DialogTitle>
+        <DialogTitle className="text-base leading-snug line-clamp-2">{server.title}</DialogTitle>
         <DialogDescription asChild>
-          <div className="flex flex-col gap-1.5 pt-1">
-            <span className="text-sm">{server.description}</span>
+          <div className="flex min-w-0 flex-col gap-1.5 pt-1">
+            <span className="text-sm leading-relaxed text-pretty break-words">{server.description}</span>
             <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
               <span title="Publisher (MCP Registry namespace)" className="font-mono">
                 {registryPublisher(server.name)}

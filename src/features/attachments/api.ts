@@ -37,8 +37,12 @@ export async function buildAttachmentAppendix(attachments: Attachment[], { files
       } catch {
         parts.push(`--- Attached: ${attachment.name} ---\n(could not be read)`);
       }
-    } else if (attachment.kind === "file" && !filesInline) {
-      parts.push(`--- Attached: ${attachment.name} ---\nSaved at ${attachment.path}`);
+    } else if ((attachment.kind === "file" || attachment.kind === "video") && !filesInline) {
+      const note =
+        attachment.kind === "video"
+          ? "Video attached (the model may not be able to watch it on this backend)."
+          : `Saved at ${attachment.path}`;
+      parts.push(`--- Attached: ${attachment.name} ---\n${note}`);
     }
   }
   return parts.length ? `\n\n${parts.join("\n\n")}` : "";

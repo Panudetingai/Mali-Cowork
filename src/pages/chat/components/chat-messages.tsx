@@ -12,6 +12,13 @@ type Props = {
 
 export function ChatMessages({ messages, isLoading, onRetry, onRate }: Props) {
   const isEmpty = messages.length === 0 && !isLoading;
+  // The prompt the latest exchange came from. A reply that failed part-way
+  // leaves its own bubble plus an error bubble, so "the message before this
+  // one" isn't always the prompt to resend.
+  const retrySource =
+    isLoading || !onRetry
+      ? undefined
+      : [...messages].reverse().find((m) => m.role === "user" && m.resend)?.id;
   if (isEmpty) return null;
 
   return (
@@ -20,11 +27,8 @@ export function ChatMessages({ messages, isLoading, onRetry, onRate }: Props) {
         {messages.map((msg, index) => {
           const isLast = index === messages.length - 1;
           // Retry regenerates from here, so only the latest exchange offers it.
-          const prev = isLast && index > 0 ? messages[index - 1] : undefined;
           const retryTarget =
-            !isLoading && onRetry && (msg.role === "assistant" || msg.role === "error") && prev?.role === "user" && prev.resend
-              ? prev.id
-              : undefined;
+            isLast && (msg.role === "assistant" || msg.role === "error") ? retrySource : undefined;
           const rate = onRate && msg.role === "assistant" ? onRate : undefined;
           return (
             <motion.div

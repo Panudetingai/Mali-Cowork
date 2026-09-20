@@ -8,6 +8,7 @@
 //! - `opencode_default_cwd`      — safe default working directory
 //! - `opencode_generate`         — send a prompt and stream events back
 //! - `opencode_permission_reply` — answer a permission request
+//! - `opencode_question_reply`   — answer a question the agent asked
 //! - `opencode_abort`            — stop a running prompt
 //! - `opencode_set_auth`         — store an API key for a provider
 //! - `opencode_delete_session`   — remove a session when its chat is deleted
@@ -22,6 +23,7 @@ mod events;
 mod instances;
 mod policy;
 mod providers;
+mod schema;
 mod server;
 
 pub(crate) use client::OpencodeClient;
@@ -29,8 +31,8 @@ pub(crate) use commands::session_dir;
 pub(crate) use instances::{lease as lease_instance, DEFAULT as DEFAULT_INSTANCE};
 pub use commands::{
     opencode_abort, opencode_check, opencode_default_cwd, opencode_delete_session,
-    opencode_generate, opencode_list_models, opencode_permission_reply, opencode_set_auth,
-    opencode_warm,
+    opencode_generate, opencode_list_models, opencode_permission_reply, opencode_question_reply,
+    opencode_set_auth, opencode_warm,
 };
 pub use providers::opencode_configure_providers;
 pub use server::ensure_server as warm_up_server;
@@ -99,6 +101,17 @@ pub struct PermissionReplyRequest {
     /// Session whose running prompt should also allow `grant` from now on.
     pub session_id: Option<String>,
     pub grant: Option<FolderGrant>,
+}
+
+/// An answer to the agent's question: one list of chosen labels per question,
+/// in the order they were asked. Empty withdraws the question.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuestionReplyRequest {
+    pub id: String,
+    pub directory: String,
+    #[serde(default)]
+    pub answers: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]

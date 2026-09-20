@@ -33,6 +33,29 @@ export type PermissionRequest = {
   detail?: string | null;
 };
 
+/** One choice the agent offers for a question. */
+export type QuestionOption = {
+  label: string;
+  description?: string | null;
+};
+
+export type QuestionItem = {
+  question: string;
+  header?: string | null;
+  options: QuestionOption[];
+  /** More than one option may be picked. */
+  multiple: boolean;
+  /** An answer of the user's own is allowed. */
+  custom: boolean;
+};
+
+/** The agent asked the user something and waits for the answer. */
+export type QuestionRequest = {
+  id: string;
+  directory: string;
+  questions: QuestionItem[];
+};
+
 export type TodoItem = {
   id?: string;
   text: string;
@@ -49,6 +72,8 @@ export type ChatStreamEvent =
   | { event: "metadata"; data: StreamMetadata }
   | { event: "permission"; data: PermissionRequest }
   | { event: "permissionResolved"; data: { id: string } }
+  | { event: "question"; data: QuestionRequest }
+  | { event: "questionResolved"; data: { id: string } }
   | { event: "done"; data: { modelId: string } }
   | { event: "error"; data: { message: string } };
 
@@ -61,6 +86,8 @@ export type ChatStreamHandlers = {
   onMetadata?: (data: StreamMetadata) => void;
   onPermission?: (request: PermissionRequest) => void;
   onPermissionResolved?: (id: string) => void;
+  onQuestion?: (request: QuestionRequest) => void;
+  onQuestionResolved?: (id: string) => void;
   onDone: (modelId: string) => void;
   onError: (message: string) => void;
 };
@@ -93,6 +120,12 @@ export function createStreamChannel(handlers: ChatStreamHandlers) {
         break;
       case "permissionResolved":
         handlers.onPermissionResolved?.(message.data.id);
+        break;
+      case "question":
+        handlers.onQuestion?.(message.data);
+        break;
+      case "questionResolved":
+        handlers.onQuestionResolved?.(message.data.id);
         break;
       case "done":
         handlers.onDone(message.data.modelId);

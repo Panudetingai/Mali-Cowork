@@ -270,7 +270,7 @@ export function CopyCommand({ command, className }: { command: string; className
 export function SecretInput({ className, ...props }: Omit<ComponentProps<typeof Input>, "type">) {
   const [show, setShow] = useState(false);
   return (
-    <div className="relative">
+    <div className="relative min-w-0 w-full">
       <Input
         type={show ? "text" : "password"}
         autoComplete="off"

@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
-use crate::chat_stream::{AgentUsage, ChatStreamEvent, TodoItem};
+use crate::chat_stream::{AgentUsage, ChatStreamEvent, QuestionItem, QuestionOption, TodoItem};
 
 const MAX_DETAIL_CHARS: usize = 1200;
 
@@ -13,6 +13,8 @@ pub enum Outcome {
     Emit(ChatStreamEvent),
     /// The agent needs approval before it can continue.
     PermissionAsked(PermissionAsk),
+    /// The agent asked the user something and is waiting for the answer.
+    QuestionAsked(QuestionAsk),
     /// The prompt finished.
     Idle,
     Failed(String),
@@ -28,6 +30,11 @@ pub struct PermissionAsk {
     pub path: Option<String>,
     /// Shell command the tool wants to run (`bash`).
     pub command: Option<String>,
+}
+
+pub struct QuestionAsk {
+    pub id: String,
+    pub questions: Vec<QuestionItem>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -91,6 +98,15 @@ impl EventTranslator {
             "permission.replied" if self.is_related(props) => {
                 let id = props["requestID"].as_str().unwrap_or_default().to_string();
                 vec![Outcome::Emit(ChatStreamEvent::PermissionResolved { id })]
+            }
+            // The agent cannot continue until these are answered, so they are
+            // forwarded like permissions rather than left to time out.
+            "question.asked" if self.is_related(props) => {
+                vec![Outcome::QuestionAsked(question_ask(props))]
+            }
+            "question.replied" | "question.rejected" if self.is_related(props) => {
+                let id = props["requestID"].as_str().unwrap_or_default().to_string();
+                vec![Outcome::Emit(ChatStreamEvent::QuestionResolved { id })]
             }
             "session.error" if self.is_own(props) => {
                 let error = &props["error"];
@@ -352,6 +368,52 @@ fn permission_ask(props: &Value) -> PermissionAsk {
     }
 }
 
+/// An `ask` tool call: the questions and their choices, as opencode sends them.
+pub fn question_ask(props: &Value) -> QuestionAsk {
+    let questions = props["questions"]
+        .as_array()
+        .map(|items| items.iter().map(question_item).collect())
+        .unwrap_or_default();
+    QuestionAsk {
+        id: props["id"].as_str().unwrap_or_default().to_string(),
+        questions,
+    }
+}
+
+fn question_item(item: &Value) -> QuestionItem {
+    let options = item["options"]
+        .as_array()
+        .map(|options| {
+            options
+                .iter()
+                .filter_map(|option| {
+                    let label = option["label"].as_str()?.trim();
+                    (!label.is_empty()).then(|| QuestionOption {
+                        label: label.to_string(),
+                        description: option["description"]
+                            .as_str()
+                            .map(str::trim)
+                            .filter(|d| !d.is_empty())
+                            .map(str::to_string),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    QuestionItem {
+        question: item["question"].as_str().unwrap_or_default().to_string(),
+        header: item["header"]
+            .as_str()
+            .map(str::trim)
+            .filter(|h| !h.is_empty())
+            .map(str::to_string),
+        options,
+        multiple: item["multiple"].as_bool().unwrap_or(false),
+        // opencode allows a written answer unless the question says otherwise.
+        custom: item["custom"].as_bool().unwrap_or(true),
+    }
+}
+
 fn error_message(error: &Value) -> String {
     error["data"]["message"]
         .as_str()
@@ -454,6 +516,43 @@ mod tests {
             "id": "per_2", "sessionID": "ses_unrelated", "permission": "bash", "patterns": [], "metadata": {}, "always": []
         }}));
         assert!(other.is_empty());
+    }
+
+    #[test]
+    fn question_is_forwarded_with_its_choices() {
+        let mut t = EventTranslator::new(SES.into(), false);
+        let out = t.handle(&json!({ "type": "question.asked", "properties": {
+            "id": "que_1", "sessionID": SES, "questions": [{
+                "question": "Which folder should I use?",
+                "header": "Folder",
+                "options": [
+                    { "label": "src", "description": "The app code" },
+                    { "label": "docs", "description": "" }
+                ],
+                "multiple": true
+            }]
+        }}));
+        match &out[..] {
+            [Outcome::QuestionAsked(ask)] => {
+                assert_eq!(ask.id, "que_1");
+                let question = &ask.questions[0];
+                assert_eq!(question.header.as_deref(), Some("Folder"));
+                assert_eq!(question.options.len(), 2);
+                assert_eq!(question.options[1].description, None);
+                assert!(question.multiple);
+                // opencode allows a written answer unless it says otherwise.
+                assert!(question.custom);
+            }
+            _ => panic!("expected a question"),
+        }
+
+        let answered = t.handle(&json!({ "type": "question.replied", "properties": {
+            "sessionID": SES, "requestID": "que_1", "answers": [["src"]]
+        }}));
+        assert!(matches!(
+            answered[..],
+            [Outcome::Emit(ChatStreamEvent::QuestionResolved { .. })]
+        ));
     }
 
     #[test]

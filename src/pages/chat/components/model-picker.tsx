@@ -52,6 +52,17 @@ type Props = {
 };
 
 /** The single place to choose a model, OpenCode models included. */
+/**
+ * The agent in front of the model name for the CLIs, because their models are
+ * named almost exactly like OpenCode's: picking "muse-spark-1.3-medium" from
+ * the Cursor list and expecting OpenCode to answer is an easy mistake, and an
+ * expensive one when the CLI runs on a different subscription.
+ */
+function agentLabel(model: AiModel) {
+  if (model.source !== "cli") return model.name;
+  return `${model.group.replace(/\s*CLI$/i, "")} · ${model.name}`;
+}
+
 export function ModelPicker({ models, selected, loading, onSelect }: Props) {
   const [open, setOpen] = useState(false);
   const [category, setCategory] = useState<ModelCategory>(() => modelCategory(selected));
@@ -133,7 +144,7 @@ export function ModelPicker({ models, selected, loading, onSelect }: Props) {
           {modelIsConnected(selected) && <ConnectedDot />}
           <Logo provider={selected.provider} />
           <ModelSelectorName className="text-sm font-normal">
-            {selected.name}
+            {agentLabel(selected)}
           </ModelSelectorName>
           <ChevronDownIcon className="size-3.5 shrink-0 opacity-60" />
         </Button>

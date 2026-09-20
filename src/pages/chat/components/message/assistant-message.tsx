@@ -16,7 +16,7 @@ import {
     ThumbsDownIcon,
     ThumbsUpIcon,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ComponentProps } from "react";
 import type { TodoItem } from "../../api/chat";
 import type { ActivityItem } from "../../types";
 import { AgentSteps, segmentReply } from "./agent-steps";
@@ -24,6 +24,20 @@ import { AgentTaskPlan } from "./agent-task-plan";
 import { ConnectorSuggestions } from "./connector-suggestions";
 import { extractConnectorBlocks } from "@/features/mcp/agent-install";
 import { ExpandableClamp } from "./expandable-clamp";
+import { MarkdownLink } from "./markdown-link";
+
+const markdownExtras = {
+  a: MarkdownLink,
+  img: ({ src, alt, className, ...props }: ComponentProps<"img">) => (
+    <img
+      src={src}
+      alt={alt ?? ""}
+      loading="lazy"
+      className={cn("my-2 max-h-80 max-w-full rounded-xl border border-border/60 object-contain", className)}
+      {...props}
+    />
+  ),
+};
 
 type Props = {
   content: string;
@@ -66,7 +80,6 @@ export function AssistantMessage({
   const id = modelId ?? "";
   const isOpencode = id.startsWith("opencode:");
   const isCli = isOpencode || id.startsWith("cli:");
-  const agentName = isOpencode ? "OpenCode" : id.split(":")[1];
 
   const hasReasoning = Boolean(reasoning?.trim());
   // ```connector blocks become install cards instead of code.
@@ -120,6 +133,7 @@ export function AssistantMessage({
                   key={`text-${index}`}
                   className="text-sm"
                   isAnimating={contentIsAnimating && index === segments.length - 1}
+                  components={markdownExtras}
                 >
                   {segment.text.trim()}
                 </MessageResponse>
@@ -141,7 +155,7 @@ export function AssistantMessage({
             {waitingOnTool
               ? lastActivity?.title || "Using a tool…"
               : isCli
-                ? `Running ${agentName}…`
+                ? "Running…"
                 : "Thinking…"}
           </span>
         </div>

@@ -8,6 +8,7 @@ pub mod cursor;
 pub mod file_diff;
 pub mod gemini;
 pub mod git;
+pub mod link_preview;
 pub mod mcp;
 pub mod mcp_clients;
 pub mod mcp_oauth;

@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { FileIcon, FileTextIcon, XIcon } from "lucide-react";
+import { FileIcon, FileTextIcon, FilmIcon, XIcon } from "lucide-react";
 import { formatSize } from "./api";
 import type { Attachment } from "./types";
 import { useAttachmentPreview } from "./use-attachment-preview";
@@ -13,7 +13,8 @@ type Props = {
 /** A thumbnail for a picture, or an icon with the name and size for any other file. */
 export function AttachmentChip({ attachment, onRemove, className }: Props) {
   const preview = useAttachmentPreview(attachment);
-  const Icon = attachment.kind === "text" ? FileTextIcon : FileIcon;
+  const Icon =
+    attachment.kind === "text" ? FileTextIcon : attachment.kind === "video" ? FilmIcon : FileIcon;
 
   return (
     <div

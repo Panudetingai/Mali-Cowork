@@ -10,13 +10,17 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  checkProviderKey,
+  cleanApiKey,
   configOrDefaults,
   getProvider,
   getProviderConfig,
+  looksLikeUrl,
   ProviderLogo,
   saveProviderConfig,
   syncCliProviders,
 } from "@/features/providers";
+import { clearAgentSessions } from "@/features/chat-history";
 import { createStore } from "@/lib/local-store";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { EyeIcon, EyeOffIcon, ExternalLinkIcon, KeyRoundIcon, LoaderIcon } from "lucide-react";
@@ -86,34 +90,62 @@ function KeyForm({ prompt, onClose }: { prompt: KeyPrompt; onClose: () => void }
   const inputId = useId();
   const [key, setKey] = useState("");
   const [show, setShow] = useState(false);
-  const [saving, setSaving] = useState(false);
+  /** `checking` while the provider verifies the key, `saving` while it is stored. */
+  const [step, setStep] = useState<"idle" | "checking" | "saving">("idle");
   const [error, setError] = useState<string | null>(null);
+  const busy = step !== "idle";
+  const value = cleanApiKey(key);
 
   useEffect(() => setError(null), [key]);
 
   async function save(event: FormEvent) {
     event.preventDefault();
-    if (!key.trim() || saving) return;
-    setSaving(true);
+    if (!value || busy) return;
+    if (looksLikeUrl(value)) {
+      setError(`That looks like a link. Open it, copy the ${name} key itself, and paste it here.`);
+      return;
+    }
+
+    // Catch a wrong key here, where it can still be corrected, instead of in
+    // the middle of the next reply.
+    setStep("checking");
+    const check = await checkProviderKey(
+      prompt.providerId,
+      value,
+      toApi ? getProviderConfig(prompt.providerId)?.baseUrl : undefined,
+    );
+    if (check.status === "rejected") {
+      setStep("idle");
+      setError(
+        check.message
+          ? `${name} rejected this key: ${check.message}`
+          : `${name} rejected this key. Check that it was copied in full, and that it is still active.`,
+      );
+      return;
+    }
+
+    setStep("saving");
     try {
       if (toApi && appProvider) {
         const saved = getProviderConfig(prompt.providerId);
         saveProviderConfig(prompt.providerId, {
           ...configOrDefaults(appProvider, saved),
-          apiKey: key.trim(),
+          apiKey: value,
         });
         // Keep OpenCode on the same key, so both paths stay in sync.
         await syncCliProviders().catch(() => undefined);
       } else {
-        await opencodeSetAuth(prompt.providerId, key.trim());
+        await opencodeSetAuth(prompt.providerId, value);
       }
       await refreshOpencode();
+      // Sessions opened with the old key keep failing on it.
+      clearAgentSessions();
       onClose();
       prompt.onSaved?.();
     } catch (e) {
       setError(String(e));
     } finally {
-      setSaving(false);
+      setStep("idle");
     }
   }
 
@@ -127,13 +159,16 @@ function KeyForm({ prompt, onClose }: { prompt: KeyPrompt; onClose: () => void }
           <ProviderLogo logo={prompt.providerId} name={name} className="size-5" />
         </div>
         <DialogTitle>
-          {prompt.invalid ? `${name} rejected the API key` : `Set up ${name}`}
+          {prompt.invalid ? `${name} didn't accept its saved key` : `Set up ${name}`}
         </DialogTitle>
         <DialogDescription>
-          {prompt.modelName ? <>{prompt.modelName} is a paid model. </> : null}
           {prompt.invalid
-            ? "Enter a valid key to keep using this provider."
-            : `Add your ${name} API key to use its models.`}{" "}
+            ? `${name} turned down the key saved on this Mac${
+                prompt.modelName ? `, so ${prompt.modelName} couldn't answer` : ""
+              }. Paste a new one to pick up where you left off.`
+            : prompt.modelName
+              ? `${prompt.modelName} runs on ${name}, which needs an API key.`
+              : `Add your ${name} API key to use its models.`}{" "}
           {toApi
             ? "The key is kept in this Mac's keychain."
             : "The key is stored by OpenCode on this device only."}
@@ -177,12 +212,12 @@ function KeyForm({ prompt, onClose }: { prompt: KeyPrompt; onClose: () => void }
       </div>
 
       <DialogFooter>
-        <Button type="button" variant="ghost" onClick={onClose}>
+        <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
           Cancel
         </Button>
-        <Button type="submit" disabled={!key.trim() || saving} className="gap-1.5">
-          {saving && <LoaderIcon className="size-4 animate-spin" />}
-          Save key
+        <Button type="submit" disabled={!value || busy} className="gap-1.5">
+          {busy && <LoaderIcon className="size-4 animate-spin" />}
+          {step === "checking" ? "Checking…" : "Save key"}
         </Button>
       </DialogFooter>
     </form>

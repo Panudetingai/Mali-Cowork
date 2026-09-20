@@ -21,8 +21,8 @@ const HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct PromptOptions<'a> {
     /// `provider/model`; the server default when `None`.
     pub model: Option<&'a str>,
-    /// Tools the agent may not call for this prompt.
-    pub disabled_tools: &'a [&'a str],
+    /// Tools the agent may not call for this prompt; `name` or `prefix_*`.
+    pub disabled_tools: Vec<String>,
     /// Extra system instructions.
     pub system: Option<String>,
     /// Attached pictures and documents, as opencode `file` parts.
@@ -230,6 +230,58 @@ impl OpencodeClient {
             .json(&body)
             .timeout(SHORT_TIMEOUT);
         Self::send(req).await.map(|_| ())
+    }
+
+    /// Questions still waiting for an answer in this folder.
+    pub async fn pending_questions(&self, directory: &str) -> Result<Vec<Value>, String> {
+        let req = self
+            .request(Method::GET, "/question", Some(directory))
+            .timeout(SHORT_TIMEOUT);
+        let body: Value = Self::send(req).await?.json().await.map_err(|e| e.to_string())?;
+        Ok(body.as_array().cloned().unwrap_or_default())
+    }
+
+    /// Answer the agent's question: one list of chosen labels per question, in
+    /// the order they were asked. An empty list withdraws the question instead,
+    /// which lets the agent carry on without an answer.
+    pub async fn reply_question(
+        &self,
+        directory: &str,
+        request_id: &str,
+        answers: &[Vec<String>],
+    ) -> Result<(), String> {
+        let req = if answers.is_empty() {
+            // `reject` takes no body.
+            self.request(Method::POST, &format!("/question/{request_id}/reject"), Some(directory))
+        } else {
+            self.request(Method::POST, &format!("/question/{request_id}/reply"), Some(directory))
+                .json(&json!({ "answers": answers }))
+        };
+        Self::send(req.timeout(SHORT_TIMEOUT)).await.map(|_| ())
+    }
+
+    /// Every tool the model would be offered in this folder, with its input
+    /// schema, as `(name, schema)`.
+    pub async fn tools(
+        &self,
+        directory: &str,
+        provider_id: &str,
+        model_id: &str,
+    ) -> Result<Vec<(String, Value)>, String> {
+        let req = self
+            .request(Method::GET, "/experimental/tool", Some(directory))
+            .query(&[("provider", provider_id), ("model", model_id)])
+            .timeout(SHORT_TIMEOUT);
+        let body: Value = Self::send(req).await?.json().await.map_err(|e| e.to_string())?;
+        Ok(body
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|tool| {
+                let id = tool["id"].as_str()?.to_string();
+                Some((id, tool["parameters"].clone()))
+            })
+            .collect())
     }
 
     /// MCP servers registered for a workspace (or global when `directory` is `None`).

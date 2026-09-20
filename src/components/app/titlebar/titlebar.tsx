@@ -102,7 +102,7 @@ export function Titlebar() {
         data-tauri-drag-region
         className="flex min-w-0 flex-1 items-center gap-2 border-b border-border bg-background px-4"
       >
-        <img src="/icon.ico" alt="logo" className="size-6" />
+        <img src="/icon.ico" alt="logo" className="size-5 shrink-0" />
         <span className="truncate text-sm font-medium text-foreground">
           Mali Cowork
         </span>
@@ -119,7 +119,7 @@ export function Titlebar() {
                 aria-label="Choose cowork bot"
                 title="Cowork bot — click to choose"
               >
-                <CoworkBot size={32} />
+                <CoworkBot size={26} />
               </button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-64 p-2">

@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { readAttachmentBytes } from "./api";
 import type { Attachment } from "./types";
 
-/** A blob URL for an image attachment, or undefined while loading or for other kinds. */
+/** A blob URL for an image or video attachment, or undefined while loading or for other kinds. */
 export function useAttachmentPreview(attachment: Attachment) {
   const [url, setUrl] = useState<string>();
 
   useEffect(() => {
-    if (attachment.kind !== "image") return;
+    if (attachment.kind !== "image" && attachment.kind !== "video") return;
     let objectUrl: string | undefined;
     let cancelled = false;
     readAttachmentBytes(attachment)

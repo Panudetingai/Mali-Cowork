@@ -29,6 +29,29 @@ pub struct AgentUsage {
     pub cost: Option<f64>,
 }
 
+/// One choice the agent offers for a question.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuestionOption {
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// One question the agent is waiting on.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuestionItem {
+    pub question: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
+    pub options: Vec<QuestionOption>,
+    /// More than one option may be picked.
+    pub multiple: bool,
+    /// An answer of the user's own is allowed.
+    pub custom: bool,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(
     rename_all = "camelCase",
@@ -68,6 +91,14 @@ pub enum ChatStreamEvent {
     },
     /// A pending permission was answered (by the user or automatically).
     PermissionResolved { id: String },
+    /// The agent asked the user something and cannot continue until it is answered.
+    Question {
+        id: String,
+        directory: String,
+        questions: Vec<QuestionItem>,
+    },
+    /// A pending question was answered or withdrawn.
+    QuestionResolved { id: String },
     /// Agent task plan / todo checklist update.
     Todos { items: Vec<TodoItem> },
     Done { model_id: String },

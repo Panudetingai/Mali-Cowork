@@ -3,7 +3,8 @@ mod chat_stream;
 mod commands;
 
 use commands::attachments::{attachment_import, attachment_save};
-use commands::chat::{chat_generate, ollama_list_models, provider_env_keys};
+use commands::link_preview::link_preview;
+use commands::chat::{chat_generate, ollama_list_models, provider_check_key, provider_env_keys};
 use commands::checkpoint::{
     checkpoint_add_folder, checkpoint_begin, checkpoint_diff, checkpoint_finish, checkpoint_open,
     checkpoint_preview, checkpoint_restore,
@@ -26,7 +27,8 @@ use commands::setup::{setup_cancel, setup_codex_login, setup_install, setup_plan
 use commands::opencode::{
     opencode_abort, opencode_check, opencode_configure_providers, opencode_default_cwd,
     opencode_delete_session,
-    opencode_generate, opencode_list_models, opencode_permission_reply, opencode_set_auth,
+    opencode_generate, opencode_list_models, opencode_permission_reply, opencode_question_reply,
+    opencode_set_auth,
     opencode_warm, warm_up_server,
 };
 use commands::storage::{
@@ -126,6 +128,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             attachment_import,
             attachment_save,
+            link_preview,
             chat_generate,
             checkpoint_begin,
             checkpoint_add_folder,
@@ -143,6 +146,7 @@ pub fn run() {
             opencode_permission_reply,
             opencode_abort,
             opencode_set_auth,
+            opencode_question_reply,
             opencode_delete_session,
             opencode_warm,
             opencode_configure_providers,
@@ -195,6 +199,7 @@ pub fn run() {
             git_pull,
             git_push,
             provider_env_keys,
+            provider_check_key,
             ollama_list_models,
             history_load,
             history_save,

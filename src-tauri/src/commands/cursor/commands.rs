@@ -164,6 +164,32 @@ pub async fn cursor_generate(
     Ok(())
 }
 
+/// How one `cursor-agent` run ended.
+enum Attempt {
+    /// The reply finished.
+    Done,
+    /// Cursor turned the request away before anything reached the chat, for a
+    /// reason that usually passes: running the same prompt again is safe.
+    Retriable(String),
+    Failed(String),
+}
+
+/// Waits before the second and third try. Cursor's backend answers
+/// `resource_exhausted` when the account's quota for the moment is used up or
+/// its servers are loaded, and the CLI exits instead of retrying, so a turn
+/// that produced nothing is given another chance here before the user is
+/// shown an error.
+const RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(5), Duration::from_secs(15)];
+
+/// A failure worth trying again: Cursor says so itself (`RetriableError`), or
+/// it is one of the transient statuses its backend returns under load.
+fn is_retriable(message: &str) -> bool {
+    let text = message.to_ascii_lowercase();
+    ["retriableerror", "resource_exhausted", "unavailable", "deadline_exceeded", "overloaded"]
+        .iter()
+        .any(|needle| text.contains(needle))
+}
+
 async fn run_prompt(
     request: &CursorRequest,
     on_event: &Channel<ChatStreamEvent>,
@@ -175,6 +201,70 @@ async fn run_prompt(
 
     let mut args = build_args(request);
     args.push(prompt_with_notes(request));
+
+    // Registered for the whole turn, including the pauses between tries, so
+    // Stop reaches a retry that hasn't started yet.
+    let running = Running::start(&request.run_id);
+    let mut last = String::new();
+    for (attempt, delay) in std::iter::once(None)
+        .chain(RETRY_DELAYS.iter().map(Some))
+        .enumerate()
+    {
+        if let Some(delay) = delay {
+            notify_retry(on_event, *delay, attempt, false)?;
+            tokio::time::sleep(*delay).await;
+            notify_retry(on_event, *delay, attempt, true)?;
+            if running.aborted() {
+                return Err(last);
+            }
+        }
+        match run_once(request, on_event, &running, bin, &args, attempt == 0).await? {
+            Attempt::Done => return Ok(()),
+            Attempt::Failed(message) => return Err(message),
+            Attempt::Retriable(message) => last = message,
+        }
+        if running.aborted() {
+            return Err(last);
+        }
+    }
+    Err(last)
+}
+
+/// Tell the chat why nothing is happening, instead of leaving a spinner.
+fn notify_retry(
+    on_event: &Channel<ChatStreamEvent>,
+    delay: Duration,
+    attempt: usize,
+    waited: bool,
+) -> Result<(), String> {
+    let tries = RETRY_DELAYS.len();
+    on_event
+        .send(ChatStreamEvent::Activity {
+            id: Some("cursor-retry".into()),
+            kind: "system".into(),
+            title: if waited {
+                format!("Cursor was busy: trying again ({attempt}/{tries})")
+            } else {
+                format!(
+                    "Cursor is busy: waiting {}s before trying again ({attempt}/{tries})",
+                    delay.as_secs()
+                )
+            },
+            detail: None,
+            done: waited,
+            duration_ms: waited.then(|| delay.as_millis() as u64),
+        })
+        .map_err(|e| e.to_string())
+}
+
+async fn run_once(
+    request: &CursorRequest,
+    on_event: &Channel<ChatStreamEvent>,
+    running: &Running,
+    bin: &str,
+    args: &[String],
+    announce: bool,
+) -> Result<Attempt, String> {
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
 
     // Supervised, so the agent and the tools and MCP servers it starts
@@ -186,18 +276,26 @@ async fn run_prompt(
     }
     let (mut child, mut tree) = supervisor::spawn(&mut cmd, "cursor-agent")
         .map_err(|e| format!("Failed to start cursor-agent ({bin}): {e}"))?;
-    let _running = Running::register(&request.run_id, tree.pid());
+    running.set_pid(tree.pid());
+    // Stopped while this try was starting: there is no pid to kill until now.
+    if running.aborted() {
+        tree.stop();
+    }
 
     let stdout = child.stdout.take().ok_or("cursor-agent has no stdout")?;
     let stderr = child.stderr.take().ok_or("cursor-agent has no stderr")?;
     let errors = collect_stderr(stderr);
 
-    on_event.send(ChatStreamEvent::Started).map_err(|e| e.to_string())?;
+    if announce {
+        on_event.send(ChatStreamEvent::Started).map_err(|e| e.to_string())?;
+    }
 
     let mut lines = BufReader::new(stdout).lines();
     let mut stream = CursorStream::new();
     let mut finished = false;
     let mut failure = None;
+    // Anything already on screen must not be produced twice by a retry.
+    let mut streamed = false;
 
     while let Ok(Some(line)) = lines.next_line().await {
         let line = line.trim();
@@ -211,6 +309,7 @@ async fn run_prompt(
         for outcome in stream.handle(&event) {
             match outcome {
                 Outcome::Emit(event) => {
+                    streamed = true;
                     if let Err(e) = on_event.send(event) {
                         // The window went away: stop the agent.
                         tree.stop();
@@ -227,22 +326,32 @@ async fn run_prompt(
     let stderr_text = errors.lock().unwrap().join("\n");
 
     if let Some(message) = failure {
-        return Err(message);
+        return Ok(classify(&running, streamed, message));
     }
     if finished {
-        return on_event
+        on_event
             .send(ChatStreamEvent::Done {
                 model_id: format!("cursor:{}", request.model.as_deref().unwrap_or("auto")),
             })
-            .map_err(|e| e.to_string());
+            .map_err(|e| e.to_string())?;
+        return Ok(Attempt::Done);
     }
-    if status.success() {
-        return Err(format!(
-            "cursor-agent ended without a reply.{}",
-            tail(&stderr_text)
-        ));
+    let message = if status.success() {
+        format!("cursor-agent ended without a reply.{}", tail(&stderr_text))
+    } else {
+        format!("cursor-agent exited with {status}.{}", tail(&stderr_text))
+    };
+    Ok(classify(&running, streamed, message))
+}
+
+/// A stopped turn is not worth retrying, and neither is one that already wrote
+/// part of a reply — running it again would say everything twice.
+fn classify(running: &Running, streamed: bool, message: String) -> Attempt {
+    if !running.aborted() && !streamed && is_retriable(&message) {
+        Attempt::Retriable(message)
+    } else {
+        Attempt::Failed(message)
     }
-    Err(format!("cursor-agent exited with {status}.{}", tail(&stderr_text)))
 }
 
 fn tail(stderr: &str) -> String {
@@ -273,17 +382,36 @@ where
 }
 
 /// Running prompts, so the Stop button can end them.
+/// A turn in flight: the process running it, if one is, and whether the user
+/// stopped it. The flag outlives each try, so Stop also cancels a retry.
+#[derive(Default)]
+struct RunState {
+    pid: Option<u32>,
+    aborted: bool,
+}
+
 struct Running(String);
 
 impl Running {
-    fn registry() -> &'static Mutex<HashMap<String, u32>> {
-        static RUNNING: OnceLock<Mutex<HashMap<String, u32>>> = OnceLock::new();
+    fn registry() -> &'static Mutex<HashMap<String, RunState>> {
+        static RUNNING: OnceLock<Mutex<HashMap<String, RunState>>> = OnceLock::new();
         RUNNING.get_or_init(Default::default)
     }
 
-    fn register(run_id: &str, pid: u32) -> Self {
-        Self::registry().lock().unwrap().insert(run_id.to_string(), pid);
+    /// Track `run_id` until the returned guard is dropped.
+    fn start(run_id: &str) -> Self {
+        Self::registry().lock().unwrap().insert(run_id.to_string(), RunState::default());
         Self(run_id.to_string())
+    }
+
+    fn set_pid(&self, pid: u32) {
+        if let Some(state) = Self::registry().lock().unwrap().get_mut(&self.0) {
+            state.pid = Some(pid);
+        }
+    }
+
+    fn aborted(&self) -> bool {
+        Self::registry().lock().unwrap().get(&self.0).is_some_and(|state| state.aborted)
     }
 }
 
@@ -295,11 +423,18 @@ impl Drop for Running {
 
 #[tauri::command]
 pub fn cursor_abort(run_id: String) -> Result<(), String> {
-    let Some(pid) = Running::registry().lock().unwrap().get(&run_id).copied() else {
-        return Ok(());
+    let pid = {
+        let mut registry = Running::registry().lock().unwrap();
+        let Some(state) = registry.get_mut(&run_id) else {
+            return Ok(());
+        };
+        state.aborted = true;
+        state.pid
     };
     // Stops the whole tree, so the tools it started stop too.
-    supervisor::terminate(pid);
+    if let Some(pid) = pid {
+        supervisor::terminate(pid);
+    }
     Ok(())
 }
 
@@ -338,6 +473,29 @@ mod tests {
 
     fn grant(path: &str, access: &str) -> FolderGrant {
         FolderGrant { path: path.into(), access: access.into() }
+    }
+
+    const EXHAUSTED: &str =
+        "cursor-agent exited with exit status: 1.\n\n— cursor-agent —\nRetriableError: [resource_exhausted] Error";
+
+    #[test]
+    fn a_turn_that_said_nothing_is_retried_unless_it_was_stopped() {
+        let running = Running::start("run_retry_test");
+        assert!(matches!(
+            classify(&running, false, EXHAUSTED.into()),
+            Attempt::Retriable(_)
+        ));
+        // Part of the reply is already on screen: saying it twice is worse.
+        assert!(matches!(classify(&running, true, EXHAUSTED.into()), Attempt::Failed(_)));
+        // Not every failure is temporary.
+        assert!(matches!(
+            classify(&running, false, "cursor-agent exited with exit status: 2.".into()),
+            Attempt::Failed(_)
+        ));
+
+        cursor_abort("run_retry_test".into()).unwrap();
+        assert!(running.aborted());
+        assert!(matches!(classify(&running, false, EXHAUSTED.into()), Attempt::Failed(_)));
     }
 
     #[test]

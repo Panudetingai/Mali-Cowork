@@ -13,13 +13,14 @@ use super::{
     bin::opencode_bin,
     client::{OpencodeClient, PromptOptions},
     cwd::get_default_public_dir,
-    events::{EventTranslator, Outcome, PermissionAsk},
+    events::{question_ask, EventTranslator, Outcome, PermissionAsk, QuestionAsk},
     lease_instance,
     policy::{Decision, FolderPolicy},
     providers::{overlay_model_ids, APP_PROVIDERS},
-    server::{ensure_server, not_found_message},
+    schema::is_recursive,
+    server::{ensure_server, not_found_message, restart},
     OpencodeCheckResult, OpencodeModel, OpencodeModelsResult, OpencodeProvider, OpencodeRequest,
-    FolderGrant, PermissionReplyRequest, SetAuthRequest,
+    FolderGrant, PermissionReplyRequest, QuestionReplyRequest, SetAuthRequest,
 };
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -141,6 +142,12 @@ pub async fn opencode_list_models(cwd: Option<String>) -> Result<OpencodeModelsR
 }
 
 /// Save an API key for a provider; its models become usable immediately.
+///
+/// opencode reads a provider's credentials once, when it first builds that
+/// provider, so a server that already tried the old key keeps failing with it.
+/// Stopping the server here makes the next prompt start one that loads the new
+/// key — without it, saving a key in the middle of a chat looked like it did
+/// nothing.
 #[tauri::command]
 pub async fn opencode_set_auth(request: SetAuthRequest) -> Result<(), String> {
     let provider_id = request.provider_id.trim();
@@ -148,7 +155,9 @@ pub async fn opencode_set_auth(request: SetAuthRequest) -> Result<(), String> {
     if provider_id.is_empty() || key.is_empty() {
         return Err("Provider and API key are required.".into());
     }
-    ensure_server().await?.set_api_key(provider_id, key).await
+    ensure_server().await?.set_api_key(provider_id, key).await?;
+    restart().await;
+    Ok(())
 }
 
 #[tauri::command]
@@ -182,6 +191,46 @@ pub async fn opencode_permission_reply(request: PermissionReplyRequest) -> Resul
     }
     client
         .reply_permission(&request.directory, &request.id, &request.reply, None)
+        .await
+}
+
+/// Questions this session is still waiting on, as the server sees them.
+async fn waiting_questions(
+    client: &OpencodeClient,
+    directory: &str,
+    session_id: &str,
+) -> Vec<QuestionAsk> {
+    client
+        .pending_questions(directory)
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|ask| ask["sessionID"] == session_id)
+        .map(question_ask)
+        .collect()
+}
+
+/// Answer the agent's question. Without an answer the prompt waits forever, so
+/// closing the card sends an empty answer, which withdraws the question and
+/// lets the agent carry on.
+#[tauri::command]
+pub async fn opencode_question_reply(request: QuestionReplyRequest) -> Result<(), String> {
+    let answers: Vec<Vec<String>> = request
+        .answers
+        .into_iter()
+        .map(|answer| {
+            answer
+                .into_iter()
+                .map(|label| label.trim().to_string())
+                .filter(|label| !label.is_empty())
+                .collect()
+        })
+        .collect();
+    // An answer nobody filled in is no answer at all.
+    let answers = if answers.iter().all(Vec::is_empty) { Vec::new() } else { answers };
+    ensure_server()
+        .await?
+        .reply_question(&request.directory, &request.id, &answers)
         .await
 }
 
@@ -302,8 +351,14 @@ async fn run_prompt(
     } else {
         Vec::new()
     };
+    // One tool the provider refuses fails the whole prompt, so those are left
+    // out and said out loud rather than taking the chat down with them.
+    let skip = if mcp.is_empty() { Vec::new() } else { unusable_tools(&client, &directory, model, &mcp).await };
+    if !skip.is_empty() {
+        emit(on_event, skipped_tools_activity(&skip))?;
+    }
     let mut options =
-        prompt_options(request, &policy.lock().unwrap(), &directory, model, tool_call, &mcp);
+        prompt_options(request, &policy.lock().unwrap(), &directory, model, tool_call, &mcp, &skip);
     options.files = file_parts(&request.files)?;
     client
         .prompt_async(&directory, &session_id, prompt, &options)
@@ -319,7 +374,26 @@ async fn run_prompt(
                 None => break,
             },
             // Quiet for a while: a long tool call is fine, a hung server is not.
-            Err(_) if client.health().await.is_ok() => continue,
+            Err(_) if client.health().await.is_ok() => {
+                // A question whose event never reached the window (a reload, a
+                // dropped card) holds the turn open for good, so ask the server
+                // what it is still waiting for. The window ignores ids it
+                // already shows.
+                for ask in waiting_questions(&client, &directory, &session_id).await {
+                    if let Err(e) = emit(
+                        on_event,
+                        ChatStreamEvent::Question {
+                            id: ask.id,
+                            directory: directory.clone(),
+                            questions: ask.questions,
+                        },
+                    ) {
+                        let _ = client.abort(&directory, &session_id).await;
+                        return Err(e);
+                    }
+                }
+                continue;
+            }
             Err(_) => {
                 let _ = client.abort(&directory, &session_id).await;
                 return Err("opencode stopped responding. Send the message again to retry.".into());
@@ -354,6 +428,14 @@ async fn run_prompt(
                         ),
                     }
                 }
+                Outcome::QuestionAsked(ask) => emit(
+                    on_event,
+                    ChatStreamEvent::Question {
+                        id: ask.id,
+                        directory: directory.clone(),
+                        questions: ask.questions,
+                    },
+                ),
                 Outcome::Idle => {
                     return emit(
                         on_event,
@@ -456,6 +538,62 @@ async fn connected_mcp(client: &OpencodeClient, directory: &str, chat: bool) -> 
     ids
 }
 
+/// Tools whose input schema this provider would turn the whole request down
+/// for. The answer only changes when the MCP servers do, so it is worked out
+/// once per folder, model and server set instead of once per prompt.
+async fn unusable_tools(
+    client: &OpencodeClient,
+    directory: &str,
+    model: Option<&str>,
+    mcp: &[String],
+) -> Vec<String> {
+    let Some((provider_id, model_id)) = model.and_then(|m| m.split_once('/')) else {
+        return Vec::new();
+    };
+    let key = format!("{directory}|{model_id}|{}", mcp.join(","));
+    if let Some(known) = unusable_cache().lock().unwrap().get(&key) {
+        return known.clone();
+    }
+    let Ok(tools) = client.tools(directory, provider_id, model_id).await else {
+        return Vec::new();
+    };
+    let skip: Vec<String> = tools
+        .into_iter()
+        .filter(|(_, schema)| is_recursive(schema))
+        .map(|(name, _)| name)
+        .collect();
+    if !skip.is_empty() {
+        eprintln!("[opencode] leaving out tools the provider can't accept: {}", skip.join(", "));
+    }
+    unusable_cache().lock().unwrap().insert(key, skip.clone());
+    skip
+}
+
+fn unusable_cache() -> &'static Mutex<HashMap<String, Vec<String>>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Vec<String>>>> = OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
+/// Say which tools were left out, where the user is already looking.
+fn skipped_tools_activity(skip: &[String]) -> ChatStreamEvent {
+    ChatStreamEvent::Activity {
+        id: Some("skipped-tools".into()),
+        kind: "system".into(),
+        title: format!(
+            "{} left out: the model's provider rejects schemas that refer to themselves",
+            skip.join(", ")
+        ),
+        detail: Some(format!(
+            "These tools describe themselves in terms of themselves, which this provider answers \
+             with \"Recursive JSON schemas are not currently supported\" — and it turns down the \
+             whole request, not just the tool. The rest of the server works as usual.\n\n{}",
+            skip.join("\n")
+        )),
+        done: true,
+        duration_ms: None,
+    }
+}
+
 /// Points the model at the MCP tools; without it, models tend to write
 /// scripts or hunt for instructions instead.
 fn mcp_note(servers: &[String]) -> Option<String> {
@@ -481,7 +619,13 @@ fn prompt_options<'a>(
     model: Option<&'a str>,
     tool_call: bool,
     mcp: &[String],
+    skip: &[String],
 ) -> PromptOptions<'a> {
+    let owned = |tools: &[&str]| tools.iter().map(|t| (*t).to_string()).collect::<Vec<String>>();
+    let with_skipped = |mut tools: Vec<String>| {
+        tools.extend(skip.iter().cloned());
+        tools
+    };
     let mcp_note = mcp_note(mcp);
     let instructions = request
         .instructions
@@ -493,7 +637,13 @@ fn prompt_options<'a>(
         let system = [Some(CHAT_SYSTEM.to_string()), mcp_note, instructions].into_iter().flatten();
         return PromptOptions {
             model,
-            disabled_tools: if tool_call { WORKSPACE_TOOLS } else { ALL_TOOLS },
+            // A model without tool calling takes no tools at all, so there is
+            // nothing left to skip.
+            disabled_tools: if tool_call {
+                with_skipped(owned(WORKSPACE_TOOLS))
+            } else {
+                owned(ALL_TOOLS)
+            },
             system: Some(system.collect::<Vec<_>>().join("\n\n")),
             ..Default::default()
         };
@@ -503,7 +653,7 @@ fn prompt_options<'a>(
     notes.extend(instructions);
     PromptOptions {
         model,
-        disabled_tools: &[],
+        disabled_tools: with_skipped(Vec::new()),
         system: Some(notes.join("\n\n")),
         ..Default::default()
     }
@@ -755,6 +905,11 @@ mod tests {
                         eprintln!("permission: {} {:?}", ask.title, ask.detail);
                         asked = true;
                         client.reply_permission(&directory, &ask.id, "once", None).await.unwrap();
+                    }
+                    Outcome::QuestionAsked(ask) => {
+                        // Nothing here answers questions; withdraw it so the
+                        // agent carries on instead of waiting on the test.
+                        client.reply_question(&directory, &ask.id, &[]).await.unwrap();
                     }
                     Outcome::Idle => break 'stream,
                     Outcome::Failed(message) => panic!("opencode failed: {message}"),

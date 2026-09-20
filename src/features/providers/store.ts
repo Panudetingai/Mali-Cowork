@@ -111,6 +111,54 @@ export function requestConfigFor(providerId: string) {
   };
 }
 
+/**
+ * What the user actually pasted: keys are often copied with quotes, a
+ * `NAME=` prefix from a `.env` line, or a stray newline from the provider's
+ * page. None of those belong in the key, and a key sent with them is
+ * rejected with an error that names none of this.
+ */
+export function cleanApiKey(value: string): string {
+  return value
+    .trim()
+    .replace(/^[A-Z0-9_]*(?:KEY|TOKEN|SECRET)\s*[=:]\s*/i, "")
+    .replace(/^["'`]|["'`]$/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+/** A pasted link to the provider's key page, rather than a key. */
+export function looksLikeUrl(value: string): boolean {
+  return /^(https?:\/\/|www\.)/i.test(value.trim());
+}
+
+export type KeyCheck = {
+  /** `valid`, `rejected`, or `unknown` when the provider could not answer. */
+  status: "valid" | "rejected" | "unknown";
+  /** What the provider replied, when it rejected the key. */
+  message?: string | null;
+};
+
+/**
+ * Ask the provider whether a key works before it is saved. Anything other
+ * than a clear rejection answers `unknown`, so an offline machine or a
+ * provider without a model list never blocks saving.
+ */
+export async function checkProviderKey(
+  providerId: string,
+  apiKey: string,
+  baseUrl?: string,
+): Promise<KeyCheck> {
+  try {
+    return await invoke<KeyCheck>("provider_check_key", {
+      provider: providerId,
+      apiKey: apiKey.trim(),
+      baseUrl: baseUrl?.trim() || null,
+    });
+  } catch {
+    return { status: "unknown" };
+  }
+}
+
 export function ollamaListModels(baseUrl: string, apiKey?: string) {
   return invoke<string[]>("ollama_list_models", {
     baseUrl: baseUrl || null,

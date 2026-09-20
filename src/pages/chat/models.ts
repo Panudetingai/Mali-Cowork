@@ -239,12 +239,29 @@ export function buildModelCatalog(
     : [...apiModels, ...cursorModels, ...codexModels, ...geminiModels, ...opencodeModels];
 }
 
+/**
+ * A stand-in for a model that can't do the work here: something from the same
+ * place, and OpenCode's default at worst — never a different agent. Falling
+ * through to whatever came first in the list quietly moved OpenCode chats onto
+ * the Cursor CLI, which then ran (and billed) an account the user never picked.
+ */
+function substituteFor(catalog: AiModel[], model: AiModel): AiModel | undefined {
+  const usable = catalog.filter(
+    (m) => m.id !== model.id && !m.coworkIssue && !m.needsKey && !m.needsLogin,
+  );
+  return (
+    usable.find((m) => m.source === model.source && m.provider === model.provider) ??
+    usable.find((m) => m.source === model.source) ??
+    usable.find((m) => m.id === OPENCODE_DEFAULT_ID)
+  );
+}
+
 /** Resolve a stored id even before OpenCode models have loaded. */
 export function findModel(catalog: AiModel[], id: string): AiModel {
   const found = catalog.find((m) => m.id === id);
   if (found && !found.coworkIssue) return found;
-  // A model picked in Chat that can't do agent work: use the default instead.
-  if (found) return catalog.find((m) => !m.coworkIssue) ?? found;
+  // A model picked in Chat that can't do agent work: stay with its own kind.
+  if (found) return substituteFor(catalog, found) ?? found;
   if (isCursorModel(id)) {
     const model = cursorModelOf(id);
     return { id, name: model === "auto" ? "Cursor Agent" : model, provider: "cursor", source: "cli", group: "Cursor CLI" };
@@ -268,6 +285,31 @@ export function findModel(catalog: AiModel[], id: string): AiModel {
     };
   }
   return catalog[0];
+}
+
+/**
+ * Which backend actually runs a model id. Each keeps its own session, so a
+ * chat that changes agent starts over: worth saying out loud before it does.
+ */
+export function agentOf(modelId: string): "opencode" | "cursor" | "codex" | "gemini" | "api" {
+  if (isOpencodeModel(modelId)) return "opencode";
+  if (isCursorModel(modelId)) return "cursor";
+  if (isCodexModel(modelId)) return "codex";
+  if (isGeminiModel(modelId)) return "gemini";
+  return "api";
+}
+
+const AGENT_NAMES: Record<ReturnType<typeof agentOf>, string> = {
+  opencode: "OpenCode",
+  cursor: "Cursor",
+  codex: "Codex",
+  gemini: "Gemini CLI",
+  api: "This model",
+};
+
+/** What to call the backend behind a model id, in a sentence. */
+export function agentNameOf(modelId: string) {
+  return AGENT_NAMES[agentOf(modelId)];
 }
 
 /** Name, logo provider, and billing hint for a stored id without loading the full catalog. */
@@ -353,6 +395,44 @@ export function contextBudgetFor(model: AiModel): ContextBudget {
   if (enforced) return { maxTokens: enforced, autoNewChat: true };
   // Agents compact their own sessions, so they only get a meter.
   return { maxTokens: model.contextLimit ?? FALLBACK_CONTEXT, autoNewChat: false };
+}
+
+/** What a message stores so it can be sent again, for a model id alone. */
+export type ResendSettings = {
+  modelId: string;
+  modelName: string;
+  maxTokens: number;
+  autoNewChat: boolean;
+};
+
+/**
+ * The resend settings of a model the user picked, without building the whole
+ * catalog — so a retry can run on whatever model is selected now, which is how
+ * a chat carries on when the one it started with runs out of credits.
+ *
+ * Returns undefined for a model that can't do the work this chat needs, so the
+ * caller keeps the one the message was sent with.
+ */
+export function resendSettingsFor(
+  modelId: string,
+  opencode: OpencodeModelsResult | null,
+  mode: WorkMode,
+): ResendSettings | undefined {
+  const meta = modelMetaFromId(modelId, opencode);
+  const agentId =
+    opencodeModelOf(modelId) ??
+    (apiModelOf(modelId) ? `${apiModelOf(modelId)!.provider}/${apiModelOf(modelId)!.model}` : undefined);
+  const known = agentId ? opencode?.models.find((m) => m.id === agentId) : undefined;
+  if (mode === "cowork" && known && coworkIssueOf(known)) return undefined;
+  const budget = contextBudgetFor({
+    id: modelId,
+    name: meta.name,
+    provider: meta.provider,
+    source: meta.source,
+    group: "",
+    contextLimit: known?.contextLimit ?? undefined,
+  });
+  return { modelId, modelName: meta.name, ...budget };
 }
 
 const DEFAULT_MODEL: Record<WorkMode, string> = {

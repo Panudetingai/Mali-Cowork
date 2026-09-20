@@ -48,6 +48,8 @@ import { contextUsage } from "../context-usage";
 import type { SendMessage } from "../hooks/use-chat";
 import {
   buildModelCatalog,
+  agentNameOf,
+  agentOf,
   contextBudgetFor,
   findModel,
   isCursorModel,
@@ -143,6 +145,15 @@ export default function PromptInput({
   const selected = findModel(catalog, modelId);
   const usesOpencode = isOpencodeModel(selected.id);
   const opencodeMissing = usesOpencode && opencode.check?.available === false;
+  // Each agent keeps its own session, so one picked up mid-chat knows nothing
+  // about what the previous one did here. Say so before the prompt is sent.
+  const ranOn = [...messages]
+    .reverse()
+    .find((m) => m.role === "assistant" && m.modelId)?.modelId;
+  const switchesAgent =
+    !!ranOn && agentOf(ranOn) !== agentOf(selected.id)
+      ? { from: agentNameOf(ranOn), to: agentNameOf(selected.id) }
+      : undefined;
   const budget = contextBudgetFor(selected);
   const usageLive = useMemo(() => contextUsage(messages), [messages]);
   const usage = useDebouncedValue(usageLive, 400, !!isLoading);
@@ -540,6 +551,13 @@ export default function PromptInput({
         <p className="mt-1 flex items-center gap-1.5 px-1 text-xs text-red-600 dark:text-red-400">
           <CoworkBot state="connection" size={28} className="-my-1" />
           {opencode.check?.error ?? "OpenCode CLI is not available."}
+        </p>
+      )}
+
+      {!opencodeMissing && switchesAgent && (
+        <p className="mt-1 flex items-center gap-1.5 px-1 text-xs text-amber-600 dark:text-amber-400">
+          <CoworkBot state="alert" size={28} className="-my-1" />
+          {`${switchesAgent.to} starts fresh here — it won't see what ${switchesAgent.from} did earlier in this chat.`}
         </p>
       )}
 

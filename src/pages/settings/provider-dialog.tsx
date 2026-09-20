@@ -8,8 +8,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { clearAgentSessions } from "@/features/chat-history";
 import { refreshOpencode } from "@/features/opencode";
 import {
+  checkProviderKey,
+  cleanApiKey,
   configOrDefaults,
   ollamaListModels,
   ProviderLogo,
@@ -85,12 +88,30 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
     if (!canSave || saving) return;
     setSaving(true);
     setSyncError(null);
+    // Quotes, a `NAME=` prefix or a stray newline come along with a pasted
+    // key often enough to be worth removing here.
+    const apiKey = cleanApiKey(draft.apiKey);
+    const baseUrl = draft.baseUrl.trim() || provider.defaultBaseUrl;
+    const keyChanged = apiKey !== (saved?.apiKey.trim() ?? "");
+    if (keyChanged && apiKey) {
+      const check = await checkProviderKey(provider.id, apiKey, baseUrl);
+      if (check.status === "rejected") {
+        setSaving(false);
+        setSyncError(
+          check.message
+            ? `${provider.name} rejected this key: ${check.message}`
+            : `${provider.name} rejected this key. Check that it was copied in full, and that it is still active.`,
+        );
+        return;
+      }
+    }
     saveProviderConfig(provider.id, {
-      apiKey: draft.apiKey.trim(),
-      baseUrl: draft.baseUrl.trim() || provider.defaultBaseUrl,
+      apiKey,
+      baseUrl,
       models: models.join(", "),
       contextLimit: draft.contextLimit?.trim() ?? "",
     });
+    if (keyChanged) clearAgentSessions();
     const ok = await syncAgent();
     setSaving(false);
     if (ok) onClose();

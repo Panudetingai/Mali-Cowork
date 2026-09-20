@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 
 use crate::ai::{self, ChatRequest};
@@ -75,4 +75,92 @@ pub async fn ollama_list_models(
     }
     let tags: OllamaTags = response.json().await.map_err(|e| e.to_string())?;
     Ok(tags.models.into_iter().map(|m| m.name).collect())
+}
+
+/// What a provider said about an API key.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyCheck {
+    /// `valid`, `rejected`, or `unknown` when the provider could not answer.
+    pub status: &'static str,
+    /// What the provider replied, when it rejected the key.
+    pub message: Option<String>,
+}
+
+impl KeyCheck {
+    fn unknown() -> Self {
+        Self { status: "unknown", message: None }
+    }
+}
+
+/// The short message inside an error body such as
+/// `{"error":{"message":"User not found"}}`, if there is one.
+fn error_message(body: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    let message = value["error"]["message"]
+        .as_str()
+        .or_else(|| value["error"].as_str())
+        .or_else(|| value["message"].as_str())?
+        .trim();
+    (!message.is_empty()).then(|| message.chars().take(200).collect())
+}
+
+/// The endpoint that actually needs the key. OpenRouter serves its model list
+/// to anyone — checking `/models` there would call a dead key valid — but
+/// `/key`, which describes the key itself, answers 401 without a good one.
+fn check_path(provider: &str) -> &'static str {
+    match provider {
+        "openrouter" => "/key",
+        _ => "/models",
+    }
+}
+
+/// Ask a provider whether an API key works, so a wrong key is caught while the
+/// dialog is still open instead of in the middle of the next reply.
+///
+/// Only a clear rejection is reported as such: a provider that is unreachable,
+/// rate-limited or simply does not list models answers `unknown`, and the key
+/// is saved as before.
+#[tauri::command]
+pub async fn provider_check_key(
+    provider: String,
+    api_key: String,
+    base_url: Option<String>,
+) -> Result<KeyCheck, String> {
+    let key = api_key.trim();
+    if key.is_empty() {
+        return Err("API key is required.".into());
+    }
+    // Providers this app doesn't know (opencode zen, a local server) can't be checked.
+    let Ok(info) = ai::provider_info(&provider) else {
+        return Ok(KeyCheck::unknown());
+    };
+    let base = base_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(info.base_url);
+    let url = format!("{}{}", base.trim_end_matches('/'), check_path(&provider));
+
+    let mut request = reqwest::Client::new()
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(12));
+    request = if provider == "anthropic" {
+        request.header("x-api-key", key).header("anthropic-version", "2023-06-01")
+    } else {
+        request.bearer_auth(key)
+    };
+
+    let Ok(response) = request.send().await else {
+        return Ok(KeyCheck::unknown());
+    };
+    let status = response.status();
+    if status.is_success() {
+        return Ok(KeyCheck { status: "valid", message: None });
+    }
+    if !matches!(status.as_u16(), 401 | 403) {
+        return Ok(KeyCheck::unknown());
+    }
+    let body = response.text().await.unwrap_or_default();
+    Ok(KeyCheck { status: "rejected", message: error_message(&body) })
 }

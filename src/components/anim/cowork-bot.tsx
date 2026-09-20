@@ -91,7 +91,7 @@ export function CoworkBotPicker({ onPicked }: { onPicked?: () => void }) {
                 active ? "border-foreground/30 bg-accent" : "border-transparent",
               )}
             >
-              <CoworkBot size={56} bot={b.id} state="idle" />
+              <CoworkBot size={44} bot={b.id} state="idle" />
               <span className="flex items-center gap-1 text-xs font-medium">
                 <span className="size-2 rounded-full" style={{ background: b.color }} />
                 {b.name}

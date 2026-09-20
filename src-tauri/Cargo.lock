@@ -3,6 +3,39 @@
 version = 4
 
 [[package]]
+name = "Mali"
+version = "0.1.2"
+dependencies = [
+ "aisdk",
+ "base64 0.22.1",
+ "dirs",
+ "dotenvy",
+ "futures",
+ "hex",
+ "keyring",
+ "libc",
+ "quick-xml",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "similar",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-notification",
+ "tauri-plugin-opener",
+ "tokio",
+ "toml_edit 0.22.27",
+ "uuid",
+ "walkdir",
+ "windows-sys 0.59.0",
+ "zip",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2318,39 +2351,6 @@ dependencies = [
  "objc2-foundation",
  "time",
  "uuid",
-]
-
-[[package]]
-name = "mali_cowork"
-version = "0.1.2"
-dependencies = [
- "aisdk",
- "base64 0.22.1",
- "dirs",
- "dotenvy",
- "futures",
- "hex",
- "keyring",
- "libc",
- "quick-xml",
- "reqwest 0.12.28",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "similar",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-notification",
- "tauri-plugin-opener",
- "tokio",
- "toml_edit 0.22.27",
- "uuid",
- "walkdir",
- "windows-sys 0.59.0",
- "zip",
 ]
 
 [[package]]

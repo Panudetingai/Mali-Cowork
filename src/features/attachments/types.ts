@@ -6,6 +6,6 @@ export type Attachment = {
   path: string;
   mime: string;
   size: number;
-  /** `image` is sent as a picture, `text` is pasted into the prompt, `file` is anything else. */
-  kind: "image" | "text" | "file";
+  /** `image` / `video` are shown inline; `text` is pasted into the prompt; `file` is anything else. */
+  kind: "image" | "video" | "text" | "file";
 };

@@ -6,8 +6,10 @@
 //! server starts (see `server::app_config`) and saved without secrets. API keys
 //! go to opencode's own auth store instead.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -170,18 +172,50 @@ fn build_overlay(providers: &[CliProviderConfig]) -> Result<Map<String, Value>, 
     Ok(overlay)
 }
 
+/// Fingerprints of the keys already handed to the running server, so a key
+/// the user changed restarts it. Keys themselves are never kept in memory.
+fn applied_keys() -> &'static Mutex<Option<HashMap<String, u64>>> {
+    static APPLIED: OnceLock<Mutex<Option<HashMap<String, u64>>>> = OnceLock::new();
+    APPLIED.get_or_init(Default::default)
+}
+
+fn fingerprint(key: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    key.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Record the keys of this sync and report whether any of them changed.
+///
+/// The first sync after launch only records: the server about to run reads
+/// opencode's auth store when it builds a provider, so nothing is stale yet.
+fn note_keys(keys: &[(&str, &str)]) -> bool {
+    let fingerprints: HashMap<String, u64> =
+        keys.iter().map(|(id, key)| ((*id).to_string(), fingerprint(key))).collect();
+    let mut guard = applied_keys().lock().unwrap();
+    match guard.as_mut() {
+        None => {
+            *guard = Some(fingerprints);
+            false
+        }
+        Some(previous) => {
+            let changed = fingerprints.iter().any(|(id, fp)| previous.get(id) != Some(fp));
+            previous.extend(fingerprints);
+            changed
+        }
+    }
+}
+
 /// Point OpenCode at the providers configured in Settings → Models.
 #[tauri::command]
 pub async fn opencode_configure_providers(
     providers: Vec<CliProviderConfig>,
 ) -> Result<ConfigureProvidersResult, String> {
     let overlay = build_overlay(&providers)?;
-    let changed = overlay != load_overlay();
-    if changed {
+    let config_changed = overlay != load_overlay();
+    if config_changed {
         let pretty = serde_json::to_string_pretty(&Value::Object(overlay)).map_err(|e| e.to_string())?;
         write_private(&overlay_path(), &pretty)?;
-        // Provider config is only read at startup.
-        restart().await;
     }
 
     let keys: Vec<(&str, &str)> = providers
@@ -189,13 +223,22 @@ pub async fn opencode_configure_providers(
         .filter_map(|p| Some((p.id.as_str(), p.api_key.as_deref()?.trim())))
         .filter(|(_, key)| !key.is_empty())
         .collect();
+    let key_changed = note_keys(&keys);
+    // Store the keys first: opencode writes them to its auth file, which the
+    // next server reads at startup.
     if !keys.is_empty() {
         let client = ensure_server().await?;
         for (id, key) in keys {
             client.set_api_key(id, key).await?;
         }
     }
-    Ok(ConfigureProvidersResult { restarted: changed })
+    // Provider config is only read at startup, and a provider keeps the
+    // credentials it was built with, so both need a fresh server.
+    let restarted = config_changed || key_changed;
+    if restarted {
+        restart().await;
+    }
+    Ok(ConfigureProvidersResult { restarted })
 }
 
 #[cfg(test)]

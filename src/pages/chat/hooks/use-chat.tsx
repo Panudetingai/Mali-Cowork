@@ -2,6 +2,7 @@
 
 import {
     attachFolder,
+    clearAgentSessions,
     createChat,
     endRun,
     getChat,
@@ -28,19 +29,23 @@ import { geminiAbort } from "@/features/gemini";
 import { notifyPermissionPending, notifyTaskDone } from "@/features/notifications/notify";
 import { connectorInstructionsFor, hasEnabledMcp, syncMcpServers } from "@/features/mcp";
 import {
+    getOpencodeModels,
     loadOpencodeSettings,
     opencodeAbort,
     opencodeReplyPermission,
+    opencodeReplyQuestion,
     requestProviderKey,
     type PermissionReply,
     type WorkMode,
 } from "@/features/opencode";
+import { getProviderConfig } from "@/features/providers";
 import { buildInstructions, getInstructions, skillsInPrompt } from "@/features/instructions";
 import { getProject, projectContext } from "@/features/projects";
 import { findGrant, grantsFor, isWithin, normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import type {
     HistoryMessage,
     PermissionRequest,
+    QuestionRequest,
     StreamMetadata,
     TodoItem,
 } from "@/pages/chat/api/chat";
@@ -55,11 +60,13 @@ import {
     isCursorModel,
     isGeminiModel,
     isOpencodeModel,
+    loadSelectedModelId,
     opencodeProviderOf,
+    resendSettingsFor,
     type AiModel,
     type ContextBudget,
 } from "../models";
-import type { ActivityItem, ChatMessage } from "../types";
+import type { ActivityItem, ChatMessage, ErrorFix } from "../types";
 
 type ScrollProps = {
   messages: ChatMessage[] | undefined;
@@ -361,32 +368,42 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
       const handleError = (content: string) => {
         if (hasErrored) return;
         hasErrored = true;
-        updateChatMessages(chatKey, (prev) => replaceAssistantWithError(prev, assistantId, content));
+        if (shouldResetAgentSession(content)) {
+          clearAgentSessions(chatKey);
+        }
+        const fix = fixFor(content, modelId, resend.modelName);
+        updateChatMessages(chatKey, (prev) =>
+          replaceAssistantWithError(prev, assistantId, content, fix),
+        );
         endRun(chatKey, runToken);
-        if (!isAuthError(content)) return;
-        if (isCursor) {
+        if (!fix) return;
+        // A provider that was never set up: the setup dialog is what the user
+        // is waiting for. A key that was there and stopped working is offered
+        // on the error message instead, so a dialog never lands on top of the
+        // message the user is still reading.
+        if (fix.kind === "cursor-login") {
           requestCursorLogin();
           return;
         }
-        // Ask for the key where it belongs: OpenCode's auth store for its
-        // models, Settings → Models for a provider called over its own API.
-        const opencodeProvider = opencodeProviderOf(modelId);
-        if (opencodeProvider) {
-          requestProviderKey({ providerId: opencodeProvider, modelName: resend.modelName, invalid: true });
-          return;
-        }
-        const api = apiModelOf(modelId);
-        if (api) {
+        if (!fix.invalid) {
           requestProviderKey({
-            providerId: api.provider,
-            target: "api",
-            modelName: resend.modelName,
-            invalid: true,
+            providerId: fix.providerId,
+            target: fix.target,
+            modelName: fix.modelName,
           });
         }
       };
 
       let checkpointId: string | undefined;
+      const agentSessionId = () => {
+        const current = getChat(chatKey);
+        if (!current) return undefined;
+        if (isOpencode) return current.opencodeSessionId;
+        if (isCursor) return current.cursorSessionId;
+        if (isCodex) return current.codexSessionId;
+        if (isGemini) return current.geminiSessionId;
+        return undefined;
+      };
       try {
         // Live-connecting MCP servers can take seconds; the reply placeholder
         // already shows the run as started meanwhile.
@@ -418,15 +435,7 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
           {
             prompt,
             modelId: runModelIdFor(modelId),
-            sessionId: isOpencode
-              ? chat.opencodeSessionId
-              : isCursor
-                ? chat.cursorSessionId
-                : isCodex
-                  ? chat.codexSessionId
-                  : isGemini
-                    ? chat.geminiSessionId
-                    : undefined,
+            sessionId: agentSessionId(),
             history,
             mode: chatMode,
             runId: chatKey,
@@ -470,6 +479,16 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
                 ...r,
                 permissions: r.permissions.filter((p) => p.id !== permissionId),
               })),
+            onQuestion: (request) =>
+              updateRun(chatKey, (r) => ({
+                ...r,
+                questions: [...r.questions.filter((q) => q.id !== request.id), request],
+              })),
+            onQuestionResolved: (questionId) =>
+              updateRun(chatKey, (r) => ({
+                ...r,
+                questions: r.questions.filter((q) => q.id !== questionId),
+              })),
             onDone: (doneModelId) => {
               update((m) => ({
                 ...m,
@@ -480,7 +499,8 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
               }));
               finish();
             },
-            onError: handleError,
+            // Stream errors get the same plain-language treatment as thrown ones.
+            onError: (message) => handleError(formatChatError(message)),
           },
         );
       } catch (error) {
@@ -523,9 +543,12 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
   );
 
   /**
-   * Drop the user message and everything after it, then resend it with the
-   * same model and budget. Only the latest exchange can be retried while a
-   * run is in flight nothing happens.
+   * Drop the user message and everything after it, then send it again on the
+   * model that is selected now — switching model and pressing Retry is how a
+   * chat carries on when the one it started with runs out of credits or gets
+   * rate-limited. The agent session is kept, so the work so far still counts.
+   * Only the latest exchange can be retried, and while a run is in flight
+   * nothing happens.
    */
   const retryMessage = useCallback(
     async (userMessageId: string): Promise<boolean> => {
@@ -534,10 +557,16 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
       const index = chat?.messages.findIndex((m) => m.id === userMessageId && m.role === "user") ?? -1;
       const original = index >= 0 ? chat!.messages[index] : undefined;
       if (!chat || !original?.resend) return false;
+      const chatMode = sessionMode(chat);
+      const picked = loadSelectedModelId(chatMode);
+      const resend =
+        picked === original.resend.modelId
+          ? original.resend
+          : resendSettingsFor(picked, getOpencodeModels(), chatMode) ?? original.resend;
       updateChatMessages(chatId, (prev) => prev.slice(0, index));
       return executeSend({
         prompt: original.content,
-        resend: original.resend,
+        resend,
         attachments: original.attachments,
       });
     },
@@ -613,6 +642,26 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
   );
 
   /**
+   * Answer the agent's question. An empty answer withdraws the question, so
+   * the turn carries on instead of waiting for input that isn't coming.
+   */
+  const answerQuestion = useCallback(
+    async (request: QuestionRequest, answers: string[][]) => {
+      if (!chatId) return;
+      // Drop the card first: the agent replies straight away, and a card that
+      // lingers over the reply looks like the answer didn't register.
+      updateRun(chatId, (r) => ({ ...r, questions: r.questions.filter((q) => q.id !== request.id) }));
+      try {
+        await opencodeReplyQuestion(request.id, request.directory, answers);
+      } catch (error) {
+        updateRun(chatId, (r) => ({ ...r, questions: [...r.questions, request] }));
+        addError(error);
+      }
+    },
+    [chatId, addError],
+  );
+
+  /**
    * Grant a folder the agent asked for, remember it on this chat, and let the
    * running prompt use it without asking again.
    */
@@ -671,6 +720,12 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
       return geminiAbort(chatId).catch(addError);
     }
     if (!activeRun.agentSessionId) return;
+    // Withdraw whatever the agent is still waiting on, or the stopped turn
+    // leaves a question pending on the server.
+    for (const question of activeRun.questions) {
+      await opencodeReplyQuestion(question.id, question.directory, []).catch(() => undefined);
+    }
+    updateRun(chatId, (r) => ({ ...r, questions: [] }));
     await opencodeAbort({
       sessionId: activeRun.agentSessionId,
       cwd: chat?.cwd,
@@ -688,16 +743,16 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
     }
   }, [isLoading, session, messages.length]);
 
-  // Notify when a permission request is waiting for the user.
-  const permissionCountRef = useRef(run?.permissions.length ?? 0);
+  // Notify when the agent is waiting on the user: a permission or a question.
+  const waitingCountRef = useRef(0);
+  const waitingCount = (run?.permissions.length ?? 0) + (run?.questions.length ?? 0);
   useEffect(() => {
-    const count = run?.permissions.length ?? 0;
-    const previous = permissionCountRef.current;
-    permissionCountRef.current = count;
-    if (count > 0 && count > previous) {
-      void notifyPermissionPending(count);
+    const previous = waitingCountRef.current;
+    waitingCountRef.current = waitingCount;
+    if (waitingCount > 0 && waitingCount > previous) {
+      void notifyPermissionPending(waitingCount);
     }
-  }, [run?.permissions.length]);
+  }, [waitingCount]);
 
   return {
     session,
@@ -716,6 +771,8 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
     permissions: run?.permissions ?? [],
     replyPermission,
     allowFolder,
+    questions: run?.questions ?? [],
+    answerQuestion,
     canStop,
     stop,
   };
@@ -746,9 +803,35 @@ function withTurn(messages: ChatMessage[], assistantId: string, userId: string, 
 }
 
 function isAuthError(message: string) {
-  return /api[ _-]?key|unauthori[sz]ed|\b401\b|authentication|credential|not signed in|log ?in/i.test(
+  return /api[ _-]?key|unauthori[sz]ed|\b401\b|authentication|credential|not signed in|log ?in|user not found|key limit exceeded/i.test(
     message,
   );
+}
+
+/**
+ * What the user can do about a failed run, offered on the error message.
+ * `invalid` tells the two cases apart: a key that was never entered, and one
+ * that is saved but the provider turned down.
+ */
+function fixFor(content: string, modelId: string, modelName?: string): ErrorFix | undefined {
+  if (!isAuthError(content)) return undefined;
+  if (isCursorModel(modelId)) return { kind: "cursor-login" };
+  // Ask for the key where it belongs: OpenCode's auth store for its models,
+  // Settings → Models for a provider called over its own API.
+  const opencodeProvider = opencodeProviderOf(modelId);
+  if (opencodeProvider) {
+    const connected = getOpencodeModels()?.providers.find((p) => p.id === opencodeProvider)?.connected;
+    return { kind: "provider-key", providerId: opencodeProvider, modelName, invalid: !!connected };
+  }
+  const api = apiModelOf(modelId);
+  if (!api) return undefined;
+  const saved = !!getProviderConfig(api.provider)?.apiKey.trim();
+  return { kind: "provider-key", providerId: api.provider, target: "api", modelName, invalid: saved };
+}
+
+/** Stale agent sessions after a key change cause confusing follow-up errors on retry. */
+function shouldResetAgentSession(message: string) {
+  return isAuthError(message) || /key limit|limit exceeded|user not found/i.test(message);
 }
 
 /** Earlier user/assistant turns, for providers that need the conversation resent. */
@@ -812,18 +895,40 @@ function createAssistantPlaceholder(
   };
 }
 
-function createErrorMessage(content: string): ChatMessage {
+function createErrorMessage(content: string, fix?: ErrorFix): ChatMessage {
   return {
     id: crypto.randomUUID(),
     role: "error",
     content,
+    ...(fix ? { fix } : {}),
   };
 }
 
 function formatChatError(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);
-  if (raw.includes("429") || raw.includes("Too Many Requests")) {
-    return "429 Too Many Requests — โมเดลนี้ถูกเรียกถี่เกินไป ลองรอสักครู่แล้วส่งใหม่ หรือสลับโมเดล";
+  if (/user not found/i.test(raw)) {
+    return 'ผู้ให้บริการไม่รู้จัก API key ที่บันทึกไว้ (ตอบกลับว่า "User not found") — ใส่ key ใหม่จากปุ่มด้านล่าง แล้วแอปจะส่งข้อความเดิมให้อีกครั้ง';
+  }
+  if (/key limit exceeded/i.test(raw)) {
+    return "API key นี้ใช้เกินวงเงินที่ตั้งไว้ — เพิ่ม limit ให้ key เดิม หรือสร้าง key ใหม่แล้วใส่จากปุ่มด้านล่าง";
+  }
+  // A tool schema the provider refuses. The app leaves such tools out by
+  // itself now, so this only shows up on a chat that ran before it did.
+  if (/recursive json schema/i.test(raw)) {
+    return `${raw}\n\nเครื่องมือของ MCP server ตัวหนึ่งมี schema ที่อ้างถึงตัวเอง ซึ่งผู้ให้บริการโมเดลนี้ไม่รับ แล้วปฏิเสธทั้งคำขอ — ส่งข้อความใหม่อีกครั้ง แอปจะตัดเฉพาะเครื่องมือตัวนั้นออกให้เอง (เครื่องมืออื่นของ server เดิมยังใช้ได้ปกติ)`;
+  }
+  // Cursor's own wording for "my servers turned you away", after the app has
+  // already tried again a couple of times.
+  if (/resource_exhausted|retriableerror/i.test(raw)) {
+    return `${raw}\n\nCursor ปฏิเสธคำขอชั่วคราว (resource_exhausted) — แอปลองใหม่ให้แล้วแต่ยังไม่ผ่าน มักเป็นเพราะโควตาของแพลน Cursor หมดรอบ หรือเซิร์ฟเวอร์ Cursor แน่น ลองอีกครั้งในอีกสักครู่ หรือเลือกโมเดลอื่นในแถบด้านล่างแล้วกด Retry แชทจะทำต่อจากเดิม`;
+  }
+  // Both of these are about the model, not the chat: picking another one in
+  // the composer and pressing Retry carries the same session on.
+  if (/credits|quota exceeded|insufficient[_ ]balance|billing/i.test(raw)) {
+    return `${raw}\n\nโควตาของโมเดลนี้หมด — เลือกโมเดลอื่นในแถบด้านล่าง แล้วกด Retry ได้เลย งานที่ agent ทำไปแล้วยังอยู่ครบ แชทจะทำต่อจากเดิม`;
+  }
+  if (raw.includes("429") || raw.includes("Too Many Requests") || /rate[- ]?limit/i.test(raw)) {
+    return `${raw}\n\nโมเดลนี้ถูกเรียกถี่เกินไป — รอสักครู่แล้วกด Retry หรือเลือกโมเดลอื่นในแถบด้านล่างแล้วกด Retry แชทจะทำต่อจากเดิม`;
   }
   if (raw.includes("413") || /request too large|context.length|maximum context/i.test(raw)) {
     return `${raw}\n\nแชทนี้ยาวเกินที่โมเดลรับได้ — เริ่มแชทใหม่ หรือลด Context Limit ใน Settings → Models`;
@@ -914,6 +1019,7 @@ function replaceAssistantWithError(
   messages: ChatMessage[],
   assistantId: string,
   content: string,
+  fix?: ErrorFix,
 ) {
   const assistant = messages.find((m) => m.id === assistantId);
   const hasContext = Boolean(assistant?.content?.trim() || assistant?.reasoning?.trim() || assistant?.usage);
@@ -921,11 +1027,11 @@ function replaceAssistantWithError(
     // เก็บ thinking/usage ไว้ แล้วเพิ่ม error เป็นบับเบิลแยก (user จะเห็น reasoning/usage แม้ exit 1)
     return [
       ...messages.map((m) => (m.id === assistantId ? { ...m, isStreaming: false } : m)),
-      createErrorMessage(content),
+      createErrorMessage(content, fix),
     ];
   }
   return [
     ...messages.filter((item) => item.id !== assistantId),
-    createErrorMessage(content),
+    createErrorMessage(content, fix),
   ];
 }

@@ -1,8 +1,8 @@
 [package]
-name = "mali_cowork"
+name = "Mali"
 version = "0.1.2"
 description = "Desktop coworking app for AI chat and agent-assisted work on your files."
-authors = ["you"]
+authors = ["panudetingai"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

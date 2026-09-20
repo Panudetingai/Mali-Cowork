@@ -40,6 +40,8 @@ export default function ChatLayout() {
     permissions,
     replyPermission,
     allowFolder,
+    questions,
+    answerQuestion,
     canStop,
     stop,
   } = useChat(chatId, newChatMode, getProject(params.get("project") ?? undefined)?.id);
@@ -111,8 +113,10 @@ export default function ChatLayout() {
           canStop={canStop}
           promptInputRef={promptInputRef}
           permissions={permissions}
+          questions={questions}
           placeholder={hasMessages ? "Ask a follow-up" : undefined}
           onReplyPermission={replyPermission}
+          onAnswerQuestion={answerQuestion}
           onAllowFolder={allowFolder}
           onStop={stop}
           onNewChat={startNewChat}

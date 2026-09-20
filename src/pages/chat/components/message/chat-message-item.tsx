@@ -51,7 +51,7 @@ function Reply({ message, streaming, onRetry, onRate }: Props) {
         />
       );
     case "error":
-      return <ErrorMessage content={message.content} onRetry={onRetry} />;
+      return <ErrorMessage content={message.content} onRetry={onRetry} fix={message.fix} />;
     default:
       return null;
   }
