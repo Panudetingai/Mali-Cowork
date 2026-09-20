@@ -48,6 +48,9 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
+        with:
+          # Match CI lockfile (bun.lock is generated with Bun 1.4.x)
+          bun-version: 1.4.2
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
