@@ -32,6 +32,16 @@ export type AiModel = {
 
 export type ConfiguredProvider = { provider: ProviderDef; models: string[] };
 
+/**
+ * The two things a user actually chooses between: an agent that can work in a
+ * folder (CLI agents and OpenCode), or a model called straight over its API.
+ */
+export type ModelCategory = "agent" | "model";
+
+export function modelCategory(model: AiModel): ModelCategory {
+  return model.source === "opencode" || model.source === "cli" ? "agent" : "model";
+}
+
 export const OPENCODE_PREFIX = "opencode:";
 export const OPENCODE_DEFAULT_ID = `${OPENCODE_PREFIX}default`;
 const API_PREFIX = "api:";
@@ -152,7 +162,9 @@ export function buildModelCatalog(
       name: m.name,
       provider: m.providerId,
       source: "opencode" as const,
-      group: m.connected ? m.providerName : `${m.providerName} (needs key)`,
+      // Bare provider name: the Agents tab is all OpenCode below the CLI
+      // agents, so repeating it on every row only adds noise.
+      group: m.providerName,
       free: m.free,
       needsKey: !m.connected,
       contextLimit: m.contextLimit ?? undefined,
@@ -256,6 +268,69 @@ export function findModel(catalog: AiModel[], id: string): AiModel {
     };
   }
   return catalog[0];
+}
+
+/** Name, logo provider, and billing hint for a stored id without loading the full catalog. */
+export function modelMetaFromId(
+  modelId: string,
+  opencode: OpencodeModelsResult | null,
+): Pick<AiModel, "name" | "provider" | "source" | "free"> {
+  const api = apiModelOf(modelId);
+  if (api) {
+    return { name: api.model, provider: api.provider, source: "api", free: false };
+  }
+  if (isCursorModel(modelId)) {
+    const model = cursorModelOf(modelId);
+    return {
+      name: model === "auto" ? "Cursor Agent" : model,
+      provider: "cursor",
+      source: "cli",
+    };
+  }
+  if (isCodexModel(modelId)) {
+    const model = codexModelOf(modelId);
+    return {
+      name: model === "auto" ? "Codex Agent" : model,
+      provider: "codex",
+      source: "cli",
+    };
+  }
+  if (isGeminiModel(modelId)) {
+    const model = geminiModelOf(modelId);
+    return {
+      name: model === "auto" ? "Gemini CLI" : model,
+      provider: "gemini",
+      source: "cli",
+    };
+  }
+  if (isOpencodeModel(modelId)) {
+    if (modelId === OPENCODE_DEFAULT_ID) {
+      const def = opencode?.models.find((m) => m.id === opencode.defaultModel);
+      return {
+        name: def?.name ?? "OpenCode default",
+        provider: "opencode",
+        source: "opencode",
+        free: def?.free,
+      };
+    }
+    const ocId = opencodeModelOf(modelId);
+    const om = ocId ? opencode?.models.find((m) => m.id === ocId) : undefined;
+    const parts = ocId?.split("/") ?? [];
+    return {
+      name: om?.name ?? parts[1] ?? "OpenCode",
+      provider: om?.providerId ?? parts[0] ?? "opencode",
+      source: "opencode",
+      free: om?.free,
+    };
+  }
+  return { name: modelId, provider: "opencode", source: "opencode" };
+}
+
+/** API and local models bill per token; OpenCode marks free tiers explicitly. */
+export function modelIsPaid(meta: Pick<AiModel, "source" | "free">) {
+  if (meta.source === "api" || meta.source === "local") return true;
+  if (meta.source === "opencode") return meta.free !== true;
+  return false;
 }
 
 /** The OpenCode provider behind a model id, if any. */

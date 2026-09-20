@@ -68,13 +68,13 @@ export function CoworkBot({
   );
 }
 
-/** Bot picker: four live previews, the choice persists in localStorage. */
+/** Bot picker: one live preview per bot, the choice persists in localStorage. */
 export function CoworkBotPicker({ onPicked }: { onPicked?: () => void }) {
   const { bot } = useCoworkBot();
   return (
     <div className="flex flex-col gap-1">
       <p className="px-1 text-xs font-medium text-muted-foreground">เลือกน้อง bot</p>
-      <div className="grid grid-cols-2 gap-1">
+      <div className="grid grid-cols-3 gap-1">
         {BOTS.map((b) => {
           const active = b.id === bot;
           return (

@@ -31,6 +31,7 @@ import {
 import { filterSkills, skillSlug, useInstructions, type Skill } from "@/features/instructions";
 import { useProjects } from "@/features/projects";
 import { cn } from "@/lib/utils";
+import { CoworkBot } from "@/components/anim/cowork-bot";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -536,7 +537,8 @@ export default function PromptInput({
       )}
 
       {opencodeMissing && (
-        <p className="mt-1 px-1 text-xs text-red-600 dark:text-red-400">
+        <p className="mt-1 flex items-center gap-1.5 px-1 text-xs text-red-600 dark:text-red-400">
+          <CoworkBot state="connection" size={28} className="-my-1" />
           {opencode.check?.error ?? "OpenCode CLI is not available."}
         </p>
       )}

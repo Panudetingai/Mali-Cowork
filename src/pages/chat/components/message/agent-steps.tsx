@@ -21,6 +21,7 @@ import {
   TerminalIcon,
   XIcon,
 } from "lucide-react";
+import { McpToolIcon, mcpToolOf } from "@/features/mcp";
 import { useState } from "react";
 import type { ActivityItem } from "../../types";
 import { StepDetail } from "./step-detail";
@@ -56,6 +57,16 @@ function splitTitle(title: string) {
   const at = title.indexOf(": ");
   if (at <= 0 || at > 24) return { verb: title, subject: undefined };
   return { verb: title.slice(0, at), subject: title.slice(at + 2) };
+}
+
+/**
+ * An MCP call reads as its server plus the tool (`Notion` · `search`) rather
+ * than the raw wire name (`custom-notion_notion-search`).
+ */
+function labelOf(title: string) {
+  const mcp = mcpToolOf(title);
+  if (mcp) return { verb: mcp.serverName, subject: mcp.tool, mcp };
+  return { ...splitTitle(title), mcp: undefined };
 }
 
 function kindIcon(step: ActivityItem): LucideIcon {
@@ -103,23 +114,29 @@ function StatusIcon({ failed, done, running }: { failed: boolean; done: boolean;
 
 function StepRow({ step, running }: { step: ActivityItem; running: boolean }) {
   const title = step.title.replace(/ \(failed\)$/, "");
-  const { verb, subject } = splitTitle(title);
+  const { verb, subject, mcp } = labelOf(title);
   const detail = step.detail?.trim();
   const failed = isFailed(step);
   const Icon = kindIcon(step);
+  // MCP server names ("Sequential Thinking") need more room than verbs.
+  const verbWidth = mcp ? "max-w-32" : "w-12";
 
   const label = (
     <>
       <span className="flex size-4 shrink-0 items-center justify-center">
         <StatusIcon failed={failed} done={step.done} running={running} />
       </span>
-      <Icon className="size-3.5 shrink-0 text-muted-foreground/70" />
+      {mcp ? (
+        <McpToolIcon mcp={mcp} className="opacity-80" />
+      ) : (
+        <Icon className="size-3.5 shrink-0 text-muted-foreground/70" />
+      )}
       {running ? (
-        <TextShimmer duration={2} className="w-12 shrink-0 truncate font-normal">
+        <TextShimmer duration={2} className={cn(verbWidth, "shrink-0 truncate font-normal")}>
           {verb}
         </TextShimmer>
       ) : (
-        <span className="w-12 shrink-0 truncate text-muted-foreground">{verb}</span>
+        <span className={cn(verbWidth, "shrink-0 truncate text-muted-foreground")}>{verb}</span>
       )}
       {subject &&
         (running ? (
@@ -176,8 +193,10 @@ const FOLD_AFTER = 4;
 function summarize(steps: ActivityItem[]) {
   const counts = new Map<string, number>();
   for (const step of steps) {
-    const verb = splitTitle(step.title.replace(/ \(failed\)$/, "")).verb.toLowerCase();
-    counts.set(verb, (counts.get(verb) ?? 0) + 1);
+    // MCP calls collapse to their server, so three Notion tools read "Notion 3".
+    const { verb, mcp } = labelOf(step.title.replace(/ \(failed\)$/, ""));
+    const key = mcp ? verb : verb.toLowerCase();
+    counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   const kinds = [...counts].sort((a, b) => b[1] - a[1]).map(([verb, n]) => `${verb} ${n}`);
   const failed = steps.filter(isFailed).length;

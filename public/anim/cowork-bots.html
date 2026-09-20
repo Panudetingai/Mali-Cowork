@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Cowork AI — Bot Faces</title>
+<title>Agent Streaming - Cowork Bots</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Mali:wght@500;700&family=IBM+Plex+Sans+Thai:wght@400;500&display=swap" rel="stylesheet">
@@ -61,13 +61,14 @@
 
   .stage{
     background:var(--stage); border-radius:28px; padding:24px 16px 20px;
-    display:grid; grid-template-columns:repeat(4, 1fr); gap:8px;
+    display:grid; grid-template-columns:repeat(3, 1fr); gap:28px 8px;
   }
   .bot{ display:flex; flex-direction:column; align-items:center; gap:10px; min-width:0; }
   .bot-canvas{ width:100%; max-width:250px; aspect-ratio:1/1; }
   .bot-canvas svg{ display:block; width:100%; height:auto; overflow:visible; }
   .bot-name{ font-family:"Mali", system-ui, sans-serif; font-weight:700; font-size:20px; margin:0; line-height:1.2; }
   .bot-state{ font-size:14px; color:var(--muted); margin:-6px 0 2px; min-height:1.6em; }
+  .bot .seg{ justify-content:center; border-radius:18px; max-width:250px; }
   .bot .seg button{ padding:4px 10px; font-size:13px; }
 
   .howto{ margin-top:32px; display:grid; gap:12px; max-width:760px; }
@@ -100,7 +101,7 @@
 
 <div class="page">
   <h1>Cowork AI bots</h1>
-  <p class="lede">สี่น้องบอทสีเหลือง เขียว ม่วง ดำ ที่เปลี่ยนท่าทางตามงานของ agent ตอนคิดและตอนทำงานจะสลับระหว่างร่างสามจุดกับหน้าปกติไปเรื่อย ๆ ตอนทำงานน้องจะดีใจ เด้งดุ๊กดิ๊ก มีสายรุ้งหมุนรอบตัว แล้วหดหายก่อนแยกร่าง</p>
+  <p class="lede">หกน้องบอทสีเหลือง เขียว ม่วง ดำ ฟ้า ชมพู ที่เปลี่ยนท่าทางตามงานของ agent ตอนคิดและตอนทำงานจะสลับระหว่างร่างสามจุดกับหน้าปกติไปเรื่อย ๆ ตอนทำงานน้องจะดีใจ เด้งดุ๊กดิ๊ก มีสายรุ้งหมุนรอบตัว แล้วหดหายก่อนแยกร่าง เพิ่มท่าใหม่อีกสี่แบบ แจ้งเตือนจะกลายเป็นสีแดงกระพริบ ทักทายจะแปลงร่างเป็นมือโบกไปมา ใช้เครื่องมือจะพ่นเครื่องมือและละอองสีสุ่มออกมา รอเชื่อมต่อจะซีดลงและมองหาสัญญาณ ส่วนรออนุญาตจะเอียงคอถามพร้อมกล่องข้อความรูปแม่กุญแจ</p>
 
   <div class="bar">
     <div class="seg" role="group" aria-label="สถานะของบอททุกตัว" id="allSeg">
@@ -108,6 +109,11 @@
       <button data-state="thinking">กำลังคิด</button>
       <button data-state="working">กำลังทำงาน</button>
       <button data-state="done">เสร็จแล้ว</button>
+      <button data-state="alert">แจ้งเตือน</button>
+      <button data-state="welcome">ทักทาย</button>
+      <button data-state="tool">ใช้เครื่องมือ</button>
+      <button data-state="connection">รอเชื่อมต่อ</button>
+      <button data-state="permission">รออนุญาต</button>
     </div>
     <label class="toggle"><input type="checkbox" id="demoToggle" checked><span></span>เล่นเดโมอัตโนมัติ</label>
   </div>
@@ -116,11 +122,12 @@
 
   <section class="howto">
     <h2>นำไปใส่ในแอป</h2>
-    <p>ใช้ไฟล์นี้เป็น iframe แบบพื้นหลังโปร่งใส เลือกตัวด้วย <code>?embed=mochi</code>, <code>jelly</code>, <code>petal</code> หรือ <code>nori</code> แล้วส่งสถานะจาก agent เข้าไปด้วย postMessage</p>
-<pre><code>&lt;iframe id="bot" src="cowork-bots.html?embed=jelly&amp;state=idle"
+    <p>ใช้ไฟล์นี้เป็น iframe แบบพื้นหลังโปร่งใส เลือกตัวด้วย <code>?embed=mochi</code>, <code>jelly</code>, <code>petal</code>, <code>nori</code>, <code>sora</code> หรือ <code>momo</code> แล้วส่งสถานะจาก agent เข้าไปด้วย postMessage</p>
+<pre><code>&lt;iframe id="bot" src="agent-streaming-bots.html?embed=jelly&amp;state=idle"
         style="border:0;width:160px;height:160px;background:transparent"&gt;&lt;/iframe&gt;
 
 // เมื่อ agent เปลี่ยนสถานะ: "idle" | "thinking" | "working" | "done"
+//                          | "alert" | "welcome" | "tool" | "connection" | "permission"
 document.getElementById("bot").contentWindow
   .postMessage({ state: "working" }, "*");</code></pre>
     <p>ถ้าวางไว้ในหน้าเดียวกันโดยตรง เรียก <code>CoworkBots.set("petal", "thinking")</code> ได้เลย ส่วน <code>"done"</code> จะกลับเป็น <code>"idle"</code> เองหลังฉลองเสร็จ</p>
@@ -137,10 +144,42 @@ document.getElementById("bot").contentWindow
   var REDUCED = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var PILL = "M-9.3 -11.3A9.3 9.3 0 0 1 0 -20.6L0 -20.6A9.3 9.3 0 0 1 9.3 -11.3L9.3 11.3A9.3 9.3 0 0 1 0 20.6L0 20.6A9.3 9.3 0 0 1 -9.3 11.3Z";
   var HAPPY = "M-11 4Q0 -10 11 4";
-  var LABELS = { idle:"รอคำสั่ง", thinking:"กำลังคิด…", working:"กำลังทำงาน…", done:"เสร็จแล้ว!" };
+  var LABELS = { idle:"รอคำสั่ง", thinking:"กำลังคิด…", working:"กำลังทำงาน…", done:"เสร็จแล้ว!",
+                 alert:"แจ้งเตือน!", welcome:"สวัสดี!", tool:"กำลังใช้เครื่องมือ…", connection:"รอเชื่อมต่อใหม่…", permission:"รออนุญาตคำสั่ง…" };
+
+  // alert: blink between deep red and bright red
+  var ALERT_DEEP   = ["#ff9a9a","#e53935","#b71c1c","#5c0808"];
+  var ALERT_BRIGHT = ["#fff1f1","#ff7070","#ff2d2d","#c41616"];
+  // welcome: fingers + thumb that grow out of the body (x, y = base on palm, a = angle, 0 = up)
+  var FINGERS = [
+    {x:-37, y:-42, len:34, w:10,   a:-22},
+    {x:-13, y:-52, len:40, w:10.5, a:-7},
+    {x: 12, y:-52, len:42, w:10.5, a:6},
+    {x: 36, y:-43, len:36, w:10,   a:20},
+    {x:-50, y:6,   len:32, w:11,   a:-72}
+  ];
+  // tool: little icons sprayed out of the head
+  function gearPath(){
+    var n = 8, d = "";
+    for (var i=0; i<n*4; i++){
+      var a = i/(n*4)*TAU, r = (i%4 < 2) ? 9 : 6.6;
+      d += (i ? "L" : "M") + (Math.cos(a)*r).toFixed(2) + " " + (Math.sin(a)*r).toFixed(2);
+    }
+    return d + "Z M3 0A3 3 0 1 0 -3 0A3 3 0 1 0 3 0Z";
+  }
+  var ICONS = [
+    gearPath(),
+    "M-2.2 -2L-2.2 9A2.2 2.2 0 0 0 2.2 9L2.2 -2A6 6 0 0 0 4.5 -9.5L2 -7L2 -4.2L-2 -4.2L-2 -7L-4.5 -9.5A6 6 0 0 0 -2.2 -2Z",
+    "M-8 -9h13a2 2 0 0 1 2 2v3a2 2 0 0 1 -2 2h-3.5v11a2 2 0 0 1 -4 0v-11H-8a2 2 0 0 1 -2 -2v-3a2 2 0 0 1 2 -2Z",
+    "M0 -9Q1.5 -1.5 9 0Q1.5 1.5 0 9Q-1.5 1.5 -9 0Q-1.5 -1.5 0 -9Z",
+    "M-4.5 0a4.5 4.5 0 1 0 9 0a4.5 4.5 0 1 0 -9 0Z",
+    "M-4 -4h8v8h-8Z",
+    "M0 -9Q1.5 -1.5 9 0Q1.5 1.5 0 9Q-1.5 1.5 -9 0Q-1.5 -1.5 0 -9Z"
+  ];
+  function arcUp(r){ var k = (r*0.7071).toFixed(2); return "M-" + k + " -" + k + "A" + r + " " + r + " 0 0 1 " + k + " -" + k; }
 
   // rainbow ring colors: yellow → green → purple → black
-  var RING_COLORS = ["#f5c518","#34c77b","#8b5cf6","#2a2a33"];
+  var RING_COLORS = ["#f5c518","#34c77b","#3aa3f5","#8b5cf6","#f7609f","#2a2a33"];
   var RING_N = 44, RING_R = 108, RING_SWEEP = 0.8;
 
   // ---------- the four bots ----------
@@ -158,7 +197,6 @@ document.getElementById("bot").contentWindow
       morph: {4:0.13, 7:0.05},
       eyes: { L:{x:-29.79, y:14.6, m:[0.93,-0.14,0.23,0.68]}, R:{x:20.29, y:2.49, m:[0.94,-0.16,0.23,0.68]} },
       blush: false,
-      eye: "#1a1a1a",
       layout: "line", work: "wave", squash: 0.015
     },
     jelly: {
@@ -173,7 +211,6 @@ document.getElementById("bot").contentWindow
       morph: {3:0.13, 6:0.05},
       eyes: { L:{x:-25, y:6, m:[0.95,0,0,0.74]}, R:{x:25, y:6, m:[0.95,0,0,0.74]} },
       blush: true,
-      eye: "#1a1a1a",
       layout: "line", work: "hop", squash: 0.04
     },
     petal: {
@@ -188,7 +225,6 @@ document.getElementById("bot").contentWindow
       morph: {6:0.11, 2:0.06},
       eyes: { L:{x:-23, y:9, m:[0.9,0.1,-0.08,0.7]}, R:{x:23, y:9, m:[0.9,-0.1,0.08,0.7]} },
       blush: true,
-      eye: "#1a1a1a",
       layout: "tri", work: "orbit", squash: 0.02
     },
     nori: {
@@ -202,9 +238,37 @@ document.getElementById("bot").contentWindow
       base:  {2:0.02, 4:0.03},
       morph: {5:0.12, 3:0.05},
       eyes: { L:{x:-22, y:4, m:[1,0,0,0.8]}, R:{x:22, y:4, m:[1,0,0,0.8]} },
+      eyeInk: "#ffffff",
       blush: true,
-      eye: "#ffffff",
       layout: "line", work: "snake", squash: 0.025
+    },
+    sora: {
+      name: "Sora",
+      palettes: [
+        ["#e3f4ff","#8fd0ff","#3aa3f5","#1565c0"],
+        ["#dff9ff","#7fe3f5","#22b8e0","#0b6f8f"],
+        ["#e8eeff","#9fb6ff","#5b7cf0","#2a44a8"]
+      ],
+      aspect: [1.06, 0.96],
+      base:  {3:0.03, 2:0.015},
+      morph: {5:0.12, 2:0.05},
+      eyes: { L:{x:-24, y:4, m:[0.9,0,0,0.78]}, R:{x:24, y:4, m:[0.9,0,0,0.78]} },
+      blush: false,
+      layout: "line", work: "hop", squash: 0.03
+    },
+    momo: {
+      name: "Momo",
+      palettes: [
+        ["#ffe6f1","#ff9cc8","#f7609f","#b3246a"],
+        ["#fff0f5","#ffb3d1","#ff7eb0","#c43d7a"],
+        ["#ffe3ea","#ff9fb4","#f56c8c","#a8304f"]
+      ],
+      aspect: [1, 1.02],
+      base:  {2:0.02, 5:0.03},
+      morph: {4:0.12, 7:0.04},
+      eyes: { L:{x:-22, y:8, m:[0.85,0.08,-0.05,0.72]}, R:{x:22, y:8, m:[0.85,-0.08,0.05,0.72]} },
+      blush: true,
+      layout: "tri", work: "orbit", squash: 0.03
     }
   };
 
@@ -258,11 +322,9 @@ document.getElementById("bot").contentWindow
     var base = [], mo = [], amps = [], ph = [];
     for (var k=0; k<8; k++){ base[k]=P.base[k]||0; mo[k]=P.morph[k]||0; amps[k]=base[k]; ph[k]=Math.random()*TAU; }
 
-    function eyeMarkup(e, cls, fill){
-      return '<g class="'+cls+'"><path d="'+PILL+'" fill="'+(fill||"#000")+'" transform="matrix('+e.m.join(",")+',0,0)"/></g>';
-    }
-    function happyMarkup(cls, color){
-      return '<path class="'+cls+'" d="'+HAPPY+'" fill="none" stroke="'+color+'" stroke-width="5.5" stroke-linecap="round" opacity="0"/>';
+    var INK = P.eyeInk || "#000";
+    function eyeMarkup(e, cls){
+      return '<g class="'+cls+'"><path d="'+PILL+'" fill="'+INK+'" transform="matrix('+e.m.join(",")+',0,0)"/></g>';
     }
     container.innerHTML =
       '<svg viewBox="-125 -125 250 250" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
@@ -274,28 +336,57 @@ document.getElementById("bot").contentWindow
         '<radialGradient id="fill'+id+'" gradientUnits="userSpaceOnUse" cx="-50.56" cy="-63.2" r="244.9">' +
           '<stop offset="0%"/><stop offset="32%"/><stop offset="72%"/><stop offset="100%"/>' +
         '</radialGradient>' +
+        '<mask id="mask'+id+'" maskUnits="userSpaceOnUse" x="-170" y="-170" width="340" height="340">' +
+          '<rect x="-170" y="-170" width="340" height="340" fill="#fff"/>' +
+          '<path class="hL" d="'+HAPPY+'" fill="none" stroke="'+INK+'" stroke-width="5.5" stroke-linecap="round" opacity="0"/>' +
+          '<path class="hR" d="'+HAPPY+'" fill="none" stroke="'+INK+'" stroke-width="5.5" stroke-linecap="round" opacity="0"/>' +
+        '</mask>' +
       '</defs>' +
       '<ellipse class="shadow" cx="0" cy="112" rx="50" ry="6.5" fill="var(--shadow)"/>' +
       '<g class="ring" fill="none" style="display:none"></g>' +
-      '<g class="rig">' +
+      '<g class="halo" fill="none" stroke="#ff3b3b" style="display:none"><circle class="h0"/><circle class="h1"/></g>' +
+      '<circle class="connRing" r="104" fill="none" stroke="var(--muted)" stroke-width="2.5" stroke-dasharray="2 11" stroke-linecap="round" opacity="0"/>' +
+      '<g class="rig" mask="url(#mask'+id+')">' +
         '<g filter="url(#goo'+id+')">' +
           '<ellipse class="d0"/><ellipse class="d1"/><ellipse class="d2"/>' +
+          FINGERS.map(function(_, i){ return '<ellipse class="f'+i+'" fill="url(#fill'+id+')"/>'; }).join("") +
           '<path class="body" fill="url(#fill'+id+')"/>' +
         '</g>' +
         (P.blush ? '<ellipse class="bL" rx="9" ry="5" fill="#ff8fab"/><ellipse class="bR" rx="9" ry="5" fill="#ff8fab"/>' : '') +
-        '<g class="eyes">' +
-          eyeMarkup(P.eyes.L, "vL", P.eye) + eyeMarkup(P.eyes.R, "vR", P.eye) +
-          happyMarkup("vHL", P.eye) + happyMarkup("vHR", P.eye) +
-        '</g>' +
       '</g>' +
+      '<g class="eyeFront">' + eyeMarkup(P.eyes.L, "eL") + eyeMarkup(P.eyes.R, "eR") + '</g>' +
+      '<g class="waves" fill="none" stroke="var(--muted)" stroke-width="4" stroke-linecap="round" opacity="0">' +
+        '<path d="M80 -74Q89 -62 80 -50"/><path d="M92 -84Q106 -62 92 -40"/>' +
+        '<path d="M-80 -74Q-89 -62 -80 -50"/><path d="M-92 -84Q-106 -62 -92 -40"/>' +
+      '</g>' +
+      '<g class="sig" fill="none" stroke="var(--muted)" stroke-width="4" stroke-linecap="round" opacity="0">' +
+        '<circle class="s0" r="3.6" fill="var(--muted)" stroke="none"/>' +
+        '<path class="s1" d="' + arcUp(9) + '"/><path class="s2" d="' + arcUp(16) + '"/><path class="s3" d="' + arcUp(23) + '"/>' +
+      '</g>' +
+      '<g class="badge" opacity="0"><circle r="14" fill="#e02424" stroke="var(--stage)" stroke-width="3"/>' +
+        '<rect x="-2.2" y="-8.5" width="4.4" height="10" rx="2.2" fill="#fff"/><circle cy="5.8" r="2.4" fill="#fff"/></g>' +
+      '<g class="perm" opacity="0">' +
+        '<path d="M-26 -20h52a10 10 0 0 1 10 10v18a10 10 0 0 1 -10 10h-30l-12 11 2 -11h-12a10 10 0 0 1 -10 -10v-18a10 10 0 0 1 10 -10Z" fill="var(--stage)" stroke="var(--ink)" stroke-width="3" stroke-linejoin="round"/>' +
+        '<path class="shackle" d="M-19 -3v-4a5 5 0 0 1 10 0v4" fill="none" stroke="#f59e0b" stroke-width="3.2" stroke-linecap="round"/>' +
+        '<rect x="-22.5" y="-3.5" width="17" height="13" rx="3" fill="#f59e0b"/><circle cx="-14" cy="2.5" r="2" fill="var(--stage)"/>' +
+        '<circle class="pd0" cx="6" cy="2" r="3.2" fill="var(--ink)"/><circle class="pd1" cx="15" cy="2" r="3.2" fill="var(--ink)"/><circle class="pd2" cx="24" cy="2" r="3.2" fill="var(--ink)"/>' +
+      '</g>' +
+      '<g class="fx" fill-rule="evenodd"></g>' +
       '</svg>';
 
     var q = function(s){ return container.querySelector(s); };
     var stops = container.querySelectorAll("stop");
     var body = q(".body"), rig = q(".rig"), shadow = q(".shadow"), ring = q(".ring");
     var dots = [q(".d0"), q(".d1"), q(".d2")];
-    var eL = q(".vL"), eR = q(".vR"), hL = q(".vHL"), hR = q(".vHR");
+    var eL = q(".eL"), eR = q(".eR"), hL = q(".hL"), hR = q(".hR");
     var bL = q(".bL"), bR = q(".bR");
+    var halo = q(".halo"), haloC = [q(".h0"), q(".h1")], connRing = q(".connRing");
+    var waves = q(".waves"), sig = q(".sig"), sigParts = [q(".s0"), q(".s1"), q(".s2"), q(".s3")];
+    var badge = q(".badge"), fx = q(".fx");
+    var perm = q(".perm"), shackle = q(".shackle"), permDots = [q(".pd0"), q(".pd1"), q(".pd2")];
+    var fingers = FINGERS.map(function(_, i){ return q(".f"+i); });
+    var aDeep = ALERT_DEEP.map(hex), aBright = ALERT_BRIGHT.map(hex);
+    var parts = [], pool = [], toolClock = 0, puff = 0, connA = 0;
     var ringSegs = [];
     for (var s=0; s<RING_N; s++){
       var seg = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -318,7 +409,15 @@ document.getElementById("bot").contentWindow
     var hopY   = Spring(0,   0.12, 0.72);
     var dance  = Spring(0,   0.08, 0.80);
     var ringOn = Spring(0,   0.06, 0.80);
-    var springs = [bodyS, spread, dotS, eyeOpen, happy, squint, lookX, lookY, morph, work, hopY, dance, ringOn];
+    var alertOn= Spring(0,   0.10, 0.75);
+    var handOn = Spring(0,   0.09, 0.72);
+    var waveOn = Spring(0,   0.08, 0.80);
+    var toolOn = Spring(0,   0.08, 0.80);
+    var connOn = Spring(0,   0.05, 0.85);
+    var permOn = Spring(0,   0.09, 0.72);
+    var headTilt = Spring(0, 0.06, 0.80);
+    var springs = [bodyS, spread, dotS, eyeOpen, happy, squint, lookX, lookY, morph, work, hopY, dance, ringOn,
+                   alertOn, handOn, waveOn, toolOn, connOn, permOn, headTilt];
 
     var t = Math.random()*10, colorP = Math.random()*pals.length, colorRate = 0.05;
     var orbitA = 0, ringA = Math.random()*TAU, blinkY = 1, blinkOK = true, ambient = true;
@@ -384,12 +483,61 @@ document.getElementById("bot").contentWindow
       });
     }
 
+    // alert: turn red, flash, look around nervously
+    function alertLoop(){
+      ambient=false; blinkOK=false; happy.t=0; eyeOpen.t=1.15; squint.t=1; lookY.t=0;
+      bodyS.t=1.05; morph.t=0.2; alertOn.t=1;
+      (function look(){ lookX.t = lookX.t > 0 ? -5 : 5; after(450, look); })();
+    }
+    // welcome: shrink into a palm, grow fingers, wave hello, then back to the face
+    function welcomeLoop(){
+      ambient=false; blinkOK=false; eyeOpen.t=0; happy.t=1; squint.t=1; bodyS.t=0.82; morph.t=0;
+      after(250,  function(){ handOn.t=1; });
+      after(700,  function(){ waveOn.t=1; });
+      after(3600, function(){ waveOn.t=0; });
+      after(4000, function(){ handOn.t=0; bodyS.t=1; });
+      after(4500, function(){ happy.t=0; eyeOpen.t=1; blinkOK=true; });
+      after(6200, welcomeLoop);
+    }
+    // tool: puff tools and sparkles out of the head, eyes follow them
+    function toolLoop(){
+      ambient=false; blinkOK=true; happy.t=0; eyeOpen.t=1.05; squint.t=1; lookY.t=-5;
+      bodyS.t=1; morph.t=0.2; toolOn.t=1;
+      (function glance(){ lookX.t = (Math.random()*2-1)*6; after(600 + Math.random()*500, glance); })();
+    }
+    // connection: go pale, sag a little, search for signal, perk up hopefully, repeat
+    function connLoop(){
+      ambient=false; blinkOK=true; happy.t=0; eyeOpen.t=0.9; squint.t=1; bodyS.t=0.97; morph.t=0;
+      connOn.t=1; lookX.t=0; lookY.t=-5;
+      after(1300, function(){ lookX.t=-6; lookY.t=0; });
+      after(2400, function(){ lookX.t=6; });
+      after(3500, function(){ lookX.t=0; lookY.t=-6; eyeOpen.t=1.05; bodyS.t=1.02; hopY.t=-5; });
+      after(3800, function(){ hopY.t=0; });
+      after(4400, function(){ eyeOpen.t=0.9; bodyS.t=0.97; lookY.t=2; });
+      after(5400, connLoop);
+    }
+
+    // permission: tilt the head, ask with a lock bubble, knock-knock hop, wait
+    function permLoop(){
+      ambient=false; blinkOK=true; happy.t=0; eyeOpen.t=1.05; squint.t=0.7; lookX.t=0; lookY.t=2;
+      bodyS.t=1; morph.t=0.1; permOn.t=1;
+      after(900,  function(){ headTilt.t=9; lookX.t=3; });
+      after(2500, function(){ headTilt.t=-6; lookX.t=-3; });
+      after(3900, function(){ headTilt.t=0; lookX.t=0; hopY.t=-6; bodyS.t=1.04; });
+      after(4080, function(){ hopY.t=0; bodyS.t=1; });
+      after(4300, function(){ hopY.t=-5; bodyS.t=1.03; });
+      after(4480, function(){ hopY.t=0; bodyS.t=1; });
+      after(5400, permLoop);
+    }
+
     function setState(s){
       if (!LABELS[s]) return;
       if (s === state && s !== "done") return;
       clearTimers(); state = s;
       if (onChange) onChange(s);
       dance.t = 0; ringOn.t = 0; hopY.t = 0;
+      alertOn.t = 0; handOn.t = 0; waveOn.t = 0; toolOn.t = 0; connOn.t = 0; permOn.t = 0; headTilt.t = 0;
+      lookX.t = 0; lookY.t = 0; squint.t = 1;
       work.t = (s === "working") ? 1 : 0;
       if (s === "idle"){
         colorRate = 0.05;
@@ -404,6 +552,21 @@ document.getElementById("bot").contentWindow
       } else if (s === "done"){
         colorRate = 0.2;
         ensureFace(celebrate);
+      } else if (s === "alert"){
+        colorRate = 0.1; alertOn.t = 1;
+        ensureFace(alertLoop);
+      } else if (s === "welcome"){
+        colorRate = 0.12;
+        ensureFace(welcomeLoop);
+      } else if (s === "tool"){
+        colorRate = 0.4;
+        ensureFace(toolLoop);
+      } else if (s === "connection"){
+        colorRate = 0.03; connOn.t = 1;
+        ensureFace(connLoop);
+      } else if (s === "permission"){
+        colorRate = 0.08; permOn.t = 1;
+        ensureFace(permLoop);
       }
     }
 
@@ -425,6 +588,23 @@ document.getElementById("bot").contentWindow
       }, 2600 + Math.random()*3000);
     })();
 
+    var ao = 0, co = 0, flash = 0;
+    function tint(c, j){
+      if (co > 0.001){ var g = c[0]*0.3 + c[1]*0.59 + c[2]*0.11; c = mix(c, [g+6, g+8, g+14], 0.8*co); }
+      if (ao > 0.001){ c = mix(c, mix(aDeep[j], aBright[j], flash), ao); }
+      return c;
+    }
+    function emit(n, oy){
+      for (var i=0; i<n && parts.length < 70; i++){
+        var el = pool.pop() || document.createElementNS("http://www.w3.org/2000/svg", "path");
+        el.setAttribute("d", ICONS[Math.floor(Math.random()*ICONS.length)]);
+        fx.appendChild(el);
+        parts.push({ el:el, x:(Math.random()-0.5)*30, y:oy, vx:(Math.random()-0.5)*200, vy:-(150 + Math.random()*130),
+                     rot:Math.random()*360, vr:(Math.random()-0.5)*540, life:0, max:1.3 + Math.random()*0.7,
+                     s:1.15 + Math.random()*0.7, h:Math.random()*360, hr:(Math.random() < 0.5 ? -1 : 1)*(120 + Math.random()*240) });
+      }
+    }
+
     function update(dt, f){
       t += dt;
       for (var i=0; i<springs.length; i++) stepSpring(springs[i], f);
@@ -432,7 +612,9 @@ document.getElementById("bot").contentWindow
 
       // colors
       colorP += dt * colorRate;
-      for (var j=0; j<4; j++) stops[j].setAttribute("stop-color", rgb(palAt(pals, colorP, j)));
+      ao = clamp01(alertOn.v); co = clamp01(connOn.v);
+      flash = REDUCED ? 0.5 : clamp01(0.5 + 1.6*Math.sin(TAU*t*2.2));
+      for (var j=0; j<4; j++) stops[j].setAttribute("stop-color", rgb(tint(palAt(pals, colorP, j), j)));
 
       // happy dance: bouncing, wiggling, squishing
       var dn = clamp01(dance.v) * (REDUCED ? 0 : 1);
@@ -449,14 +631,91 @@ document.getElementById("bot").contentWindow
       }
       var bs = Math.max(0, bodyS.v);
       var w = Math.sin(t*2.4) * P.squash * motion;
-      var sx = P.aspect[0]*(1 + w + landSquash), sy = P.aspect[1]*(1 - w - landSquash);
+      puff *= Math.pow(0.85, f);
+      var sx = P.aspect[0]*(1 + w + landSquash + 0.07*puff + 0.03*co), sy = P.aspect[1]*(1 - w - landSquash - 0.07*puff - 0.04*co);
       body.setAttribute("d", bs < 0.015 ? "M0 0" : blobPath(84*bs, amps, ph, sx, sy));
 
       // float + hop + dance
       var sp = Math.max(0, spread.v);
       var bob = REDUCED ? 0 : (-3 + 3*Math.cos(TAU*t/4.2)) * (1 - 0.5*clamp01(sp)) * (1 - dn);
       var y = bob + hopY.v + danceY;
-      rig.setAttribute("transform", "translate(0," + y.toFixed(2) + ") rotate(" + tilt.toFixed(2) + ")");
+      var shakeX = REDUCED ? 0 : ao * 3.2 * Math.sin(TAU*t*11) * (flash > 0.5 ? 1 : 0.3);
+      var wv = clamp01(waveOn.v), waveAng = REDUCED ? 0 : waveOn.v * 20 * Math.sin(TAU*t/0.72);
+      rig.setAttribute("transform", "translate(" + shakeX.toFixed(2) + "," + y.toFixed(2) + ") rotate(" + (tilt + headTilt.v).toFixed(2) + ") rotate(" + waveAng.toFixed(2) + " 0 70)");
+
+      // permission: speech bubble with a lock, pops out from the tail tip
+      var po = Math.max(0, permOn.v);
+      perm.setAttribute("opacity", clamp01(po).toFixed(3));
+      if (po > 0.01){
+        perm.setAttribute("transform", "translate(" + (42 + headTilt.v*0.6).toFixed(2) + "," + (-71 + y).toFixed(2) + ") scale(" + (0.5 + 0.5*po).toFixed(3) + ") translate(16,-29)");
+        var lift = REDUCED ? 0 : 3.5*Math.pow(Math.max(0, Math.sin(TAU*t/1.6)), 6);
+        shackle.setAttribute("transform", "translate(0," + (-lift).toFixed(2) + ")");
+        for (var pdi=0; pdi<3; pdi++){
+          var pdv = REDUCED ? 1 : 0.25 + 0.75*Math.pow(Math.max(0, Math.sin(TAU*(t/1.2 - pdi*0.18))), 2);
+          permDots[pdi].setAttribute("opacity", pdv.toFixed(3));
+        }
+      }
+
+      // welcome: fingers
+      var hg = Math.max(0, handOn.v), hs = bs/0.82;
+      for (var fi=0; fi<fingers.length; fi++){
+        var F = FINGERS[fi], fe = fingers[fi];
+        if (hg < 0.02){ fe.setAttribute("rx", 0); fe.setAttribute("ry", 0); continue; }
+        var ang = F.a + (REDUCED ? 0 : wv*6*Math.sin(TAU*t/0.72 - fi*0.6));
+        var ar = ang*Math.PI/180, reach = F.len*0.6*hg;
+        var fcx = (F.x + Math.sin(ar)*reach)*hs, fcy = (F.y - Math.cos(ar)*reach)*hs;
+        fe.setAttribute("cx", fcx.toFixed(2)); fe.setAttribute("cy", fcy.toFixed(2));
+        fe.setAttribute("rx", (F.w*hs*clamp01(hg*2)).toFixed(2));
+        fe.setAttribute("ry", (F.len*0.7*hg*hs).toFixed(2));
+        fe.setAttribute("transform", "rotate(" + ang.toFixed(2) + " " + fcx.toFixed(2) + " " + fcy.toFixed(2) + ")");
+      }
+      waves.setAttribute("opacity", (wv*(0.35 + 0.65*Math.abs(Math.sin(TAU*t/1.44)))).toFixed(3));
+      waves.setAttribute("transform", "translate(0," + y.toFixed(2) + ")");
+
+      // alert: pulsing halo + badge
+      if (ao < 0.01){ halo.style.display = "none"; badge.setAttribute("opacity", 0); }
+      else {
+        halo.style.display = "";
+        for (var hk=0; hk<2; hk++){
+          var hp2 = frac(t/1.1 + hk*0.5);
+          haloC[hk].setAttribute("r", (84 + 44*hp2).toFixed(2));
+          haloC[hk].setAttribute("stroke-width", (1 + 7*(1-hp2)).toFixed(2));
+          haloC[hk].setAttribute("opacity", (ao*(1-hp2)*0.7).toFixed(3));
+        }
+        halo.setAttribute("transform", "translate(" + shakeX.toFixed(2) + "," + y.toFixed(2) + ")");
+        badge.setAttribute("opacity", (ao*(0.35 + 0.65*flash)).toFixed(3));
+        badge.setAttribute("transform", "translate(" + (62 + shakeX).toFixed(2) + "," + (-72 + y).toFixed(2) + ") scale(" + (ao*(0.9 + 0.15*flash)).toFixed(3) + ")");
+      }
+
+      // connection: signal bars fill up one by one + dashed ring turning slowly
+      sig.setAttribute("opacity", co.toFixed(3));
+      connRing.setAttribute("opacity", (0.55*co).toFixed(3));
+      if (co > 0.01){
+        var lvl = REDUCED ? 4 : Math.floor(t*2.2) % 5;
+        for (var si=0; si<4; si++) sigParts[si].setAttribute("opacity", lvl > si ? 1 : 0.18);
+        sig.setAttribute("transform", "translate(0," + (-92 + y).toFixed(2) + ")");
+        connA += dt * 40 * (REDUCED ? 0.3 : 1);
+        connRing.setAttribute("transform", "translate(0," + y.toFixed(2) + ") rotate(" + connA.toFixed(2) + ")");
+      }
+
+      // tool: spray particles
+      if (toolOn.t === 1 && toolOn.v > 0.6){
+        toolClock += dt;
+        if (toolClock > (REDUCED ? 0.8 : 0.3)){
+          toolClock = 0; puff = 1;
+          emit(REDUCED ? 1 : 2 + (Math.random() < 0.5 ? 1 : 0), y - 70*bs);
+        }
+      }
+      for (var pi=parts.length-1; pi>=0; pi--){
+        var pt = parts[pi];
+        pt.life += dt;
+        if (pt.life > pt.max){ fx.removeChild(pt.el); pool.push(pt.el); parts.splice(pi, 1); continue; }
+        pt.vy += 330*dt; pt.x += pt.vx*dt; pt.y += pt.vy*dt; pt.rot += pt.vr*dt; pt.h += pt.hr*dt;
+        var pop = Math.min(1, pt.life/0.15), fade = 1 - clamp01((pt.life - pt.max*0.65)/(pt.max*0.35));
+        pt.el.setAttribute("transform", "translate(" + pt.x.toFixed(2) + "," + pt.y.toFixed(2) + ") rotate(" + pt.rot.toFixed(1) + ") scale(" + (pt.s*pop).toFixed(3) + ")");
+        pt.el.setAttribute("fill", "hsl(" + (((pt.h % 360) + 360) % 360).toFixed(0) + ",88%,58%)");
+        pt.el.setAttribute("opacity", fade.toFixed(3));
+      }
 
       // rainbow ring: grows in, circles slowly, shrinks away
       var ro = ringOn.v;
@@ -510,7 +769,7 @@ document.getElementById("bot").contentWindow
         el.setAttribute("cy", (by + oy*a2w).toFixed(2));
         el.setAttribute("rx", (R0*(1 + (rx-1)*a2w)).toFixed(2));
         el.setAttribute("ry", (R0*(1 + (ry-1)*a2w)).toFixed(2));
-        el.setAttribute("fill", rgb(palAt(pals, colorP + d*pals.length/3, 2)));
+        el.setAttribute("fill", rgb(tint(palAt(pals, colorP + d*pals.length/3, 2), 2)));
       }
 
       // eyes
@@ -558,11 +817,12 @@ document.getElementById("bot").contentWindow
   requestAnimationFrame(frame);
 
   // ---------- demo sequence ----------
-  var SEQ = [["idle",3000],["thinking",8000],["working",9000],["done",2600]];
+  var SEQ = [["idle",2500],["welcome",6200],["thinking",8000],["tool",6000],["working",9000],
+             ["alert",4000],["connection",6500],["permission",5400],["done",2600]];
   function startDemo(bot, offset){
     stopDemo(bot);
     var i = 0;
-    function next(){ var st = SEQ[i%4]; bot.setState(st[0]); bot._demo = setTimeout(next, st[1]); i++; }
+    function next(){ var st = SEQ[i%SEQ.length]; bot.setState(st[0]); bot._demo = setTimeout(next, st[1]); i++; }
     bot._demo = setTimeout(next, offset);
   }
   function stopDemo(bot){ if (bot._demo){ clearTimeout(bot._demo); bot._demo = null; } }
@@ -598,6 +858,9 @@ document.getElementById("bot").contentWindow
         '<div class="seg" role="group" aria-label="สถานะของ ' + PRESETS[key].name + '">' +
           '<button data-state="idle">รอ</button><button data-state="thinking">คิด</button>' +
           '<button data-state="working">ทำงาน</button><button data-state="done">เสร็จ</button>' +
+          '<button data-state="alert">เตือน</button><button data-state="welcome">ทักทาย</button>' +
+          '<button data-state="tool">เครื่องมือ</button><button data-state="connection">เชื่อมต่อ</button>' +
+          '<button data-state="permission">อนุญาต</button>' +
         '</div>';
       stageEl.appendChild(wrap);
       var label = wrap.querySelector(".bot-state");

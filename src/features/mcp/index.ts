@@ -9,3 +9,5 @@ export * from "./connectors";
 export * from "./agent-install";
 export * from "./oauth-limits";
 export * from "./export";
+export * from "./tool-label";
+export { McpToolIcon } from "./mcp-tool-icon";

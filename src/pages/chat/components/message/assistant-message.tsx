@@ -136,9 +136,13 @@ export function AssistantMessage({
 
       {showAgentSpinner ? (
         <div className="mb-2 flex items-center gap-2">
-          <CoworkBot size={32} state="thinking" />
+          <CoworkBot size={32} state={waitingOnTool ? "tool" : "thinking"} />
           <span className="text-[11px] text-muted-foreground animate-pulse">
-            {isCli ? `Running ${agentName}…` : "Thinking…"}
+            {waitingOnTool
+              ? lastActivity?.title || "Using a tool…"
+              : isCli
+                ? `Running ${agentName}…`
+                : "Thinking…"}
           </span>
         </div>
       ) : (

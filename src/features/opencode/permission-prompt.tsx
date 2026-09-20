@@ -79,11 +79,7 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
         >
           <div className={cn("px-3 pt-2.5", stacked ? "pb-3.5" : "pb-2.5")}>
             <div className="flex items-center gap-2.5">
-              <CoworkBot 
-                bot="mochi"
-                state="idle"
-                size={46}
-              />
+              <CoworkBot state="permission" size={46} />
               <div className="flex min-w-0 flex-1 items-baseline gap-1.5 text-sm">
                 <span className="shrink-0 font-medium text-foreground">{action}</span>
                 {target && (

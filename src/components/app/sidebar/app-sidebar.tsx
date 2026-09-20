@@ -9,6 +9,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/animate-ui/components/radix/sidebar";
+import { SidebarTokenFooter } from "./sidebar-token-footer";
 import { Input } from "@/components/ui/input";
 import { sessionMode, useChatRuns, useChatSessions, type ChatSession } from "@/features/chat-history";
 import { useProjects, type Project } from "@/features/projects";
@@ -175,6 +176,7 @@ export function AppSidebar() {
         )}
       </SidebarContent>
 
+      <SidebarTokenFooter />
       <SidebarRail />
     </Sidebar>
   );

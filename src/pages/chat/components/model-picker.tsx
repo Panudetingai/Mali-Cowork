@@ -28,44 +28,21 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CheckIcon, ChevronDownIcon, KeyRoundIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { AiModel, ModelSource } from "../models";
+import { modelCategory, type AiModel, type ModelCategory } from "../models";
 
-/** How each source is labelled on the trigger button. */
-const SOURCES: Record<ModelSource, { tag: string; className: string }> = {
-  api: {
-    tag: "API",
-    className: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
+const CATEGORY_META: Record<ModelCategory, { label: string; hint: string }> = {
+  agent: {
+    label: "Agents",
+    hint: "Works in a folder · tools, files and MCP",
   },
-  local: {
-    tag: "Local",
-    className: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
-  },
-  cli: {
-    tag: "CLI",
-    className: "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
-  },
-  opencode: {
-    tag: "OpenCode",
-    className: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+  model: {
+    label: "Models",
+    hint: "Called straight over its API with your key · billed per token",
   },
 };
 
-type PickCategory = "provider" | "opencode" | "cli";
-
-const CATEGORY_META: Record<PickCategory, { label: string; hint: string }> = {
-  provider: {
-    label: "Providers",
-    hint: "Your API key · billed per token",
-  },
-  opencode: {
-    label: "OpenCode",
-    hint: "Through OpenCode server · MCP & tools",
-  },
-  cli: {
-    label: "CLI agents",
-    hint: "Signed-in CLI on this computer",
-  },
-};
+/** CLI agents come before OpenCode, which brings a long provider list. */
+const GROUP_RANK = ["Cursor CLI", "Codex CLI", "Gemini CLI", "OpenCode"];
 
 type Props = {
   models: AiModel[];
@@ -77,17 +54,16 @@ type Props = {
 /** The single place to choose a model, OpenCode models included. */
 export function ModelPicker({ models, selected, loading, onSelect }: Props) {
   const [open, setOpen] = useState(false);
-  const [category, setCategory] = useState<PickCategory>(() => categoryOf(selected));
+  const [category, setCategory] = useState<ModelCategory>(() => modelCategory(selected));
   const [search, setSearch] = useState("");
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set());
 
   const byCategory = useMemo(() => splitByCategory(models), [models]);
 
   const categories = useMemo(() => {
-    const list: PickCategory[] = [];
-    if (byCategory.provider.length > 0) list.push("provider");
-    if (byCategory.opencode.length > 0) list.push("opencode");
-    if (byCategory.cli.length > 0) list.push("cli");
+    const list: ModelCategory[] = [];
+    if (byCategory.agent.length > 0) list.push("agent");
+    if (byCategory.model.length > 0) list.push("model");
     return list;
   }, [byCategory]);
 
@@ -103,8 +79,8 @@ export function ModelPicker({ models, selected, loading, onSelect }: Props) {
       setSearch("");
       return;
     }
-    const cat = categoryOf(selected);
-    setCategory(categories.includes(cat) ? cat : (categories[0] ?? "opencode"));
+    const cat = modelCategory(selected);
+    setCategory(categories.includes(cat) ? cat : (categories[0] ?? "agent"));
   }, [open, selected, categories]);
 
   useEffect(() => {
@@ -159,7 +135,6 @@ export function ModelPicker({ models, selected, loading, onSelect }: Props) {
           <ModelSelectorName className="text-sm font-normal">
             {selected.name}
           </ModelSelectorName>
-          <SourceTag source={selected.source} />
           <ChevronDownIcon className="size-3.5 shrink-0 opacity-60" />
         </Button>
       </ModelSelectorTrigger>
@@ -171,7 +146,7 @@ export function ModelPicker({ models, selected, loading, onSelect }: Props) {
         <TabGroup
           selectedIndex={categoryIndex}
           onChange={(index) => {
-            setCategory(categories[index] ?? "opencode");
+            setCategory(categories[index] ?? "agent");
             setSearch("");
           }}
         >
@@ -229,7 +204,7 @@ export function ModelPicker({ models, selected, loading, onSelect }: Props) {
             </TabPanels>
           ) : (
             <CategoryPanel
-              id={categories[0] ?? "opencode"}
+              id={categories[0] ?? "agent"}
               byCategory={byCategory}
               loading={loading}
               searching={searching}
@@ -262,11 +237,11 @@ function CategoryPanel({
   selected,
   onSelect,
 }: {
-  id: PickCategory;
+  id: ModelCategory;
   byCategory: ReturnType<typeof splitByCategory>;
   loading?: boolean;
   searching: boolean;
-  category: PickCategory;
+  category: ModelCategory;
   visibleModels: AiModel[];
   openGroups: Set<string>;
   onToggleGroup: (name: string, open: boolean) => void;
@@ -274,13 +249,11 @@ function CategoryPanel({
   onSelect: (model: AiModel) => void;
 }) {
   const emptyMessage =
-    id === "provider"
-      ? "No provider models. Add an API key in Settings → Models."
-      : id === "opencode"
-        ? loading
-          ? "Loading OpenCode models…"
-          : "No OpenCode models. Start the OpenCode server or add keys in Settings."
-        : "No CLI agents available. Set them up in Settings → Agents.";
+    id === "agent"
+      ? loading
+        ? "Loading agents…"
+        : "No agents available. Sign in to a CLI in Settings → Agents, or start the OpenCode server."
+      : "No models yet. Add an API key in Settings → Models.";
 
   return (
     <>
@@ -514,20 +487,6 @@ function ModelBadge({ model }: { model: AiModel }) {
   return <span className="ml-auto" />;
 }
 
-function SourceTag({ source }: { source: ModelSource }) {
-  const { tag, className } = SOURCES[source];
-  return (
-    <span
-      className={cn(
-        "shrink-0 rounded px-1 py-px text-[10px] font-medium leading-4",
-        className,
-      )}
-    >
-      {tag}
-    </span>
-  );
-}
-
 function Logo({ provider }: { provider: string }) {
   return (
     <ModelSelectorLogo
@@ -552,22 +511,14 @@ function categoryHasConnected(models: AiModel[]) {
   return models.some(modelIsConnected);
 }
 
-function categoryOf(model: AiModel): PickCategory {
-  if (model.source === "opencode") return "opencode";
-  if (model.source === "cli") return "cli";
-  return "provider";
-}
-
 function splitByCategory(models: AiModel[]) {
-  const provider: AiModel[] = [];
-  const opencode: AiModel[] = [];
-  const cli: AiModel[] = [];
-  for (const model of models) {
-    if (model.source === "opencode") opencode.push(model);
-    else if (model.source === "cli") cli.push(model);
-    else provider.push(model);
+  const agent: AiModel[] = [];
+  const model: AiModel[] = [];
+  for (const entry of models) {
+    if (modelCategory(entry) === "agent") agent.push(entry);
+    else model.push(entry);
   }
-  return { provider, opencode, cli };
+  return { agent, model };
 }
 
 function groupByName(models: AiModel[]): [string, AiModel[]][] {
@@ -580,9 +531,16 @@ function groupByName(models: AiModel[]): [string, AiModel[]][] {
   return [...map.entries()];
 }
 
-/** Connected providers first, then A–Z. */
+/** CLI agents first in a fixed order, then connected groups, then A–Z. */
 function sortGroups(groups: [string, AiModel[]][]): [string, AiModel[]][] {
+  const rank = (name: string) => {
+    const index = GROUP_RANK.indexOf(name);
+    return index === -1 ? GROUP_RANK.length : index;
+  };
   return [...groups].sort((a, b) => {
+    const ra = rank(a[0]);
+    const rb = rank(b[0]);
+    if (ra !== rb) return ra - rb;
     const ca = groupIsConnected(a[1]);
     const cb = groupIsConnected(b[1]);
     if (ca !== cb) return ca ? -1 : 1;

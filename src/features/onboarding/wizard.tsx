@@ -170,7 +170,7 @@ function OnboardingWizard({ onClose }: { onClose: () => void }) {
       <div className="flex min-h-[420px] flex-col">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <CoworkBot bot="mochi" state="done" size={56} />
+            <CoworkBot state={step === "done" ? "done" : "welcome"} size={56} />
           </div>
         </DialogHeader>
 

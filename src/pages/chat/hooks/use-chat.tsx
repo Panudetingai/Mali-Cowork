@@ -50,6 +50,7 @@ import { useNavigate } from "react-router-dom";
 import { contextUsage } from "../context-usage";
 import { summarizeConversation } from "../summary";
 import {
+    apiModelOf,
     isCodexModel,
     isCursorModel,
     isGeminiModel,
@@ -362,13 +363,26 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
         hasErrored = true;
         updateChatMessages(chatKey, (prev) => replaceAssistantWithError(prev, assistantId, content));
         endRun(chatKey, runToken);
-        if (isCursor && isAuthError(content)) {
+        if (!isAuthError(content)) return;
+        if (isCursor) {
           requestCursorLogin();
           return;
         }
-        const providerId = opencodeProviderOf(modelId);
-        if (providerId && isAuthError(content)) {
-          requestProviderKey({ providerId, modelName: resend.modelName, invalid: true });
+        // Ask for the key where it belongs: OpenCode's auth store for its
+        // models, Settings → Models for a provider called over its own API.
+        const opencodeProvider = opencodeProviderOf(modelId);
+        if (opencodeProvider) {
+          requestProviderKey({ providerId: opencodeProvider, modelName: resend.modelName, invalid: true });
+          return;
+        }
+        const api = apiModelOf(modelId);
+        if (api) {
+          requestProviderKey({
+            providerId: api.provider,
+            target: "api",
+            modelName: resend.modelName,
+            invalid: true,
+          });
         }
       };
 
