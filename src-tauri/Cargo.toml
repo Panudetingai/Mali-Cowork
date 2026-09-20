@@ -1,7 +1,7 @@
 [package]
 name = "mali_cowork"
-version = "0.1.0"
-description = "A Tauri App"
+version = "0.1.2"
+description = "Desktop coworking app for AI chat and agent-assisted work on your files."
 authors = ["you"]
 edition = "2021"
 
