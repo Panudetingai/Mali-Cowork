@@ -93,6 +93,59 @@ function parsePreview(body: string): MediaPreviewBlock | null {
   };
 }
 
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif|bmp|svg)(\?[^\s]*)?$/i;
+const VIDEO_EXT = /\.(mp4|webm|mov|m4v|ogv)(\?[^\s]*)?$/i;
+
+/** `image` / `video` for a URL that plainly is one, undefined otherwise. */
+function mediaKindOf(url: string): "image" | "video" | undefined {
+  if (!/^https?:\/\//i.test(url)) return undefined;
+  const path = url.split("#")[0] ?? url;
+  if (IMAGE_EXT.test(path)) return "image";
+  if (VIDEO_EXT.test(path)) return "video";
+  return undefined;
+}
+
+/** A whole line that is nothing but one link: `url`, `<url>` or `[text](url)`. */
+const LONE_LINK = /^\[([^\]]*)\]\(\s*([^)\s]+)[^)]*\)$|^<\s*(https?:\/\/[^>\s]+)\s*>$|^(https?:\/\/[^\s<>"')\]]+)$/;
+
+/**
+ * A picture or clip an agent or MCP tool dropped in as a bare link should be
+ * watchable, not a URL to copy by hand. Only lines that are *nothing but* the
+ * link qualify, so a sentence that happens to mention a .png keeps it.
+ *
+ * An image becomes markdown, so it stays inline where the agent put it;
+ * markdown has no video tag, so a clip becomes a preview card instead. A line
+ * already written as `![alt](url)` is left alone — it renders inline already.
+ */
+function extractMediaFromProse(text: string, previews: MediaPreviewBlock[]): string {
+  if (!/https?:\/\//i.test(text)) return text;
+  return text
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("![")) return line;
+      const match = LONE_LINK.exec(trimmed);
+      if (!match) return line;
+      const url = normalizeUrl(match[2] ?? match[3] ?? match[4] ?? "");
+      const kind = mediaKindOf(url);
+      if (!kind) return line;
+      const label = match[1]?.trim() ?? "";
+      if (kind === "image") return `![${label}](${url})`;
+      previews.push({ kind, url, title: label || undefined });
+      return "";
+    })
+    .join("\n");
+}
+
+function dedupeMedia(items: MediaPreviewBlock[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.url)) return false;
+    seen.add(item.url);
+    return true;
+  });
+}
+
 function dedupeAuth(actions: AuthActionBlock[]) {
   const seen = new Set<string>();
   return actions.filter((a) => {
@@ -188,11 +241,12 @@ export function extractChatBlocks(content: string): {
   }
 
   text = extractAuthFromProse(text, authActions);
+  text = extractMediaFromProse(text, mediaPreviews);
 
   return {
     text: text.replace(/\n{3,}/g, "\n\n").trim(),
     authActions: dedupeAuth(authActions),
-    mediaPreviews,
+    mediaPreviews: dedupeMedia(mediaPreviews),
   };
 }
 

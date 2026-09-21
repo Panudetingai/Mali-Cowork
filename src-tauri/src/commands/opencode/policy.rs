@@ -90,11 +90,22 @@ impl FolderPolicy {
             }
             "bash" => {
                 let command = ask.command.as_deref().unwrap_or_default();
-                if is_read_only_command(command) {
+                // Reading is only safe if we know *what* is being read.
+                // `cat ~/.aws/credentials` is a plain reading command, and a
+                // prompt injected through a web page or a file is one line
+                // away from asking for it — so a reader skips the prompt only
+                // while every path it names sits in a folder the user granted.
+                let stays_inside = self.reads_granted_paths(command);
+                if is_read_only_command(command) && stays_inside {
                     return Decision::Approve;
                 }
-                // Even with auto-approve, a command that may write into a
-                // read-only folder is the user's call.
+                // Auto-approve means "don't ask about the work I set up", not
+                // "reach anywhere on my disk": a command naming a path outside
+                // every granted folder, or one that may write into a read-only
+                // folder, stays the user's call.
+                if !stays_inside {
+                    return Decision::AskUser;
+                }
                 let touches_read_only = !self.cwd_writable
                     || self
                         .folders
@@ -109,6 +120,23 @@ impl FolderPolicy {
     /// `Some(writable)` when `path` lies in a granted folder.
     fn access(&self, path: &Path) -> Option<bool> {
         most_specific(&self.folders, &resolve(path)).map(|(_, w)| *w)
+    }
+
+    /// True when every argument that names a path is inside a granted folder.
+    /// A bare word has no separator and lands in the working folder, which is
+    /// granted by definition.
+    fn reads_granted_paths(&self, command: &str) -> bool {
+        command
+            .split_whitespace()
+            .skip(1)
+            .filter(|word| !word.starts_with('-'))
+            .map(|word| word.trim_matches(['"', '\'']))
+            .filter(|word| names_a_path(word))
+            .all(|word| {
+                let path = expand_home(word);
+                let absolute = if path.is_absolute() { path } else { self.cwd.join(path) };
+                self.access(&absolute).is_some()
+            })
     }
 
     /// Lines for the system prompt describing what the agent may touch.
@@ -206,6 +234,24 @@ fn is_read_only_command(command: &str) -> bool {
         ["git", sub, ..] => GIT_READERS.contains(sub),
         [program, ..] => READERS.contains(program),
         [] => false,
+    }
+}
+
+/// A separator (or a `~`) is what tells an argument apart from a flag value
+/// or a git revision: `src/main.rs` is a path, `HEAD~1` and `TODO` are not.
+fn names_a_path(word: &str) -> bool {
+    word.contains('/') || word.contains('\\') || word == "~" || word.starts_with("~/")
+}
+
+fn expand_home(raw: &str) -> PathBuf {
+    match raw.strip_prefix('~').filter(|_| raw == "~" || raw.starts_with("~/")) {
+        Some(rest) => match dirs::home_dir() {
+            Some(home) => home.join(rest.trim_start_matches('/')),
+            // Without a home folder to resolve against, `~` stays unmatched
+            // by any grant, so the command goes to the user.
+            None => PathBuf::from(raw),
+        },
+        None => PathBuf::from(raw),
     }
 }
 
@@ -339,6 +385,29 @@ mod tests {
         ] {
             assert!(!is_read_only_command(command), "{command}");
         }
+    }
+
+    #[test]
+    fn a_reader_still_asks_before_leaving_the_granted_folders() {
+        let policy = FolderPolicy::new(Path::new("/w"), &[grant("/w", "write"), grant("/docs", "read")]);
+        let bash = |c: &str| policy.decide(&ask("bash", &[], None, Some(c)), false);
+
+        // Inside what the user granted: no prompt, as before.
+        assert!(is(bash("cat README.md"), "approve"));
+        assert!(is(bash("ls -la src"), "approve"));
+        assert!(is(bash("rg TODO src"), "approve"));
+        assert!(is(bash("git diff HEAD~1"), "approve"));
+        assert!(is(bash("cat /docs/notes.md"), "approve"));
+        assert!(is(bash("cat /w/src/main.rs"), "approve"));
+
+        // The whole point: a reading command aimed somewhere else.
+        assert!(is(bash("cat ~/.aws/credentials"), "ask"));
+        assert!(is(bash("cat /etc/hosts"), "ask"));
+        assert!(is(bash("rg -n secret /Users"), "ask"));
+        assert!(is(bash("cat /w/../etc/passwd"), "ask"));
+        // Auto-approve is about the user's own prompts, not about handing
+        // over files they never granted.
+        assert!(is(policy.decide(&ask("bash", &[], None, Some("cat ~/.ssh/id_rsa")), true), "ask"));
     }
 
     #[test]

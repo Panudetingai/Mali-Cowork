@@ -8,6 +8,7 @@ import {
     MessageResponse,
 } from "@/components/ai-elements/message";
 import { ChatRichBlocks } from "@/components/chat-blocks/chat-rich-blocks";
+import { ZoomableImage } from "@/components/chat-blocks/zoomable-image";
 import { MarkdownSurface } from "@/components/chat/markdown-surface";
 import { CoworkBot } from "@/components/anim/cowork-bot";
 import { extractChatBlocks } from "@/features/chat-blocks";
@@ -31,15 +32,15 @@ import { MarkdownLink } from "./markdown-link";
 
 const markdownExtras = {
   a: MarkdownLink,
-  img: ({ src, alt, className, ...props }: ComponentProps<"img">) => (
-    <img
-      src={src}
-      alt={alt ?? ""}
-      loading="lazy"
-      className={cn("my-2 max-h-80 max-w-full rounded-xl border border-border/60 object-contain", className)}
-      {...props}
-    />
-  ),
+  img: ({ src, alt, className }: ComponentProps<"img">) =>
+    typeof src === "string" && src ? (
+      <ZoomableImage
+        src={src}
+        alt={alt ?? ""}
+        className={cn("my-2 max-w-full rounded-xl border border-border/60", className)}
+        imageClassName="max-h-80"
+      />
+    ) : null,
 };
 
 type Props = {

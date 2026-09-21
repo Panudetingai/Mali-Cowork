@@ -23,6 +23,7 @@ use commands::git::{
 use commands::mcp::{mcp_auth, mcp_auth_remove, mcp_diagnose, mcp_status, mcp_sync};
 use commands::mcp_oauth::{mcp_auth_cancel, mcp_oauth_prepare};
 use commands::mcp_registry::{mcp_registry_get, mcp_registry_icon, mcp_registry_search};
+use commands::native_alert::native_alert;
 use commands::setup::{setup_cancel, setup_codex_login, setup_install, setup_plan, setup_scan};
 use commands::opencode::{
     opencode_abort, opencode_check, opencode_configure_providers, opencode_default_cwd,
@@ -114,8 +115,10 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
         .menu(app_menu)
-        .setup(|_app| {
+        .setup(|app| {
             supervisor::exit_on_signals();
+            // So a system notification carries the app's name and icon.
+            commands::native_alert::init(&app.config().identifier);
             // Start opencode in the background so the first prompt is fast.
             tauri::async_runtime::spawn(async {
                 if let Err(e) = warm_up_server().await {
@@ -161,6 +164,7 @@ pub fn run() {
             mcp_auth_remove,
             mcp_auth_cancel,
             mcp_oauth_prepare,
+            native_alert,
             mcp_registry_search,
             mcp_registry_get,
             mcp_registry_icon,

@@ -13,6 +13,7 @@ pub mod mcp;
 pub mod mcp_clients;
 pub mod mcp_oauth;
 pub mod mcp_registry;
+pub mod native_alert;
 pub mod smithery;
 pub mod opencode;
 pub mod process;

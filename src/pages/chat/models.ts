@@ -32,16 +32,6 @@ export type AiModel = {
 
 export type ConfiguredProvider = { provider: ProviderDef; models: string[] };
 
-/**
- * The two things a user actually chooses between: an agent that can work in a
- * folder (CLI agents and OpenCode), or a model called straight over its API.
- */
-export type ModelCategory = "agent" | "model";
-
-export function modelCategory(model: AiModel): ModelCategory {
-  return model.source === "opencode" || model.source === "cli" ? "agent" : "model";
-}
-
 export const OPENCODE_PREFIX = "opencode:";
 export const OPENCODE_DEFAULT_ID = `${OPENCODE_PREFIX}default`;
 const API_PREFIX = "api:";
@@ -146,24 +136,34 @@ export function buildModelCatalog(
     })),
   );
 
+  // A provider configured in Settings → Models is synced into OpenCode, so the
+  // same model was offered twice — once with the user's key, once "via
+  // OpenCode" — with nothing to tell the two apart. In Chat, where both are
+  // listed, the user's own key wins and the OpenCode copy is dropped. Cowork
+  // lists no API models, so there the OpenCode copy is the only way in.
+  const ownKeyModels =
+    mode === "cowork"
+      ? new Set<string>()
+      : new Set(providers.flatMap(({ provider, models }) => models.map((m) => `${provider.id}/${m}`)));
+
   const defaultModel = opencode?.models.find((m) => m.id === opencode.defaultModel);
   const opencodeModels: AiModel[] = [
     {
       id: OPENCODE_DEFAULT_ID,
-      name: defaultModel ? `OpenCode default (${defaultModel.name})` : "OpenCode default",
+      name: defaultModel ? `Auto — OpenCode picks (${defaultModel.name})` : "Auto — OpenCode picks",
       provider: "opencode",
       source: "opencode",
       group: "OpenCode",
       free: defaultModel?.free,
       contextLimit: defaultModel?.contextLimit ?? undefined,
     },
-    ...(opencode?.models ?? []).map((m) => ({
+    ...(opencode?.models ?? []).filter((m) => !ownKeyModels.has(m.id)).map((m) => ({
       id: `${OPENCODE_PREFIX}${m.id}`,
       name: m.name,
       provider: m.providerId,
       source: "opencode" as const,
-      // Bare provider name: the Agents tab is all OpenCode below the CLI
-      // agents, so repeating it on every row only adds noise.
+      // Bare provider name; the picker adds "via OpenCode" to the heading, so
+      // repeating it on every row only adds noise.
       group: m.providerName,
       free: m.free,
       needsKey: !m.connected,

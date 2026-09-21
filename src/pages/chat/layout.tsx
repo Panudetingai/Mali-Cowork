@@ -4,6 +4,7 @@ import { createChat } from "@/features/chat-history";
 import { CursorLoginDialog } from "@/features/cursor";
 import { GitBar, GitPanel, GitProvider } from "@/features/git";
 import { loadOpencodeSettings, ProviderKeyDialog } from "@/features/opencode";
+import { FirstRunWizard } from "@/features/onboarding";
 import { getProject, useProjects } from "@/features/projects";
 import { folderName, normalizeFolder } from "@/features/workspace";
 import { useChat } from "@/pages/chat/hooks/use-chat";
@@ -87,6 +88,7 @@ export default function ChatLayout() {
         className={`relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden items-center gap-4 px-4 py-4 sm:gap-5 sm:py-5 ${hasMessages ? "justify-end" : "justify-center"}`}
       >
         {!hasMessages && <ChatTitle mode={mode} project={project} />}
+        {!hasMessages && <FirstRunWizard />}
 
         <ChatMessagePanel
           messages={messages}

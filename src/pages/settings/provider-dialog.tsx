@@ -30,7 +30,7 @@ import { cn } from "@/lib/utils";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { CheckIcon, ExternalLinkIcon, LoaderIcon, RefreshCwIcon } from "lucide-react";
 import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
-import { Field, IconTile, Notice, SecretInput, StatusPill } from "./ui";
+import { Field, IconTile, Notice, SecretInput, StatusPill, TagInput } from "./ui";
 
 export function ProviderDialog({ provider, onClose }: { provider: ProviderDef | null; onClose: () => void }) {
   return (
@@ -187,16 +187,15 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
       <Field
         label="Models"
         htmlFor={ids.models}
-        hint="Comma-separated. Each appears in the model picker."
+        hint="Type a model id and press Enter. Each one appears in the model picker."
         error={attempted && models.length === 0 ? "Add at least one model" : null}
       >
-        <Input
+        <TagInput
           id={ids.models}
-          value={draft.models}
-          onChange={(e) => set({ models: e.target.value })}
+          values={models}
+          onChange={(next) => set({ models: next.join(", ") })}
           placeholder={provider.defaultModels || "e.g. llama3.2, qwen3:8b"}
-          spellCheck={false}
-          className="font-mono text-xs"
+          invalid={attempted && models.length === 0}
         />
       </Field>
 

@@ -58,7 +58,7 @@ export default function SettingsPage() {
           </header>
 
           <nav aria-label="Settings sections" className="scroll-hidden -mx-1 overflow-x-auto px-1 lg:mx-0 lg:overflow-visible lg:px-0">
-            <TabHighlight className="rounded-xl bg-muted/40 p-1 lg:bg-muted/30">
+            <TabHighlight className="rounded-xl bg-primary/60 p-1 lg:bg-primary/60">
               <TabList className="relative flex min-w-min flex-row gap-0.5 lg:min-w-0 lg:flex-col">
                 {TABS.map((item, index) => {
                   const Icon = "icon" in item ? item.icon : null;
@@ -68,7 +68,7 @@ export default function SettingsPage() {
                         {"lobeMcp" in item && item.lobeMcp ? (
                           <McpTabIcon />
                         ) : (
-                          Icon && <Icon className="size-4 shrink-0 opacity-80" />
+                          Icon && <Icon className="size-4 shrink-0" />
                         )}
                         <span className="flex min-w-0 flex-col items-start leading-tight">
                           <span className="truncate">{item.label}</span>

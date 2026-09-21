@@ -1,7 +1,6 @@
 import {
   ModelSelector,
   ModelSelectorContent,
-  ModelSelectorEmpty,
   ModelSelectorInput,
   ModelSelectorItem,
   ModelSelectorList,
@@ -10,39 +9,49 @@ import {
   ModelSelectorName,
   ModelSelectorTrigger,
 } from "@/components/ai-elements/model-selector";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/animate-ui/primitives/radix/collapsible";
-import {
-  Tab,
-  TabGroup,
-  TabHighlight,
-  TabHighlightItem,
-  TabList,
-  TabPanel,
-  TabPanels,
-} from "@/components/animate-ui/primitives/headless/tabs";
 import { Button } from "@/components/ui/button";
+import { ScrollMore, useScrollFade } from "@/components/ui/scroll-fade";
 import { cn } from "@/lib/utils";
 import { CheckIcon, ChevronDownIcon, KeyRoundIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { modelCategory, type AiModel, type ModelCategory } from "../models";
+import { OPENCODE_DEFAULT_ID, type AiModel } from "../models";
 
-const CATEGORY_META: Record<ModelCategory, { label: string; hint: string }> = {
-  agent: {
-    label: "Agents",
-    hint: "Works in a folder · tools, files and MCP",
-  },
-  model: {
-    label: "Models",
-    hint: "Called straight over its API with your key · billed per token",
-  },
+/**
+ * What a heading actually offers. Two tabs called "Agents" and "Models" put
+ * the same provider in both places — the tab was the only thing saying which
+ * OpenCode was behind it — so providers are a rail down the side now, split by
+ * where they run: the same name can appear under both "Your API keys" and
+ * "Via OpenCode", and the section says which is which.
+ */
+type GroupKind = "agent" | "chat";
+
+const KIND_LABEL: Record<GroupKind, { badge: string; title: string }> = {
+  agent: { badge: "Agent", title: "Works in your folders — files, terminal and MCP tools" },
+  chat: { badge: "Chat", title: "Answers only — no file access" },
 };
 
-/** CLI agents come before OpenCode, which brings a long provider list. */
-const GROUP_RANK = ["Cursor CLI", "Codex CLI", "Gemini CLI", "OpenCode"];
+/** Where a provider's models actually run, which is what the rail sorts by. */
+type SectionId = "cli" | "key" | "opencode";
+
+const SECTIONS: { id: SectionId; label: string; hint: string }[] = [
+  { id: "cli", label: "CLI agents", hint: "Runs on the subscription you signed in with" },
+  { id: "key", label: "Your API keys", hint: "Called straight over its API with your key" },
+  { id: "opencode", label: "Via OpenCode", hint: "Routed through the OpenCode server" },
+];
+
+type Group = {
+  key: string;
+  /** Provider name as the user knows it. */
+  label: string;
+  /** Where it runs, when the name alone doesn't say. */
+  note?: string;
+  kind: GroupKind;
+  section: SectionId;
+  items: AiModel[];
+};
+
+/** A signed-in CLI is the one a user most often means, so it leads the rail. */
+const CLI_RANK = ["Cursor CLI", "Codex CLI", "Gemini CLI"];
 
 type Props = {
   models: AiModel[];
@@ -51,7 +60,6 @@ type Props = {
   onSelect: (model: AiModel) => void;
 };
 
-/** The single place to choose a model, OpenCode models included. */
 /**
  * The agent in front of the model name for the CLIs, because their models are
  * named almost exactly like OpenCode's: picking "muse-spark-1.3-medium" from
@@ -63,72 +71,39 @@ function agentLabel(model: AiModel) {
   return `${model.group.replace(/\s*CLI$/i, "")} · ${model.name}`;
 }
 
+/** The single place to choose a model, OpenCode models included. */
 export function ModelPicker({ models, selected, loading, onSelect }: Props) {
   const [open, setOpen] = useState(false);
-  const [category, setCategory] = useState<ModelCategory>(() => modelCategory(selected));
   const [search, setSearch] = useState("");
-  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set());
+  const [picked, setPicked] = useState<string | null>(null);
 
-  const byCategory = useMemo(() => splitByCategory(models), [models]);
+  const groups = useMemo(() => buildGroups(models), [models]);
+  const query = search.trim().toLowerCase();
 
-  const categories = useMemo(() => {
-    const list: ModelCategory[] = [];
-    if (byCategory.agent.length > 0) list.push("agent");
-    if (byCategory.model.length > 0) list.push("model");
-    return list;
-  }, [byCategory]);
+  // Search narrows the rail too, so a provider with no match disappears
+  // instead of opening onto an empty list.
+  const shown = useMemo(() => {
+    if (!query) return groups;
+    return groups
+      .map((group) => ({ ...group, items: group.items.filter((m) => matches(m, query)) }))
+      .filter((group) => group.items.length > 0);
+  }, [groups, query]);
 
-  const categoryIndex = Math.max(0, categories.indexOf(category));
-
-  const providerGroups = useMemo(
-    () => sortGroups(groupByName(byCategory[category] ?? [])),
-    [byCategory, category],
-  );
-
-  useEffect(() => {
-    if (!open) {
-      setSearch("");
-      return;
-    }
-    const cat = modelCategory(selected);
-    setCategory(categories.includes(cat) ? cat : (categories[0] ?? "agent"));
-  }, [open, selected, categories]);
+  const selectedKey = groupKeyOf(selected);
+  const active =
+    shown.find((g) => g.key === picked) ??
+    shown.find((g) => g.key === selectedKey) ??
+    shown[0];
 
   useEffect(() => {
-    if (!open) return;
-    const initial = new Set<string>();
-    for (const [name, items] of providerGroups) {
-      if (groupIsConnected(items)) initial.add(name);
-    }
-    if (providerGroups.some(([name]) => name === selected.group)) {
-      initial.add(selected.group);
-    } else if (providerGroups[0]) {
-      initial.add(providerGroups[0][0]);
-    }
-    setOpenGroups(initial);
-  }, [open, category, providerGroups, selected.group]);
+    if (open) return;
+    setSearch("");
+    setPicked(null);
+  }, [open]);
 
-  const searching = search.trim().length > 0;
-
-  const visibleModels = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!searching) return [];
-    const all = (byCategory[category] ?? []).filter(
-      (m) =>
-        m.name.toLowerCase().includes(q) ||
-        m.id.toLowerCase().includes(q) ||
-        m.group.toLowerCase().includes(q),
-    );
-    return sortModels(all);
-  }, [byCategory, category, search, searching]);
-
-  const toggleGroup = (name: string, next: boolean) => {
-    setOpenGroups((prev) => {
-      const copy = new Set(prev);
-      if (next) copy.add(name);
-      else copy.delete(name);
-      return copy;
-    });
+  const select = (model: AiModel) => {
+    onSelect(model);
+    setOpen(false);
   };
 
   return (
@@ -151,247 +126,175 @@ export function ModelPicker({ models, selected, loading, onSelect }: Props) {
       </ModelSelectorTrigger>
       <ModelSelectorContent
         title="Select model"
-        className="sm:max-w-lg"
+        className="max-h-[min(34rem,85svh)] sm:max-w-3xl"
         commandProps={{ shouldFilter: false }}
       >
-        <TabGroup
-          selectedIndex={categoryIndex}
-          onChange={(index) => {
-            setCategory(categories[index] ?? "agent");
-            setSearch("");
-          }}
-        >
-          {categories.length > 1 ? (
-            <TabHighlight className="mx-2 mt-2 rounded-xl bg-muted/50 p-1">
-              <TabList className="relative flex gap-0.5">
-                {categories.map((id, index) => {
-                  const connected = categoryHasConnected(byCategory[id]);
-                  return (
-                    <TabHighlightItem key={id} index={index} className="flex-1">
-                      <Tab
-                        index={index}
-                        className={cn(
-                          "flex w-full items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors",
-                          "data-active:text-foreground",
-                        )}
-                      >
-                        {connected && <ConnectedDot className="size-1.5" />}
-                        {CATEGORY_META[id].label}
-                      </Tab>
-                    </TabHighlightItem>
-                  );
-                })}
-              </TabList>
-            </TabHighlight>
-          ) : null}
+        <ModelSelectorInput
+          placeholder="Search every provider…"
+          value={search}
+          onValueChange={setSearch}
+        />
 
-          <ModelSelectorInput
-            placeholder="Search in this list…"
-            value={search}
-            onValueChange={setSearch}
-          />
-
-          {categories.length > 1 ? (
-            <TabPanels mode="auto-height" className="min-h-0">
-              {categories.map((id) => (
-                <TabPanel key={id} className="outline-none">
-                  <CategoryPanel
-                    id={id}
-                    byCategory={byCategory}
-                    loading={loading}
-                    searching={searching}
-                    category={category}
-                    visibleModels={visibleModels}
-                    openGroups={openGroups}
-                    onToggleGroup={toggleGroup}
-                    selected={selected}
-                    onSelect={(model) => {
-                      onSelect(model);
-                      setOpen(false);
-                    }}
-                  />
-                </TabPanel>
-              ))}
-            </TabPanels>
-          ) : (
-            <CategoryPanel
-              id={categories[0] ?? "agent"}
-              byCategory={byCategory}
-              loading={loading}
-              searching={searching}
-              category={category}
-              visibleModels={visibleModels}
-              openGroups={openGroups}
-              onToggleGroup={toggleGroup}
-              selected={selected}
-              onSelect={(model) => {
-                onSelect(model);
-                setOpen(false);
-              }}
+        {shown.length === 0 ? (
+          <p className="px-3 py-10 text-center text-sm text-muted-foreground">
+            {query
+              ? "No models match your search."
+              : loading
+                ? "Loading models…"
+                : "Nothing to pick yet. Add an API key in Settings → Models, sign in to a CLI in Settings → Agents, or start the OpenCode server."}
+          </p>
+        ) : (
+          <div className="flex h-[min(28rem,70svh)] min-h-0 flex-col sm:flex-row">
+            <ProviderRail
+              groups={shown}
+              activeKey={active?.key}
+              onPick={setPicked}
             />
-          )}
-        </TabGroup>
+            {active && (
+              <ModelList group={active} selected={selected} onSelect={select} />
+            )}
+          </div>
+        )}
       </ModelSelectorContent>
     </ModelSelector>
   );
 }
 
-function CategoryPanel({
-  id,
-  byCategory,
-  loading,
-  searching,
-  category,
-  visibleModels,
-  openGroups,
-  onToggleGroup,
-  selected,
-  onSelect,
-}: {
-  id: ModelCategory;
-  byCategory: ReturnType<typeof splitByCategory>;
-  loading?: boolean;
-  searching: boolean;
-  category: ModelCategory;
-  visibleModels: AiModel[];
-  openGroups: Set<string>;
-  onToggleGroup: (name: string, open: boolean) => void;
-  selected: AiModel;
-  onSelect: (model: AiModel) => void;
-}) {
-  const emptyMessage =
-    id === "agent"
-      ? loading
-        ? "Loading agents…"
-        : "No agents available. Sign in to a CLI in Settings → Agents, or start the OpenCode server."
-      : "No models yet. Add an API key in Settings → Models.";
-
-  return (
-    <>
-      <p className="border-b px-3 py-2 text-[11px] text-muted-foreground">
-        {CATEGORY_META[id].hint}
-      </p>
-      <ModelPickerBody
-        groups={sortGroups(groupByName(byCategory[id] ?? []))}
-        searching={searching && id === category}
-        visibleModels={id === category ? visibleModels : []}
-        emptyMessage={emptyMessage}
-        openGroups={openGroups}
-        onToggleGroup={onToggleGroup}
-        selected={selected}
-        onSelect={onSelect}
-      />
-    </>
-  );
-}
-
-function ModelPickerBody({
+/**
+ * The providers, down the side. Below `sm` it turns into one scrolling strip
+ * of chips, where section headings would only get in the way.
+ */
+function ProviderRail({
   groups,
-  searching,
-  visibleModels,
-  emptyMessage,
-  openGroups,
-  onToggleGroup,
-  selected,
-  onSelect,
+  activeKey,
+  onPick,
 }: {
-  groups: [string, AiModel[]][];
-  searching: boolean;
-  visibleModels: AiModel[];
-  emptyMessage: string;
-  openGroups: Set<string>;
-  onToggleGroup: (name: string, open: boolean) => void;
-  selected: AiModel;
-  onSelect: (model: AiModel) => void;
+  groups: Group[];
+  activeKey?: string;
+  onPick: (key: string) => void;
 }) {
-  if (searching) {
-    return (
-      <ModelSelectorList className="max-h-[min(16rem,45vh)]">
-        <ModelSelectorEmpty>
-          {visibleModels.length === 0 ? "No models match your search." : null}
-        </ModelSelectorEmpty>
-        {visibleModels.map((model) => (
-          <ModelRow key={model.id} model={model} selected={selected} onSelect={onSelect} />
-        ))}
-      </ModelSelectorList>
-    );
-  }
-
-  if (groups.length === 0) {
-    return (
-      <p className="px-3 py-6 text-center text-sm text-muted-foreground">{emptyMessage}</p>
-    );
-  }
+  const fade = useScrollFade<HTMLElement>(groups);
 
   return (
-    <ModelSelectorList className="max-h-[min(16rem,45vh)] px-1 py-1">
-      {groups.map(([name, items]) => (
-        <ProviderSection
-          key={name}
-          name={name}
-          items={sortModels(items)}
-          isOpen={openGroups.has(name)}
-          onOpenChange={(next) => onToggleGroup(name, next)}
-          selected={selected}
-          onSelect={onSelect}
-        />
-      ))}
-    </ModelSelectorList>
+    <div className="relative shrink-0 border-b sm:w-56 sm:border-r sm:border-b-0">
+      <nav
+        ref={fade.ref}
+        onScroll={fade.onScroll}
+        style={fade.style}
+        aria-label="Providers"
+        className="scroll-hidden flex max-h-32 gap-1 overflow-x-auto overflow-y-auto p-1 sm:h-full sm:max-h-none sm:flex-col sm:gap-0 sm:overflow-x-hidden sm:[&>div:first-child>p]:pt-1"
+      >
+        {SECTIONS.map(({ id, label, hint }) => {
+          const inSection = groups.filter((group) => group.section === id);
+          if (inSection.length === 0) return null;
+          return (
+            <div key={id} className="contents sm:block">
+              <p
+                title={hint}
+                className="hidden px-2 pt-2.5 pb-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase sm:block"
+              >
+                {label}
+              </p>
+              {inSection.map((group) => (
+                <RailItem
+                  key={group.key}
+                  group={group}
+                  active={group.key === activeKey}
+                  onPick={() => onPick(group.key)}
+                />
+              ))}
+            </div>
+          );
+        })}
+      </nav>
+      <ScrollMore show={fade.more} className="hidden sm:flex" />
+    </div>
   );
 }
 
-function ProviderSection({
-  name,
-  items,
-  isOpen,
-  onOpenChange,
+function RailItem({
+  group,
+  active,
+  onPick,
+}: {
+  group: Group;
+  active: boolean;
+  onPick: () => void;
+}) {
+  const connected = groupIsConnected(group.items);
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      aria-current={active || undefined}
+      title={group.note ? `${group.label} ${group.note}` : group.label}
+      className={cn(
+        "flex shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors sm:w-full",
+        active ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted/60",
+      )}
+    >
+      {connected ? (
+        <ConnectedDot className="size-1.5" title="Ready to use" />
+      ) : (
+        <span className="size-1.5 shrink-0" aria-hidden />
+      )}
+      <Logo provider={group.items[0]?.provider ?? "opencode"} />
+      <span className="min-w-0 truncate sm:flex-1">{group.label}</span>
+      <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
+        {group.items.length}
+      </span>
+    </button>
+  );
+}
+
+function ModelList({
+  group,
   selected,
   onSelect,
 }: {
-  name: string;
-  items: AiModel[];
-  isOpen: boolean;
-  onOpenChange: (open: boolean) => void;
+  group: Group;
   selected: AiModel;
   onSelect: (model: AiModel) => void;
 }) {
-  const connected = groupIsConnected(items);
-  const logo = items[0]?.provider ?? "opencode";
+  const { badge, title } = KIND_LABEL[group.kind];
+  const fade = useScrollFade<HTMLDivElement>(group.key);
 
   return (
-    <Collapsible open={isOpen} onOpenChange={onOpenChange} className="mb-0.5">
-      <CollapsibleTrigger
-        type="button"
-        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted/70"
-      >
-        {connected && <ConnectedDot title="Provider connected" />}
-        {!connected && <span className="size-2 shrink-0" aria-hidden />}
-        <Logo provider={logo} />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
-        <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
-          {items.length}
-        </span>
-        <ChevronDownIcon
-          className={cn(
-            "size-4 shrink-0 text-muted-foreground transition-transform duration-300 ease-in-out",
-            isOpen && "rotate-180",
+    <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 items-center gap-2 border-b px-3 py-2">
+        <Logo provider={group.items[0]?.provider ?? "opencode"} />
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+          {group.label}
+          {group.note && (
+            <span className="ml-1.5 text-xs font-normal text-muted-foreground">{group.note}</span>
           )}
-        />
-      </CollapsibleTrigger>
-      <CollapsibleContent className="px-1 pb-1">
-        <div className="flex flex-col gap-0.5 pt-0.5">
-          {items.map((model) => (
-            <ModelRow
-              key={model.id}
-              model={model}
-              selected={selected}
-              onSelect={onSelect}
-              compact
-            />
+        </span>
+        <span
+          title={title}
+          className={cn(
+            "shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+            group.kind === "agent"
+              ? "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+              : "border-border bg-muted/60 text-muted-foreground",
+          )}
+        >
+          {badge}
+        </span>
+      </div>
+      <div className="relative min-h-0 flex-1">
+        <ModelSelectorList
+          ref={fade.ref}
+          onScroll={fade.onScroll}
+          style={fade.style}
+          className="h-full max-h-none px-1 py-1"
+        >
+          {group.items.map((model) => (
+            <ModelRow key={model.id} model={model} selected={selected} onSelect={onSelect} />
           ))}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+        </ModelSelectorList>
+        <ScrollMore show={fade.more} />
+      </div>
+    </div>
   );
 }
 
@@ -399,12 +302,10 @@ function ModelRow({
   model,
   selected,
   onSelect,
-  compact,
 }: {
   model: AiModel;
   selected: AiModel;
   onSelect: (model: AiModel) => void;
-  compact?: boolean;
 }) {
   const active = model.id === selected.id;
   const connected = modelIsConnected(model);
@@ -414,11 +315,7 @@ function ModelRow({
       value={model.id}
       disabled={!!model.coworkIssue}
       onSelect={() => onSelect(model)}
-      className={cn(
-        "min-w-0 gap-2 py-2 [&>svg:last-child]:hidden",
-        compact && "ml-3 rounded-md",
-        active && "bg-muted",
-      )}
+      className={cn("min-w-0 gap-2 py-2 [&>svg:last-child]:hidden my-1", active && "bg-muted")}
     >
       {connected ? (
         <ConnectedDot title="Ready to use" />
@@ -510,6 +407,14 @@ function Logo({ provider }: { provider: string }) {
   );
 }
 
+function matches(model: AiModel, query: string) {
+  return (
+    model.name.toLowerCase().includes(query) ||
+    model.id.toLowerCase().includes(query) ||
+    model.group.toLowerCase().includes(query)
+  );
+}
+
 function modelIsConnected(model: AiModel) {
   return !model.needsKey && !model.needsLogin;
 }
@@ -518,45 +423,69 @@ function groupIsConnected(items: AiModel[]) {
   return items.some(modelIsConnected);
 }
 
-function categoryHasConnected(models: AiModel[]) {
-  return models.some(modelIsConnected);
+function sectionOf(model: AiModel): SectionId {
+  if (model.source === "cli") return "cli";
+  if (model.source === "opencode") return "opencode";
+  return "key";
 }
 
-function splitByCategory(models: AiModel[]) {
-  const agent: AiModel[] = [];
-  const model: AiModel[] = [];
-  for (const entry of models) {
-    if (modelCategory(entry) === "agent") agent.push(entry);
-    else model.push(entry);
-  }
-  return { agent, model };
+/**
+ * Anthropic-with-your-key and Anthropic-through-OpenCode are different runs on
+ * different credentials, so they stay separate entries even though the
+ * provider name is the same.
+ */
+function groupKeyOf(model: AiModel) {
+  return `${sectionOf(model)}:${model.group}`;
 }
 
-function groupByName(models: AiModel[]): [string, AiModel[]][] {
-  const map = new Map<string, AiModel[]>();
+/** Only needed where the rail's section heading isn't in view. */
+function noteFor(model: AiModel) {
+  if (model.source === "api" || model.source === "local") return "· your key";
+  if (model.source === "opencode" && model.id !== OPENCODE_DEFAULT_ID) return "· via OpenCode";
+  return undefined;
+}
+
+function buildGroups(models: AiModel[]): Group[] {
+  const map = new Map<string, Group>();
   for (const model of models) {
-    const list = map.get(model.group) ?? [];
-    list.push(model);
-    map.set(model.group, list);
+    const key = groupKeyOf(model);
+    const group = map.get(key);
+    if (group) {
+      group.items.push(model);
+      continue;
+    }
+    map.set(key, {
+      key,
+      label: model.group,
+      note: noteFor(model),
+      kind: model.source === "opencode" || model.source === "cli" ? "agent" : "chat",
+      section: sectionOf(model),
+      items: [model],
+    });
   }
-  return [...map.entries()];
+  return [...map.values()]
+    .map((group) => ({ ...group, items: sortModels(group.items) }))
+    .sort(compareGroups);
 }
 
-/** CLI agents first in a fixed order, then connected groups, then A–Z. */
-function sortGroups(groups: [string, AiModel[]][]): [string, AiModel[]][] {
-  const rank = (name: string) => {
-    const index = GROUP_RANK.indexOf(name);
-    return index === -1 ? GROUP_RANK.length : index;
-  };
-  return [...groups].sort((a, b) => {
-    const ra = rank(a[0]);
-    const rb = rank(b[0]);
-    if (ra !== rb) return ra - rb;
-    const ca = groupIsConnected(a[1]);
-    const cb = groupIsConnected(b[1]);
-    if (ca !== cb) return ca ? -1 : 1;
-    return a[0].localeCompare(b[0]);
-  });
+/** Sections in rail order, then a fixed CLI order, then connected, then A–Z. */
+function compareGroups(a: Group, b: Group) {
+  const sa = SECTIONS.findIndex((s) => s.id === a.section);
+  const sb = SECTIONS.findIndex((s) => s.id === b.section);
+  if (sa !== sb) return sa - sb;
+  if (a.section === "cli") {
+    const ra = CLI_RANK.indexOf(a.label);
+    const rb = CLI_RANK.indexOf(b.label);
+    if (ra !== rb) return (ra === -1 ? CLI_RANK.length : ra) - (rb === -1 ? CLI_RANK.length : rb);
+  }
+  // OpenCode's own pick is the safe default, so it heads its section.
+  const da = Number(a.items.some((m) => m.id === OPENCODE_DEFAULT_ID));
+  const db = Number(b.items.some((m) => m.id === OPENCODE_DEFAULT_ID));
+  if (da !== db) return db - da;
+  const ca = groupIsConnected(a.items);
+  const cb = groupIsConnected(b.items);
+  if (ca !== cb) return ca ? -1 : 1;
+  return a.label.localeCompare(b.label);
 }
 
 function sortModels(items: AiModel[]): AiModel[] {

@@ -14,7 +14,14 @@ import {
   XCircleIcon,
   XIcon,
 } from "lucide-react";
-import { useState, type ComponentProps, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type ComponentProps,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 
 export function SectionHeader({
   title,
@@ -286,6 +293,112 @@ export function SecretInput({ className, ...props }: Omit<ComponentProps<typeof 
       >
         {show ? <EyeIcon className="size-4" /> : <EyeOffIcon className="size-4" />}
       </button>
+    </div>
+  );
+}
+
+/**
+ * A comma-separated list edited as removable chips, so a long model list stays
+ * readable instead of scrolling sideways in a single-line input. Enter, comma
+ * or Tab commits what was typed; Backspace on an empty box takes the last chip.
+ */
+export function TagInput({
+  id,
+  values,
+  onChange,
+  placeholder,
+  invalid,
+  disabled,
+  className,
+}: {
+  id?: string;
+  values: string[];
+  onChange: (values: string[]) => void;
+  placeholder?: string;
+  invalid?: boolean;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const [text, setText] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+
+  const add = (raw: string) => {
+    const parts = raw.split(",").map((t) => t.trim()).filter(Boolean);
+    if (parts.length === 0) return false;
+    const next = [...values];
+    for (const part of parts) if (!next.includes(part)) next.push(part);
+    if (next.length !== values.length) onChange(next);
+    return true;
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter" || event.key === "," || (event.key === "Tab" && text.trim())) {
+      // Enter would otherwise submit the dialog with the model still untyped.
+      event.preventDefault();
+      if (add(text)) setText("");
+      return;
+    }
+    if (event.key === "Backspace" && !text && values.length > 0) {
+      event.preventDefault();
+      onChange(values.slice(0, -1));
+    }
+  };
+
+  const onPaste = (event: ClipboardEvent<HTMLInputElement>) => {
+    const pasted = event.clipboardData.getData("text");
+    if (!pasted.includes(",") && !pasted.includes("\n")) return;
+    event.preventDefault();
+    if (add(pasted.replace(/\n/g, ","))) setText("");
+  };
+
+  return (
+    <div
+      onClick={() => input.current?.focus()}
+      aria-invalid={invalid || undefined}
+      className={cn(
+        "flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-md border border-input bg-transparent px-2 py-1.5 shadow-xs transition-[color,box-shadow] dark:bg-input/30",
+        "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
+        invalid && "border-destructive ring-3 ring-destructive/20 dark:ring-destructive/40",
+        disabled && "pointer-events-none opacity-50",
+        className,
+      )}
+    >
+      {values.map((value) => (
+        <span
+          key={value}
+          className="flex h-6 max-w-full items-center gap-1 rounded-md border bg-muted/60 pr-1 pl-2 font-mono text-xs"
+        >
+          <span className="truncate" title={value}>
+            {value}
+          </span>
+          <button
+            type="button"
+            aria-label={`Remove ${value}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onChange(values.filter((v) => v !== value));
+            }}
+            className="rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-destructive"
+          >
+            <XIcon className="size-3" />
+          </button>
+        </span>
+      ))}
+      <input
+        ref={input}
+        id={id}
+        value={text}
+        disabled={disabled}
+        spellCheck={false}
+        autoComplete="off"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={onKeyDown}
+        onPaste={onPaste}
+        // Typing then clicking elsewhere should keep the model, not drop it.
+        onBlur={() => add(text) && setText("")}
+        placeholder={values.length === 0 ? placeholder : "Add another…"}
+        className="h-6 min-w-28 flex-1 bg-transparent font-mono text-xs outline-none placeholder:font-sans placeholder:text-muted-foreground"
+      />
     </div>
   );
 }

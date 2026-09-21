@@ -26,7 +26,11 @@ import {
 import { codexAbort } from "@/features/codex";
 import { cursorAbort, requestCursorLogin } from "@/features/cursor";
 import { geminiAbort } from "@/features/gemini";
-import { notifyPermissionPending, notifyTaskDone } from "@/features/notifications/notify";
+import {
+  notifyPermissionPending,
+  notifyQuestionPending,
+  notifyTaskDone,
+} from "@/features/notifications/notify";
 import { connectorInstructionsFor, hasEnabledMcp, syncMcpServers } from "@/features/mcp";
 import {
     getOpencodeModels,
@@ -266,6 +270,7 @@ export type SendMessage = {
 
 const MAX_HISTORY = 40;
 const NO_MESSAGES: ChatMessage[] = [];
+const NO_PERMISSIONS: PermissionRequest[] = [];
 
 /** A chat backed by the history store, so replies keep streaming while you browse other chats. */
 export function useChat(chatId: string | undefined, newChatMode: WorkMode, newChatProjectId?: string) {
@@ -751,16 +756,34 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
     }
   }, [isLoading, session, messages.length]);
 
-  // Notify when the agent is waiting on the user: a permission or a question.
-  const waitingCountRef = useRef(0);
-  const waitingCount = (run?.permissions.length ?? 0) + (run?.questions.length ?? 0);
+  // Notify when the agent is waiting on the user. On macOS the approval
+  // notification carries the buttons, so an answer from outside the window
+  // goes straight back to the agent through `replyPermission`.
+  const permissions = run?.permissions;
+  const questions = run?.questions;
+  const permissionRef = useRef<PermissionRequest[]>(NO_PERMISSIONS);
+  const replyRef = useRef(replyPermission);
+  replyRef.current = replyPermission;
   useEffect(() => {
-    const previous = waitingCountRef.current;
-    waitingCountRef.current = waitingCount;
-    if (waitingCount > 0 && waitingCount > previous) {
-      void notifyPermissionPending(waitingCount);
+    const waiting = permissions ?? NO_PERMISSIONS;
+    const previous = permissionRef.current;
+    permissionRef.current = waiting;
+    // Only a request that wasn't already on screen is worth a notification.
+    if (waiting.length === 0 || waiting.length <= previous.length) return;
+    void notifyPermissionPending(waiting, (request, reply) => {
+      void replyRef.current(request, reply);
+    });
+  }, [permissions]);
+
+  const questionCountRef = useRef(0);
+  useEffect(() => {
+    const count = questions?.length ?? 0;
+    const previous = questionCountRef.current;
+    questionCountRef.current = count;
+    if (count > 0 && count > previous) {
+      void notifyQuestionPending(count, questions?.[0]?.questions[0]?.question);
     }
-  }, [waitingCount]);
+  }, [questions]);
 
   return {
     session,
@@ -776,10 +799,10 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
     retryMessage,
     rateMessage,
     summarizeAndContinue,
-    permissions: run?.permissions ?? [],
+    permissions: permissions ?? [],
     replyPermission,
     allowFolder,
-    questions: run?.questions ?? [],
+    questions: questions ?? [],
     answerQuestion,
     canStop,
     stop,

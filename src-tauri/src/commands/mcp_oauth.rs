@@ -324,6 +324,27 @@ pub async fn listen(id: &str) -> Result<CallbackServer, String> {
     Ok(CallbackServer { listener, id: id.to_string(), cancel: rx })
 }
 
+/// True when the request's `Host` is a loopback name on the port we are
+/// listening on. `localhost` counts: browsers resolve it to the loopback
+/// themselves, so it can't be pointed elsewhere. Any other name can.
+fn host_is_loopback(request: &str, port: u16) -> bool {
+    let Some(host) = request
+        .lines()
+        .take_while(|line| !line.trim().is_empty())
+        .find_map(|line| line.split_once(':').filter(|(k, _)| k.eq_ignore_ascii_case("host")))
+        .map(|(_, v)| v.trim())
+    else {
+        // HTTP/1.1 requires Host; a request without one didn't come from a
+        // browser finishing a sign-in.
+        return false;
+    };
+    let Some((name, given_port)) = host.rsplit_once(':') else { return false };
+    if given_port.parse::<u16>() != Ok(port) {
+        return false;
+    }
+    matches!(name.trim_matches(['[', ']']), "127.0.0.1" | "localhost" | "::1")
+}
+
 fn query_param(query: &str, key: &str) -> Option<String> {
     query.split('&').find_map(|pair| {
         let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
@@ -390,8 +411,11 @@ small{{display:block;margin-top:20px;color:#a1a1aa;font-size:12px}}</style></hea
 }
 
 async fn respond(stream: &mut tokio::net::TcpStream, status: &str, body: &str) {
+    // `no-store` keeps the code out of the browser cache; `no-referrer` keeps
+    // it out of the next page's Referer header; the CSP makes the page inert
+    // even if a service ever got text past `escape`.
     let head = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status}\r\n         Content-Type: text/html; charset=utf-8\r\n         Content-Length: {}\r\n         Cache-Control: no-store\r\n         Referrer-Policy: no-referrer\r\n         X-Content-Type-Options: nosniff\r\n         X-Frame-Options: DENY\r\n         Content-Security-Policy: default-src 'none'; img-src data:; style-src 'unsafe-inline'\r\n         Connection: close\r\n\r\n",
         body.len()
     );
     let _ = stream.write_all(head.as_bytes()).await;
@@ -404,6 +428,7 @@ impl CallbackServer {
     /// (favicon, stray tabs, a wrong state) are answered and ignored.
     pub async fn wait(&mut self, expected_state: &str, service: &str) -> Result<Callback, String> {
         let deadline = tokio::time::Instant::now() + SIGN_IN_TIMEOUT;
+        let local_port = self.listener.local_addr().map(|a| a.port()).unwrap_or(CALLBACK_PORT);
         loop {
             let accept = tokio::select! {
                 accepted = self.listener.accept() => accepted,
@@ -415,6 +440,14 @@ impl CallbackServer {
             let read = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut buffer)).await;
             let Ok(Ok(n)) = read else { continue };
             let request = String::from_utf8_lossy(&buffer[..n]);
+            // A web page can point any hostname at 127.0.0.1 (DNS rebinding) and
+            // then talk to this port as if it were its own origin. The browser
+            // still sends that name in `Host`, so only the literal loopback
+            // address — what our own redirect_uri uses — is answered.
+            if !host_is_loopback(&request, local_port) {
+                respond(&mut stream, "421 Misdirected Request", "").await;
+                continue;
+            }
             let target = request.lines().next().and_then(|line| line.split_whitespace().nth(1)).unwrap_or("/");
             let (path, query) = target.split_once('?').unwrap_or((target, ""));
             if path != CALLBACK_PATH {
@@ -459,6 +492,18 @@ mod tests {
     }
 
     #[test]
+    fn only_answers_our_own_loopback_host() {
+        let req = |host: &str| format!("GET {CALLBACK_PATH}?code=a HTTP/1.1\r\nHost: {host}\r\n\r\n");
+        assert!(host_is_loopback(&req("127.0.0.1:19877"), 19877));
+        assert!(host_is_loopback(&req("localhost:19877"), 19877));
+        // A page that pointed its own name at 127.0.0.1 sends that name.
+        assert!(!host_is_loopback(&req("evil.example:19877"), 19877));
+        // Another local listener's port is not ours.
+        assert!(!host_is_loopback(&req("127.0.0.1:80"), 19877));
+        assert!(!host_is_loopback("GET / HTTP/1.1\r\n\r\n", 19877));
+    }
+
+    #[test]
     fn reads_callback_query() {
         let q = "code=abc%2F123&state=xyz&scope=a+b";
         assert_eq!(query_param(q, "code").as_deref(), Some("abc/123"));
@@ -492,7 +537,9 @@ mod tests {
         let port = server.listener.local_addr().unwrap().port();
         let send = move |path: String| async move {
             let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-            s.write_all(format!("GET {path} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes()).await.unwrap();
+            s.write_all(format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n").as_bytes())
+                .await
+                .unwrap();
             let mut out = String::new();
             let _ = s.read_to_string(&mut out).await;
             out

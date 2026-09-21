@@ -14,6 +14,7 @@ dependencies = [
  "hex",
  "keyring",
  "libc",
+ "mac-notification-sys",
  "quick-xml",
  "reqwest 0.12.28",
  "rusqlite",

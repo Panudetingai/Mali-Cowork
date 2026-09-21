@@ -1,8 +1,9 @@
 import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
 import type { PermissionRequest } from "@/pages/chat/api/chat";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { PermissionReply } from "./types";
 import { CoworkBot } from "@/components/anim/cowork-bot";
 
@@ -60,6 +61,33 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
     }
   };
 
+  // The card takes the whole turn hostage, so answering it shouldn't need the
+  // mouse: ⌘↵ allows once, ⇧⌘↵ allows always, Esc denies.
+  const onKey = useCallback(
+    (event: KeyboardEvent) => {
+      if (!request || busy) return;
+      const meta = event.metaKey || event.ctrlKey;
+      if (event.key === "Enter" && meta) {
+        event.preventDefault();
+        void reply(event.shiftKey ? "always" : "once");
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        void reply("reject");
+      }
+    },
+    // `reply` is recreated each render; the ids it closes over are what matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [request?.id, busy],
+  );
+
+  useEffect(() => {
+    if (!request) return;
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [request, onKey]);
+
   return (
     <AnimatePresence initial={false}>
       {request ? (
@@ -79,7 +107,15 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
         >
           <div className={cn("px-3 pt-2.5", stacked ? "pb-3.5" : "pb-2.5")}>
             <div className="flex items-center gap-2.5">
-              <CoworkBot state="permission" size={46} />
+              <span className="relative flex shrink-0 items-center justify-center">
+                <motion.span
+                  aria-hidden
+                  animate={busy ? { opacity: 0 } : { opacity: [0.45, 0, 0.45], scale: [0.9, 1.25, 0.9] }}
+                  transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
+                  className="absolute size-10 rounded-full bg-amber-400/40 blur-md"
+                />
+                <CoworkBot state="permission" size={46} />
+              </span>
               <div className="flex min-w-0 flex-1 items-baseline gap-1.5 text-sm">
                 <span className="shrink-0 font-medium text-foreground">{action}</span>
                 {target && (
@@ -135,8 +171,11 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
                   variant="ghost"
                   disabled={busy}
                   onClick={() => reply("reject")}
+                  title="Deny (Esc)"
+                  className="gap-1.5"
                 >
                   Deny
+                  <Kbd className="hidden bg-transparent sm:inline-flex">esc</Kbd>
                 </Button>
                 {folder && onAllowFolder ? (
                   <Button
@@ -155,12 +194,26 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
                     variant="outline"
                     disabled={busy}
                     onClick={() => reply("always")}
+                    title="Always allow this (⇧⌘↵)"
+                    className="gap-1.5"
                   >
                     Always
+                    <Kbd className="hidden sm:inline-flex">⇧⌘↵</Kbd>
                   </Button>
                 )}
-                <Button type="button" size="sm" disabled={busy} onClick={() => reply("once")} autoFocus>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => reply("once")}
+                  title="Allow this once (⌘↵)"
+                  className="gap-1.5"
+                  autoFocus
+                >
                   Allow once
+                  <Kbd className="hidden bg-primary-foreground/20 text-primary-foreground sm:inline-flex">
+                    ⌘↵
+                  </Kbd>
                 </Button>
               </div>
             </div>

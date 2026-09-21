@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
 import {
   CheckCircleIcon,
+  ChevronLeftIcon,
   ChevronRightIcon,
   LoaderIcon,
   TerminalIcon,
@@ -28,6 +29,16 @@ import { AgentIcon, Stagger, StepHeading, Terminal, ToolIcon } from "./ui";
 import { CoworkBot } from "@/components/anim/cowork-bot";
 
 type Step = "welcome" | "agents" | "plan" | "install" | "mcp" | "done";
+
+/** In order, for the progress rail and for Back. */
+const STEPS: { id: Step; label: string }[] = [
+  { id: "welcome", label: "Check" },
+  { id: "agents", label: "Agent" },
+  { id: "plan", label: "Review" },
+  { id: "install", label: "Install" },
+  { id: "mcp", label: "Tools" },
+  { id: "done", label: "Done" },
+];
 
 export function OnboardingDialog() {
   const { done, open } = useOnboarding();
@@ -147,6 +158,14 @@ function OnboardingWizard({ onClose }: { onClose: () => void }) {
     else if (step === "mcp") goTo("done");
   }, [step, goTo, runPlan, startInstall]);
 
+  const stepIndex = Math.max(0, STEPS.findIndex((s) => s.id === step));
+  // Installing writes to the machine, and "done" is past the point of return.
+  const canGoBack = step === "agents" || step === "plan";
+  const back = useCallback(() => {
+    if (step === "plan") goTo("agents");
+    else if (step === "agents") goTo("welcome");
+  }, [step, goTo]);
+
   const wizard = useMemo(
     () => ({
       scan,
@@ -171,6 +190,12 @@ function OnboardingWizard({ onClose }: { onClose: () => void }) {
         <DialogHeader>
           <div className="flex items-center gap-3">
             <CoworkBot state={step === "done" ? "done" : "welcome"} size={56} />
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                Setup · step {stepIndex + 1} of {STEPS.length} · {STEPS[stepIndex]!.label}
+              </span>
+              <StepRail index={stepIndex} />
+            </div>
           </div>
         </DialogHeader>
 
@@ -194,7 +219,14 @@ function OnboardingWizard({ onClose }: { onClose: () => void }) {
         </div>
 
         <DialogFooter className="gap-2 sm:justify-between">
-          <div className="hidden sm:block" />
+          <div>
+            {canGoBack && (
+              <Button type="button" variant="ghost" onClick={back} className="gap-1 text-muted-foreground">
+                <ChevronLeftIcon className="size-4" />
+                Back
+              </Button>
+            )}
+          </div>
           <div className="flex gap-2">
             {step !== "done" && (
               <Button
@@ -204,6 +236,7 @@ function OnboardingWizard({ onClose }: { onClose: () => void }) {
                   finishOnboarding();
                   onClose();
                 }}
+                title="You can run this again from Settings"
               >
                 Skip setup
               </Button>
@@ -222,6 +255,23 @@ function OnboardingWizard({ onClose }: { onClose: () => void }) {
         </DialogFooter>
       </div>
     </WizardContext.Provider>
+  );
+}
+
+/** Segments that fill as the wizard advances — cheaper to read than dots. */
+function StepRail({ index }: { index: number }) {
+  return (
+    <div className="flex items-center gap-1" aria-hidden>
+      {STEPS.map((item, i) => (
+        <span
+          key={item.id}
+          className={cn(
+            "h-1 flex-1 rounded-full transition-colors duration-300",
+            i < index ? "bg-primary/60" : i === index ? "bg-primary" : "bg-muted",
+          )}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -496,15 +546,19 @@ function McpStep() {
               )}
             >
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-sm font-medium capitalize">{m.id.replace(/-/g, " ")}</span>
                   {m.recommended && (
                     <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-900/50 dark:text-violet-300">
                       Recommended
                     </span>
-
                   )}
-              <span className="shrink-0 text-[10px] font-medium bg-green-100 px-1.5 py-0.5 rounded-full text-green-700">needs {m.needs}</span>
+                  <span
+                    title={`Runs through ${m.needs}, installed in the previous step`}
+                    className="shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                  >
+                    needs {m.needs}
+                  </span>
                 </div>
                 <p className="text-xs text-muted-foreground">{m.pitch}</p>
               </div>
@@ -520,21 +574,67 @@ function McpStep() {
 }
 
 function DoneStep() {
+  const { scan, selected, mcp } = useWizard();
+  // The rescan after installing is the only honest answer to "can I use it
+  // now?" — a step that says "all set" over a failed install is worse than no
+  // step at all.
+  const ready = selected.filter((id) => isInstalled(scan, id));
+  const missing = selected.filter((id) => !isInstalled(scan, id));
+  const allGood = missing.length === 0;
+
   return (
-    <div className="flex flex-col items-center gap-4 py-6 text-center">
+    <div className="flex flex-col items-center gap-4 py-4 text-center">
       <motion.div
         initial={{ scale: 0.6, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ type: "spring", stiffness: 300, damping: 20 }}
-        className="flex size-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400"
+        className={cn(
+          "flex size-16 items-center justify-center rounded-full",
+          allGood
+            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400"
+            : "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400",
+        )}
       >
-        <CheckCircleIcon className="size-8" />
+        {allGood ? <CheckCircleIcon className="size-8" /> : <XCircleIcon className="size-8" />}
       </motion.div>
+
       <div className="flex flex-col gap-1">
-        <h3 className="text-lg font-semibold">You're all set</h3>
+        <h3 className="text-lg font-semibold">
+          {allGood ? "You're all set" : "Almost there"}
+        </h3>
         <p className="text-sm text-muted-foreground">
-          Pick a folder in Cowork mode to let the agent work on your files, or just start chatting.
+          {allGood
+            ? "Pick a folder in Cowork mode to let the agent work on your files, or just start chatting."
+            : "Some pieces didn't install. You can finish them from Settings → Agents whenever you like."}
         </p>
+      </div>
+
+      <div className="flex w-full flex-col gap-1.5 text-left">
+        {ready.map((id) => (
+          <div
+            key={id}
+            className="flex items-center gap-2 rounded-lg border border-emerald-200/60 bg-emerald-50/40 px-3 py-2 text-sm dark:border-emerald-900/50 dark:bg-emerald-950/20"
+          >
+            <ToolIcon id={id} size={16} />
+            <span className="min-w-0 flex-1 truncate">{scan?.tools.find((t) => t.id === id)?.name ?? id}</span>
+            <CheckCircleIcon className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          </div>
+        ))}
+        {missing.map((id) => (
+          <div
+            key={id}
+            className="flex items-center gap-2 rounded-lg border border-amber-200/60 bg-amber-50/40 px-3 py-2 text-sm dark:border-amber-900/50 dark:bg-amber-950/20"
+          >
+            <ToolIcon id={id} size={16} />
+            <span className="min-w-0 flex-1 truncate">{scan?.tools.find((t) => t.id === id)?.name ?? id}</span>
+            <span className="shrink-0 text-xs text-amber-700 dark:text-amber-400">Not installed</span>
+          </div>
+        ))}
+        {mcp.length > 0 && (
+          <p className="px-1 pt-1 text-xs text-muted-foreground">
+            {mcp.length} tool{mcp.length === 1 ? "" : "s"} will be switched on: {mcp.join(", ")}
+          </p>
+        )}
       </div>
     </div>
   );
