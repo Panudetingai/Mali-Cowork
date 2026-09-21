@@ -58,6 +58,9 @@
     "targets": "all",
     "category": "DeveloperTool",
     "publisher": "Panudet",
+    "copyright": "© Panudet. All rights reserved.",
+    "homepage": "https://mali-cowork.example.com",
+    "license": "Proprietary",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -65,6 +68,20 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "headerIcon": "icons/icon.ico",
+        "sidebarImage": "../public/installer-sidebar.png",
+        "installerSidebarImage": "../public/installer-sidebar.png",
+        "license": null,
+        "displayName": "Mali Cowork",
+        "publisher": "Panudet",
+        "enableReserveFile": true
+      }
+    },
     "resources": [],
     "macOS": {
       "frameworks": [],
@@ -72,10 +89,6 @@
       "signingIdentity": null,
       "entitlements": null,
       "exceptionDomain": ""
-    },
-    "windows": {
-      "certificateThumbprint": null,
-      "digestAlgorithm": "sha256"
     }
   }
 }

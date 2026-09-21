@@ -96,6 +96,20 @@ fn app_menu<R: tauri::Runtime>(
     }
 }
 
+#[cfg(not(debug_assertions))]
+fn harden_release_window(app: &tauri::App) {
+    use tauri::Manager;
+    if let Some(window) = app.handle().get_webview_window("main") {
+        let _ = window.close_devtools();
+        let window = window.clone();
+        window.on_window_event(move |event| {
+            if matches!(event, tauri::WindowEvent::Focused(true)) {
+                let _ = window.close_devtools();
+            }
+        });
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // โหลด .env ที่ root ของโปรเจค เฉพาะตอน dev เท่านั้น
@@ -114,8 +128,13 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
         .menu(app_menu)
-        .setup(|_| {
+        .setup(|app| {
             supervisor::exit_on_signals();
+
+            #[cfg(not(debug_assertions))]
+            harden_release_window(app);
+            #[cfg(debug_assertions)]
+            let _ = app.handle();
             // Start opencode in the background so the first prompt is fast.
             tauri::async_runtime::spawn(async {
                 if let Err(e) = warm_up_server().await {

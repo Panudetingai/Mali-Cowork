@@ -7,7 +7,10 @@ import {
     MessageContent,
     MessageResponse,
 } from "@/components/ai-elements/message";
+import { ChatRichBlocks } from "@/components/chat-blocks/chat-rich-blocks";
+import { MarkdownSurface } from "@/components/chat/markdown-surface";
 import { CoworkBot } from "@/components/anim/cowork-bot";
+import { extractChatBlocks } from "@/features/chat-blocks";
 import { cn } from "@/lib/utils";
 import {
     CheckIcon,
@@ -82,8 +85,15 @@ export function AssistantMessage({
   const isCli = isOpencode || id.startsWith("cli:");
 
   const hasReasoning = Boolean(reasoning?.trim());
+  const { authActions, mediaPreviews, text: afterRichBlocks } = useMemo(
+    () => extractChatBlocks(content),
+    [content],
+  );
   // ```connector blocks become install cards instead of code.
-  const { text: visibleContent, suggestions } = useMemo(() => extractConnectorBlocks(content), [content]);
+  const { text: visibleContent, suggestions } = useMemo(
+    () => extractConnectorBlocks(afterRichBlocks),
+    [afterRichBlocks],
+  );
   const hasContent = Boolean(content.trim());
   const hasActivities = (activities?.length ?? 0) > 0;
   const showEmptyState =
@@ -129,14 +139,15 @@ export function AssistantMessage({
                   }
                 />
               ) : (
-                <MessageResponse
-                  key={`text-${index}`}
-                  className="text-sm"
-                  isAnimating={contentIsAnimating && index === segments.length - 1}
-                  components={markdownExtras}
-                >
-                  {segment.text.trim()}
-                </MessageResponse>
+                <MarkdownSurface key={`text-${index}`}>
+                  <MessageResponse
+                    className="text-sm"
+                    isAnimating={contentIsAnimating && index === segments.length - 1}
+                    components={markdownExtras}
+                  >
+                    {segment.text.trim()}
+                  </MessageResponse>
+                </MarkdownSurface>
               ),
             )}
           </ExpandableClamp>
@@ -145,6 +156,9 @@ export function AssistantMessage({
             No response received.
           </div>
         ) : null}
+        {(authActions.length > 0 || mediaPreviews.length > 0) && (
+          <ChatRichBlocks authActions={authActions} mediaPreviews={mediaPreviews} />
+        )}
         {suggestions.length > 0 && <ConnectorSuggestions suggestions={suggestions} />}
       </MessageContent>
 

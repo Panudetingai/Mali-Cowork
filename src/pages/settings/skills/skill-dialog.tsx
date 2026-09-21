@@ -2,15 +2,16 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
-  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import type { Skill } from "@/features/instructions";
-import { useEffect, useId, useState } from "react";
+import { cn } from "@/lib/utils";
+import { BookOpenIcon, SparklesIcon, TerminalIcon } from "lucide-react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Field } from "../ui";
 
 export type SkillDraft = Omit<Skill, "id"> & { id?: string };
@@ -34,53 +35,118 @@ export function SkillDialog({
   }, [draft]);
 
   const valid = form.name.trim() && form.instructions.trim();
+  const slug = form.name.trim().toLowerCase().replace(/\s+/g, "-");
+  const lineCount = useMemo(
+    () => (form.instructions ? form.instructions.split(/\r?\n/).length : 0),
+    [form.instructions],
+  );
+
   const save = () => {
     if (!valid) return;
     onSave({ ...form, name: form.name.trim(), description: form.description.trim() });
     onClose();
   };
 
+  const isEdit = Boolean(draft?.id);
+
   return (
     <Dialog open={!!draft} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{draft?.id ? "Edit skill" : "New skill"}</DialogTitle>
-          <DialogDescription>Write it like a short guide for a new teammate.</DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-4">
-          <Field label="Name" htmlFor={ids.name}>
-            <Input
-              id={ids.name}
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              placeholder="e.g. Weekly report"
-            />
-          </Field>
-          <Field label="Use when" htmlFor={ids.description} hint="The AI reads this to decide when the skill applies.">
-            <Input
-              id={ids.description}
-              value={form.description}
-              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-              placeholder="e.g. The user asks for a weekly status report"
-            />
-          </Field>
-          <Field label="Instructions" htmlFor={ids.instructions}>
-            <Textarea
-              id={ids.instructions}
-              value={form.instructions}
-              onChange={(e) => setForm((f) => ({ ...f, instructions: e.target.value }))}
-              placeholder={"Steps, format, tone, examples…"}
-              className="max-h-72 min-h-40 font-mono text-xs"
-            />
-          </Field>
+      <DialogContent className="flex max-h-[min(90vh,720px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <div className="border-b border-border/60 bg-gradient-to-br from-violet-500/[0.07] via-transparent to-amber-500/[0.05] px-6 pt-6 pb-5">
+          <div className="flex gap-4 pr-8">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-violet-500/15 text-violet-700 shadow-sm ring-1 ring-violet-500/20 dark:text-violet-300">
+              <SparklesIcon className="size-5" />
+            </span>
+            <div className="min-w-0 flex-1 space-y-1">
+              <DialogTitle className="text-lg font-semibold tracking-tight">
+                {isEdit ? "Edit skill" : "New skill"}
+              </DialogTitle>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Write it like a short guide for a new teammate — steps, format, and examples the AI should follow.
+              </p>
+            </div>
+          </div>
         </div>
-        <DialogFooter>
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="button" onClick={save} disabled={!valid}>
-            Save skill
-          </Button>
+
+        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 py-5">
+          <section className="rounded-xl border border-border/70 bg-muted/20 p-4">
+            <p className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <BookOpenIcon className="size-3.5" />
+              Overview
+            </p>
+            <div className="grid gap-4 sm:grid-cols-[minmax(0,11rem)_minmax(0,1fr)]">
+              <Field label="Name" htmlFor={ids.name} hint={slug ? `Call in chat with /${slug}` : "Use a short, memorable name."}>
+                <Input
+                  id={ids.name}
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="e.g. weekly-report"
+                  className="rounded-lg bg-background"
+                />
+              </Field>
+              <Field
+                label="Use when"
+                htmlFor={ids.description}
+                optional
+                hint="The AI reads this to decide when the skill applies."
+              >
+                <Input
+                  id={ids.description}
+                  value={form.description}
+                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                  placeholder="e.g. The user asks for a weekly status report"
+                  className="rounded-lg bg-background"
+                />
+              </Field>
+            </div>
+          </section>
+
+          <section className="flex min-h-0 flex-1 flex-col gap-2">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <label htmlFor={ids.instructions} className="text-sm font-medium">
+                Instructions
+              </label>
+              <span className="text-[11px] tabular-nums text-muted-foreground">
+                {lineCount > 0 ? `${lineCount} line${lineCount === 1 ? "" : "s"}` : "Markdown supported"}
+              </span>
+            </div>
+            <div
+              className={cn(
+                "relative min-h-[220px] flex-1 overflow-hidden rounded-xl border border-border/80 bg-background shadow-inner",
+                "ring-1 ring-foreground/[0.03] focus-within:border-violet-500/40 focus-within:ring-violet-500/20",
+              )}
+            >
+              <div className="flex items-center gap-2 border-b border-border/60 bg-muted/30 px-3 py-1.5">
+                <TerminalIcon className="size-3.5 text-muted-foreground" />
+                <span className="text-[11px] font-medium text-muted-foreground">Skill body</span>
+              </div>
+              <Textarea
+                id={ids.instructions}
+                value={form.instructions}
+                onChange={(e) => setForm((f) => ({ ...f, instructions: e.target.value }))}
+                placeholder={"# What to do\n\n1. Ask for missing details\n2. Use this format…\n\n## Examples\n…"}
+                className="min-h-[200px] max-h-[min(40vh,320px)] resize-y rounded-none border-0 bg-transparent px-3 py-3 font-mono text-[13px] leading-relaxed shadow-none focus-visible:ring-0"
+              />
+            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Tip: headings, lists, and tables help the model follow long workflows.
+            </p>
+          </section>
+        </div>
+
+        <Separator />
+        <DialogFooter className="gap-2 px-6 py-4 sm:justify-between">
+          <p className="hidden text-xs text-muted-foreground sm:block">
+            {valid ? "Ready to save" : "Name and instructions are required"}
+          </p>
+          <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row">
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={save} disabled={!valid} className="min-w-[7rem]">
+              Save skill
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

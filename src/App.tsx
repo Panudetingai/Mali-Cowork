@@ -7,6 +7,7 @@ import ChatLayout from "./pages/chat/layout";
 import ProjectsPage from "./pages/projects";
 import ProjectPage from "./pages/projects/project-page";
 import SettingsPage from "./pages/settings";
+import ChatBlocksPreviewPage from "./pages/dev/chat-blocks-preview";
 
 function App() {
   useEffect(() => {
@@ -24,6 +25,9 @@ function App() {
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="projects/:projectId" element={<ProjectPage />} />
         <Route path="settings" element={<SettingsPage />} />
+        {import.meta.env.DEV ? (
+          <Route path="dev/chat-blocks" element={<ChatBlocksPreviewPage />} />
+        ) : null}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

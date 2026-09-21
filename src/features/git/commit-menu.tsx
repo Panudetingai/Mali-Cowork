@@ -93,25 +93,25 @@ export function CommitMenu({ variant }: { variant: "panel" | "bar" }) {
 
   const bar = variant === "bar";
   const shape = bar
-    ? "h-8 border bg-background text-foreground hover:bg-muted"
+    ? "h-8 text-foreground hover:bg-muted"
     : "h-8 bg-emerald-600 text-white hover:bg-emerald-500 dark:bg-emerald-500/90 dark:text-emerald-950 dark:hover:bg-emerald-400";
 
   return (
     <Popover open={!!mode} onOpenChange={(open) => !open && setMode(undefined)}>
       <PopoverAnchor asChild>
-        <div className={cn("flex shrink-0 items-stretch overflow-hidden rounded-full", bar && "shadow-sm")}>
-          <button
-            type="button"
+        <div className={cn("flex shrink-0 items-stretch overflow-hidden rounded-full")}>
+          <Button
+            variant="outline"
             disabled={nothing || !!busy}
             onClick={() => setMode(primary)}
             className={cn("flex items-center gap-1.5 pr-2.5 pl-3.5 text-[13px] font-medium transition-colors disabled:opacity-50", shape, bar && "rounded-l-full border-r-0")}
           >
             {LABEL[primary]}
-          </button>
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button
-                type="button"
+              <Button
+                variant="outline"
                 aria-label="More git actions"
                 disabled={!!busy}
                 className={cn(
@@ -121,7 +121,7 @@ export function CommitMenu({ variant }: { variant: "panel" | "bar" }) {
                 )}
               >
                 <ChevronDownIcon className="size-3.5" />
-              </button>
+              </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side={bar ? "top" : "bottom"} sideOffset={6} className={cn(menuClass, "w-60")}>
               <DropdownMenuItem className={menuItemClass} disabled={nothing} onSelect={() => setMode("commit")}>

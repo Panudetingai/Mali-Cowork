@@ -80,19 +80,28 @@
   }
   code{ font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 
-  /* embed mode: single bot, transparent background */
+  /* embed mode: single bot, transparent (html.embed set in <head> before paint) */
   #embed{ display:none; }
-  body.embed{ background:transparent; overflow:hidden; }
-  html.embed{ overflow:hidden; }
-  body.embed .page{ display:none; }
-  body.embed #embed{
-    display:flex; position:fixed; inset:0; align-items:center; justify-content:center;
+  html.embed,
+  html.embed body{
+    margin:0; padding:0;
+    width:100%; height:100%;
+    background:transparent !important;
+    overflow:hidden;
+  }
+  html.embed .page{ display:none !important; }
+  html.embed #embed{
+    display:flex !important; position:fixed; inset:0; align-items:center; justify-content:center;
     width:100%; height:100%; overflow:hidden;
+    background:transparent !important;
   }
-  body.embed #embed .bot-canvas{
+  html.embed #embed .bot-canvas{
     width:100%; height:100%; max-width:100%; max-height:100%; aspect-ratio:1/1;
+    background:transparent;
   }
-  body.embed #embed .bot-canvas svg{ width:100%; height:100%; display:block; }
+  html.embed #embed .bot-canvas svg{
+    width:100%; height:100%; display:block; overflow:visible; background:transparent;
+  }
 
   @media (max-width: 900px){
     .stage{ grid-template-columns:repeat(2, 1fr); gap:24px; }
@@ -103,6 +112,17 @@
     .toggle{ margin-left:0; }
   }
 </style>
+<script>
+(function () {
+  var p = new URLSearchParams(location.search);
+  if (!p.get("embed")) return;
+  document.documentElement.classList.add("embed");
+  var theme = p.get("theme");
+  if (theme === "dark" || theme === "light") {
+    document.documentElement.setAttribute("data-theme", theme);
+  }
+})();
+</script>
 </head>
 <body>
 
@@ -325,6 +345,7 @@ document.getElementById("bot").contentWindow
   function createBot(container, key, onChange){
     var P = PRESETS[key];
     var id = key + (uid++);
+    var embedMode = document.documentElement.classList.contains("embed");
     var pals = P.palettes.map(function(p){ return p.map(hex); });
     var base = [], mo = [], amps = [], ph = [];
     for (var k=0; k<8; k++){ base[k]=P.base[k]||0; mo[k]=P.morph[k]||0; amps[k]=base[k]; ph[k]=Math.random()*TAU; }
@@ -333,13 +354,16 @@ document.getElementById("bot").contentWindow
     function eyeMarkup(e, cls){
       return '<g class="'+cls+'"><path d="'+PILL+'" fill="'+INK+'" transform="matrix('+e.m.join(",")+',0,0)"/></g>';
     }
-    container.innerHTML =
-      '<svg viewBox="-125 -125 250 250" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
-      '<defs>' +
+    var gooDef = embedMode ? "" :
         '<filter id="goo'+id+'" filterUnits="userSpaceOnUse" x="-170" y="-170" width="340" height="340" color-interpolation-filters="sRGB">' +
           '<feGaussianBlur in="SourceGraphic" stdDeviation="6.5" result="b"/>' +
           '<feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -10"/>' +
-        '</filter>' +
+        '</filter>';
+    var gooAttr = embedMode ? "" : ' filter="url(#goo'+id+')"';
+    container.innerHTML =
+      '<svg viewBox="-125 -125 250 250" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="background:transparent">' +
+      '<defs>' +
+        gooDef +
         '<radialGradient id="fill'+id+'" gradientUnits="userSpaceOnUse" cx="-50.56" cy="-63.2" r="244.9">' +
           '<stop offset="0%"/><stop offset="32%"/><stop offset="72%"/><stop offset="100%"/>' +
         '</radialGradient>' +
@@ -354,7 +378,7 @@ document.getElementById("bot").contentWindow
       '<g class="halo" fill="none" stroke="#ff3b3b" style="display:none"><circle class="h0"/><circle class="h1"/></g>' +
       '<circle class="connRing" r="104" fill="none" stroke="var(--muted)" stroke-width="2.5" stroke-dasharray="2 11" stroke-linecap="round" opacity="0"/>' +
       '<g class="rig" mask="url(#mask'+id+')">' +
-        '<g filter="url(#goo'+id+')">' +
+        '<g'+gooAttr+'>' +
           '<ellipse class="d0"/><ellipse class="d1"/><ellipse class="d2"/>' +
           FINGERS.map(function(_, i){ return '<ellipse class="f'+i+'" fill="url(#fill'+id+')"/>'; }).join("") +
           '<path class="body" fill="url(#fill'+id+')"/>' +
@@ -847,7 +871,10 @@ document.getElementById("bot").contentWindow
     var b = createBot(holder, embedKey, function(s){
       try { parent.postMessage({ type:"bot-state-changed", bot:embedKey, state:s }, "*"); } catch(e){}
     });
-    if (params.get("shadow") === "0") holder.querySelector(".shadow").style.display = "none";
+    if (params.get("shadow") === "0") {
+      var sh = holder.querySelector(".shadow");
+      if (sh) sh.style.display = "none";
+    }
     bots.push(b);
     if (params.get("demo") === "1") startDemo(b, 400);
     else if (params.get("state")) b.setState(params.get("state"));

@@ -9,7 +9,10 @@ import {
 } from "@/features/cowork-bot";
 import { cn } from "@/lib/utils";
 import { CheckIcon } from "lucide-react";
+import { useTheme } from "next-themes";
 import { useEffect, useRef } from "react";
+
+const EMBED_VERSION = "7";
 
 /**
  * The selected cowork bot, rendered from public/anim/cowork-bots.html
@@ -30,6 +33,8 @@ export function CoworkBot({
 }) {
   const { bot: stored } = useCoworkBot();
   const bot = botProp ?? stored;
+  const { resolvedTheme } = useTheme();
+  const theme = resolvedTheme === "dark" ? "dark" : "light";
   const frameRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
@@ -55,14 +60,23 @@ export function CoworkBot({
     >
       <iframe
         ref={frameRef}
-        key={bot}
-        src={`/anim/cowork-bots.html?embed=${bot}&shadow=0&state=${state}`}
+        data-cowork-bot=""
+        key={`${bot}-${theme}`}
+        src={`/anim/cowork-bots.html?embed=${bot}&shadow=0&state=${state}&theme=${theme}&v=${EMBED_VERSION}`}
         title={title ?? "Cowork bot"}
-        loading="lazy"
         scrolling="no"
         tabIndex={-1}
         onLoad={() => frameRef.current?.contentWindow?.postMessage({ state }, "*")}
-        style={{ width: "100%", height: "100%", border: 0, display: "block", background: "transparent", overflow: "hidden", pointerEvents: "none" }}
+        style={{
+          width: "100%",
+          height: "100%",
+          border: 0,
+          display: "block",
+          background: "transparent",
+          colorScheme: "normal",
+          overflow: "hidden",
+          pointerEvents: "none",
+        }}
       />
     </div>
   );

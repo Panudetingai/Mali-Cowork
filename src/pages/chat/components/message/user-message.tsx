@@ -23,13 +23,13 @@ export function UserMessage({ content, attachments }: Props) {
       )}
       <MessageContent
         className={cn(
-          "max-w-[min(85%,100%)] rounded-2xl rounded-tr-sm bg-primary/20! text-primary-foreground! px-5 py-3",
+          "max-w-[min(85%,100%)] rounded-2xl dark:text-white rounded-tr-sm bg-primary/20! text-primary-foreground! px-5 py-3",
           "wrap-break-word",
         )}
       >
         <ExpandableClamp
           maxHeightClass="max-h-48"
-          className="[&_button]:text-foreground/80 [&_button:hover]:text-foreground"
+          className="[&_button]:text-foreground/80 [&_button:hover]:text-foreground dark:text-white"
         >
           <p className="whitespace-pre-wrap">
             <AutolinkText text={content} linkClassName="text-foreground/90" />

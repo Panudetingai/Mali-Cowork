@@ -154,6 +154,26 @@
     transform: none;
   }
 
+  iframe[data-cowork-bot] {
+    background: transparent !important;
+    background-color: transparent !important;
+    border: 0;
+  }
+
+  /* Theme toggle: circle reveal (see lib/theme-transition.ts) */
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+      animation: none !important;
+    }
+  }
+
   .scroll-hidden {
     scrollbar-width: none;
     -ms-overflow-style: none;
