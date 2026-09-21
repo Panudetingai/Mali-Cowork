@@ -41,6 +41,7 @@ import {
 import { getProviderConfig } from "@/features/providers";
 import { buildInstructions, getInstructions, skillsInPrompt } from "@/features/instructions";
 import { getProject, projectContext } from "@/features/projects";
+import { skillsGrant } from "@/features/skills";
 import { findGrant, grantsFor, isWithin, normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import type {
     HistoryMessage,
@@ -424,6 +425,10 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
           await mcpSync?.catch(() => undefined);
         }
 
+        // Cowork: the agent opens a skill's SKILL.md itself, so the library
+        // it lives in has to be readable.
+        const skillGrant = chatMode === "cowork" ? await skillsGrant() : null;
+
         // Cowork: save the folders the agent may change, so the turn can be undone.
         if (chatMode === "cowork") {
           checkpointId = await beginCheckpoint(writableFolders(folders));
@@ -440,9 +445,12 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
             mode: chatMode,
             runId: chatKey,
             cwd: folders[0],
-            folders: grantsFor(folders),
+            folders: [...grantsFor(folders), ...(skillGrant ? [skillGrant] : [])],
             attachments,
-            instructions: [buildInstructions(undefined, projectContext(project)), connectorInstructionsFor(prompt)]
+            instructions: [
+              buildInstructions(undefined, projectContext(project), chatMode === "chat" ? "chat" : "cowork"),
+              connectorInstructionsFor(prompt),
+            ]
               .filter(Boolean)
               .join("\n\n"),
             skills: skillsInPrompt(prompt, [...(project?.skills ?? []), ...getInstructions().skills]),

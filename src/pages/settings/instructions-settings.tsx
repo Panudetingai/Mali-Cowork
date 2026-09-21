@@ -1,23 +1,19 @@
 import { Textarea } from "@/components/ui/textarea";
-import {
-  deleteSkill,
-  saveSkill,
-  setCustomInstructions,
-  toggleSkill,
-  useInstructions,
-} from "@/features/instructions";
+import { setCustomInstructions, useInstructions } from "@/features/instructions";
+import { WandSparklesIcon } from "lucide-react";
 import { useId } from "react";
-import { SkillsManager } from "./skills/skills-manager";
+import { useSearchParams } from "react-router-dom";
 import { Field, GroupLabel, SectionHeader, SettingsSection } from "./ui";
 
 export function InstructionsSettings() {
   const { custom, skills } = useInstructions();
+  const [, setParams] = useSearchParams();
   const customId = useId();
 
   return (
     <div className="flex flex-col gap-10">
       <SectionHeader
-        title="Instructions & skills"
+        title="Instructions"
         description="Teach the AI how you like to work. Applies to every model and both modes."
       />
 
@@ -41,18 +37,23 @@ export function InstructionsSettings() {
       <SettingsSection>
         <GroupLabel>Skills</GroupLabel>
         <p className="text-sm text-muted-foreground">
-          A skill is a reusable how-to. The AI follows it when a task matches its “Use when”, or when you call it
-          with <code className="rounded bg-muted px-1 text-xs">/name</code>. Import skills from GitHub, a link or a
-          shared folder, and export yours as <code className="rounded bg-muted px-1 text-xs">SKILL.md</code> to
-          share with your team.
+          Custom instructions apply to everything. A skill applies to one kind of task — a report you
+          write every week, the way your team reviews code — and the AI picks it up when the task
+          matches.
         </p>
-        <SkillsManager
-          skills={skills}
-          onSave={saveSkill}
-          onToggle={toggleSkill}
-          onDelete={deleteSkill}
-          templates
-        />
+        <button
+          type="button"
+          onClick={() => setParams({ tab: "skills" }, { replace: true })}
+          className="flex items-center gap-2.5 self-start rounded-xl border border-border/70 px-3 py-2.5 text-sm transition-colors hover:bg-muted/50"
+        >
+          <WandSparklesIcon className="size-4 text-muted-foreground" />
+          <span className="font-medium">
+            {skills.length > 0
+              ? `Your skills (${skills.length})`
+              : "Add your first skill"}
+          </span>
+          <span className="text-muted-foreground">→</span>
+        </button>
       </SettingsSection>
     </div>
   );

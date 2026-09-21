@@ -1,17 +1,27 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
+import type { SkillAsset } from "@/features/skills/types";
 import { fromSkillFile, skillSlug, toSkillFile, type Skill } from "./store";
 
-/** A `SKILL.md` the backend found (see `commands/storage/skills.rs`). */
-type FoundSkill = { source: string; folder: string; content: string };
+/** A skill folder the backend found (see `commands/storage/skills`). */
+type FoundSkill = { source: string; folder: string; content: string; files: SkillAsset[] };
 
-/** A skill ready to import, with where it came from. */
-export type SkillCandidate = Omit<Skill, "id"> & { source: string };
+/** A skill ready to import, with where it came from and what it bundles. */
+export type SkillCandidate = Omit<Skill, "id"> & { source: string; files: SkillAsset[] };
+
+/** Tag candidates with the catalogue they were found through. */
+export function foundVia(candidates: SkillCandidate[], via: Skill["via"]): SkillCandidate[] {
+  return candidates.map((candidate) => ({ ...candidate, via }));
+}
 
 function toCandidates(found: FoundSkill[]): SkillCandidate[] {
   return found
-    .map((f) => ({ ...fromSkillFile(f.content, f.folder || "Skill"), source: f.source }))
+    .map((f) => ({
+      ...fromSkillFile(f.content, f.folder || "Skill"),
+      source: f.source,
+      files: f.files ?? [],
+    }))
     .filter((c) => c.name.trim() && c.instructions.trim());
 }
 

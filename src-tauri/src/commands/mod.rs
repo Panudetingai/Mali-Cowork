@@ -13,6 +13,7 @@ pub mod mcp;
 pub mod mcp_clients;
 pub mod mcp_oauth;
 pub mod mcp_registry;
+pub mod smithery;
 pub mod opencode;
 pub mod process;
 pub mod secure_fs;

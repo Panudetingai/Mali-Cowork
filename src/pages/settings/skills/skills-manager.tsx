@@ -6,7 +6,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/animate-ui/primitives/radix/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
 import {
   copySkillFile,
   exportSkillFile,
@@ -14,31 +14,31 @@ import {
   fromSkillFile,
   SKILL_TEMPLATES,
   type Skill,
+  type SkillCandidate,
 } from "@/features/instructions";
-import { cn } from "@/lib/utils";
+import { libraryDir, uninstallSkill } from "@/features/skills";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readTextFile } from "@tauri-apps/plugin-fs";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
-  ClipboardCopyIcon,
-  DownloadIcon,
+  CompassIcon,
   FileUpIcon,
   FolderDownIcon,
+  FolderOpenIcon,
   GlobeIcon,
-  MoreHorizontalIcon,
-  PencilIcon,
   PlusIcon,
-  SparklesIcon,
-  Trash2Icon,
+  SearchIcon,
   WandSparklesIcon,
 } from "lucide-react";
 import { useState } from "react";
-import { IconTile, Notice, SettingsList } from "../ui";
+import { FilterPills } from "../mcp/discover-view";
+import { Notice } from "../ui";
+import { DiscoverSkills } from "./discover-skills";
+import { ImportSkillDialog } from "./import-skill-dialog";
+import { InstallSkillDialog, type InstallChoice } from "./install-skill-dialog";
 import { EMPTY_SKILL, SkillDialog, type SkillDraft } from "./skill-dialog";
-import { SkillImportDialog, type ImportChoice } from "./skill-import-dialog";
-
-const menuItemClass =
-  "flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground";
-const menuClass = "z-50 min-w-48 rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg";
+import { menuClass, menuItemClass, SkillRow } from "./skill-row";
+import { describeInstall, useSkillInstall } from "./use-skill-install";
 
 type Props = {
   skills: Skill[];
@@ -49,13 +49,26 @@ type Props = {
   templates?: boolean;
   /** Shown when there are no skills yet. */
   emptyText?: string;
+  /** Add the search box and the Discover tab (the Settings page). */
+  discover?: boolean;
 };
 
-/** The skill library: add, edit, import (file, link, Git, folder) and export skills. */
-export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, emptyText }: Props) {
+type Tab = "yours" | "discover";
+
+/**
+ * The skill library: add, edit, install (from GitHub, a link or a folder),
+ * browse public collections, and export skills to share.
+ *
+ * The same component serves a project's own skills, without Discover.
+ */
+export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, emptyText, discover }: Props) {
   const [draft, setDraft] = useState<SkillDraft | null>(null);
   const [importing, setImporting] = useState(false);
+  const [found, setFound] = useState<SkillCandidate[] | null>(null);
+  const [tab, setTab] = useState<Tab>("yours");
+  const [query, setQuery] = useState("");
   const [message, setMessage] = useState<{ tone: "info" | "danger"; text: string } | null>(null);
+  const { busy, install } = useSkillInstall(onSave, skills);
 
   const report = async (work: () => Promise<string | null>) => {
     try {
@@ -83,17 +96,18 @@ export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, e
       return null;
     });
 
-  const importChoices = (choices: ImportChoice[]) => {
-    for (const { candidate, replaces } of choices) {
-      onSave({ ...candidate, id: replaces?.id, enabled: replaces?.enabled ?? true });
-    }
-    const updated = choices.filter((c) => c.replaces).length;
-    const added = choices.length - updated;
-    const parts = [
-      added > 0 && `${added} added`,
-      updated > 0 && `${updated} updated`,
-    ].filter(Boolean);
-    setMessage({ tone: "info", text: `Skills imported: ${parts.join(", ")}.` });
+  const runInstall = (choices: InstallChoice[]) =>
+    void report(async () => {
+      const result = await install(choices);
+      setFound(null);
+      setTab("yours");
+      return describeInstall(result);
+    });
+
+  /** Deleting takes the folder with it, so nothing is left behind on disk. */
+  const remove = (skill: Skill) => {
+    onDelete(skill.id);
+    if (skill.install) void uninstallSkill(skill.install.slug).catch(() => undefined);
   };
 
   const exportAll = () =>
@@ -102,11 +116,34 @@ export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, e
       return result && `Exported ${result.count} skill${result.count === 1 ? "" : "s"} to ${result.folder}`;
     });
 
+  const openLibrary = () =>
+    report(async () => {
+      await revealItemInDir(`${await libraryDir()}/`);
+      return null;
+    });
+
   const unused = templates ? SKILL_TEMPLATES.filter((t) => !skills.some((s) => s.name === t.name)) : [];
+  const q = discover && tab === "yours" ? query.trim().toLowerCase() : "";
+  const shown = q
+    ? skills.filter((s) => `${s.name} ${s.description}`.toLowerCase().includes(q))
+    : skills;
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
+        {discover && (
+          <div className="relative order-last w-full sm:order-none sm:mr-auto sm:max-w-sm sm:flex-1">
+            <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Escape" && setQuery("")}
+              placeholder={tab === "discover" ? "Search GitHub for skills" : "Search your skills"}
+              aria-label="Search skills"
+              className="h-9 rounded-lg pl-8"
+            />
+          </div>
+        )}
         <Button type="button" size="sm" className="gap-1.5" onClick={() => setDraft(EMPTY_SKILL)}>
           <PlusIcon className="size-4" />
           New skill
@@ -115,27 +152,49 @@ export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, e
           <DropdownMenuTrigger asChild>
             <Button type="button" size="sm" variant="outline" className="gap-1.5">
               <FileUpIcon className="size-4" />
-              Import
+              Install
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" sideOffset={6} className={menuClass}>
-            <DropdownMenuItem className={menuItemClass} onSelect={() => void importFile()}>
-              <FileUpIcon className="size-4 text-muted-foreground" />
-              SKILL.md file…
-            </DropdownMenuItem>
+            {discover && (
+              <DropdownMenuItem className={menuItemClass} onSelect={() => setTab("discover")}>
+                <CompassIcon className="size-4 text-muted-foreground" />
+                Browse public skills
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem className={menuItemClass} onSelect={() => setImporting(true)}>
               <GlobeIcon className="size-4 text-muted-foreground" />
               From GitHub, a link or a folder…
             </DropdownMenuItem>
+            <DropdownMenuItem className={menuItemClass} onSelect={() => void importFile()}>
+              <FileUpIcon className="size-4 text-muted-foreground" />
+              A single SKILL.md file…
+            </DropdownMenuItem>
+            <DropdownMenuSeparator className="-mx-1 my-1 h-px bg-border" />
+            {skills.length > 0 && (
+              <DropdownMenuItem className={menuItemClass} onSelect={() => void exportAll()}>
+                <FolderDownIcon className="size-4 text-muted-foreground" />
+                Export all to a folder…
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem className={menuItemClass} onSelect={() => void openLibrary()}>
+              <FolderOpenIcon className="size-4 text-muted-foreground" />
+              Show the skills folder
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        {skills.length > 0 && (
-          <Button type="button" size="sm" variant="ghost" className="gap-1.5" onClick={() => void exportAll()}>
-            <FolderDownIcon className="size-4" />
-            Export all
-          </Button>
-        )}
       </div>
+
+      {discover && (
+        <FilterPills
+          value={tab}
+          onChange={setTab}
+          options={[
+            ["yours", `Your skills${skills.length ? ` (${skills.length})` : ""}`],
+            ["discover", "Discover"],
+          ]}
+        />
+      )}
 
       {message && (
         <Notice tone={message.tone} onDismiss={() => setMessage(null)}>
@@ -143,111 +202,89 @@ export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, e
         </Notice>
       )}
 
-      {skills.length > 0 ? (
-        <SettingsList>
-          {skills.map((skill) => (
-            <li key={skill.id} className="flex items-center gap-3 p-4">
-              <IconTile className="bg-violet-500/10 text-violet-700 dark:text-violet-400">
-                <SparklesIcon />
-              </IconTile>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{skill.name}</p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {skill.description ? `Use when: ${skill.description}` : "No “Use when” yet"}
-                </p>
-                {skill.source && (
-                  <p className="truncate text-[11px] text-muted-foreground/70" title={skill.source}>
-                    From {skill.source.replace(/^https:\/\//, "")}
-                  </p>
-                )}
-              </div>
-              <Switch
-                checked={skill.enabled}
-                onCheckedChange={(enabled) => onToggle(skill.id, enabled)}
-                aria-label={`Use ${skill.name}`}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`Edit ${skill.name}`}
-                onClick={() => setDraft(skill)}
-              >
-                <PencilIcon className="size-4" />
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon-sm" aria-label={`More for ${skill.name}`}>
-                    <MoreHorizontalIcon className="size-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" sideOffset={6} className={menuClass}>
-                  <DropdownMenuItem
-                    className={menuItemClass}
-                    onSelect={() => void report(async () => ((await exportSkillFile(skill)) ? `Exported “${skill.name}”` : null))}
-                  >
-                    <DownloadIcon className="size-4 text-muted-foreground" />
-                    Export SKILL.md…
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className={menuItemClass}
-                    onSelect={() =>
-                      void report(async () => {
-                        await copySkillFile(skill);
-                        return `Copied “${skill.name}” as SKILL.md — paste it to share with your team`;
-                      })
-                    }
-                  >
-                    <ClipboardCopyIcon className="size-4 text-muted-foreground" />
-                    Copy as SKILL.md
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator className="-mx-1 my-1 h-px bg-border" />
-                  <DropdownMenuItem
-                    className={cn(menuItemClass, "text-destructive data-highlighted:text-destructive")}
-                    onSelect={() => onDelete(skill.id)}
-                  >
-                    <Trash2Icon className="size-4" />
-                    Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </li>
-          ))}
-        </SettingsList>
+      {discover && tab === "discover" ? (
+        <DiscoverSkills query={query} installed={skills} onPick={setFound} />
       ) : (
-        emptyText && <p className="text-sm text-muted-foreground">{emptyText}</p>
-      )}
+        <>
+          {shown.length > 0 ? (
+            <div className="flex flex-col">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/60 px-3 pb-2 text-sm text-muted-foreground sm:grid-cols-[minmax(0,1fr)_10rem_auto]">
+                <span>Skill</span>
+                <span className="hidden sm:block">How it’s used</span>
+                <span>Use it</span>
+              </div>
+              <ul className="flex flex-col">
+                {shown.map((skill) => (
+                  <SkillRow
+                    key={skill.id}
+                    skill={skill}
+                    actions={{
+                      onEdit: () => setDraft(skill),
+                      onToggle: (enabled) => onToggle(skill.id, enabled),
+                      onDelete: () => remove(skill),
+                      onExport: () =>
+                        void report(async () =>
+                          (await exportSkillFile(skill)) ? `Exported “${skill.name}”` : null,
+                        ),
+                      onCopy: () =>
+                        void report(async () => {
+                          await copySkillFile(skill);
+                          return `Copied “${skill.name}” as SKILL.md — paste it to share with your team`;
+                        }),
+                      onReveal: skill.install
+                        ? () =>
+                            void report(async () => {
+                              await revealItemInDir(`${skill.install?.dir}/SKILL.md`);
+                              return null;
+                            })
+                        : undefined,
+                    }}
+                  />
+                ))}
+              </ul>
+            </div>
+          ) : q ? (
+            <p className="px-3 py-8 text-center text-sm text-muted-foreground">
+              No skills match “{query.trim()}”.
+            </p>
+          ) : (
+            emptyText && <p className="text-sm text-muted-foreground">{emptyText}</p>
+          )}
 
-      {unused.length > 0 && (
-        <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-border/80 bg-muted/15 p-4">
-          <p className="flex items-center gap-1.5 text-sm font-medium">
-            <WandSparklesIcon className="size-4 text-muted-foreground" />
-            Start from a template
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {unused.map((template) => (
-              <Button
-                key={template.name}
-                type="button"
-                size="sm"
-                variant="outline"
-                title={template.description}
-                onClick={() => onSave({ ...template, enabled: true })}
-              >
-                <PlusIcon className="size-3.5" />
-                {template.name}
-              </Button>
-            ))}
-          </div>
-        </div>
+          {unused.length > 0 && (
+            <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-border/80 bg-muted/15 p-4">
+              <p className="flex items-center gap-1.5 text-sm font-medium">
+                <WandSparklesIcon className="size-4 text-muted-foreground" />
+                Start from a template
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {unused.map((template) => (
+                  <Button
+                    key={template.name}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    title={template.description}
+                    onClick={() => onSave({ ...template, enabled: true })}
+                  >
+                    <PlusIcon className="size-3.5" />
+                    {template.name}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       <SkillDialog draft={draft} onSave={onSave} onClose={() => setDraft(null)} />
-      <SkillImportDialog
-        open={importing}
+      <ImportSkillDialog open={importing} onFound={setFound} onClose={() => setImporting(false)} />
+      <InstallSkillDialog
+        candidates={found}
         existing={skills}
-        onImport={importChoices}
-        onClose={() => setImporting(false)}
+        busy={busy}
+        onInstall={runInstall}
+        onClose={() => setFound(null)}
       />
     </div>
   );

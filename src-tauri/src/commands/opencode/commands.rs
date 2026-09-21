@@ -607,8 +607,9 @@ fn mcp_note(servers: &[String]) -> Option<String> {
         .join("\n");
     Some(format!(
         "Connected MCP servers:\n{list}\n\nWhen one of these servers covers the task \
-         (e.g. `word_*` for Word documents), call its tools directly. Do not look for skills \
-         or instruction files, and do not write scripts for what those tools already do."
+         (e.g. `word_*` for Word documents), call its tools directly rather than writing a \
+         script for what they already do. A skill listed below may still tell you how the \
+         user wants that work done."
     ))
 }
 

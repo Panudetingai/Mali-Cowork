@@ -33,7 +33,11 @@ use commands::opencode::{
 };
 use commands::storage::{
     history_import_legacy, history_load, history_save, secrets_load, secrets_save,
-    skills_export_folder, skills_fetch_url, skills_scan_folder,
+    skills_dir, skills_export_folder, skills_fetch_url, skills_install, skills_installed,
+    skills_read_asset, skills_scan_folder, skills_search_repos, skills_sync, skills_uninstall,
+};
+use commands::smithery::{
+    smithery_check_key, smithery_search_servers, smithery_search_skills, smithery_server,
 };
 use commands::supervisor;
 
@@ -208,7 +212,18 @@ pub fn run() {
             secrets_save,
             skills_fetch_url,
             skills_scan_folder,
-            skills_export_folder
+            skills_export_folder,
+            skills_read_asset,
+            skills_search_repos,
+            skills_dir,
+            skills_install,
+            skills_installed,
+            skills_sync,
+            skills_uninstall,
+            smithery_check_key,
+            smithery_search_skills,
+            smithery_search_servers,
+            smithery_server
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -10,6 +10,22 @@ export type Skill = {
   enabled: boolean;
   /** Where it was imported from (a URL or a file), if anywhere. */
   source?: string;
+  /** The catalogue it was found through, when it wasn't found directly. */
+  via?: "smithery";
+  /** Where it lives on disk once installed (see `features/skills`). */
+  install?: SkillInstall;
+};
+
+/** A skill's folder in the library, written by `skills_install`/`skills_sync`. */
+export type SkillInstall = {
+  /** The folder's name, unique across the library. */
+  slug: string;
+  /** The absolute folder — what the agent is pointed at. */
+  dir: string;
+  /** Scripts, references and assets beside SKILL.md, relative to `dir`. */
+  files: string[];
+  /** ISO date of the last install. */
+  at: string;
 };
 
 /** A project's part of the instructions (see `features/projects`). */
@@ -39,6 +55,8 @@ const store = createStore<InstructionsState>(
 
 export const useInstructions = store.use;
 export const getInstructions = store.get;
+/** For code outside React, e.g. keeping the skill library on disk in step. */
+export const subscribeToInstructions = store.subscribe;
 
 export function setCustomInstructions(custom: string) {
   store.set((s) => ({ ...s, custom }));
@@ -65,13 +83,24 @@ export function deleteSkill(id: string) {
 /** Keeps the system prompt from crowding out the conversation. */
 const MAX_CHARS = 12_000;
 
+const USE_WHEN = "the task calls for it";
+
 /**
  * The text every model gets as extra system instructions: the user's own
- * instructions, the project's (if the chat is in one), then each enabled
- * skill. Past the size limit, later skills are listed by name and
- * description only.
+ * instructions, the project's (if the chat is in one), then its skills.
+ *
+ * In Cowork the agent has file tools, so a skill installed on disk is listed
+ * by name, "Use when" and path — the agent opens the file when a task
+ * actually matches. A library of fifty skills then costs a few lines instead
+ * of fifty guides, and a skill can be longer than a prompt has room for.
+ * In Chat there are no file tools, so the text has to travel with the prompt,
+ * and past the size limit later skills keep only their "Use when".
  */
-export function buildInstructions(state: InstructionsState = store.get(), project?: ProjectContext): string {
+export function buildInstructions(
+  state: InstructionsState = store.get(),
+  project?: ProjectContext,
+  mode: "chat" | "cowork" = "cowork",
+): string {
   const sections: string[] = [];
   const custom = state.custom.trim();
   if (custom) sections.push(`# Instructions from the user\n${custom}`);
@@ -88,21 +117,56 @@ export function buildInstructions(state: InstructionsState = store.get(), projec
   const skills = [...(project?.skills ?? []), ...state.skills].filter(
     (k) => k.enabled && k.name.trim() && k.instructions.trim(),
   );
-  if (skills.length) {
-    let used = sections.join("").length;
-    const blocks = skills.map((skill) => {
-      const full = `## ${skill.name.trim()}\nUse when: ${skill.description.trim() || "the task calls for it"}\n\n${skill.instructions.trim()}`;
-      if (used + full.length <= MAX_CHARS) {
-        used += full.length;
-        return full;
-      }
-      return `## ${skill.name.trim()}\nUse when: ${skill.description.trim()} (full instructions omitted: too long)`;
-    });
-    sections.push(
-      `# Skills\nWhen the task matches a skill's "Use when", follow that skill's instructions.\n\n${blocks.join("\n\n")}`,
+  if (skills.length === 0) return sections.join("\n\n");
+
+  // On disk the agent can read them; otherwise the text has to come along.
+  const onDisk = mode === "cowork" ? skills.filter((k) => k.install) : [];
+  const inline = skills.filter((k) => !onDisk.includes(k));
+  const blocks: string[] = [];
+
+  if (onDisk.length) {
+    blocks.push(
+      [
+        "Each of these is a folder holding a SKILL.md, and some bring scripts and",
+        "reference files with them. When a task matches a skill's “Use when”, read",
+        "its SKILL.md first and follow it — read the file, don't guess what it says.",
+        "Leave the ones that don't apply alone.",
+      ].join(" "),
+      onDisk.map(skillEntry).join("\n"),
     );
   }
+
+  if (inline.length) {
+    let used = sections.join("").length + blocks.join("").length;
+    blocks.push(
+      inline
+        .map((skill) => {
+          const head = `## ${skill.name.trim()}\nUse when: ${skill.description.trim() || USE_WHEN}`;
+          const full = `${head}\n\n${skill.instructions.trim()}`;
+          if (used + full.length > MAX_CHARS) return `${head}\n(too long to include here)`;
+          used += full.length;
+          return full;
+        })
+        .join("\n\n"),
+    );
+  }
+
+  sections.push(`# Skills\n${blocks.join("\n\n")}`);
   return sections.join("\n\n");
+}
+
+/** One installed skill, as the agent sees it before opening anything. */
+function skillEntry(skill: Skill): string {
+  const lines = [
+    `- ${skill.name.trim()} — use when: ${skill.description.trim() || USE_WHEN}`,
+    `  ${skill.install?.dir}/SKILL.md`,
+  ];
+  const files = skill.install?.files ?? [];
+  if (files.length) {
+    const shown = files.slice(0, 6).join(", ");
+    lines.push(`  also has: ${shown}${files.length > 6 ? `, and ${files.length - 6} more` : ""}`);
+  }
+  return lines.join("\n");
 }
 
 /** Read a `SKILL.md` (front matter with `name` and `description`, then the instructions). */

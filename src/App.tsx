@@ -1,5 +1,6 @@
 import { AppLayout } from "@/layouts/app-layout";
 import { OnboardingDialog, openOnboarding, isOnboardingDone, FORCE_ONBOARDING } from "@/features/onboarding";
+import { watchSkills } from "@/features/skills";
 import { useEffect } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import ChatLayout from "./pages/chat/layout";
@@ -11,6 +12,9 @@ function App() {
   useEffect(() => {
     if (!isOnboardingDone() || FORCE_ONBOARDING) openOnboarding();
   }, []);
+
+  // Keep the skill folders the agent reads in step with the library.
+  useEffect(() => watchSkills(), []);
 
   return (
     <Routes>

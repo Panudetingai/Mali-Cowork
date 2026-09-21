@@ -41,6 +41,8 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { isSmitheryInstall } from "@/features/smithery";
+import { SourceBadge } from "../smithery-card";
 import { CopyCommand, Notice } from "../ui";
 import { ConnectorIcon, RegistryIcon } from "./connector-icon";
 import { CustomMcpDialog, type CustomDialogTarget } from "./custom-mcp-dialog";
@@ -457,7 +459,14 @@ function ConnectorRow({
     );
   }
 
-  const badge = row.custom ? (row.custom.registry ? "Registry" : "Custom") : null;
+  // Where it came from, which is not always the official registry any more.
+  const badge = row.custom
+    ? isSmitheryInstall(row.custom)
+      ? <SourceBadge source="smithery" />
+      : row.custom.registry
+        ? <SourceBadge source="registry" />
+        : <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px]">Custom</span>
+    : null;
 
   return (
     <li
@@ -475,7 +484,7 @@ function ConnectorRow({
       </span>
       <span className="hidden items-center gap-2 text-sm text-muted-foreground sm:flex">
         {row.kind === "remote" ? "Web" : "Local"}
-        {badge && <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px]">{badge}</span>}
+        {badge}
       </span>
       <span className="flex w-24 items-center justify-between gap-1 sm:w-auto">
         {status}
