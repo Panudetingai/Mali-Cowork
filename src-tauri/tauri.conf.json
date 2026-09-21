@@ -73,13 +73,8 @@
       "digestAlgorithm": "sha256",
       "nsis": {
         "installerIcon": "icons/icon.ico",
-        "headerIcon": "icons/icon.ico",
-        "sidebarImage": "../public/installer-sidebar.png",
-        "installerSidebarImage": "../public/installer-sidebar.png",
-        "license": null,
-        "displayName": "Mali Cowork",
-        "publisher": "Panudet",
-        "enableReserveFile": true
+        "headerImage": "icons/icon.ico",
+        "sidebarImage": "../public/installer-sidebar.png"
       }
     },
     "resources": [],
