@@ -61,17 +61,57 @@ pub async fn codex_check() -> CodexCheckResult {
     }
 }
 
-/// Models known to the CLI. `codex models` output is plain text, one id per
-/// line (newer CLIs print a table) — best-effort parse, never fatal.
+/// Models known to the CLI. `codex debug models` prints the model catalogue as
+/// JSON; older CLIs answered `codex models` with plain text, one id per line,
+/// so both are tried — best-effort parse, never fatal.
 #[tauri::command]
 pub async fn codex_list_models() -> Result<Vec<CodexModel>, String> {
     let bin = codex_bin().ok_or_else(not_found_message)?;
-    let output = run(bin, &["models"]).await?;
-    let models: Vec<CodexModel> = output.lines().filter_map(parse_model_line).collect();
-    if models.is_empty() {
-        return Err("codex listed no models. Check `codex login status`.".into());
+    let mut failure = None;
+    for args in [["debug", "models"].as_slice(), ["models"].as_slice()] {
+        match run(bin, args).await {
+            Ok(output) => {
+                let models = parse_models(&output);
+                if !models.is_empty() {
+                    return Ok(models);
+                }
+            }
+            Err(error) => failure = failure.or(Some(error)),
+        }
     }
-    Ok(models)
+    Err(match failure {
+        Some(error) => format!("codex listed no models: {error}"),
+        None => "codex listed no models. Check `codex login status`.".into(),
+    })
+}
+
+/// The JSON catalogue, or the old one-per-line text.
+fn parse_models(output: &str) -> Vec<CodexModel> {
+    if let Some(models) = parse_model_catalog(output) {
+        return models;
+    }
+    output.lines().filter_map(parse_model_line).collect()
+}
+
+/// `{"models": [{"slug": …, "display_name": …, "visibility": "list"}]}`.
+/// Models the CLI hides (internal or specialised ones) are left out.
+fn parse_model_catalog(output: &str) -> Option<Vec<CodexModel>> {
+    let start = output.find('{')?;
+    let catalog: Value = serde_json::from_str(output[start..].trim()).ok()?;
+    let entries = catalog["models"].as_array()?;
+    let models: Vec<CodexModel> = entries
+        .iter()
+        .filter(|m| m["visibility"].as_str().is_none_or(|v| v == "list"))
+        .filter_map(|m| {
+            let id = m["slug"].as_str().or_else(|| m["id"].as_str())?.trim();
+            if id.is_empty() {
+                return None;
+            }
+            let name = m["display_name"].as_str().map(str::trim).filter(|n| !n.is_empty());
+            Some(CodexModel { id: id.to_string(), name: name.unwrap_or(id).to_string() })
+        })
+        .collect();
+    (!models.is_empty()).then_some(models)
 }
 
 fn parse_model_line(line: &str) -> Option<CodexModel> {
@@ -350,6 +390,27 @@ mod tests {
 
     fn grant(path: &str, access: &str) -> FolderGrant {
         FolderGrant { path: path.into(), access: access.into() }
+    }
+
+    #[test]
+    fn the_json_catalogue_keeps_only_listed_models() {
+        let output = r#"{"models":[
+            {"slug":"gpt-5.6-sol","display_name":"GPT-5.6-Sol","visibility":"list"},
+            {"slug":"gpt-5.4","display_name":"GPT-5.4","visibility":"hide"},
+            {"slug":"codex-auto-review","visibility":"hide"}
+        ]}"#;
+        let models = parse_models(output);
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "gpt-5.6-sol");
+        assert_eq!(models[0].name, "GPT-5.6-Sol");
+    }
+
+    #[test]
+    fn plain_text_listings_still_parse() {
+        let models = parse_models("Available models:\ngpt-5.3-codex - Codex 5.3\n");
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "gpt-5.3-codex");
+        assert_eq!(models[0].name, "Codex 5.3");
     }
 
     #[test]

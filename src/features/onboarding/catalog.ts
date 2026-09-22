@@ -26,8 +26,8 @@ export const AGENTS: AgentChoice[] = [
   {
     id: "antigravity",
     name: "Antigravity CLI",
-    tagline: "Google's agent with a large context window.",
-    account: "Free Antigravity API key from Google AI Studio",
+    tagline: "Google's terminal agent (agy), the successor to Gemini CLI.",
+    account: "Sign in with a Google account (run `agy` once)",
   },
   {
     id: "cursor",

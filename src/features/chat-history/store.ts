@@ -27,7 +27,7 @@ export type ChatSession = {
   cursorSessionId?: string;
   /** Codex thread id, so `codex exec resume <id>` keeps the conversation. */
   codexSessionId?: string;
-  /** Antigravity session id, so `antigravity -r <id>` keeps the conversation. */
+  /** Antigravity conversation id, so `agy --conversation <id>` keeps the thread. */
   antigravitySessionId?: string;
   /** Chat this one continues after the context limit was reached. */
   continuedFrom?: {

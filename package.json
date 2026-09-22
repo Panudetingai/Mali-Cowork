@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:sidecar": "node scripts/build-sidecar.mjs",
+    "dev:sidecar": "node scripts/build-sidecar.mjs --debug",
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "bun test src"

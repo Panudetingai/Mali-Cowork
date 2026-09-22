@@ -176,7 +176,7 @@ export default function PromptInput({
   /** Ask for whatever the model still needs; true when something was asked. */
   const askForAccess = (model: AiModel, onReady?: () => void) => {
     // Only Cursor has an in-app sign-in flow; other CLIs explain sign-in
-    // through their own backend errors (e.g. run `antigravity` once).
+    // through their own backend errors (e.g. run `agy` once).
     if (model.needsLogin && isCursorModel(model.id)) {
       requestCursorLogin({ onSignedIn: onReady });
       return true;

@@ -189,8 +189,8 @@ export function AgentsSettings() {
 
       {antigravity.check && !antigravity.check.available && (
         <div className="flex max-w-xl flex-col gap-2">
-          <p className="text-sm text-muted-foreground">Install Antigravity CLI, then restart the app (or set ANTIGRAVITY_BIN):</p>
-          <CopyCommand command="npm i -g antigravity-cli" />
+          <p className="text-sm text-muted-foreground">Install Antigravity CLI, then restart the app (or set AGY_BIN):</p>
+          <CopyCommand command="curl -fsSL https://antigravity.google/cli/install.sh | bash" />
         </div>
       )}
 

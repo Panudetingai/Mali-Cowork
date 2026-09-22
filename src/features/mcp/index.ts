@@ -10,4 +10,5 @@ export * from "./agent-install";
 export * from "./oauth-limits";
 export * from "./export";
 export * from "./tool-label";
+export * from "./sandbox";
 export { McpToolIcon } from "./mcp-tool-icon";

@@ -1,5 +1,5 @@
 //! Share the app's connectors with other agent CLIs on this computer:
-//! Antigravity CLI (`~/.antigravity/settings.json`) and Cursor (`~/.cursor/mcp.json`),
+//! Antigravity CLI (`~/.gemini/config/mcp_config.json`) and Cursor (`~/.cursor/mcp.json`),
 //! next to OpenCode and Codex (see `mcp.rs`).
 //!
 //! - Only CLIs that are set up (their folder exists) get a file.
@@ -40,8 +40,11 @@ fn targets() -> Vec<Target> {
     vec![
         Target {
             name: "antigravity",
-            dir: home.join(".antigravity"),
-            file: home.join(".antigravity").join("settings.json"),
+            // The CLI only exists here once it has been run; its global MCP
+            // servers live in their own file, not in settings.json.
+            // Ref: https://antigravity.google/docs/cli/gcli-migration/
+            dir: home.join(".gemini").join("antigravity-cli"),
+            file: home.join(".gemini").join("config").join("mcp_config.json"),
             entry: antigravity_entry,
         },
         Target {
@@ -61,9 +64,12 @@ fn local_env(server: &McpServerEntry, path: Option<&str>) -> Map<String, Value> 
     env
 }
 
+/// Only the keys Antigravity documents are written, so a stricter parser in a
+/// newer CLI can still read the file.
 fn antigravity_entry(server: &McpServerEntry, argv: &[String], path: Option<&str>) -> Value {
     if server.kind == "remote" {
-        let mut entry = json!({ "httpUrl": server.url.as_deref().unwrap_or_default(), "timeout": server.timeout_ms() });
+        // Antigravity replaced the legacy `url` / `httpUrl` keys with `serverUrl`.
+        let mut entry = json!({ "serverUrl": server.url.as_deref().unwrap_or_default() });
         if !server.headers.is_empty() {
             entry["headers"] = json!(server.headers);
         }
@@ -73,7 +79,6 @@ fn antigravity_entry(server: &McpServerEntry, argv: &[String], path: Option<&str
         "command": argv.first().cloned().unwrap_or_default(),
         "args": argv.get(1..).unwrap_or_default(),
         "env": local_env(server, path),
-        "timeout": server.timeout_ms(),
     })
 }
 

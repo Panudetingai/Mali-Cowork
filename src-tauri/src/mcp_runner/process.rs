@@ -7,6 +7,7 @@ use std::os::windows::io::AsRawHandle;
 
 use crate::sandbox::{AccessDecision, SandboxPolicy};
 
+#[cfg(windows)]
 use super::job::Job;
 use super::policy::load_policy;
 
@@ -53,25 +54,44 @@ pub struct Child {
 }
 
 /// Prepare the environment the MCP child actually receives.
-fn sanitized_env(policy: &SandboxPolicy, parent: std::env::VarsOs) -> Vec<(String, String)> {
+fn sanitized_env(
+    policy: &SandboxPolicy,
+    parent: impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    let unknown = matches!(policy.tool_decision("network", AccessDecision::Deny), AccessDecision::Deny)
-        || matches!(policy.tool_decision("shell.exec", AccessDecision::Deny), AccessDecision::Deny);
+    // A policy that asks before `shell.exec` is one written for an untrusted
+    // server (see `SandboxPolicy::for_mcp`); a policy without the key at all
+    // was written for a trusted one. The fallback must therefore be `Allow`,
+    // or every server would look untrusted.
+    let untrusted = !matches!(
+        policy.tool_decision("shell.exec", AccessDecision::Allow),
+        AccessDecision::Allow
+    );
 
     for (key, value) in parent {
         let key_str = key.to_string_lossy().to_ascii_uppercase();
-        if SENSITIVE_ENV_NAMES.contains(&key_str.as_str()) {
-            continue;
-        }
-        if SENSITIVE_ENV_PREFIXES.iter().any(|prefix| key_str.starts_with(prefix)) {
-            continue;
+        // A credential the user configured for *this* server is its own: the
+        // app lists those names in the policy, and only ambient credentials
+        // that happen to sit in the app's environment are stripped.
+        let granted = policy
+            .credentials
+            .allow_names
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(&key_str));
+        if !granted {
+            if SENSITIVE_ENV_NAMES.contains(&key_str.as_str()) {
+                continue;
+            }
+            if SENSITIVE_ENV_PREFIXES.iter().any(|prefix| key_str.starts_with(prefix)) {
+                continue;
+            }
         }
         // Unknown-trust MCPs should not inherit the parent PATH blindly when a
         // minimal one was already supplied by the app. Since we cannot tell here
         // whether PATH came from the app or the system, we keep it but strip
         // entries that are obviously user scripts.
         if key_str == "PATH" {
-            if unknown {
+            if untrusted {
                 if let Some(sanitized) = sanitize_path(&value) {
                     out.push((key_str, sanitized));
                     continue;
@@ -84,11 +104,13 @@ fn sanitized_env(policy: &SandboxPolicy, parent: std::env::VarsOs) -> Vec<(Strin
         ));
     }
 
-    // For untrusted servers, point HTTP stack at a discard address so that even
-    // if the job-object/network filter is bypassed, direct outbound calls fail.
-    // This is a mitigation, not a guarantee; a determined process can ignore
-    // these variables. Real isolation needs AppContainer/WFP/namespaces.
-    if unknown {
+    // When the policy grants no network, point the HTTP stack at a discard
+    // address so that even if the job-object/network filter is bypassed, direct
+    // outbound calls fail. This is a mitigation, not a guarantee; a determined
+    // process can ignore these variables. Real isolation needs
+    // AppContainer/WFP/namespaces. Most MCP servers exist to call an API, so
+    // the app grants network unless it was told otherwise.
+    if !policy.network.enabled {
         out.retain(|(k, _)| k.to_ascii_uppercase() != "HTTP_PROXY" && k.to_ascii_uppercase() != "HTTPS_PROXY");
         out.push(("HTTP_PROXY".into(), "127.0.0.1:9".into()));
         out.push(("HTTPS_PROXY".into(), "127.0.0.1:9".into()));
@@ -163,12 +185,16 @@ pub fn spawn(
 
     let child = cmd.spawn().map_err(|e| format!("Cannot spawn MCP {program:?}: {e}"))?;
 
+    // Only Windows has a job object to contain the tree in; on Unix the
+    // runner's own process group is the boundary (see `job.rs`).
     #[cfg(windows)]
-    let handle = child.as_raw_handle();
-    let job = if handle.is_null() {
-        None
-    } else {
-        crate::mcp_runner::job::contain(handle, &policy.resources)
+    let job = {
+        let handle = child.as_raw_handle();
+        if handle.is_null() {
+            None
+        } else {
+            super::job::contain(handle, &policy.resources)
+        }
     };
 
     Ok(Child {
@@ -214,7 +240,9 @@ fn resolve_program(name: &str) -> Result<PathBuf, String> {
     Err(format!("Cannot find MCP program '{name}'"))
 }
 
-fn executable_candidates(base: &PathBuf) -> Vec<PathBuf> {
+fn executable_candidates(base: &Path) -> Vec<PathBuf> {
+    #[cfg(not(windows))]
+    let _ = base;
     #[cfg(windows)]
     {
         if base.extension().is_none() {
@@ -226,4 +254,55 @@ fn executable_candidates(base: &PathBuf) -> Vec<PathBuf> {
         }
     }
     Vec::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sandbox::McpTrustLevel;
+    use std::ffi::OsString;
+
+    fn env(pairs: &[(&str, &str)]) -> Vec<(OsString, OsString)> {
+        pairs.iter().map(|(k, v)| (OsString::from(k), OsString::from(v))).collect()
+    }
+
+    fn value<'a>(env: &'a [(String, String)], key: &str) -> Option<&'a str> {
+        env.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+    }
+
+    #[test]
+    fn the_servers_own_token_survives_while_ambient_keys_are_stripped() {
+        let mut policy = SandboxPolicy::for_mcp(McpTrustLevel::Unknown);
+        policy.credentials.allow_names = vec!["GITHUB_TOKEN".into()];
+        let parent = env(&[
+            ("GITHUB_TOKEN", "for-this-server"),
+            ("OPENAI_API_KEY", "not-its-business"),
+            ("SSH_AUTH_SOCK", "/tmp/agent.sock"),
+            ("HOME", "/Users/me"),
+        ]);
+        let sanitized = sanitized_env(&policy, parent.into_iter());
+        assert_eq!(value(&sanitized, "GITHUB_TOKEN"), Some("for-this-server"));
+        assert_eq!(value(&sanitized, "HOME"), Some("/Users/me"));
+        assert_eq!(value(&sanitized, "OPENAI_API_KEY"), None);
+        assert_eq!(value(&sanitized, "SSH_AUTH_SOCK"), None);
+    }
+
+    #[test]
+    fn network_is_left_alone_unless_the_policy_denies_it() {
+        let granted = SandboxPolicy::for_mcp(McpTrustLevel::Unknown);
+        let sanitized = sanitized_env(&granted, env(&[("HOME", "/Users/me")]).into_iter());
+        assert_eq!(value(&sanitized, "HTTPS_PROXY"), None, "an MCP server may call its API");
+
+        let mut denied = granted.clone();
+        denied.network.enabled = false;
+        let sanitized = sanitized_env(&denied, env(&[("HOME", "/Users/me")]).into_iter());
+        assert_eq!(value(&sanitized, "HTTPS_PROXY"), Some("127.0.0.1:9"));
+    }
+
+    #[test]
+    fn the_app_own_shell_wrapper_would_be_refused() {
+        let policy = SandboxPolicy::default();
+        assert!(!policy.allows_program(Path::new("/bin/sh")));
+        assert!(policy.allows_program(Path::new("/usr/local/bin/npx")));
+    }
 }

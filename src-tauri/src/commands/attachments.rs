@@ -161,7 +161,7 @@ fn safe_name(name: &str) -> String {
 
 /// Keys, credentials and agent configs never leave the machine as attachments.
 pub(crate) fn is_sensitive(path: &Path) -> bool {
-    const DIRS: &[&str] = &[".ssh", ".aws", ".gnupg", ".docker", ".kube", ".codex", ".cursor", ".antigravity"];
+    const DIRS: &[&str] = &[".ssh", ".aws", ".gnupg", ".docker", ".kube", ".codex", ".cursor", ".gemini", ".antigravity"];
     const FILES: &[&str] = &[".netrc", ".npmrc", ".git-credentials", ".env", "auth.json", "id_rsa", "id_ed25519"];
     let name = display_name(path).to_ascii_lowercase();
     FILES.contains(&name.as_str())

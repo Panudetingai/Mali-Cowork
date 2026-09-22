@@ -43,7 +43,7 @@ use commands::smithery::{
     smithery_check_key, smithery_search_servers, smithery_search_skills, smithery_server,
 };
 use commands::supervisor;
-use sandbox::{filesystem_read, filesystem_search, filesystem_write, get_audit_logs, get_sandbox_status};
+use sandbox::{get_audit_logs, get_sandbox_status};
 
 /// Windows/Linux: no menu bar in the window.
 /// macOS: the menu lives in the global menu bar, and Cmd+C / Cmd+V / Cmd+X /
@@ -231,9 +231,6 @@ pub fn run() {
             smithery_search_skills,
             smithery_search_servers,
             smithery_server,
-            filesystem_search,
-            filesystem_read,
-            filesystem_write,
             get_sandbox_status,
             get_audit_logs
         ])

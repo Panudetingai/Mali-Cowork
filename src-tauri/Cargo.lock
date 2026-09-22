@@ -28,7 +28,6 @@ dependencies = [
  "tauri-plugin-fs",
  "tauri-plugin-notification",
  "tauri-plugin-opener",
- "thiserror 2.0.20",
  "tokio",
  "toml_edit 0.22.27",
  "uuid",

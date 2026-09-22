@@ -4,8 +4,10 @@ import { invoke } from "@tauri-apps/api/core";
 import type { AntigravityCheckResult, AntigravityModel, AntigravityRequest } from "./types";
 
 /**
- * The Antigravity key from Settings → Models. Headless `antigravity` reads its key only
- * from `ANTIGRAVITY_API_KEY`, so the backend hands this one over.
+ * The Google key from Settings → Models. Antigravity CLI normally signs in with
+ * a Google account; a key is only used when the user set
+ * `"modelProvider": "gemini"` in `~/.gemini/antigravity-cli/settings.json`,
+ * where the CLI reads it from `GEMINI_API_KEY`.
  */
 function settingsApiKey() {
   return requestConfigFor("google").apiKey;
@@ -16,7 +18,7 @@ export function antigravityCheck() {
 }
 
 export function antigravityListModels() {
-  return invoke<AntigravityModel[]>("antigravity_list_models");
+  return invoke<AntigravityModel[]>("antigravity_list_models", { apiKey: settingsApiKey() });
 }
 
 export function antigravityAbort(runId: string) {
@@ -36,7 +38,6 @@ export async function antigravityGenerateStream(
       mode: request.mode ?? "cowork",
       folders: request.folders ?? [],
       runId: request.runId,
-      images: request.images ?? [],
       apiKey: settingsApiKey(),
     },
     onEvent: createStreamChannel(handlers),

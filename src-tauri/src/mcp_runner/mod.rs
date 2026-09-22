@@ -29,5 +29,16 @@ pub fn runner_binary_path() -> Option<PathBuf> {
     #[cfg(not(windows))]
     let name = "mali-mcp-runner";
     let candidate = dir.join(name);
-    candidate.is_file().then_some(candidate)
+    if candidate.is_file() {
+        return Some(candidate);
+    }
+    // Said once: without the runner beside the app, MCP servers start
+    // unwrapped — no environment scoping and no process-tree containment. It is
+    // built next to the app by cargo, but a bundle only ships it when it is
+    // listed in `bundle.externalBin`.
+    static WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    WARNED.get_or_init(|| {
+        eprintln!("[mcp] {} is not next to the app: MCP servers run unsandboxed", candidate.display());
+    });
+    None
 }

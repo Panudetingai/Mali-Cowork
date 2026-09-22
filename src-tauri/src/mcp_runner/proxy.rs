@@ -28,9 +28,12 @@ pub fn run(supervised: SupervisedChild) -> Result<ExitStatus, String> {
 
     let status = process.wait().map_err(|e| format!("Failed to wait for MCP child: {e}"))?;
 
+    // The child's last reply may still be in flight: wait for its pipes to
+    // drain, or OpenCode loses the response to its final request. The stdin
+    // copier is left to end on its own — it is blocked reading our stdin.
+    let _ = stdout_thread.join();
+    let _ = stderr_thread.join();
     drop(stdin_thread);
-    drop(stdout_thread);
-    drop(stderr_thread);
 
     Ok(status)
 }

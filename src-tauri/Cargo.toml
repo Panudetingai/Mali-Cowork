@@ -4,7 +4,8 @@ version = "0.1.2"
 description = "Desktop coworking app for AI chat and agent-assisted work on your files."
 authors = ["panudetingai"]
 edition = "2021"
-default-run = "Mali" # <-- 1. กำหนดตัวหลักตรงนี้
+# Two binaries live here: the app and the MCP runner helper.
+default-run = "Mali"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -23,7 +24,7 @@ path = "src/bin/mcp_runner.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
@@ -46,7 +47,6 @@ quick-xml = "0.42"
 hex = "0.4"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 rusqlite = { version = "0.39", features = ["bundled"] }
-thiserror = "2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

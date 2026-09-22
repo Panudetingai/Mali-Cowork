@@ -79,6 +79,13 @@ impl FolderPolicy {
             ask.path.as_deref(),
             ask.command.as_deref(),
         ) {
+            // Written to the audit trail so Settings → MCP can show what was
+            // stopped, not only this one turn's error bubble.
+            crate::sandbox::record_blocked(
+                &ask.permission,
+                ask.path.as_deref().or(ask.command.as_deref()),
+                reason,
+            );
             return Decision::Reject(reason);
         }
         let approve_or_ask = if auto_approve { Decision::Approve } else { Decision::AskUser };
@@ -306,6 +313,34 @@ mod tests {
             (decision, expected),
             (Decision::Approve, "approve") | (Decision::Reject(_), "reject") | (Decision::AskUser, "ask")
         )
+    }
+
+    #[test]
+    fn ordinary_shell_work_reaches_the_user_and_credentials_never_do() {
+        let policy = FolderPolicy::new(Path::new("/w"), &[grant("/w", "write")]);
+        // Pipelines, chains, redirects and script runners are ordinary work:
+        // the user decides, they are not blocked outright.
+        for command in [
+            "npm test && npm run lint",
+            "git log --oneline | head -20",
+            "node scripts/build.js",
+            "python3 -m pytest -q",
+            "cargo test 2>&1",
+        ] {
+            let decision = policy.decide(&ask("bash", &[], None, Some(command)), false);
+            assert!(is(decision, "ask"), "{command} should reach the user");
+        }
+        // A credential stays blocked however it is written, and auto-approve
+        // cannot buy it.
+        for command in [
+            "cat ~/.ssh/id_rsa",
+            "cat /w/src/a.rs && cat ~/.aws/credentials",
+            "grep -r token ~/.ssh | head",
+            "cat \"$HOME/.gnupg/secring.gpg\"",
+        ] {
+            let decision = policy.decide(&ask("bash", &[], None, Some(command)), true);
+            assert!(is(decision, "reject"), "{command} must stay blocked");
+        }
     }
 
     #[test]

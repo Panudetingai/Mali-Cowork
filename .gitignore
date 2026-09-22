@@ -31,4 +31,5 @@ _aisdk-upstream-pr/
 .env.*
 !.env.example
 
-
+# Sidecar staged by scripts/build-sidecar.mjs
+src-tauri/binaries/

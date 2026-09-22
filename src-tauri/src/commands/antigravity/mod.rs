@@ -1,11 +1,15 @@
-//! Antigravity CLI integration (`antigravity -p "..." --output-format stream-json`).
+//! Antigravity CLI integration (`agy -p "..." --output-format stream-json`).
 //!
-//! Mirrors `commands::cursor` / `commands::codex` line-by-line so every agent
-//! behaves the same from the UI's point of view:
+//! Antigravity CLI is Google's terminal agent and the successor to Gemini CLI;
+//! its binary is `agy` and it signs in with a Google account through the OS
+//! keyring. Ref: https://antigravity.google/docs/cli/headless/
+//!
+//! Mirrors `commands::cursor` / `commands::codex` so every agent behaves the
+//! same from the UI's point of view:
 //!
 //! Commands:
-//! - `antigravity_check`       — binary, version and login status
-//! - `antigravity_list_models` — known models (best-effort; the CLI has no list command)
+//! - `antigravity_check`       — binary, version and sign-in status
+//! - `antigravity_list_models` — the slugs `agy models` prints
 //! - `antigravity_generate`    — send a prompt and stream events back
 //! - `antigravity_abort`       — stop a running prompt
 
@@ -28,11 +32,12 @@ use super::opencode::FolderGrant;
 #[serde(rename_all = "camelCase")]
 pub struct AntigravityRequest {
     pub prompt: String,
-    /// Model id passed as `-m`, e.g. `"antigravity-2.5-pro"`. Omitted when empty/`auto`.
+    /// Model slug passed as `--model`, e.g. `"gemini-3.1-pro-high"`. Omitted
+    /// when empty or `auto`; `agy models` lists what is accepted.
     pub model: Option<String>,
-    /// Working folder for Cowork prompts (Antigravity CLI is project-scoped).
+    /// Working folder for Cowork prompts (the CLI is workspace-scoped).
     pub cwd: Option<String>,
-    /// Session id to continue (`antigravity -r <id>`).
+    /// Conversation to continue (`agy --conversation <id>`).
     pub session_id: Option<String>,
     /// `chat` answers without file access; `cowork` works in `cwd`.
     pub mode: Option<String>,
@@ -41,11 +46,9 @@ pub struct AntigravityRequest {
     pub folders: Vec<FolderGrant>,
     /// Identifies this run so it can be stopped.
     pub run_id: String,
-    /// Attached pictures (paths from `attachment_import`).
-    #[serde(default)]
-    pub images: Vec<String>,
-    /// Antigravity API key from Settings → Models. Headless `antigravity -p` only reads
-    /// the key from `ANTIGRAVITY_API_KEY`, never the one saved by its `/auth` screen.
+    /// Gemini API key from Settings → Models. It only reaches the CLI as
+    /// `GEMINI_API_KEY`, and only counts when the user set
+    /// `"modelProvider": "gemini"` in the CLI's own settings.
     #[serde(default)]
     pub api_key: Option<String>,
 }
@@ -94,7 +97,7 @@ pub struct AntigravityCheckResult {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AntigravityModel {
     pub id: String,

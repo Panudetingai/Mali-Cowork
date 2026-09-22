@@ -3,19 +3,17 @@ import type { FolderGrantInput, WorkMode } from "@/features/opencode";
 
 export type AntigravityRequest = {
   prompt: string;
-  /** Model id passed as `-m`; `auto` lets Antigravity choose. */
+  /** Model slug passed as `--model`; `auto` lets Antigravity choose. */
   model?: string;
   /** Cowork: the folder the agent works in. */
   cwd?: string;
-  /** Session id to continue (`antigravity -r <id>`). */
+  /** Conversation to continue (`agy --conversation <id>`). */
   sessionId?: string;
   mode?: WorkMode;
   /** Folders the user granted, the working folder included. */
   folders?: FolderGrantInput[];
   /** Identifies the run so it can be stopped. */
   runId: string;
-  /** Attached pictures (attachment paths). */
-  images?: string[];
 };
 
 export type AntigravityCheckResult = {

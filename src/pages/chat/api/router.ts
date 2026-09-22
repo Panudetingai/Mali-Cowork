@@ -73,7 +73,7 @@ function withEarlierSummary(prompt: string, request: GenerateRequest) {
 }
 
 const NO_IMAGES = (name: string) =>
-  `${name} can't look at pictures here. Remove the picture, or pick an OpenCode, Codex or Antigravity model.`;
+  `${name} can't look at pictures here. Remove the picture, or pick an OpenCode or Codex model.`;
 
 /**
  * The model id a prompt actually runs on. Provider API models only stream
@@ -174,6 +174,8 @@ export async function generateStream(
 
   // Antigravity CLI: antigravity:<model>
   if (isAntigravityModel(modelId)) {
+    // Headless `agy -p` takes text only; pictures are a TUI paste feature.
+    if (images.length) return handlers.onError(NO_IMAGES("Antigravity"));
     return antigravityGenerateStream(
       {
         prompt: withInstructions(prompt, request),
@@ -183,7 +185,6 @@ export async function generateStream(
         mode: request.mode,
         folders: request.folders,
         runId: request.runId,
-        images,
       },
       handlers,
     );

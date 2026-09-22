@@ -69,11 +69,6 @@ impl McpServerEntry {
         self.kind == "remote"
     }
 
-    /// Startup timeout in ms, for other clients' configs.
-    pub fn timeout_ms(&self) -> u64 {
-        self.timeout()
-    }
-
     fn timeout(&self) -> u64 {
         self.timeout_ms
             .unwrap_or(DEFAULT_TIMEOUT_MS)
@@ -312,7 +307,10 @@ fn mcp_policy_path(server_id: &str) -> PathBuf {
 
 fn write_mcp_policy(server: &McpServerEntry) -> Result<PathBuf, String> {
     let path = mcp_policy_path(&server.id);
-    let policy = SandboxPolicy::for_mcp(server.trust_level);
+    let mut policy = SandboxPolicy::for_mcp(server.trust_level);
+    // Tokens the user configured for this server belong to it, so the runner
+    // must not strip them along with the app's own ambient credentials.
+    policy.credentials.allow_names = server.environment.keys().cloned().collect();
     let text = serde_json::to_string_pretty(&policy).map_err(|e| e.to_string())?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -321,15 +319,22 @@ fn write_mcp_policy(server: &McpServerEntry) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// True for servers that drop files in their working folder.
+fn writes_to_cwd(argv: &[String]) -> bool {
+    argv.iter().any(|arg| WRITES_TO_CWD.iter().any(|pkg| arg.starts_with(pkg)))
+}
+
 /// The argv written to agent configs: `argv[0]` resolved, and servers from
 /// [`WRITES_TO_CWD`] started in [`mcp_work_dir`] so their files stay out of
-/// the user's folders.
+/// the user's folders. The runner sets the working folder itself, so it passes
+/// `shell_wrapper: false` — it refuses to launch `/bin/sh`.
 fn launch_argv(argv: &[String]) -> Vec<String> {
+    launch_argv_with(argv, true)
+}
+
+fn launch_argv_with(argv: &[String], shell_wrapper: bool) -> Vec<String> {
     let resolved = resolve_argv(argv);
-    let writes_to_cwd = argv
-        .iter()
-        .any(|arg| WRITES_TO_CWD.iter().any(|pkg| arg.starts_with(pkg)));
-    if !cfg!(unix) || !writes_to_cwd {
+    if !cfg!(unix) || !shell_wrapper || !writes_to_cwd(argv) {
         return resolved;
     }
     let dir = mcp_work_dir();
@@ -448,23 +453,35 @@ fn server_config(server: &McpServerEntry, command: &[String]) -> Value {
 /// trust level so that OS-level restrictions can be applied even though
 /// OpenCode spawned the process.
 fn runner_wrapped_argv(server: &McpServerEntry, command: &[String]) -> Vec<String> {
+    let unwrapped = |reason: &str| {
+        let argv = launch_argv(command);
+        eprintln!("[mcp] {} starts unsandboxed: {reason}", server.id);
+        crate::sandbox::record_mcp_launch(&server.id, &argv.join(" "), false);
+        argv
+    };
     let Some(runner) = runner_binary_path() else {
-        return launch_argv(command);
+        return unwrapped("the runner binary is not next to the app");
     };
     let policy_path = match write_mcp_policy(server) {
         Ok(p) => p,
-        Err(e) => {
-            eprintln!("[mcp] cannot write policy for {}: {e}", server.id);
-            return launch_argv(command);
-        }
+        Err(e) => return unwrapped(&format!("cannot write its policy ({e})")),
     };
     let mut argv = vec![
         runner.to_string_lossy().into_owned(),
         "--policy".into(),
         policy_path.to_string_lossy().into_owned(),
-        "--".into(),
     ];
-    argv.extend(launch_argv(command));
+    // Servers that write next to themselves get the same private folder the
+    // `/bin/sh` wrapper used to give them, without the shell.
+    if writes_to_cwd(command) {
+        let dir = mcp_work_dir();
+        if std::fs::create_dir_all(&dir).is_ok() {
+            argv.extend(["--work-dir".into(), dir.to_string_lossy().into_owned()]);
+        }
+    }
+    argv.push("--".into());
+    argv.extend(launch_argv_with(command, false));
+    crate::sandbox::record_mcp_launch(&server.id, &command.join(" "), true);
     argv
 }
 

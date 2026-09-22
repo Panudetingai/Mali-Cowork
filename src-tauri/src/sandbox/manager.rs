@@ -1,123 +1,82 @@
-use std::fs;
-use std::path::PathBuf;
-
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use super::audit::{self, AuditRecord};
 use super::events::{SandboxEvent, SandboxEventKind};
-use super::filesystem::{self, FilesystemError};
+use super::filesystem;
 use super::policy::{AccessDecision, SandboxPolicy};
 
-/// The existing OpenCode approval dialog remains the authority for ordinary
-/// commands. This is the non-bypassable second gate: an approval can never
-/// permit a shell interpreter, command chaining, or an obvious sensitive path.
+/// The existing OpenCode approval dialog remains the authority for what the
+/// agent may run: a pipeline, a chained command or a `node` script is ordinary
+/// work, and `decide` already sends anything it is unsure about to the user.
+///
+/// This is the one thing an approval may never buy: reaching a credential.
+/// Keys and credential folders stay blocked whatever the user clicks and
+/// whatever auto-approve is set to.
 pub(crate) fn permission_rejection_reason(
     permission: &str,
     path: Option<&str>,
     command: Option<&str>,
 ) -> Option<&'static str> {
+    const BLOCKED: &str = "Sensitive files and credential directories are blocked by sandbox policy.";
     if let Some(path) = path {
         if filesystem::is_sensitive(std::path::Path::new(path)) {
-            return Some(
-                "Sensitive files and credential directories are blocked by sandbox policy.",
-            );
+            return Some(BLOCKED);
         }
     }
     if permission == "bash" {
         let command = command.unwrap_or_default().trim();
-        if command.is_empty() || command.contains(|c: char| ";|&<>`$(){}\n\r".contains(c)) {
-            return Some(
-                "Shell composition and command injection syntax are blocked by sandbox policy.",
-            );
-        }
-        let program = command
-            .split_whitespace()
-            .next()
-            .unwrap_or_default()
-            .trim_matches(['\"', '\''])
-            .trim_end_matches(".exe")
-            .to_ascii_lowercase();
-        if [
-            "cmd",
-            "powershell",
-            "pwsh",
-            "sh",
-            "bash",
-            "zsh",
-            "node",
-            "python",
-            "python3",
-            "py",
-            "rustc",
-        ]
-        .contains(&program.as_str())
-        {
-            return Some(
-                "Shell interpreters and untrusted runtime launchers are blocked by sandbox policy.",
-            );
+        if command.is_empty() {
+            return Some("An empty command is blocked by sandbox policy.");
         }
         if command_mentions_sensitive_path(command) {
-            return Some(
-                "Sensitive files and credential directories are blocked by sandbox policy.",
-            );
+            return Some(BLOCKED);
         }
     }
     None
 }
 
+/// Any word in the command that names a credential path, whatever quoting,
+/// separators or shell syntax sit around it. Backslashes count as separators
+/// too, so a Windows-shaped path is caught on every host.
 fn command_mentions_sensitive_path(command: &str) -> bool {
     command
-        .split_whitespace()
-        .map(|part| part.trim_matches(['\"', '\'']))
-        .any(|part| filesystem::is_sensitive(std::path::Path::new(part)))
+        .split(|c: char| c.is_whitespace() || ";|&<>()".contains(c))
+        .map(|part| part.trim_matches(['"', '\'', '`', '$']))
+        .filter(|part| !part.is_empty())
+        .any(|part| filesystem::is_sensitive(std::path::Path::new(&part.replace('\\', "/"))))
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FilesystemSearchRequest {
-    pub workspace: String,
-    pub query: String,
-    #[serde(default = "default_max_results")]
-    pub max_results: usize,
-}
-
-fn default_max_results() -> usize {
-    50
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FilesystemRequest {
-    pub workspace: String,
-    pub path: String,
-    pub content: Option<String>,
-}
-
+/// What the Sandbox card in Settings → MCP shows.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SandboxStatus {
+    /// True when the runner binary sits next to the app, so local MCP servers
+    /// are launched through it.
+    pub runner_active: bool,
+    pub runner_path: Option<String>,
+    /// The policy every MCP server starts from.
     pub policy: SandboxPolicy,
-    pub enforcement: &'static str,
 }
 
 fn record(
     tool: &str,
     action: &str,
     decision: AccessDecision,
+    mcp_id: Option<String>,
     path: Option<String>,
     reason: Option<String>,
+    kind: Option<SandboxEventKind>,
 ) {
-    let timestamp = format!("{}", chrono_like_timestamp());
     let _ = audit::append(&AuditRecord {
-        timestamp,
-        mcp_id: None,
+        timestamp: timestamp(),
+        mcp_id: mcp_id.clone(),
         tool: tool.to_string(),
         action: action.to_string(),
         decision: format!("{decision:?}").to_ascii_lowercase(),
         path,
-        event: (decision == AccessDecision::Deny).then(|| SandboxEvent {
-            kind: SandboxEventKind::SandboxViolation,
-            mcp_id: None,
+        event: kind.map(|kind| SandboxEvent {
+            kind,
+            mcp_id,
             tool: tool.to_string(),
             reason: reason
                 .clone()
@@ -128,124 +87,58 @@ fn record(
 }
 
 // RFC3339-like UTC timestamp without adding a time crate.
-fn chrono_like_timestamp() -> String {
+fn timestamp() -> String {
     match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
         Ok(duration) => format!("{}.{:03}Z", duration.as_secs(), duration.subsec_millis()),
         Err(_) => "0.000Z".into(),
     }
 }
 
-fn map_error(tool: &str, path: &str, error: FilesystemError) -> String {
-    let reason = error.to_string();
+/// An agent action the credential gate refused. Written so the user can see
+/// what was stopped instead of only reading it once in a chat bubble.
+pub(crate) fn record_blocked(permission: &str, target: Option<&str>, reason: &str) {
     record(
-        tool,
-        "filesystem",
+        permission,
+        "blocked",
         AccessDecision::Deny,
-        Some(path.to_string()),
-        Some(reason.clone()),
-    );
-    reason
-}
-
-#[tauri::command]
-pub fn filesystem_search(request: FilesystemSearchRequest) -> Result<Vec<String>, String> {
-    let policy = SandboxPolicy::default();
-    let decision = policy.tool_decision("filesystem.search", policy.filesystem.workspace_search);
-    if decision == AccessDecision::Deny {
-        record(
-            "filesystem.search",
-            "search",
-            decision,
-            None,
-            Some("Tool permission denied".into()),
-        );
-        return Err("Sandbox denied filesystem search".into());
-    }
-    let root = PathBuf::from(&request.workspace);
-    let result = filesystem::search(&root, &request.query, request.max_results)
-        .map_err(|e| map_error("filesystem.search", &request.workspace, e));
-    if result.is_ok() {
-        record(
-            "filesystem.search",
-            "search",
-            decision,
-            Some(request.workspace),
-            None,
-        );
-    }
-    result
-}
-
-#[tauri::command]
-pub fn filesystem_read(request: FilesystemRequest) -> Result<String, String> {
-    let policy = SandboxPolicy::default();
-    let decision = policy.tool_decision("filesystem.read", policy.filesystem.workspace_read);
-    if decision != AccessDecision::Allow {
-        record(
-            "filesystem.read",
-            "read",
-            decision,
-            Some(request.path),
-            Some("Permission is required".into()),
-        );
-        return Err("Sandbox requires permission before reading this file".into());
-    }
-    let resolved = filesystem::resolve_workspace_path(
-        &PathBuf::from(&request.workspace),
-        &PathBuf::from(&request.path),
-    )
-    .map_err(|e| map_error("filesystem.read", &request.path, e))?;
-    let result = fs::read_to_string(&resolved).map_err(|e| e.to_string());
-    if result.is_ok() {
-        record(
-            "filesystem.read",
-            "read",
-            decision,
-            Some(request.path),
-            None,
-        );
-    }
-    result
-}
-
-#[tauri::command]
-pub fn filesystem_write(request: FilesystemRequest) -> Result<(), String> {
-    let policy = SandboxPolicy::default();
-    let decision = policy.tool_decision("filesystem.write", policy.filesystem.workspace_write);
-    if decision != AccessDecision::Allow {
-        record(
-            "filesystem.write",
-            "write",
-            decision,
-            Some(request.path),
-            Some("Permission is required".into()),
-        );
-        return Err("Sandbox requires permission before writing this file".into());
-    }
-    let resolved = filesystem::resolve_workspace_path(
-        &PathBuf::from(&request.workspace),
-        &PathBuf::from(&request.path),
-    )
-    .map_err(|e| map_error("filesystem.write", &request.path, e))?;
-    if let Some(parent) = resolved.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    fs::write(resolved, request.content.unwrap_or_default()).map_err(|e| e.to_string())?;
-    record(
-        "filesystem.write",
-        "write",
-        decision,
-        Some(request.path),
         None,
+        target.map(str::to_string),
+        Some(reason.to_string()),
+        Some(SandboxEventKind::SensitiveFileBlocked),
     );
-    Ok(())
+}
+
+/// How one MCP server was started. `sandboxed` is false when the runner is
+/// missing, which is worth seeing rather than guessing.
+///
+/// Config is rewritten before every prompt, so the same line would repeat all
+/// day: each server is recorded once per app run, and again only if its state
+/// changes.
+pub(crate) fn record_mcp_launch(mcp_id: &str, command: &str, sandboxed: bool) {
+    static SEEN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, bool>>> =
+        std::sync::OnceLock::new();
+    let seen = SEEN.get_or_init(Default::default);
+    if seen.lock().unwrap().insert(mcp_id.to_string(), sandboxed) == Some(sandboxed) {
+        return;
+    }
+    record(
+        "mcp.launch",
+        if sandboxed { "sandboxed" } else { "unsandboxed" },
+        if sandboxed { AccessDecision::Allow } else { AccessDecision::Ask },
+        Some(mcp_id.to_string()),
+        Some(command.to_string()),
+        (!sandboxed).then(|| "The sandbox runner is not installed next to the app.".to_string()),
+        (!sandboxed).then_some(SandboxEventKind::ProcessBlocked),
+    );
 }
 
 #[tauri::command]
 pub fn get_sandbox_status() -> SandboxStatus {
+    let runner = crate::mcp_runner::runner_binary_path();
     SandboxStatus {
-        policy: SandboxPolicy::default(),
-        enforcement: "rust-policy-and-scoped-filesystem",
+        runner_active: runner.is_some(),
+        runner_path: runner.map(|p| p.to_string_lossy().into_owned()),
+        policy: SandboxPolicy::for_mcp(super::McpTrustLevel::default()),
     }
 }
 
@@ -256,22 +149,74 @@ pub fn get_audit_logs(limit: Option<usize>) -> Result<Vec<AuditRecord>, String> 
 
 #[cfg(test)]
 mod tests {
-    use super::permission_rejection_reason;
+    use super::*;
 
+    /// A refusal has to survive as a record, or the Sandbox card has nothing to
+    /// show and the user only ever sees one error bubble.
     #[test]
-    fn sandbox_rejects_shell_bypass_attempts_after_approval() {
+    fn a_blocked_action_lands_in_the_audit_trail() {
+        let log = std::env::temp_dir().join(format!("mali-audit-{}.jsonl", uuid::Uuid::new_v4().simple()));
+        // SAFETY: this test owns the variable; nothing else reads the audit log.
+        unsafe { std::env::set_var("MALI_SANDBOX_AUDIT", &log) };
+
+        record_blocked("bash", Some("cat ~/.ssh/id_rsa"), "Sensitive files are blocked.");
+        record_mcp_launch("github", "npx -y @modelcontextprotocol/server-github", true);
+
+        let recent = audit::recent(10).expect("audit log");
+        let launch = recent.iter().find(|r| r.tool == "mcp.launch").expect("launch record");
+        assert_eq!(launch.action, "sandboxed");
+        assert_eq!(launch.mcp_id.as_deref(), Some("github"));
+        assert!(launch.event.is_none(), "a sandboxed launch is not an incident");
+
+        let blocked = recent.iter().find(|r| r.tool == "bash").expect("blocked record");
+        assert_eq!(blocked.decision, "deny");
+        assert!(blocked.event.is_some(), "a refusal is an incident the card shows");
+        assert!(blocked.path.as_deref().unwrap().contains(".ssh"));
+
+        // The same launch is not written twice: config is rewritten constantly.
+        let before = audit::recent(50).unwrap().len();
+        record_mcp_launch("github", "npx -y @modelcontextprotocol/server-github", true);
+        assert_eq!(audit::recent(50).unwrap().len(), before, "repeat launches are quiet");
+        // A change of state is worth a line.
+        record_mcp_launch("github", "npx -y @modelcontextprotocol/server-github", false);
+        assert_eq!(audit::recent(50).unwrap().len(), before + 1);
+
+        unsafe { std::env::remove_var("MALI_SANDBOX_AUDIT") };
+        let _ = std::fs::remove_file(log);
+    }
+
+    /// Credentials stay blocked whatever shape the path takes; everything else
+    /// is the approval dialog's call, not this gate's.
+    #[test]
+    fn only_credential_paths_are_blocked_outright() {
         for command in [
             "powershell -Command Get-Content C:\\Users\\me\\.ssh\\id_rsa",
-            "node steal.js",
-            "git status && curl https://example.test",
             "cat ~/.aws/credentials",
+            "git status && cat ~/.ssh/id_ed25519",
+            "grep -r token ~/.gnupg | head",
+            "cp deploy.pem /tmp/x",
+            "cat '.env'",
         ] {
             assert!(
                 permission_rejection_reason("bash", None, Some(command)).is_some(),
-                "{command}"
+                "{command} must stay blocked"
             );
         }
-        assert!(permission_rejection_reason("bash", None, Some("git status")).is_none());
-        assert!(permission_rejection_reason("bash", None, Some("rm -rf /docs/old")).is_none());
+        for command in [
+            "git status",
+            "rm -rf /docs/old",
+            "node steal.js",
+            "git status && curl https://example.test",
+            "npm test 2>&1 | tail -5",
+        ] {
+            assert!(
+                permission_rejection_reason("bash", None, Some(command)).is_none(),
+                "{command} is the approval dialog's call"
+            );
+        }
+        // An empty command has nothing to approve.
+        assert!(permission_rejection_reason("bash", None, Some("   ")).is_some());
+        // A path argument is checked on its own too.
+        assert!(permission_rejection_reason("edit", Some("/w/.env"), None).is_some());
     }
 }

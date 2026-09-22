@@ -1,4 +1,7 @@
-//! Locating the `antigravity` binary.
+//! Locating the Antigravity CLI binary (`agy`).
+//!
+//! The installer (`https://antigravity.google/cli/install.sh`) puts it in
+//! `~/.local/bin/agy`; on Windows in `%LOCALAPPDATA%\agy\bin`.
 
 use std::path::{Path, PathBuf};
 
@@ -12,11 +15,11 @@ pub fn antigravity_bin() -> Option<&'static str> {
     BIN.get(resolve)
 }
 
-/// `ANTIGRAVITY_BIN` first, then `PATH` and the installer's own locations.
-/// GUI apps on macOS start with a minimal `PATH`, so npm/bun globals must be
+/// `AGY_BIN` first, then `PATH` and the installer's own locations.
+/// GUI apps on macOS start with a minimal `PATH`, so `~/.local/bin` must be
 /// searched explicitly.
 fn resolve() -> Option<String> {
-    for key in ["ANTIGRAVITY_BIN", "ANTIGRAVITY_CLI_BIN"] {
+    for key in ["AGY_BIN", "ANTIGRAVITY_BIN"] {
         if let Ok(value) = std::env::var(key) {
             let value = value.trim();
             if !value.is_empty() && Path::new(value).exists() {
@@ -26,9 +29,9 @@ fn resolve() -> Option<String> {
     }
 
     let names: &[&str] = if cfg!(windows) {
-        &["antigravity.cmd", "antigravity.exe", "antigravity"]
+        &["agy.exe", "agy.cmd", "agy"]
     } else {
-        &["antigravity"]
+        &["agy"]
     };
 
     search_dirs()
@@ -38,21 +41,21 @@ fn resolve() -> Option<String> {
         .map(|p| p.to_string_lossy().into_owned())
 }
 
-/// `PATH` entries plus the usual install locations.
+/// `PATH` entries plus the installer's locations.
 pub fn search_dirs() -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default();
 
     if let Some(home) = dirs::home_dir() {
-        dirs.extend([
-            home.join(".local/bin"),
-            home.join(".bun/bin"),
-            home.join(".npm-global/bin"),
-            home.join(".nvm/current/bin"),
-        ]);
+        // `~/.local/bin` is where install.sh lands.
+        dirs.push(home.join(".local/bin"));
         #[cfg(windows)]
-        dirs.push(home.join("AppData/Roaming/npm"));
+        dirs.push(home.join("AppData/Local/agy/bin"));
+    }
+    #[cfg(windows)]
+    if let Some(local) = dirs::data_local_dir() {
+        dirs.push(local.join("agy").join("bin"));
     }
     dirs.extend([
         PathBuf::from("/opt/homebrew/bin"),
@@ -73,8 +76,21 @@ pub fn antigravity_command(bin: &str, args: &[&str]) -> Command {
     cmd
 }
 
+/// Where the CLI keeps its own settings (`modelProvider`, permission rules).
+pub fn settings_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(".gemini").join("antigravity-cli").join("settings.json"))
+}
+
 pub fn not_found_message() -> String {
-    "antigravity not found. Install it with `npm i -g antigravity-cli` \
-     (or set ANTIGRAVITY_BIN), then restart the app."
-        .into()
+    if cfg!(windows) {
+        "Antigravity CLI (agy) not found. Install it in PowerShell with \
+         `irm https://antigravity.google/cli/install.ps1 | iex` (or set AGY_BIN), \
+         then restart the app."
+            .into()
+    } else {
+        "Antigravity CLI (agy) not found. Install it with \
+         `curl -fsSL https://antigravity.google/cli/install.sh | bash` (or set AGY_BIN), \
+         then restart the app."
+            .into()
+    }
 }

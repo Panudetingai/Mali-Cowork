@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::Path;
 
-use crate::sandbox::{AccessDecision, SandboxPolicy};
+use crate::sandbox::SandboxPolicy;
 
 pub fn load_policy(path: &Path) -> Result<SandboxPolicy, String> {
     let text = fs::read_to_string(path).map_err(|e| format!("Cannot read policy {path:?}: {e}"))?;
@@ -24,15 +24,5 @@ impl SandboxPolicy {
             name.as_str(),
             "cmd" | "powershell" | "pwsh" | "sh" | "bash" | "zsh" | "wsl" | "wt"
         )
-    }
-
-    /// True when the child may read the given absolute path.
-    pub fn may_read(&self, _path: &std::path::Path) -> bool {
-        self.filesystem.workspace_read != AccessDecision::Deny
-    }
-
-    /// True when the child may write the given absolute path.
-    pub fn may_write(&self, _path: &std::path::Path) -> bool {
-        self.filesystem.workspace_write != AccessDecision::Deny
     }
 }

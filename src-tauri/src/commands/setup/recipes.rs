@@ -51,7 +51,13 @@ fn agent(id: &str) -> Option<Agent> {
             windows_script: None,
         },
         "codex" => Agent { npm: Some("@openai/codex"), brew: Some("codex"), unix_script: None, windows_script: None },
-        "antigravity" => Agent { npm: Some("antigravity-cli"), brew: Some("antigravity-cli"), unix_script: None, windows_script: None },
+        // Antigravity CLI (`agy`) is only published as an install script.
+        "antigravity" => Agent {
+            npm: None,
+            brew: None,
+            unix_script: Some("curl -fsSL https://antigravity.google/cli/install.sh | bash"),
+            windows_script: Some("irm https://antigravity.google/cli/install.ps1 | iex"),
+        },
         "cursor" => Agent {
             npm: None,
             brew: None,
@@ -204,14 +210,18 @@ mod tests {
         let r = recipe("codex", &scan(&["node"]), false, false).unwrap();
         assert_eq!(r.display, "npm install -g @openai/codex");
         assert_eq!(r.args[..3], ["install", "-g", "@openai/codex"]);
-        let r = recipe("antigravity", &scan(&[]), true, true).unwrap();
-        assert!(r.display.ends_with("--prefix ~/.npm-global"));
+        // Antigravity is not on npm, so it keeps its own installer either way.
+        let r = recipe("antigravity", &scan(&["node"]), true, true).unwrap();
+        assert_eq!(r.via, "script");
     }
 
     #[test]
     #[cfg(target_os = "macos")]
     fn macos_falls_back_to_homebrew_then_scripts() {
-        assert_eq!(recipe("antigravity", &scan(&["brew"]), false, false).unwrap().display, "brew install antigravity-cli");
+        assert!(recipe("antigravity", &scan(&["brew"]), false, false)
+            .unwrap()
+            .display
+            .contains("antigravity.google/cli/install.sh"));
         assert_eq!(recipe("node", &scan(&["brew"]), false, false).unwrap().via, "brew");
         assert!(recipe("node", &scan(&[]), false, false).is_err());
         let cursor = recipe("cursor", &scan(&[]), false, false).unwrap();

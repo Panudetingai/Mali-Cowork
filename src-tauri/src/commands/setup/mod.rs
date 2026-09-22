@@ -65,7 +65,7 @@ pub async fn setup_plan(tools: Vec<String>) -> SetupPlan {
     wanted.dedup();
 
     // npm-published agents need Node.js; add it first when it can be installed.
-    let needs_node = wanted.iter().any(|t| matches!(t.as_str(), "opencode" | "codex" | "antigravity"))
+    let needs_node = wanted.iter().any(|t| matches!(t.as_str(), "opencode" | "codex"))
         && !installed("node")
         && !wanted.iter().any(|t| t == "node");
     let mut steps = Vec::new();

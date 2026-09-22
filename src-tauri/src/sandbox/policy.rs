@@ -26,17 +26,6 @@ impl Default for McpTrustLevel {
     }
 }
 
-impl AccessDecision {
-    pub fn most_restrictive(self, other: Self) -> Self {
-        use AccessDecision::*;
-        match (self, other) {
-            (Deny, _) | (_, Deny) => Deny,
-            (Ask, _) | (_, Ask) => Ask,
-            _ => Allow,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FilesystemPolicy {
@@ -144,6 +133,12 @@ impl Default for SandboxPolicy {
 impl SandboxPolicy {
     pub fn for_mcp(trust: McpTrustLevel) -> Self {
         let mut policy = Self::default();
+        // Almost every MCP server exists to call an API, and there is no UI yet
+        // to grant network per server, so the runner is not asked to break
+        // outbound calls. Real network isolation needs OS support (namespaces,
+        // AppContainer/WFP); pretending with proxy variables would only stop
+        // the servers that play by the rules.
+        policy.network.enabled = true;
         if matches!(trust, McpTrustLevel::Unknown) {
             // Unknown MCPs may inspect the selected workspace, but any change
             // remains an explicit user decision. Trust never enables network,
@@ -171,14 +166,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn deny_always_wins() {
+    fn an_unknown_server_still_gets_network_but_asks_before_acting() {
+        let policy = SandboxPolicy::for_mcp(McpTrustLevel::Unknown);
+        assert!(policy.network.enabled, "MCP servers need outbound calls to be useful");
         assert_eq!(
-            AccessDecision::Allow.most_restrictive(AccessDecision::Deny),
-            AccessDecision::Deny
-        );
-        assert_eq!(
-            AccessDecision::Allow.most_restrictive(AccessDecision::Ask),
+            policy.tool_decision("shell.exec", AccessDecision::Allow),
             AccessDecision::Ask
+        );
+        // A trusted server carries no tool overrides, so `Allow` stands.
+        let trusted = SandboxPolicy::for_mcp(McpTrustLevel::Trusted);
+        assert_eq!(
+            trusted.tool_decision("shell.exec", AccessDecision::Allow),
+            AccessDecision::Allow
         );
     }
 }

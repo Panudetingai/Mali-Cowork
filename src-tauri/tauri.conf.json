@@ -4,9 +4,9 @@
   "version": "0.1.2",
   "identifier": "com.panudet.malicowork.app",
   "build": {
-    "beforeDevCommand": "bun run dev",
+    "beforeDevCommand": "bun run dev:sidecar && bun run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "bun run build",
+    "beforeBuildCommand": "bun run build && bun run build:sidecar",
     "frontendDist": "../dist"
   },
   "app": {
@@ -78,6 +78,7 @@
       }
     },
     "resources": [],
+    "externalBin": ["binaries/mali-mcp-runner"],
     "macOS": {
       "frameworks": [],
       "minimumSystemVersion": "10.13",
