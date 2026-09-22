@@ -1,23 +1,23 @@
-//! Gemini CLI integration (`gemini -p "..." --output-format stream-json`).
+//! Antigravity CLI integration (`antigravity -p "..." --output-format stream-json`).
 //!
 //! Mirrors `commands::cursor` / `commands::codex` line-by-line so every agent
 //! behaves the same from the UI's point of view:
 //!
 //! Commands:
-//! - `gemini_check`       — binary, version and login status
-//! - `gemini_list_models` — known models (best-effort; the CLI has no list command)
-//! - `gemini_generate`    — send a prompt and stream events back
-//! - `gemini_abort`       — stop a running prompt
+//! - `antigravity_check`       — binary, version and login status
+//! - `antigravity_list_models` — known models (best-effort; the CLI has no list command)
+//! - `antigravity_generate`    — send a prompt and stream events back
+//! - `antigravity_abort`       — stop a running prompt
 
 mod bin;
 mod commands;
 mod stream;
 
-pub use commands::{gemini_abort, gemini_check, gemini_generate, gemini_list_models};
+pub use commands::{antigravity_abort, antigravity_check, antigravity_generate, antigravity_list_models};
 
 /// The CLI's path, if it's installed.
 pub(crate) fn installed_bin() -> Option<&'static str> {
-    bin::gemini_bin()
+    bin::antigravity_bin()
 }
 
 use serde::{Deserialize, Serialize};
@@ -26,13 +26,13 @@ use super::opencode::FolderGrant;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GeminiRequest {
+pub struct AntigravityRequest {
     pub prompt: String,
-    /// Model id passed as `-m`, e.g. `"gemini-2.5-pro"`. Omitted when empty/`auto`.
+    /// Model id passed as `-m`, e.g. `"antigravity-2.5-pro"`. Omitted when empty/`auto`.
     pub model: Option<String>,
-    /// Working folder for Cowork prompts (Gemini CLI is project-scoped).
+    /// Working folder for Cowork prompts (Antigravity CLI is project-scoped).
     pub cwd: Option<String>,
-    /// Session id to continue (`gemini -r <id>`).
+    /// Session id to continue (`antigravity -r <id>`).
     pub session_id: Option<String>,
     /// `chat` answers without file access; `cowork` works in `cwd`.
     pub mode: Option<String>,
@@ -44,13 +44,13 @@ pub struct GeminiRequest {
     /// Attached pictures (paths from `attachment_import`).
     #[serde(default)]
     pub images: Vec<String>,
-    /// Gemini API key from Settings → Models. Headless `gemini -p` only reads
-    /// the key from `GEMINI_API_KEY`, never the one saved by its `/auth` screen.
+    /// Antigravity API key from Settings → Models. Headless `antigravity -p` only reads
+    /// the key from `ANTIGRAVITY_API_KEY`, never the one saved by its `/auth` screen.
     #[serde(default)]
     pub api_key: Option<String>,
 }
 
-impl GeminiRequest {
+impl AntigravityRequest {
     pub fn is_chat(&self) -> bool {
         self.mode.as_deref() == Some("chat")
     }
@@ -85,7 +85,7 @@ impl GeminiRequest {
 
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GeminiCheckResult {
+pub struct AntigravityCheckResult {
     pub available: bool,
     pub logged_in: bool,
     pub version: Option<String>,
@@ -96,7 +96,7 @@ pub struct GeminiCheckResult {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GeminiModel {
+pub struct AntigravityModel {
     pub id: String,
     pub name: String,
 }

@@ -1,7 +1,7 @@
 import type { CodexModel } from "@/features/codex";
 import type { CursorModel } from "@/features/cursor";
 import type { OpencodeModel, OpencodeModelsResult, WorkMode } from "@/features/opencode";
-import type { GeminiModel } from "@/features/gemini";
+import type { AntigravityModel } from "@/features/antigravity";
 import { providerContextLimit, type ProviderDef } from "@/features/providers";
 
 /**
@@ -40,8 +40,8 @@ export const CURSOR_PREFIX = "cursor:";
 export const CURSOR_DEFAULT_ID = `${CURSOR_PREFIX}auto`;
 export const CODEX_PREFIX = "codex:";
 export const CODEX_DEFAULT_ID = `${CODEX_PREFIX}auto`;
-export const GEMINI_PREFIX = "gemini:";
-export const GEMINI_DEFAULT_ID = `${GEMINI_PREFIX}auto`;
+export const ANTIGRAVITY_PREFIX = "antigravity:";
+export const ANTIGRAVITY_DEFAULT_ID = `${ANTIGRAVITY_PREFIX}auto`;
 
 export function isOpencodeModel(modelId: string) {
   return modelId.startsWith(OPENCODE_PREFIX);
@@ -65,13 +65,13 @@ export function codexModelOf(modelId: string) {
   return modelId.slice(CODEX_PREFIX.length) || "auto";
 }
 
-export function isGeminiModel(modelId: string) {
-  return modelId.startsWith(GEMINI_PREFIX);
+export function isAntigravityModel(modelId: string) {
+  return modelId.startsWith(ANTIGRAVITY_PREFIX);
 }
 
-/** `gemini:<model>` → the model id the CLI expects. */
-export function geminiModelOf(modelId: string) {
-  return modelId.slice(GEMINI_PREFIX.length) || "auto";
+/** `antigravity:<model>` → the model id the CLI expects. */
+export function antigravityModelOf(modelId: string) {
+  return modelId.slice(ANTIGRAVITY_PREFIX.length) || "auto";
 }
 
 export function isCliModel(modelId: string) {
@@ -119,7 +119,7 @@ export function buildModelCatalog(
   mode: WorkMode,
   cursor: { models: CursorModel[]; loggedIn: boolean } = { models: [], loggedIn: false },
   codex: { models: CodexModel[]; loggedIn: boolean } = { models: [], loggedIn: false },
-  gemini: { models: GeminiModel[]; loggedIn: boolean } = { models: [], loggedIn: false },
+  antigravity: { models: AntigravityModel[]; loggedIn: boolean } = { models: [], loggedIn: false },
 ): AiModel[] {
   const knownLimits = new Map(
     (opencode?.models ?? []).map((m) => [m.id, m.contextLimit ?? undefined]),
@@ -213,30 +213,30 @@ export function buildModelCatalog(
           },
         ];
 
-  // Gemini CLI runs on the user's own Google account, in both modes.
-  const geminiModels: AiModel[] =
-    gemini.loggedIn && gemini.models.length > 0
-      ? gemini.models.map((m) => ({
-          id: `${GEMINI_PREFIX}${m.id}`,
+  // Antigravity CLI runs on the user's own Google account, in both modes.
+  const antigravityModels: AiModel[] =
+    antigravity.loggedIn && antigravity.models.length > 0
+      ? antigravity.models.map((m) => ({
+          id: `${ANTIGRAVITY_PREFIX}${m.id}`,
           name: m.name,
-          provider: "gemini",
+          provider: "antigravity",
           source: "cli",
-          group: "Gemini CLI",
+          group: "Antigravity CLI",
         }))
       : [
           {
-            id: GEMINI_DEFAULT_ID,
-            name: gemini.loggedIn ? "Gemini (auto)" : "Gemini CLI (sign in)",
-            provider: "gemini",
+            id: ANTIGRAVITY_DEFAULT_ID,
+            name: antigravity.loggedIn ? "Antigravity (auto)" : "Antigravity CLI (sign in)",
+            provider: "antigravity",
             source: "cli",
-            group: "Gemini CLI",
-            needsLogin: !gemini.loggedIn,
+            group: "Antigravity CLI",
+            needsLogin: !antigravity.loggedIn,
           },
         ];
 
   return mode === "cowork"
-    ? [...cursorModels, ...codexModels, ...geminiModels, ...opencodeModels]
-    : [...apiModels, ...cursorModels, ...codexModels, ...geminiModels, ...opencodeModels];
+    ? [...cursorModels, ...codexModels, ...antigravityModels, ...opencodeModels]
+    : [...apiModels, ...cursorModels, ...codexModels, ...antigravityModels, ...opencodeModels];
 }
 
 /**
@@ -270,9 +270,9 @@ export function findModel(catalog: AiModel[], id: string): AiModel {
     const model = codexModelOf(id);
     return { id, name: model === "auto" ? "Codex Agent" : model, provider: "codex", source: "cli", group: "Codex CLI" };
   }
-  if (isGeminiModel(id)) {
-    const model = geminiModelOf(id);
-    return { id, name: model === "auto" ? "Gemini CLI" : model, provider: "gemini", source: "cli", group: "Gemini CLI" };
+  if (isAntigravityModel(id)) {
+    const model = antigravityModelOf(id);
+    return { id, name: model === "auto" ? "Antigravity CLI" : model, provider: "antigravity", source: "cli", group: "Antigravity CLI" };
   }
   if (isOpencodeModel(id)) {
     const model = opencodeModelOf(id);
@@ -291,11 +291,11 @@ export function findModel(catalog: AiModel[], id: string): AiModel {
  * Which backend actually runs a model id. Each keeps its own session, so a
  * chat that changes agent starts over: worth saying out loud before it does.
  */
-export function agentOf(modelId: string): "opencode" | "cursor" | "codex" | "gemini" | "api" {
+export function agentOf(modelId: string): "opencode" | "cursor" | "codex" | "antigravity" | "api" {
   if (isOpencodeModel(modelId)) return "opencode";
   if (isCursorModel(modelId)) return "cursor";
   if (isCodexModel(modelId)) return "codex";
-  if (isGeminiModel(modelId)) return "gemini";
+  if (isAntigravityModel(modelId)) return "antigravity";
   return "api";
 }
 
@@ -303,7 +303,7 @@ const AGENT_NAMES: Record<ReturnType<typeof agentOf>, string> = {
   opencode: "OpenCode",
   cursor: "Cursor",
   codex: "Codex",
-  gemini: "Gemini CLI",
+  antigravity: "Antigravity CLI",
   api: "This model",
 };
 
@@ -337,11 +337,11 @@ export function modelMetaFromId(
       source: "cli",
     };
   }
-  if (isGeminiModel(modelId)) {
-    const model = geminiModelOf(modelId);
+  if (isAntigravityModel(modelId)) {
+    const model = antigravityModelOf(modelId);
     return {
-      name: model === "auto" ? "Gemini CLI" : model,
-      provider: "gemini",
+      name: model === "auto" ? "Antigravity CLI" : model,
+      provider: "antigravity",
       source: "cli",
     };
   }

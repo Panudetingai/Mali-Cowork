@@ -46,11 +46,17 @@ async fn live_providers_and_mcp() {
         { "id": "ollama-cloud", "models": ["gpt-oss:120b"], "apiKey": "test-key" }
     ]))
     .unwrap();
-    let result = opencode_configure_providers(providers).await.expect("configure");
+    let result = opencode_configure_providers(providers)
+        .await
+        .expect("configure");
     assert!(result.restarted, "first config restarts the server");
     let models = opencode_list_models(None).await.expect("list models");
     let ids: Vec<&str> = models.models.iter().map(|m| m.id.as_str()).collect();
-    for id in ["ollama/llama3.2", "openrouter/z-ai/glm-5.2:free", "ollama-cloud/gpt-oss:120b"] {
+    for id in [
+        "ollama/llama3.2",
+        "openrouter/z-ai/glm-5.2:free",
+        "ollama-cloud/gpt-oss:120b",
+    ] {
         assert!(ids.contains(&id), "{id} missing from {} models", ids.len());
     }
 
@@ -61,7 +67,12 @@ async fn live_providers_and_mcp() {
         { "id": "ollama-cloud", "models": ["gpt-oss:120b"] }
     ]))
     .unwrap();
-    assert!(!opencode_configure_providers(providers).await.unwrap().restarted);
+    assert!(
+        !opencode_configure_providers(providers)
+            .await
+            .unwrap()
+            .restarted
+    );
 
     // 2. Word MCP connects; hand-written entries survive, stale custom ones go.
     let word_bin = std::env::var("WORD_MCP_BIN").expect("set WORD_MCP_BIN");
@@ -75,21 +86,35 @@ async fn live_providers_and_mcp() {
         url: None,
         headers: Default::default(),
         timeout_ms: Some(60_000),
+        trust_level: crate::sandbox::McpTrustLevel::Unknown,
     };
     let started = std::time::Instant::now();
-    let result = mcp_sync(vec![word()], None, Some(McpSyncOptions::default())).await.expect("sync");
+    let result = mcp_sync(vec![word()], None, Some(McpSyncOptions::default()))
+        .await
+        .expect("sync");
     eprintln!("word: {:?} in {:?}", result.servers, started.elapsed());
-    assert_eq!(result.servers[0].status, "connected", "{:?}", result.servers[0].error);
+    assert_eq!(
+        result.servers[0].status, "connected",
+        "{:?}",
+        result.servers[0].error
+    );
 
     let saved: Value =
-        serde_json::from_str(&std::fs::read_to_string(config_dir.join("opencode.json")).unwrap()).unwrap();
+        serde_json::from_str(&std::fs::read_to_string(config_dir.join("opencode.json")).unwrap())
+            .unwrap();
     assert!(saved["mcp"]["mine"].is_object(), "user entry kept");
-    assert!(saved["mcp"].get("custom-old").is_none(), "stale custom entry removed");
+    assert!(
+        saved["mcp"].get("custom-old").is_none(),
+        "stale custom entry removed"
+    );
     assert_eq!(saved["mcp"]["word"]["type"], "local");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(config_dir.join("opencode.json")).unwrap().permissions().mode();
+        let mode = std::fs::metadata(config_dir.join("opencode.json"))
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o077, 0, "config is private to the owner");
     }
 
@@ -97,7 +122,10 @@ async fn live_providers_and_mcp() {
     let started = std::time::Instant::now();
     let again = mcp_sync(vec![word()], None, None).await.unwrap();
     assert_eq!(again.servers[0].status, "connected");
-    assert!(started.elapsed() < std::time::Duration::from_secs(3), "cached sync is quick");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(3),
+        "cached sync is quick"
+    );
 
     // A bad id never reaches the server.
     let mut bad = word();

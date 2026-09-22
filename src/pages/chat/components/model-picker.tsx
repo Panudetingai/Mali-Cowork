@@ -51,7 +51,7 @@ type Group = {
 };
 
 /** A signed-in CLI is the one a user most often means, so it leads the rail. */
-const CLI_RANK = ["Cursor CLI", "Codex CLI", "Gemini CLI"];
+const CLI_RANK = ["Cursor CLI", "Codex CLI", "Antigravity CLI"];
 
 type Props = {
   models: AiModel[];

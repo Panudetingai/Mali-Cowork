@@ -1,4 +1,4 @@
-//! Locating the `gemini` binary.
+//! Locating the `antigravity` binary.
 
 use std::path::{Path, PathBuf};
 
@@ -7,16 +7,16 @@ use tokio::process::Command;
 use crate::commands::bin_cache::BinCache;
 
 /// The binary's path; see [`BinCache`] for when it is looked up.
-pub fn gemini_bin() -> Option<&'static str> {
+pub fn antigravity_bin() -> Option<&'static str> {
     static BIN: BinCache = BinCache::new();
     BIN.get(resolve)
 }
 
-/// `GEMINI_BIN` first, then `PATH` and the installer's own locations.
+/// `ANTIGRAVITY_BIN` first, then `PATH` and the installer's own locations.
 /// GUI apps on macOS start with a minimal `PATH`, so npm/bun globals must be
 /// searched explicitly.
 fn resolve() -> Option<String> {
-    for key in ["GEMINI_BIN", "GEMINI_CLI_BIN"] {
+    for key in ["ANTIGRAVITY_BIN", "ANTIGRAVITY_CLI_BIN"] {
         if let Ok(value) = std::env::var(key) {
             let value = value.trim();
             if !value.is_empty() && Path::new(value).exists() {
@@ -26,9 +26,9 @@ fn resolve() -> Option<String> {
     }
 
     let names: &[&str] = if cfg!(windows) {
-        &["gemini.cmd", "gemini.exe", "gemini"]
+        &["antigravity.cmd", "antigravity.exe", "antigravity"]
     } else {
-        &["gemini"]
+        &["antigravity"]
     };
 
     search_dirs()
@@ -63,7 +63,7 @@ pub fn search_dirs() -> Vec<PathBuf> {
 }
 
 /// A command with a `PATH` the agent's own child processes can use.
-pub fn gemini_command(bin: &str, args: &[&str]) -> Command {
+pub fn antigravity_command(bin: &str, args: &[&str]) -> Command {
     let mut cmd = crate::commands::process::command(bin, args);
     if let Ok(path) = std::env::join_paths(search_dirs()) {
         cmd.env("PATH", path);
@@ -74,7 +74,7 @@ pub fn gemini_command(bin: &str, args: &[&str]) -> Command {
 }
 
 pub fn not_found_message() -> String {
-    "gemini not found. Install it with `npm i -g @google/gemini-cli` \
-     (or set GEMINI_BIN), then restart the app."
+    "antigravity not found. Install it with `npm i -g antigravity-cli` \
+     (or set ANTIGRAVITY_BIN), then restart the app."
         .into()
 }

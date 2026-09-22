@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { Codex, Cursor, GeminiCLI, OpenCode, Github } from "@lobehub/icons";
+import { Codex, Cursor, GeminiCLI as AntigravityCLI, OpenCode, Github } from "@lobehub/icons";
 import { HexagonIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useId, useRef, type ReactNode, type SVGProps } from "react";
@@ -34,12 +34,12 @@ export function StepHeading({ title, children }: { title: string; children?: Rea
 }
 
 export function AgentIcon({ id, size = 28 }: { id: AgentChoice["id"]; size?: number }) {
-  const Icon = { opencode: OpenCode, codex: Codex, gemini: GeminiCLI, cursor: Cursor }[id];
+  const Icon = { opencode: OpenCode, codex: Codex, antigravity: AntigravityCLI, cursor: Cursor }[id];
   return <Icon size={size} />;
 }
 
 export function ToolIcon({ id, size = 18 }: { id: ToolId; size?: number }) {
-  if (id === "opencode" || id === "codex" || id === "gemini" || id === "cursor") {
+  if (id === "opencode" || id === "codex" || id === "antigravity" || id === "cursor") {
     return <AgentIcon id={id} size={size + 4} />;
   }
 

@@ -91,16 +91,31 @@ pub fn spawn(cmd: &mut Command, label: &'static str) -> io::Result<(Child, Tree)
         // Don't keep the read end open in the app.
         cmd.stdin(std::process::Stdio::null());
         let child = spawned?;
-        let pid = child.id().ok_or_else(|| io::Error::other("child exited at once"))?;
+        let pid = child
+            .id()
+            .ok_or_else(|| io::Error::other("child exited at once"))?;
         registry().lock().unwrap().insert(pid, Entry { label });
-        Ok((child, Tree { pid, lifeline: Some(lifeline) }))
+        Ok((
+            child,
+            Tree {
+                pid,
+                lifeline: Some(lifeline),
+            },
+        ))
     }
     #[cfg(windows)]
     {
         cmd.stdin(std::process::Stdio::null());
         let child = cmd.spawn()?;
-        let pid = child.id().ok_or_else(|| io::Error::other("child exited at once"))?;
-        let job = child.raw_handle().and_then(windows_job::contain);
+        let pid = child
+            .id()
+            .ok_or_else(|| io::Error::other("child exited at once"))?;
+        // OpenCode owns the MCP child processes, so its Job Object is the
+        // process-tree boundary that also contains every local MCP server.
+        let limits = crate::sandbox::SandboxPolicy::default().resources;
+        let job = child
+            .raw_handle()
+            .and_then(|handle| crate::mcp_runner::job::contain(handle, &limits));
         if job.is_none() {
             eprintln!("[supervisor] {label} ({pid}) runs without a job object");
         }
@@ -140,7 +155,7 @@ impl Drop for Tree {
 struct Entry {
     label: &'static str,
     #[cfg(windows)]
-    job: Option<windows_job::Job>,
+    job: Option<crate::mcp_runner::job::Job>,
 }
 
 /// Trees that are alive, by the pid of their leader.
@@ -219,62 +234,6 @@ pub fn exit_on_signals() {
     });
 }
 
-#[cfg(windows)]
-mod windows_job {
-    use std::os::windows::io::RawHandle;
-
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
-    use windows_sys::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
-        SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    };
-
-    /// A job that kills its processes when its last handle closes.
-    pub struct Job(HANDLE);
-
-    // SAFETY: a job handle can be used and closed from any thread.
-    unsafe impl Send for Job {}
-
-    impl Job {
-        pub fn terminate(&self) {
-            // SAFETY: `self.0` is a live job handle.
-            unsafe { TerminateJobObject(self.0, 1) };
-        }
-    }
-
-    impl Drop for Job {
-        fn drop(&mut self) {
-            // SAFETY: closed once, here.
-            unsafe { CloseHandle(self.0) };
-        }
-    }
-
-    /// Put `process` into a new kill-on-close job.
-    pub fn contain(process: RawHandle) -> Option<Job> {
-        // SAFETY: plain Win32 calls; the handle is closed by `Job` on failure too.
-        unsafe {
-            let handle = CreateJobObjectW(std::ptr::null(), std::ptr::null());
-            if handle.is_null() {
-                return None;
-            }
-            let job = Job(handle);
-            let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-            let ok = SetInformationJobObject(
-                job.0,
-                JobObjectExtendedLimitInformation,
-                &limits as *const _ as *const _,
-                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-            );
-            if ok == 0 || AssignProcessToJobObject(job.0, process as HANDLE) == 0 {
-                return None;
-            }
-            Some(job)
-        }
-    }
-}
-
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -351,7 +310,12 @@ mod tests {
     #[tokio::test]
     async fn output_and_exit_code_pass_through() {
         let mut inner = Command::new("/bin/sh");
-        inner.args(["-c", "echo \"$0:$1\"; read x; echo \"stdin:$x\"; exit 7", "a b", "c"]);
+        inner.args([
+            "-c",
+            "echo \"$0:$1\"; read x; echo \"stdin:$x\"; exit 7",
+            "a b",
+            "c",
+        ]);
         let mut cmd = command(inner);
         cmd.stdout(std::process::Stdio::piped());
         let (child, _tree) = spawn(&mut cmd, "test").unwrap();

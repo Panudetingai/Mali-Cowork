@@ -1,5 +1,5 @@
 //! Share the app's connectors with other agent CLIs on this computer:
-//! Gemini CLI (`~/.gemini/settings.json`) and Cursor (`~/.cursor/mcp.json`),
+//! Antigravity CLI (`~/.antigravity/settings.json`) and Cursor (`~/.cursor/mcp.json`),
 //! next to OpenCode and Codex (see `mcp.rs`).
 //!
 //! - Only CLIs that are set up (their folder exists) get a file.
@@ -39,10 +39,10 @@ fn targets() -> Vec<Target> {
     };
     vec![
         Target {
-            name: "gemini",
-            dir: home.join(".gemini"),
-            file: home.join(".gemini").join("settings.json"),
-            entry: gemini_entry,
+            name: "antigravity",
+            dir: home.join(".antigravity"),
+            file: home.join(".antigravity").join("settings.json"),
+            entry: antigravity_entry,
         },
         Target {
             name: "cursor",
@@ -61,7 +61,7 @@ fn local_env(server: &McpServerEntry, path: Option<&str>) -> Map<String, Value> 
     env
 }
 
-fn gemini_entry(server: &McpServerEntry, argv: &[String], path: Option<&str>) -> Value {
+fn antigravity_entry(server: &McpServerEntry, argv: &[String], path: Option<&str>) -> Value {
     if server.kind == "remote" {
         let mut entry = json!({ "httpUrl": server.url.as_deref().unwrap_or_default(), "timeout": server.timeout_ms() });
         if !server.headers.is_empty() {

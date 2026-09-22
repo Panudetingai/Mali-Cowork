@@ -17,7 +17,7 @@ pub const TOOLS: &[(&str, &str)] = &[
     ("uv", "uv (Python tools)"),
     ("opencode", "OpenCode"),
     ("codex", "Codex CLI"),
-    ("gemini", "Gemini CLI"),
+    ("antigravity", "Antigravity CLI"),
     ("cursor", "Cursor Agent"),
 ];
 
@@ -106,11 +106,11 @@ pub fn find(name: &str) -> Option<PathBuf> {
 
 /// The binary that proves a tool is installed.
 fn binary_of(id: &str) -> Option<PathBuf> {
-    use crate::commands::{codex, cursor, gemini, opencode};
+    use crate::commands::{codex, cursor, antigravity, opencode};
     let known = match id {
         "opencode" => opencode::installed_bin(),
         "codex" => codex::installed_bin(),
-        "gemini" => gemini::installed_bin(),
+        "antigravity" => antigravity::installed_bin(),
         "cursor" => cursor::installed_bin(),
         _ => None,
     };

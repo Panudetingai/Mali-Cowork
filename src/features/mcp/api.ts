@@ -35,7 +35,7 @@ export type McpSyncOptions = {
    */
   mode?: "chat";
   /**
-   * OpenCode live connect. Default true. Use false before Codex/Gemini runs —
+   * OpenCode live connect. Default true. Use false before Codex/Antigravity runs —
    * still writes OpenCode JSON + Codex TOML without starting MCP processes.
    */
   liveConnect?: boolean;

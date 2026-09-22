@@ -1,13 +1,13 @@
-// Gemini CLI integration. Backend: src-tauri/src/commands/gemini
+// Antigravity CLI integration. Backend: src-tauri/src/commands/antigravity
 import type { FolderGrantInput, WorkMode } from "@/features/opencode";
 
-export type GeminiRequest = {
+export type AntigravityRequest = {
   prompt: string;
-  /** Model id passed as `-m`; `auto` lets Gemini choose. */
+  /** Model id passed as `-m`; `auto` lets Antigravity choose. */
   model?: string;
   /** Cowork: the folder the agent works in. */
   cwd?: string;
-  /** Session id to continue (`gemini -r <id>`). */
+  /** Session id to continue (`antigravity -r <id>`). */
   sessionId?: string;
   mode?: WorkMode;
   /** Folders the user granted, the working folder included. */
@@ -18,7 +18,7 @@ export type GeminiRequest = {
   images?: string[];
 };
 
-export type GeminiCheckResult = {
+export type AntigravityCheckResult = {
   available: boolean;
   loggedIn: boolean;
   version?: string;
@@ -27,4 +27,4 @@ export type GeminiCheckResult = {
   error?: string;
 };
 
-export type GeminiModel = { id: string; name: string };
+export type AntigravityModel = { id: string; name: string };

@@ -313,8 +313,8 @@ export function McpSettings() {
 
           <footer className="flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
             <p>
-              Shared with OpenCode, Codex, and — when installed — Gemini CLI (
-              <code className="font-mono">~/.gemini/settings.json</code>) and Cursor (
+              Shared with OpenCode, Codex, and — when installed — Antigravity CLI (
+              <code className="font-mono">~/.antigravity/settings.json</code>) and Cursor (
               <code className="font-mono">~/.cursor/mcp.json</code>); servers you added there yourself are kept. Keys live
               in your system keychain; sign-in happens as Mali Cowork and tokens stay on this device.
             </p>

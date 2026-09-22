@@ -1,7 +1,7 @@
 import type { ToolId } from "./api";
 
 export type AgentChoice = {
-  id: Extract<ToolId, "opencode" | "codex" | "gemini" | "cursor">;
+  id: Extract<ToolId, "opencode" | "codex" | "antigravity" | "cursor">;
   name: string;
   tagline: string;
   /** What the user needs to use it. */
@@ -24,10 +24,10 @@ export const AGENTS: AgentChoice[] = [
     account: "Sign in with ChatGPT (Plus, Pro, Team)",
   },
   {
-    id: "gemini",
-    name: "Gemini CLI",
+    id: "antigravity",
+    name: "Antigravity CLI",
     tagline: "Google's agent with a large context window.",
-    account: "Free Gemini API key from Google AI Studio",
+    account: "Free Antigravity API key from Google AI Studio",
   },
   {
     id: "cursor",

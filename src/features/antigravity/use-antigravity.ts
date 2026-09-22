@@ -1,11 +1,11 @@
 import { createStore } from "@/lib/local-store";
 import { useEffect } from "react";
-import { geminiCheck, geminiListModels } from "./api";
-import type { GeminiCheckResult, GeminiModel } from "./types";
+import { antigravityCheck, antigravityListModels } from "./api";
+import type { AntigravityCheckResult, AntigravityModel } from "./types";
 
 type Status = {
-  check: GeminiCheckResult | null;
-  models: GeminiModel[];
+  check: AntigravityCheckResult | null;
+  models: AntigravityModel[];
   loading: boolean;
 };
 
@@ -14,13 +14,13 @@ type Status = {
 const statusStore = createStore<Status>({ check: null, models: [], loading: true });
 let pending: Promise<void> | null = null;
 
-export function refreshGemini(force = true) {
+export function refreshAntigravity(force = true) {
   if (!force && pending) return pending;
   statusStore.set((prev) => ({ ...prev, loading: true }));
-  pending = geminiCheck()
+  pending = antigravityCheck()
     .then(async (check) => {
       // Models need an account, so only ask when signed in.
-      const models = check.available && check.loggedIn ? await geminiListModels().catch(() => []) : [];
+      const models = check.available && check.loggedIn ? await antigravityListModels().catch(() => []) : [];
       statusStore.set({ check, models, loading: false });
     })
     .catch((error) => {
@@ -34,14 +34,14 @@ export function refreshGemini(force = true) {
   return pending;
 }
 
-export type GeminiState = Status & { refresh: () => void };
+export type AntigravityState = Status & { refresh: () => void };
 
-export function useGemini(): GeminiState {
+export function useAntigravity(): AntigravityState {
   const status = statusStore.use();
 
   useEffect(() => {
-    void refreshGemini(false);
+    void refreshAntigravity(false);
   }, []);
 
-  return { ...status, refresh: () => void refreshGemini(true) };
+  return { ...status, refresh: () => void refreshAntigravity(true) };
 }

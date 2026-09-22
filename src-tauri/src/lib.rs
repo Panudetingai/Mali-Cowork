@@ -1,6 +1,8 @@
 mod ai;
 mod chat_stream;
 mod commands;
+pub mod mcp_runner;
+mod sandbox;
 
 use commands::attachments::{attachment_import, attachment_save};
 use commands::link_preview::link_preview;
@@ -14,7 +16,7 @@ use commands::codex::{codex_abort, codex_check, codex_generate, codex_list_model
 use commands::cursor::{
     cursor_abort, cursor_check, cursor_generate, cursor_list_models, cursor_login,
 };
-use commands::gemini::{gemini_abort, gemini_check, gemini_generate, gemini_list_models};
+use commands::antigravity::{antigravity_abort, antigravity_check, antigravity_generate, antigravity_list_models};
 use commands::git::{
     git_avatars, git_branches, git_changes, git_commit, git_commit_context, git_commit_file_diff, git_commit_files,
     git_create_branch, git_discard, git_fetch, git_file_diff, git_init, git_log, git_pull,
@@ -41,6 +43,7 @@ use commands::smithery::{
     smithery_check_key, smithery_search_servers, smithery_search_skills, smithery_server,
 };
 use commands::supervisor;
+use sandbox::{filesystem_read, filesystem_search, filesystem_write, get_audit_logs, get_sandbox_status};
 
 /// Windows/Linux: no menu bar in the window.
 /// macOS: the menu lives in the global menu bar, and Cmd+C / Cmd+V / Cmd+X /
@@ -182,10 +185,10 @@ pub fn run() {
             codex_check,
             codex_list_models,
             codex_abort,
-            gemini_generate,
-            gemini_check,
-            gemini_list_models,
-            gemini_abort,
+            antigravity_generate,
+            antigravity_check,
+            antigravity_list_models,
+            antigravity_abort,
             git_status,
             git_init,
             git_file_diff,
@@ -227,7 +230,12 @@ pub fn run() {
             smithery_check_key,
             smithery_search_skills,
             smithery_search_servers,
-            smithery_server
+            smithery_server,
+            filesystem_search,
+            filesystem_read,
+            filesystem_write,
+            get_sandbox_status,
+            get_audit_logs
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

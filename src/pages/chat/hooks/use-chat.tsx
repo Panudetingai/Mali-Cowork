@@ -25,7 +25,7 @@ import {
 } from "@/features/checkpoints";
 import { codexAbort } from "@/features/codex";
 import { cursorAbort, requestCursorLogin } from "@/features/cursor";
-import { geminiAbort } from "@/features/gemini";
+import { antigravityAbort } from "@/features/antigravity";
 import {
   notifyPermissionPending,
   notifyQuestionPending,
@@ -63,7 +63,7 @@ import {
     apiModelOf,
     isCodexModel,
     isCursorModel,
-    isGeminiModel,
+    isAntigravityModel,
     isOpencodeModel,
     loadSelectedModelId,
     opencodeProviderOf,
@@ -346,7 +346,7 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
       const isOpencode = isOpencodeModel(modelId);
       const isCursor = isCursorModel(modelId);
       const isCodex = isCodexModel(modelId);
-      const isGemini = isGeminiModel(modelId);
+      const isAntigravity = isAntigravityModel(modelId);
       let hasErrored = false;
 
       // Show the prompt right away; anything slow (MCP sync) runs after.
@@ -407,7 +407,7 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
         if (isOpencode) return current.opencodeSessionId;
         if (isCursor) return current.cursorSessionId;
         if (isCodex) return current.codexSessionId;
-        if (isGemini) return current.geminiSessionId;
+        if (isAntigravity) return current.antigravitySessionId;
         return undefined;
       };
       try {
@@ -470,15 +470,15 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
             onTodos: (items) =>
               update((m) => withTodos(m, items)),
             onMetadata: (data) => {
-              if ((isOpencode || isCursor || isCodex || isGemini) && data.sessionId) {
+              if ((isOpencode || isCursor || isCodex || isAntigravity) && data.sessionId) {
                 const sessionId = data.sessionId;
                 updateChat(chatKey, (s) =>
                   isCursor
                     ? { ...s, cursorSessionId: sessionId }
                     : isCodex
                       ? { ...s, codexSessionId: sessionId }
-                      : isGemini
-                        ? { ...s, geminiSessionId: sessionId }
+                      : isAntigravity
+                        ? { ...s, antigravitySessionId: sessionId }
                         : { ...s, opencodeSessionId: sessionId },
                 );
                 updateRun(chatKey, (r) => ({ ...r, agentSessionId: sessionId }));
@@ -713,7 +713,7 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
     (isOpencodeModel(run.modelId) ||
       isCursorModel(run.modelId) ||
       isCodexModel(run.modelId) ||
-      isGeminiModel(run.modelId));
+      isAntigravityModel(run.modelId));
 
   const stop = useCallback(async () => {
     if (!chatId) return;
@@ -728,9 +728,9 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
       // Same pattern as cursor: child process keyed by chat.
       return codexAbort(chatId).catch(addError);
     }
-    if (isGeminiModel(activeRun.modelId)) {
+    if (isAntigravityModel(activeRun.modelId)) {
       // Same pattern: child process keyed by chat.
-      return geminiAbort(chatId).catch(addError);
+      return antigravityAbort(chatId).catch(addError);
     }
     if (!activeRun.agentSessionId) return;
     // Withdraw whatever the agent is still waiting on, or the stopped turn

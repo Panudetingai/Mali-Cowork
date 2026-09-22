@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 
-export type ToolId = "node" | "git" | "brew" | "winget" | "uv" | "opencode" | "codex" | "gemini" | "cursor";
+export type ToolId = "node" | "git" | "brew" | "winget" | "uv" | "opencode" | "codex" | "antigravity" | "cursor";
 
 export type ToolState = {
   id: ToolId;

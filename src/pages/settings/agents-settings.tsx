@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CursorLoginDialog, requestCursorLogin, useCursor } from "@/features/cursor";
-import { useGemini } from "@/features/gemini";
+import { useAntigravity } from "@/features/antigravity";
 import { useOpencode } from "@/features/opencode";
 import {
   PROVIDERS,
@@ -13,7 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 import { checkCli, type CliCheckResult } from "@/pages/chat/api/cli";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Codex, Cursor, GeminiCLI, OpenCode } from "@lobehub/icons";
+import { Codex, Cursor, GeminiCLI as AntigravityCLI, OpenCode } from "@lobehub/icons";
 import { FolderOpenIcon, RefreshCwIcon } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { ProviderDialog, providerStatus } from "./provider-dialog";
@@ -33,7 +33,7 @@ import {
 export function AgentsSettings() {
   const opencode = useOpencode();
   const cursor = useCursor();
-  const gemini = useGemini();
+  const antigravity = useAntigravity();
   const configs = useProviderConfigs();
   const envKeys = useEnvKeys();
   const folderId = useId();
@@ -54,7 +54,7 @@ export function AgentsSettings() {
   function refreshAll() {
     opencode.refresh();
     cursor.refresh();
-    gemini.refresh();
+    antigravity.refresh();
     loadCodex();
   }
 
@@ -71,8 +71,8 @@ export function AgentsSettings() {
   const oc = opencode.loading ? null : opencode.check;
   const ocModels = opencode.models?.models.length ?? 0;
   const cursorReady = !!cursor.check?.available && !!cursor.check.loggedIn;
-  const geminiReady = !!gemini.check?.available && !!gemini.check.loggedIn;
-  const refreshing = opencode.loading || cursor.loading || gemini.loading;
+  const antigravityReady = !!antigravity.check?.available && !!antigravity.check.loggedIn;
+  const refreshing = opencode.loading || cursor.loading || antigravity.loading;
 
   return (
     <div className="flex flex-col gap-10">
@@ -165,20 +165,20 @@ export function AgentsSettings() {
         <IntegrationCard
           icon={
             <IconTile>
-              <GeminiCLI size={24} />
+              <AntigravityCLI size={24} />
             </IconTile>
           }
-          title="Gemini CLI"
+          title="Antigravity CLI"
           description={
-            gemini.check?.account ||
-            (gemini.models.length ? `${gemini.models.length} models · uses your Google account` : "Uses your Google account")
+            antigravity.check?.account ||
+            (antigravity.models.length ? `${antigravity.models.length} models · uses your Google account` : "Uses your Google account")
           }
           status={
-            gemini.loading ? (
+            antigravity.loading ? (
               <StatusPill tone="pending">Checking…</StatusPill>
-            ) : geminiReady ? (
+            ) : antigravityReady ? (
               <StatusPill tone="success">Signed in</StatusPill>
-            ) : gemini.check?.available ? (
+            ) : antigravity.check?.available ? (
               <StatusPill tone="warning">Not signed in</StatusPill>
             ) : (
               <StatusPill tone="neutral">Not installed</StatusPill>
@@ -187,10 +187,10 @@ export function AgentsSettings() {
         />
       </CardGrid>
 
-      {gemini.check && !gemini.check.available && (
+      {antigravity.check && !antigravity.check.available && (
         <div className="flex max-w-xl flex-col gap-2">
-          <p className="text-sm text-muted-foreground">Install Gemini CLI, then restart the app (or set GEMINI_BIN):</p>
-          <CopyCommand command="npm i -g @google/gemini-cli" />
+          <p className="text-sm text-muted-foreground">Install Antigravity CLI, then restart the app (or set ANTIGRAVITY_BIN):</p>
+          <CopyCommand command="npm i -g antigravity-cli" />
         </div>
       )}
 

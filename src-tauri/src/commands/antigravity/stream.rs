@@ -1,11 +1,11 @@
-//! Translates `gemini --output-format stream-json` JSONL lines into
+//! Translates `antigravity --output-format stream-json` JSONL lines into
 //! [`ChatStreamEvent`]s.
 //!
 //! Event order per run:
 //! `init` → `message` (role=user) → (`message` (role=assistant) |
 //! `tool_use` → `tool_result`)* → `result` (or `error` when fatal).
 //!
-//! Ref: https://geminicli.com/docs/cli/headless
+//! Ref: https://antigravitycli.example.com/docs/cli/headless
 
 use std::collections::HashMap;
 
@@ -23,7 +23,7 @@ pub enum Outcome {
 }
 
 #[derive(Default)]
-pub struct GeminiStream {
+pub struct AntigravityStream {
     /// Text already forwarded. Assistant messages arrive as deltas plus a
     /// final repeat, so overlapping prefixes are dropped, not printed twice.
     text: String,
@@ -33,7 +33,7 @@ pub struct GeminiStream {
     tools: HashMap<String, (String, Option<String>)>,
 }
 
-impl GeminiStream {
+impl AntigravityStream {
     pub fn new() -> Self {
         Self::default()
     }
@@ -69,11 +69,11 @@ impl GeminiStream {
                 let message = event["message"]
                     .as_str()
                     .or_else(|| event["error"].as_str())
-                    .unwrap_or("gemini reported an error");
+                    .unwrap_or("antigravity reported an error");
                 vec![Outcome::Emit(ChatStreamEvent::Activity {
                     id: event["tool_id"].as_str().map(str::to_string),
                     kind: "progress".into(),
-                    title: "Gemini notice".into(),
+                    title: "Antigravity notice".into(),
                     detail: (!message.is_empty()).then(|| truncate(message)),
                     done: false,
                     duration_ms: None,
@@ -87,7 +87,7 @@ impl GeminiStream {
                         .as_str()
                         .or_else(|| event["message"].as_str())
                         .filter(|s| !s.trim().is_empty())
-                        .unwrap_or("gemini reported a failure");
+                        .unwrap_or("antigravity reported a failure");
                     return vec![Outcome::Failed(message.to_string())];
                 }
                 let mut out = vec![Outcome::Emit(ChatStreamEvent::Metadata {
@@ -106,7 +106,7 @@ impl GeminiStream {
     }
 }
 
-impl GeminiStream {
+impl AntigravityStream {
     fn tool_use(&mut self, event: &Value) -> ChatStreamEvent {
         let name = event["tool_name"].as_str().or_else(|| event["name"].as_str()).unwrap_or_default();
         let params = &event["parameters"];
@@ -174,7 +174,7 @@ fn tool_id(event: &Value) -> Option<String> {
     event["tool_id"].as_str().or_else(|| event["call_id"].as_str()).map(str::to_string)
 }
 
-/// Gemini's tool names as short verbs, like the other agents' steps read.
+/// Antigravity's tool names as short verbs, like the other agents' steps read.
 fn verb(tool: &str) -> String {
     match tool {
         "run_shell_command" => "Run",
@@ -281,12 +281,12 @@ mod tests {
 
     #[test]
     fn init_reports_the_session_and_model() {
-        let mut stream = GeminiStream::new();
-        let outcomes = stream.handle(&json!({"type":"init","session_id":"s1","model":"gemini-2.5-pro"}));
+        let mut stream = AntigravityStream::new();
+        let outcomes = stream.handle(&json!({"type":"init","session_id":"s1","model":"antigravity-2.5-pro"}));
         match &outcomes[0] {
             Outcome::Emit(ChatStreamEvent::Metadata { session_id, model, .. }) => {
                 assert_eq!(session_id.as_deref(), Some("s1"));
-                assert_eq!(model.as_deref(), Some("gemini-2.5-pro"));
+                assert_eq!(model.as_deref(), Some("antigravity-2.5-pro"));
             }
             _ => panic!("expected metadata"),
         }
@@ -294,7 +294,7 @@ mod tests {
 
     #[test]
     fn assistant_deltas_stream_once_and_user_messages_are_ignored() {
-        let mut stream = GeminiStream::new();
+        let mut stream = AntigravityStream::new();
         assert!(chunks(&stream.handle(&json!({"type":"message","role":"user","content":"hi"}))).is_empty());
         assert_eq!(
             chunks(&stream.handle(&json!({"type":"message","role":"assistant","content":"hello","delta":true}))),
@@ -306,7 +306,7 @@ mod tests {
 
     #[test]
     fn tool_use_and_result_become_activities_with_stable_ids() {
-        let mut stream = GeminiStream::new();
+        let mut stream = AntigravityStream::new();
         match &stream.handle(&json!({"type":"tool_use","tool_name":"run_shell_command","tool_id":"t1","parameters":{"command":"ls"}}))[0] {
             Outcome::Emit(ChatStreamEvent::Activity { id, title, done, .. }) => {
                 assert_eq!(id.as_deref(), Some("t1"));
@@ -328,7 +328,7 @@ mod tests {
 
     #[test]
     fn failed_tools_say_so() {
-        let mut stream = GeminiStream::new();
+        let mut stream = AntigravityStream::new();
         stream.handle(&json!({"type":"tool_use","tool_name":"read_file","tool_id":"t2","parameters":{"file_path":"/a"}}));
         match &stream.handle(&json!({"type":"tool_result","tool_id":"t2","status":"error","error":{"message":"no such file"}}))[0] {
             Outcome::Emit(ChatStreamEvent::Activity { title, detail, .. }) => {
@@ -341,7 +341,7 @@ mod tests {
 
     #[test]
     fn result_reports_usage_and_finishes() {
-        let mut stream = GeminiStream::new();
+        let mut stream = AntigravityStream::new();
         stream.handle(&json!({"type":"init","session_id":"s1"}));
         let outcomes = stream.handle(&json!({"type":"result","stats":{"promptTokenCount":10,"candidatesTokenCount":5,"cachedContentTokenCount":2}}));
         assert!(matches!(outcomes[1], Outcome::Finished));
@@ -360,7 +360,7 @@ mod tests {
 
     #[test]
     fn failed_results_fail_with_their_message() {
-        let mut stream = GeminiStream::new();
+        let mut stream = AntigravityStream::new();
         match &stream.handle(&json!({"type":"result","success":false,"error":"rate limited"}))[0] {
             Outcome::Failed(m) => assert_eq!(m, "rate limited"),
             _ => panic!("expected failure"),

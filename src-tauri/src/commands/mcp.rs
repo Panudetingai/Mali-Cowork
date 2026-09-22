@@ -22,11 +22,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Table, Value as TomlValue};
 
-use super::opencode::{lease_instance, session_dir, OpencodeClient, DEFAULT_INSTANCE};
-use super::opencode::warm_up_server as ensure_server;
 use super::mcp_clients;
 use super::mcp_oauth::{self, Callback};
+use super::opencode::warm_up_server as ensure_server;
+use super::opencode::{lease_instance, session_dir, OpencodeClient, DEFAULT_INSTANCE};
 use super::secure_fs::write_private;
+use crate::mcp_runner::runner_binary_path;
+use crate::sandbox::{McpTrustLevel, SandboxPolicy};
 
 const DEFAULT_TIMEOUT_MS: u64 = 60_000;
 const MAX_TIMEOUT_MS: u64 = 600_000;
@@ -53,6 +55,9 @@ pub struct McpServerEntry {
     pub headers: HashMap<String, String>,
     #[serde(default)]
     pub timeout_ms: Option<u64>,
+    /// New MCPs are unknown. Registry provenance is deliberately not trusted.
+    #[serde(default)]
+    pub trust_level: McpTrustLevel,
 }
 
 fn default_kind() -> String {
@@ -176,6 +181,10 @@ fn validate(server: &McpServerEntry) -> Result<(), String> {
     if !server.enabled {
         return Ok(());
     }
+    // Constructing the policy here makes the default explicit at the only
+    // ingress where an MCP may be enabled. The runner receives the same
+    // policy once OpenCode exposes a launch interception hook.
+    let _policy = SandboxPolicy::for_mcp(server.trust_level);
     match server.kind.as_str() {
         "local" => {
             if server.command.first().is_none_or(|c| c.trim().is_empty()) {
@@ -219,7 +228,12 @@ fn extra_bin_dirs() -> Vec<PathBuf> {
         dirs.push(home.join(".bun").join("bin"));
         #[cfg(windows)]
         {
-            dirs.push(home.join("AppData").join("Local").join("Programs").join("uv"));
+            dirs.push(
+                home.join("AppData")
+                    .join("Local")
+                    .join("Programs")
+                    .join("uv"),
+            );
             dirs.push(home.join("AppData").join("Roaming").join("npm"));
         }
     }
@@ -292,6 +306,21 @@ fn mcp_work_dir() -> PathBuf {
         .join("mcp")
 }
 
+fn mcp_policy_path(server_id: &str) -> PathBuf {
+    mcp_work_dir().join(format!("policy-{server_id}.json"))
+}
+
+fn write_mcp_policy(server: &McpServerEntry) -> Result<PathBuf, String> {
+    let path = mcp_policy_path(&server.id);
+    let policy = SandboxPolicy::for_mcp(server.trust_level);
+    let text = serde_json::to_string_pretty(&policy).map_err(|e| e.to_string())?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, text).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
 /// The argv written to agent configs: `argv[0]` resolved, and servers from
 /// [`WRITES_TO_CWD`] started in [`mcp_work_dir`] so their files stay out of
 /// the user's folders.
@@ -346,7 +375,10 @@ fn word_failure_hint(detail: &str) -> String {
     if find_binary("uvx").is_none() {
         steps.push(uv_install_hint());
     }
-    if detail.contains("Connection closed") || detail.contains("-32000") || detail.contains("timed out") {
+    if detail.contains("Connection closed")
+        || detail.contains("-32000")
+        || detail.contains("timed out")
+    {
         steps.push("First run downloads office-word-mcp-server (~1 min); press Connect and wait");
     }
     steps.push("Or install it yourself: pip install office-word-mcp-server, then choose \"pip\"");
@@ -360,7 +392,9 @@ fn hint_for_binary(binary: &str) -> &'static str {
         .unwrap_or(binary);
     match name {
         "uvx" | "uv" => uv_install_hint(),
-        "npx" | "bunx" | "node" | "npm" | "bun" => "Needs Node.js (or Bun) and internet for the first download",
+        "npx" | "bunx" | "node" | "npm" | "bun" => {
+            "Needs Node.js (or Bun) and internet for the first download"
+        }
         "docker" => "Needs Docker Desktop running",
         "python" | "python3" | "py" => "Needs Python 3.11+ on PATH",
         _ => "Check the command runs in a terminal and is on PATH, then retry",
@@ -386,7 +420,9 @@ fn server_config(server: &McpServerEntry, command: &[String]) -> Value {
             config["headers"] = json!(server.headers);
         }
         // Sign in as Mali Cowork (our registered client) instead of OpenCode.
-        if let Some(oauth) = mcp_oauth::oauth_config_for(&server.id, server.url.as_deref().unwrap_or_default()) {
+        if let Some(oauth) =
+            mcp_oauth::oauth_config_for(&server.id, server.url.as_deref().unwrap_or_default())
+        {
             config["oauth"] = oauth;
         }
         return config;
@@ -400,11 +436,36 @@ fn server_config(server: &McpServerEntry, command: &[String]) -> Value {
     }
     json!({
         "type": "local",
-        "command": launch_argv(command),
+        "command": runner_wrapped_argv(server, command),
         "enabled": true,
         "timeout": server.timeout(),
         "environment": environment,
     })
+}
+
+/// Wrap a resolved MCP argv with the sandbox runner when the runner binary is
+/// available. The runner receives a JSON policy file derived from the server's
+/// trust level so that OS-level restrictions can be applied even though
+/// OpenCode spawned the process.
+fn runner_wrapped_argv(server: &McpServerEntry, command: &[String]) -> Vec<String> {
+    let Some(runner) = runner_binary_path() else {
+        return launch_argv(command);
+    };
+    let policy_path = match write_mcp_policy(server) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("[mcp] cannot write policy for {}: {e}", server.id);
+            return launch_argv(command);
+        }
+    };
+    let mut argv = vec![
+        runner.to_string_lossy().into_owned(),
+        "--policy".into(),
+        policy_path.to_string_lossy().into_owned(),
+        "--".into(),
+    ];
+    argv.extend(launch_argv(command));
+    argv
 }
 
 fn write_opencode_mcp_config(servers: &[McpServerEntry], removed: &[String]) -> Result<(), String> {
@@ -417,7 +478,10 @@ fn write_opencode_mcp_config(servers: &[McpServerEntry], removed: &[String]) -> 
         } else {
             // Never overwrite a file we cannot parse: it is the user's own config.
             serde_json::from_str(&raw).map_err(|e| {
-                format!("{} isn't valid JSON ({e}) — fix the file and retry", path.display())
+                format!(
+                    "{} isn't valid JSON ({e}) — fix the file and retry",
+                    path.display()
+                )
             })?
         }
     } else {
@@ -468,7 +532,9 @@ fn codex_config_path() -> Result<PathBuf, String> {
 /// Codex runs MCP servers outside its sandbox, so read-only runs switch
 /// these off with `-c mcp_servers.<id>.enabled=false`.
 pub(crate) fn codex_workspace_mcp_overrides() -> Vec<String> {
-    let Ok(raw) = codex_config_path().and_then(|p| std::fs::read_to_string(p).map_err(|e| e.to_string())) else {
+    let Ok(raw) =
+        codex_config_path().and_then(|p| std::fs::read_to_string(p).map_err(|e| e.to_string()))
+    else {
         return Vec::new();
     };
     let Ok(doc) = raw.parse::<DocumentMut>() else {
@@ -531,11 +597,15 @@ fn codex_server_table(server: &McpServerEntry, argv: &[String]) -> Table {
                 TomlValue::InlineTable(codex_http_headers(server)),
             );
         }
-        codex_set(&mut table, "startup_timeout_sec", TomlValue::from(startup_sec as i64));
+        codex_set(
+            &mut table,
+            "startup_timeout_sec",
+            TomlValue::from(startup_sec as i64),
+        );
         return table;
     }
 
-    let resolved = launch_argv(argv);
+    let resolved = runner_wrapped_argv(server, argv);
     if let Some(command) = resolved.first() {
         codex_set(&mut table, "command", TomlValue::from(command.as_str()));
     }
@@ -550,7 +620,11 @@ fn codex_server_table(server: &McpServerEntry, argv: &[String]) -> Table {
     if !env.is_empty() {
         codex_set(&mut table, "env", TomlValue::InlineTable(env));
     }
-    codex_set(&mut table, "startup_timeout_sec", TomlValue::from(startup_sec as i64));
+    codex_set(
+        &mut table,
+        "startup_timeout_sec",
+        TomlValue::from(startup_sec as i64),
+    );
     table
 }
 
@@ -594,7 +668,10 @@ fn write_codex_mcp_config(servers: &[McpServerEntry], removed: &[String]) -> Res
         } else {
             server.command.clone()
         };
-        mcp.insert(server.id.as_str(), Item::Table(codex_server_table(server, &argv)));
+        mcp.insert(
+            server.id.as_str(),
+            Item::Table(codex_server_table(server, &argv)),
+        );
     }
 
     write_private(&path, &doc.to_string())
@@ -635,7 +712,11 @@ fn parse_status(id: &str, value: &Value, fallback_error: Option<String>) -> McpS
     }
 }
 
-async fn live_entry(client: &OpencodeClient, directory: Option<&str>, id: &str) -> Result<Option<Value>, String> {
+async fn live_entry(
+    client: &OpencodeClient,
+    directory: Option<&str>,
+    id: &str,
+) -> Result<Option<Value>, String> {
     let status = client.mcp_status(directory).await?;
     Ok(status.get(id).cloned())
 }
@@ -647,7 +728,11 @@ fn failure_message(server: &McpServerEntry, detail: String) -> String {
     if server.is_remote() {
         return format!("{detail} — check the URL, headers/token and that the server is up");
     }
-    let binary = server.command.first().map(String::as_str).unwrap_or_default();
+    let binary = server
+        .command
+        .first()
+        .map(String::as_str)
+        .unwrap_or_default();
     format!("{detail} — Fix: {}", hint_for_binary(binary))
 }
 
@@ -728,7 +813,10 @@ async fn connect_server(
 }
 
 async fn disconnect_server(client: &OpencodeClient, directory: Option<&str>, id: &str) {
-    applied().lock().unwrap().remove(&applied_key(directory, id));
+    applied()
+        .lock()
+        .unwrap()
+        .remove(&applied_key(directory, id));
     let _ = client.mcp_disconnect(directory, id).await;
 }
 
@@ -756,7 +844,7 @@ pub async fn mcp_sync(
     let _guard = sync_lock().lock().await;
     write_opencode_mcp_config(&servers, &removed)?;
     write_codex_mcp_config(&servers, &removed)?;
-    // Gemini CLI and Cursor get the same connectors (best effort).
+    // Antigravity CLI and Cursor get the same connectors (best effort).
     for warning in mcp_clients::write_all(&servers, resolve_argv, child_path()) {
         eprintln!("[mcp] {warning}");
     }
@@ -777,9 +865,12 @@ pub async fn mcp_sync(
     } else {
         None
     };
-    let dir = chat_dir
-        .as_deref()
-        .or_else(|| directory.as_deref().map(str::trim).filter(|d| !d.is_empty()));
+    let dir = chat_dir.as_deref().or_else(|| {
+        directory
+            .as_deref()
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+    });
     // Don't let the idle sweep close this instance while servers connect.
     let _instance = lease_instance(dir.unwrap_or(DEFAULT_INSTANCE)).await;
     let targets: Option<HashSet<&str>> = options
@@ -793,7 +884,10 @@ pub async fn mcp_sync(
 
     let mut out = Vec::new();
     for server in &servers {
-        if targets.as_ref().is_some_and(|t| !t.contains(server.id.as_str())) {
+        if targets
+            .as_ref()
+            .is_some_and(|t| !t.contains(server.id.as_str()))
+        {
             continue;
         }
         if server.enabled {
@@ -817,7 +911,9 @@ fn live_dir(directory: Option<String>, mode: Option<&str>) -> Result<Option<Stri
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         return Ok(Some(dir.to_string_lossy().into_owned()));
     }
-    Ok(directory.map(|d| d.trim().to_string()).filter(|d| !d.is_empty()))
+    Ok(directory
+        .map(|d| d.trim().to_string())
+        .filter(|d| !d.is_empty()))
 }
 
 /// Sign in to a remote MCP server with OAuth. OpenCode opens the provider's
@@ -851,7 +947,10 @@ pub async fn mcp_auth(
             }
         })?,
     };
-    applied().lock().unwrap().remove(&applied_key(dir.as_deref(), &id));
+    applied()
+        .lock()
+        .unwrap()
+        .remove(&applied_key(dir.as_deref(), &id));
     Ok(parse_status(&id, &status, None))
 }
 
@@ -873,13 +972,22 @@ async fn branded_sign_in(
     // Bind first: OpenCode then sees the port taken and leaves the callback to us.
     let mut callback = mcp_oauth::listen(id).await?;
     let started = client.mcp_auth_start(dir, id).await?;
-    let authorize = started["authorizationUrl"].as_str().unwrap_or_default().to_string();
-    let state = started["oauthState"].as_str().unwrap_or_default().to_string();
+    let authorize = started["authorizationUrl"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let state = started["oauthState"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
     if authorize.is_empty() {
         // Already signed in: report the live status.
-        return Ok(live_entry(client, dir, id).await?.unwrap_or_else(|| json!({ "status": "connected" })));
+        return Ok(live_entry(client, dir, id)
+            .await?
+            .unwrap_or_else(|| json!({ "status": "connected" })));
     }
-    let parsed = reqwest::Url::parse(&authorize).map_err(|_| "The server sent an invalid sign-in link".to_string())?;
+    let parsed = reqwest::Url::parse(&authorize)
+        .map_err(|_| "The server sent an invalid sign-in link".to_string())?;
     if parsed.scheme() != "https" {
         return Err("The server's sign-in page isn't https; not opening it".into());
     }
@@ -894,7 +1002,11 @@ async fn branded_sign_in(
 
 /// Sign out of a remote MCP server: OpenCode deletes its stored tokens.
 #[tauri::command]
-pub async fn mcp_auth_remove(id: String, directory: Option<String>, mode: Option<String>) -> Result<(), String> {
+pub async fn mcp_auth_remove(
+    id: String,
+    directory: Option<String>,
+    mode: Option<String>,
+) -> Result<(), String> {
     if !valid_id(&id) {
         return Err(format!("Invalid MCP id '{id}'"));
     }
@@ -909,7 +1021,10 @@ pub async fn mcp_auth_remove(id: String, directory: Option<String>, mode: Option
 #[tauri::command]
 pub async fn mcp_status(directory: Option<String>) -> Result<Vec<McpServerStatus>, String> {
     let client = ensure_server().await?;
-    let dir = directory.as_deref().map(str::trim).filter(|d| !d.is_empty());
+    let dir = directory
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty());
     let status = client.mcp_status(dir).await?;
     Ok(status
         .as_object()
@@ -927,7 +1042,9 @@ pub fn mcp_diagnose() -> McpDiagnoseResult {
         .map(|binary| {
             let found = find_binary(binary).or_else(|| {
                 // Windows installs Python as `python`.
-                (binary == "python3").then(|| find_binary("python")).flatten()
+                (binary == "python3")
+                    .then(|| find_binary("python"))
+                    .flatten()
             });
             McpBinaryStatus {
                 binary: binary.to_string(),
@@ -961,6 +1078,7 @@ mod tests {
             url: None,
             headers: HashMap::new(),
             timeout_ms: None,
+            trust_level: McpTrustLevel::Unknown,
         }
     }
 
@@ -996,7 +1114,9 @@ mod tests {
         let mut remote = entry("y");
         remote.kind = "remote".into();
         remote.url = Some("https://example.com".into());
-        remote.headers.insert("Authorization".into(), "Bearer a\r\nX-Evil: 1".into());
+        remote
+            .headers
+            .insert("Authorization".into(), "Bearer a\r\nX-Evil: 1".into());
         assert!(validate(&remote).is_err());
     }
 
@@ -1013,7 +1133,10 @@ mod tests {
         let server = entry("github");
         let table = codex_server_table(&server, &server.command);
         assert_eq!(
-            table.get("enabled").and_then(|i| i.as_value()).and_then(|v| v.as_bool()),
+            table
+                .get("enabled")
+                .and_then(|i| i.as_value())
+                .and_then(|v| v.as_bool()),
             Some(true)
         );
         assert!(table.contains_key("command"));
@@ -1027,14 +1150,21 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn shell_server_starts_outside_the_users_folders() {
-        let argv: Vec<String> = ["npx", "-y", "@mkusaka/mcp-shell-server"].map(String::from).into();
+        let argv: Vec<String> = ["npx", "-y", "@mkusaka/mcp-shell-server"]
+            .map(String::from)
+            .into();
         let launched = launch_argv(&argv);
         assert_eq!(&launched[..2], ["/bin/sh", "-c"]);
         assert_eq!(launched[3], mcp_work_dir().to_string_lossy());
-        assert!(launched.last().unwrap().starts_with("@mkusaka/mcp-shell-server"));
+        assert!(launched
+            .last()
+            .unwrap()
+            .starts_with("@mkusaka/mcp-shell-server"));
 
         // Other servers keep starting in the working folder.
-        let other: Vec<String> = ["npx", "-y", "@modelcontextprotocol/server-filesystem"].map(String::from).into();
+        let other: Vec<String> = ["npx", "-y", "@modelcontextprotocol/server-filesystem"]
+            .map(String::from)
+            .into();
         assert_eq!(launch_argv(&other).len(), 3);
     }
 
@@ -1044,7 +1174,10 @@ mod tests {
         server.enabled = false;
         let table = codex_server_table(&server, &[]);
         assert_eq!(
-            table.get("enabled").and_then(|i| i.as_value()).and_then(|v| v.as_bool()),
+            table
+                .get("enabled")
+                .and_then(|i| i.as_value())
+                .and_then(|v| v.as_bool()),
             Some(false)
         );
         assert!(!table.contains_key("command"));

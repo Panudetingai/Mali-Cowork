@@ -51,7 +51,7 @@ fn agent(id: &str) -> Option<Agent> {
             windows_script: None,
         },
         "codex" => Agent { npm: Some("@openai/codex"), brew: Some("codex"), unix_script: None, windows_script: None },
-        "gemini" => Agent { npm: Some("@google/gemini-cli"), brew: Some("gemini-cli"), unix_script: None, windows_script: None },
+        "antigravity" => Agent { npm: Some("antigravity-cli"), brew: Some("antigravity-cli"), unix_script: None, windows_script: None },
         "cursor" => Agent {
             npm: None,
             brew: None,
@@ -204,14 +204,14 @@ mod tests {
         let r = recipe("codex", &scan(&["node"]), false, false).unwrap();
         assert_eq!(r.display, "npm install -g @openai/codex");
         assert_eq!(r.args[..3], ["install", "-g", "@openai/codex"]);
-        let r = recipe("gemini", &scan(&[]), true, true).unwrap();
+        let r = recipe("antigravity", &scan(&[]), true, true).unwrap();
         assert!(r.display.ends_with("--prefix ~/.npm-global"));
     }
 
     #[test]
     #[cfg(target_os = "macos")]
     fn macos_falls_back_to_homebrew_then_scripts() {
-        assert_eq!(recipe("gemini", &scan(&["brew"]), false, false).unwrap().display, "brew install gemini-cli");
+        assert_eq!(recipe("antigravity", &scan(&["brew"]), false, false).unwrap().display, "brew install antigravity-cli");
         assert_eq!(recipe("node", &scan(&["brew"]), false, false).unwrap().via, "brew");
         assert!(recipe("node", &scan(&[]), false, false).is_err());
         let cursor = recipe("cursor", &scan(&[]), false, false).unwrap();

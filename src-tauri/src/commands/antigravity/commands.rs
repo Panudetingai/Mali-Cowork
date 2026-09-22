@@ -10,20 +10,20 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use crate::chat_stream::ChatStreamEvent;
 use crate::commands::supervisor;
 
-use super::bin::{gemini_bin, gemini_command, not_found_message};
-use super::stream::{GeminiStream, Outcome};
-use super::{GeminiCheckResult, GeminiModel, GeminiRequest};
+use super::bin::{antigravity_bin, antigravity_command, not_found_message};
+use super::stream::{AntigravityStream, Outcome};
+use super::{AntigravityCheckResult, AntigravityModel, AntigravityRequest};
 
 const CHECK_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// The key handed to `gemini` as `GEMINI_API_KEY`: the one from Settings
+/// The key handed to `antigravity` as `ANTIGRAVITY_API_KEY`: the one from Settings
 /// first, then the environment. `GOOGLE_API_KEY` is mapped over because the
-/// CLI's API-key sign-in only accepts `GEMINI_API_KEY`.
+/// CLI's API-key sign-in only accepts `ANTIGRAVITY_API_KEY`.
 pub fn api_key_for(settings_key: Option<&str>) -> Option<(String, &'static str)> {
     if let Some(key) = settings_key.map(str::trim).filter(|k| !k.is_empty()) {
         return Some((key.to_string(), "Settings"));
     }
-    for name in ["GEMINI_API_KEY", "GOOGLE_API_KEY"] {
+    for name in ["ANTIGRAVITY_API_KEY", "GOOGLE_API_KEY"] {
         if let Ok(value) = std::env::var(name) {
             if !value.trim().is_empty() {
                 return Some((value.trim().to_string(), name));
@@ -40,8 +40,8 @@ fn is_logged_in(settings_key: Option<&str>) -> (bool, Option<String>) {
         return (true, Some(format!("API key ({from})")));
     }
     if let Some(home) = dirs::home_dir() {
-        // OAuth login from interactive `gemini` stores credentials here.
-        if home.join(".gemini").join("oauth_creds.json").is_file() {
+        // OAuth login from interactive `antigravity` stores credentials here.
+        if home.join(".antigravity").join("oauth_creds.json").is_file() {
             return (true, Some("Google account".into()));
         }
     }
@@ -49,9 +49,9 @@ fn is_logged_in(settings_key: Option<&str>) -> (bool, Option<String>) {
 }
 
 #[tauri::command]
-pub async fn gemini_check(api_key: Option<String>) -> GeminiCheckResult {
-    let Some(bin) = gemini_bin() else {
-        return GeminiCheckResult {
+pub async fn antigravity_check(api_key: Option<String>) -> AntigravityCheckResult {
+    let Some(bin) = antigravity_bin() else {
+        return AntigravityCheckResult {
             available: false,
             logged_in: false,
             version: None,
@@ -65,7 +65,7 @@ pub async fn gemini_check(api_key: Option<String>) -> GeminiCheckResult {
     let version = match run(bin, &["--version"]).await {
         Ok(out) => out.trim().to_string(),
         Err(error) => {
-            return GeminiCheckResult {
+            return AntigravityCheckResult {
                 available: false,
                 logged_in: false,
                 version: None,
@@ -77,14 +77,14 @@ pub async fn gemini_check(api_key: Option<String>) -> GeminiCheckResult {
     };
 
     let (logged_in, account) = is_logged_in(api_key.as_deref());
-    GeminiCheckResult {
+    AntigravityCheckResult {
         available: true,
         logged_in,
         version: Some(version),
         path,
         account,
         error: (!logged_in).then(|| {
-            "Not signed in to Gemini. Add a Gemini API key in Settings → Models, or run `gemini` once and choose \"Sign in with Google\".".into()
+            "Not signed in to Antigravity. Add a Antigravity API key in Settings → Models, or run `antigravity` once and choose \"Sign in with Google\".".into()
         }),
     }
 }
@@ -92,19 +92,19 @@ pub async fn gemini_check(api_key: Option<String>) -> GeminiCheckResult {
 /// The CLI has no list command, so this is a curated set of current models.
 /// The UI falls back to `auto` when the list is empty.
 #[tauri::command]
-pub async fn gemini_list_models() -> Result<Vec<GeminiModel>, String> {
+pub async fn antigravity_list_models() -> Result<Vec<AntigravityModel>, String> {
     Ok(vec![
-        GeminiModel { id: "gemini-2.5-pro".into(), name: "Gemini 2.5 Pro".into() },
-        GeminiModel { id: "gemini-2.5-flash".into(), name: "Gemini 2.5 Flash".into() },
-        GeminiModel { id: "gemini-2.0-flash".into(), name: "Gemini 2.0 Flash".into() },
+        AntigravityModel { id: "antigravity-2.5-pro".into(), name: "Antigravity 2.5 Pro".into() },
+        AntigravityModel { id: "antigravity-2.5-flash".into(), name: "Antigravity 2.5 Flash".into() },
+        AntigravityModel { id: "antigravity-2.0-flash".into(), name: "Antigravity 2.0 Flash".into() },
     ])
 }
 
 /// Base args for one prompt. The prompt itself is passed via `-p` last.
-pub fn build_args(request: &GeminiRequest) -> Vec<String> {
+pub fn build_args(request: &AntigravityRequest) -> Vec<String> {
     let mut args: Vec<String> = vec!["--output-format".into(), "stream-json".into()];
 
-    // Non-interactive: gemini can't ask, so pick what it may do up front.
+    // Non-interactive: antigravity can't ask, so pick what it may do up front.
     // `plan` is read-only. Writing runs `yolo` only inside the macOS seatbelt
     // sandbox, which confines writes to the working folder; elsewhere there's
     // no sandbox to rely on, so `auto_edit` edits files but runs no commands.
@@ -138,9 +138,9 @@ pub fn build_args(request: &GeminiRequest) -> Vec<String> {
     args
 }
 
-/// Gemini CLI has no per-folder read-only flag, so read-only folders are
+/// Antigravity CLI has no per-folder read-only flag, so read-only folders are
 /// stated in the prompt — same pattern as cursor/codex.
-pub fn prompt_with_notes(request: &GeminiRequest) -> String {
+pub fn prompt_with_notes(request: &AntigravityRequest) -> String {
     let read_only: Vec<&str> = request
         .folders
         .iter()
@@ -158,8 +158,8 @@ pub fn prompt_with_notes(request: &GeminiRequest) -> String {
 }
 
 #[tauri::command]
-pub async fn gemini_generate(
-    request: GeminiRequest,
+pub async fn antigravity_generate(
+    request: AntigravityRequest,
     on_event: Channel<ChatStreamEvent>,
 ) -> Result<(), String> {
     if let Err(message) = run_prompt(&request, &on_event).await {
@@ -169,16 +169,16 @@ pub async fn gemini_generate(
 }
 
 async fn run_prompt(
-    request: &GeminiRequest,
+    request: &AntigravityRequest,
     on_event: &Channel<ChatStreamEvent>,
 ) -> Result<(), String> {
     if request.prompt.trim().is_empty() {
         return Err("Prompt cannot be empty.".into());
     }
-    let bin = gemini_bin().ok_or_else(not_found_message)?;
+    let bin = antigravity_bin().ok_or_else(not_found_message)?;
 
     let mut args = build_args(request);
-    // Pictures are `@path` references, which gemini reads only inside its
+    // Pictures are `@path` references, which antigravity reads only inside its
     // workspace, so each picture's folder joins it.
     let mut prompt = prompt_with_notes(request);
     for image in &request.images {
@@ -195,27 +195,27 @@ async fn run_prompt(
 
     // Supervised, so the agent and the tools and MCP servers it starts
     // always stop together.
-    let mut cmd = supervisor::command(gemini_command(bin, &arg_refs));
+    let mut cmd = supervisor::command(antigravity_command(bin, &arg_refs));
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     if let Some((key, _)) = api_key_for(request.api_key.as_deref()) {
-        cmd.env("GEMINI_API_KEY", key);
+        cmd.env("ANTIGRAVITY_API_KEY", key);
     }
-    // Gemini CLI is project-scoped: it reads settings and sessions from cwd.
+    // Antigravity CLI is project-scoped: it reads settings and sessions from cwd.
     if let Some(cwd) = request.workspace() {
         cmd.current_dir(cwd);
     }
-    let (mut child, mut tree) = supervisor::spawn(&mut cmd, "gemini")
-        .map_err(|e| format!("Failed to start gemini ({bin}): {e}"))?;
+    let (mut child, mut tree) = supervisor::spawn(&mut cmd, "antigravity")
+        .map_err(|e| format!("Failed to start antigravity ({bin}): {e}"))?;
     let _running = Running::register(&request.run_id, tree.pid());
 
-    let stdout = child.stdout.take().ok_or("gemini has no stdout")?;
-    let stderr = child.stderr.take().ok_or("gemini has no stderr")?;
+    let stdout = child.stdout.take().ok_or("antigravity has no stdout")?;
+    let stderr = child.stderr.take().ok_or("antigravity has no stderr")?;
     let errors = collect_stderr(stderr);
 
     on_event.send(ChatStreamEvent::Started).map_err(|e| e.to_string())?;
 
     let mut lines = BufReader::new(stdout).lines();
-    let mut stream = GeminiStream::new();
+    let mut stream = AntigravityStream::new();
     let mut finished = false;
     let mut failure = None;
 
@@ -225,7 +225,7 @@ async fn run_prompt(
             continue;
         }
         let Ok(event) = serde_json::from_str::<Value>(line) else {
-            eprintln!("[gemini] non-JSON line: {}", &line[..line.len().min(200)]);
+            eprintln!("[antigravity] non-JSON line: {}", &line[..line.len().min(200)]);
             continue;
         };
         for outcome in stream.handle(&event) {
@@ -252,23 +252,23 @@ async fn run_prompt(
     if finished {
         return on_event
             .send(ChatStreamEvent::Done {
-                model_id: format!("gemini:{}", request.model.as_deref().unwrap_or("auto")),
+                model_id: format!("antigravity:{}", request.model.as_deref().unwrap_or("auto")),
             })
             .map_err(|e| e.to_string());
     }
     if status.success() {
         return Err(known_error(&stderr_text)
-            .unwrap_or_else(|| format!("gemini ended without a reply.{}", tail(&stderr_text))));
+            .unwrap_or_else(|| format!("antigravity ended without a reply.{}", tail(&stderr_text))));
     }
     // Exit 42 = bad input, 53 = turn limit; surface stderr so it is actionable.
     Err(known_error(&stderr_text)
-        .unwrap_or_else(|| format!("gemini exited with {status}.{}", tail(&stderr_text))))
+        .unwrap_or_else(|| format!("antigravity exited with {status}.{}", tail(&stderr_text))))
 }
 
 /// Failures with a known fix get a plain explanation instead of a stack trace.
 fn known_error(stderr: &str) -> Option<String> {
     // Exit 41 = auth: the CLI is set to API-key sign-in but got no key.
-    if stderr.contains("must specify the GEMINI_API_KEY") {
+    if stderr.contains("must specify the ANTIGRAVITY_API_KEY") {
         return Some(MISSING_KEY.into());
     }
     let limited = ["status: 429", "\"code\":429", "RESOURCE_EXHAUSTED", "Quota exceeded", "Too Many Requests"]
@@ -277,19 +277,19 @@ fn known_error(stderr: &str) -> Option<String> {
     limited.then(|| RATE_LIMITED.into())
 }
 
-const MISSING_KEY: &str = "Gemini CLI is set to sign in with an API key, but it got none. \
-A key saved in gemini's own /auth screen only works in its terminal UI, not here.\n\n\
+const MISSING_KEY: &str = "Antigravity CLI is set to sign in with an API key, but it got none. \
+A key saved in antigravity's own /auth screen only works in its terminal UI, not here.\n\n\
 Fix one of these:\n\
-• Add your key in Settings → Models → Gemini (from https://aistudio.google.com/app/apikey), or\n\
-• Run `gemini` in a terminal, type /auth and choose \"Sign in with Google\".";
+• Add your key in Settings → Models → Antigravity (from https://aistudio.google.com/app/apikey), or\n\
+• Run `antigravity` in a terminal, type /auth and choose \"Sign in with Google\".";
 
-const RATE_LIMITED: &str = "Gemini API: 429 Too Many Requests — the quota for this API key is used up \
+const RATE_LIMITED: &str = "Antigravity API: 429 Too Many Requests — the quota for this API key is used up \
 (the free tier allows only a few requests per minute and per day, and one task can use many).\n\n\
 Try one of these:\n\
 • Wait a minute and send again (per-minute limit), or try tomorrow (daily limit)\n\
-• Switch to Gemini 2.5 Flash — it has a bigger free quota than Pro\n\
+• Switch to Antigravity 2.5 Flash — it has a bigger free quota than Pro\n\
 • Check usage or turn on billing at https://aistudio.google.com/usage\n\
-• Or sign in with Google instead of a key: run `gemini`, type /auth, choose \"Sign in with Google\"";
+• Or sign in with Google instead of a key: run `antigravity`, type /auth, choose \"Sign in with Google\"";
 
 fn tail(stderr: &str) -> String {
     // Stack frames and startup chatter hide the one line that matters.
@@ -308,7 +308,7 @@ fn tail(stderr: &str) -> String {
         return String::new();
     }
     let start = lines.len().saturating_sub(12);
-    format!("\n\n— gemini —\n{}", lines[start..].join("\n"))
+    format!("\n\n— antigravity —\n{}", lines[start..].join("\n"))
 }
 
 fn collect_stderr<R>(stderr: R) -> std::sync::Arc<Mutex<Vec<String>>>
@@ -321,7 +321,7 @@ where
         let mut lines = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             if !line.trim().is_empty() {
-                eprintln!("[gemini:stderr] {line}");
+                eprintln!("[antigravity:stderr] {line}");
                 sink.lock().unwrap().push(line);
             }
         }
@@ -351,7 +351,7 @@ impl Drop for Running {
 }
 
 #[tauri::command]
-pub fn gemini_abort(run_id: String) -> Result<(), String> {
+pub fn antigravity_abort(run_id: String) -> Result<(), String> {
     let Some(pid) = Running::registry().lock().unwrap().get(&run_id).copied() else {
         return Ok(());
     };
@@ -361,14 +361,14 @@ pub fn gemini_abort(run_id: String) -> Result<(), String> {
 }
 
 async fn run(bin: &str, args: &[&str]) -> Result<String, String> {
-    let output = tokio::time::timeout(CHECK_TIMEOUT, gemini_command(bin, args).output())
+    let output = tokio::time::timeout(CHECK_TIMEOUT, antigravity_command(bin, args).output())
         .await
-        .map_err(|_| format!("`gemini {}` timed out", args.join(" ")))?
+        .map_err(|_| format!("`antigravity {}` timed out", args.join(" ")))?
         .map_err(|e| e.to_string())?;
     if !output.status.success() {
         let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(if error.is_empty() {
-            format!("`gemini {}` exited with {}", args.join(" "), output.status)
+            format!("`antigravity {}` exited with {}", args.join(" "), output.status)
         } else {
             error
         });
@@ -381,10 +381,10 @@ mod tests {
     use super::*;
     use crate::commands::opencode::FolderGrant;
 
-    fn request(mode: &str, folders: Vec<FolderGrant>) -> GeminiRequest {
-        GeminiRequest {
+    fn request(mode: &str, folders: Vec<FolderGrant>) -> AntigravityRequest {
+        AntigravityRequest {
             prompt: "do it".into(),
-            model: Some("gemini-2.5-pro".into()),
+            model: Some("antigravity-2.5-pro".into()),
             cwd: Some("/w".into()),
             session_id: None,
             mode: Some(mode.into()),
@@ -403,7 +403,7 @@ mod tests {
     fn chat_mode_is_read_only_plan() {
         let args = build_args(&request("chat", vec![]));
         assert!(args.windows(2).any(|w| w == ["--approval-mode", "plan"]));
-        // Not a flag this CLI knows: passing it makes gemini exit 1.
+        // Not a flag this CLI knows: passing it makes antigravity exit 1.
         assert!(!args.iter().any(|a| a == "--skip-trust"));
         assert!(args.windows(2).any(|w| w == ["--output-format", "stream-json"]));
         // Chat never resumes or exposes folders.
@@ -419,7 +419,7 @@ mod tests {
         } else {
             assert!(args.windows(2).any(|w| w == ["--approval-mode", "auto_edit"]));
         }
-        assert!(args.windows(2).any(|w| w == ["-m", "gemini-2.5-pro"]));
+        assert!(args.windows(2).any(|w| w == ["-m", "antigravity-2.5-pro"]));
     }
 
     #[test]
@@ -447,9 +447,9 @@ mod tests {
     fn rate_limits_get_a_plain_explanation() {
         let stderr = "    at async retryWithBackoff (file:///x.js:1:1) {\n  status: 429\n}\nYOLO mode is enabled.";
         assert_eq!(known_error(stderr).as_deref(), Some(RATE_LIMITED));
-        assert_eq!(known_error("must specify the GEMINI_API_KEY").as_deref(), Some(MISSING_KEY));
+        assert_eq!(known_error("must specify the ANTIGRAVITY_API_KEY").as_deref(), Some(MISSING_KEY));
         assert!(known_error("something else").is_none());
-        assert_eq!(tail(stderr), "\n\n— gemini —\n  status: 429\n}");
+        assert_eq!(tail(stderr), "\n\n— antigravity —\n  status: 429\n}");
     }
 
     #[test]
@@ -461,7 +461,7 @@ mod tests {
     }
 
     #[test]
-    fn auto_model_is_left_to_gemini() {
+    fn auto_model_is_left_to_antigravity() {
         let mut req = request("cowork", vec![grant("/w", "write")]);
         req.model = Some("auto".into());
         assert!(!build_args(&req).iter().any(|a| a == "-m"));

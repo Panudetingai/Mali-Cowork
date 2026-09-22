@@ -2,7 +2,7 @@ import { buildAttachmentAppendix, type Attachment } from "@/features/attachments
 import type { Skill } from "@/features/instructions";
 import { codexGenerateStream } from "@/features/codex";
 import { cursorGenerateStream } from "@/features/cursor";
-import { geminiGenerateStream } from "@/features/gemini";
+import { antigravityGenerateStream } from "@/features/antigravity";
 import { hasEnabledMcp } from "@/features/mcp";
 import {
     getOpencodeModels,
@@ -16,10 +16,10 @@ import {
     apiModelOf,
     codexModelOf,
     cursorModelOf,
-    geminiModelOf,
+    antigravityModelOf,
     isCodexModel,
     isCursorModel,
-    isGeminiModel,
+    isAntigravityModel,
     isOpencodeModel,
     OPENCODE_PREFIX,
     opencodeModelOf,
@@ -73,7 +73,7 @@ function withEarlierSummary(prompt: string, request: GenerateRequest) {
 }
 
 const NO_IMAGES = (name: string) =>
-  `${name} can't look at pictures here. Remove the picture, or pick an OpenCode, Codex or Gemini model.`;
+  `${name} can't look at pictures here. Remove the picture, or pick an OpenCode, Codex or Antigravity model.`;
 
 /**
  * The model id a prompt actually runs on. Provider API models only stream
@@ -172,12 +172,12 @@ export async function generateStream(
     );
   }
 
-  // Gemini CLI: gemini:<model>
-  if (isGeminiModel(modelId)) {
-    return geminiGenerateStream(
+  // Antigravity CLI: antigravity:<model>
+  if (isAntigravityModel(modelId)) {
+    return antigravityGenerateStream(
       {
         prompt: withInstructions(prompt, request),
-        model: geminiModelOf(modelId),
+        model: antigravityModelOf(modelId),
         cwd: request.cwd,
         sessionId: request.sessionId,
         mode: request.mode,

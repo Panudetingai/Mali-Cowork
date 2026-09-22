@@ -14,6 +14,8 @@ export type McpServerEntry = {
   url?: string;
   headers?: Record<string, string>;
   timeoutMs: number;
+  /** Security metadata consumed by Rust only; it is never written into OpenCode config. */
+  trustLevel: "UNKNOWN" | "VERIFIED" | "TRUSTED";
 };
 
 export type McpServerStatus = {
@@ -109,6 +111,7 @@ function catalogEntry(server: McpDef, conn: McpConnection | undefined, coworkPat
     fallbacks: enabled ? fallbacks.map((c) => buildArgv(server, c, coworkPaths)) : [],
     environment,
     timeoutMs: server.timeoutMs ?? 60_000,
+    trustLevel: conn?.trustLevel ?? "UNKNOWN",
   };
 }
 
@@ -123,6 +126,7 @@ function customEntry(server: CustomMcp, conn: McpConnection | undefined): McpSer
     url: server.kind === "remote" ? server.url?.trim() : undefined,
     headers: server.kind === "remote" ? cleanEnv(server.headers) : undefined,
     timeoutMs: server.timeoutMs ?? 60_000,
+    trustLevel: conn?.trustLevel ?? "UNKNOWN",
   };
 }
 

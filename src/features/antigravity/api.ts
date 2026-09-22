@@ -1,33 +1,33 @@
 import { createStreamChannel, type ChatStreamHandlers } from "@/pages/chat/api/chat";
 import { requestConfigFor } from "@/features/providers";
 import { invoke } from "@tauri-apps/api/core";
-import type { GeminiCheckResult, GeminiModel, GeminiRequest } from "./types";
+import type { AntigravityCheckResult, AntigravityModel, AntigravityRequest } from "./types";
 
 /**
- * The Gemini key from Settings → Models. Headless `gemini` reads its key only
- * from `GEMINI_API_KEY`, so the backend hands this one over.
+ * The Antigravity key from Settings → Models. Headless `antigravity` reads its key only
+ * from `ANTIGRAVITY_API_KEY`, so the backend hands this one over.
  */
 function settingsApiKey() {
   return requestConfigFor("google").apiKey;
 }
 
-export function geminiCheck() {
-  return invoke<GeminiCheckResult>("gemini_check", { apiKey: settingsApiKey() });
+export function antigravityCheck() {
+  return invoke<AntigravityCheckResult>("antigravity_check", { apiKey: settingsApiKey() });
 }
 
-export function geminiListModels() {
-  return invoke<GeminiModel[]>("gemini_list_models");
+export function antigravityListModels() {
+  return invoke<AntigravityModel[]>("antigravity_list_models");
 }
 
-export function geminiAbort(runId: string) {
-  return invoke<void>("gemini_abort", { runId });
+export function antigravityAbort(runId: string) {
+  return invoke<void>("antigravity_abort", { runId });
 }
 
-export async function geminiGenerateStream(
-  request: GeminiRequest,
+export async function antigravityGenerateStream(
+  request: AntigravityRequest,
   handlers: ChatStreamHandlers,
 ): Promise<void> {
-  await invoke("gemini_generate", {
+  await invoke("antigravity_generate", {
     request: {
       prompt: request.prompt,
       model: request.model ?? null,

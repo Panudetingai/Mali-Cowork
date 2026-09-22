@@ -72,6 +72,15 @@ impl FolderPolicy {
     }
 
     pub fn decide(&self, ask: &PermissionAsk, auto_approve: bool) -> Decision {
+        // Approval is not a sandbox escape hatch. This check runs before the
+        // existing policy may auto-approve or surface its approval card.
+        if let Some(reason) = crate::sandbox::permission_rejection_reason(
+            &ask.permission,
+            ask.path.as_deref(),
+            ask.command.as_deref(),
+        ) {
+            return Decision::Reject(reason);
+        }
         let approve_or_ask = if auto_approve { Decision::Approve } else { Decision::AskUser };
         match ask.permission.as_str() {
             "external_directory" => {
@@ -106,11 +115,7 @@ impl FolderPolicy {
                 if !stays_inside {
                     return Decision::AskUser;
                 }
-                let touches_read_only = !self.cwd_writable
-                    || self
-                        .folders
-                        .iter()
-                        .any(|(dir, writable)| !writable && command.contains(&*dir.to_string_lossy()));
+                let touches_read_only = !self.cwd_writable || self.writes_read_only_path(command);
                 if touches_read_only { Decision::AskUser } else { approve_or_ask }
             }
             _ => approve_or_ask,
@@ -136,6 +141,23 @@ impl FolderPolicy {
                 let path = expand_home(word);
                 let absolute = if path.is_absolute() { path } else { self.cwd.join(path) };
                 self.access(&absolute).is_some()
+            })
+    }
+
+    /// True when any path argument resolves to a read-only granted folder.
+    /// Follows symlinks/junctions and normalises separators so it is not fooled
+    /// by Windows path shapes or slash direction.
+    fn writes_read_only_path(&self, command: &str) -> bool {
+        command
+            .split_whitespace()
+            .skip(1)
+            .filter(|word| !word.starts_with('-'))
+            .map(|word| word.trim_matches(['"', '\'']))
+            .filter(|word| names_a_path(word))
+            .any(|word| {
+                let path = expand_home(word);
+                let absolute = if path.is_absolute() { path } else { self.cwd.join(path) };
+                self.access(&absolute) == Some(false)
             })
     }
 
@@ -401,13 +423,13 @@ mod tests {
         assert!(is(bash("cat /w/src/main.rs"), "approve"));
 
         // The whole point: a reading command aimed somewhere else.
-        assert!(is(bash("cat ~/.aws/credentials"), "ask"));
+        assert!(is(bash("cat ~/.aws/credentials"), "reject"));
         assert!(is(bash("cat /etc/hosts"), "ask"));
         assert!(is(bash("rg -n secret /Users"), "ask"));
         assert!(is(bash("cat /w/../etc/passwd"), "ask"));
         // Auto-approve is about the user's own prompts, not about handing
         // over files they never granted.
-        assert!(is(policy.decide(&ask("bash", &[], None, Some("cat ~/.ssh/id_rsa")), true), "ask"));
+        assert!(is(policy.decide(&ask("bash", &[], None, Some("cat ~/.ssh/id_rsa")), true), "reject"));
     }
 
     #[test]

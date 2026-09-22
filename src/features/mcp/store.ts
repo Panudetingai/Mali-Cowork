@@ -4,6 +4,8 @@ import { catalogServer } from "./catalog";
 
 export type McpConnection = {
   enabled: boolean;
+  /** An installed MCP begins UNKNOWN; provenance never grants extra rights. */
+  trustLevel?: "UNKNOWN" | "VERIFIED" | "TRUSTED";
   env?: Record<string, string>;
   /** Selected launch variant id (see McpDef.variants). Defaults to the stock command. */
   variantId?: string;
@@ -21,6 +23,7 @@ function normalizeState(raw: McpState): Record<string, McpConnection> {
     } else if (value && typeof value === "object") {
       out[id] = {
         enabled: !!value.enabled,
+        trustLevel: value.trustLevel,
         env: value.env,
         variantId: value.variantId,
         customCommand: value.customCommand,
