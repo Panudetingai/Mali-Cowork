@@ -2,6 +2,7 @@ mod ai;
 mod chat_stream;
 mod commands;
 pub mod mcp_runner;
+pub mod panic_log;
 mod sandbox;
 
 use commands::attachments::{attachment_import, attachment_save};
@@ -102,6 +103,10 @@ fn app_menu<R: tauri::Runtime>(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // ติดตั้งก่อนอย่างอื่นทั้งหมด: release ใช้ panic = "abort" panic ที่ไหนก็ตาม
+    // (รวม tokio worker) จะ abort ทันที hook นี้คือที่เดียวที่บันทึกสาเหตุได้
+    panic_log::install();
+
     // โหลด .env ที่ root ของโปรเจค เฉพาะตอน dev เท่านั้น
     // release build ห้ามโหลด: dotenv() ค้นหา .env จากโฟลเดอร์ที่เปิดแอปขึ้นไปทุกชั้น
     // ถ้าเปิดแอปจากโฟลเดอร์ที่มี .env แปลกปลอม มันตั้ง OPENCODE_BIN ฯลฯ ให้รันโปรแกรมอื่นได้

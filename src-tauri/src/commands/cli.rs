@@ -381,7 +381,7 @@ pub async fn cli_generate(
                     continue;
                 }
                 // JSON อื่นๆ ที่ไม่รู้จักและไม่ใช่ control ให้ข้าม ไม่ส่ง raw JSON ให้ user งง
-                eprintln!("[cli] skip unknown json: {}", &line[..line.len().min(200)]);
+                eprintln!("[cli] skip unknown json: {}", crate::commands::truncate_chars(&line, 200));
                 continue;
             }
         }

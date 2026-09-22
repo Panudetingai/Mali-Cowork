@@ -74,7 +74,10 @@ fn meta_tag_simple(html: &str, key: &str) -> Option<String> {
     let mut i = 0;
     let bytes = html.as_bytes();
     while i + 6 < bytes.len() {
-        if html[i..].starts_with("<meta") {
+        // เช็คไบต์ก่อนค่อย slice: `html[i..]` จะ panic ถ้า i อยู่กลางตัวอักษร UTF-8
+        // ซึ่งเกิดแน่เมื่อ i เดินทีละไบต์ผ่านหน้าเว็บที่มีภาษาไทย/emoji
+        // b'<' เป็น ASCII จึงการันตีว่า i เป็น char boundary อยู่แล้ว
+        if bytes[i] == b'<' && html[i..].starts_with("<meta") {
             let end = html[i..].find('>').map(|o| i + o + 1)?;
             let tag = &html[i..end];
             let tag_l = tag.to_ascii_lowercase();

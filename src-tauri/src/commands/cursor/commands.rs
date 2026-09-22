@@ -303,7 +303,7 @@ async fn run_once(
             continue;
         }
         let Ok(event) = serde_json::from_str::<Value>(line) else {
-            eprintln!("[cursor] non-JSON line: {}", &line[..line.len().min(200)]);
+            eprintln!("[cursor] non-JSON line: {}", crate::commands::truncate_chars(line, 200));
             continue;
         };
         for outcome in stream.handle(&event) {

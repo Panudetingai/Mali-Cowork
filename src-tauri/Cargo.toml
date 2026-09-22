@@ -71,4 +71,9 @@ codegen-units = 1
 lto = true
 opt-level = 3
 panic = "abort"
+# ต้องมี debug info ไม่งั้น crash log จาก production symbolicate ไม่ได้เลย
+# split-debuginfo = "packed" ทำให้ cargo เรียก dsymutil ออกมาเป็น target/release/Mali.dSYM
+# ส่วน binary ยัง strip เท่าเดิม ขนาดที่ส่งให้ผู้ใช้จึงไม่เปลี่ยน — เก็บ .dSYM แนบไปกับทุก release
+debug = true
+split-debuginfo = "packed"
 strip = true

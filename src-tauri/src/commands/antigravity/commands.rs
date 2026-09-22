@@ -280,7 +280,7 @@ async fn run_prompt(
             continue;
         }
         let Ok(event) = serde_json::from_str::<Value>(line) else {
-            eprintln!("[antigravity] non-JSON line: {}", &line[..line.len().min(200)]);
+            eprintln!("[antigravity] non-JSON line: {}", crate::commands::truncate_chars(line, 200));
             continue;
         };
         for outcome in stream.handle(&event) {
