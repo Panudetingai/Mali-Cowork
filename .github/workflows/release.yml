@@ -21,11 +21,15 @@ jobs:
           - platform: macos-latest
             args: --target universal-apple-darwin
             rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            tauri_env_target: universal-apple-darwin
           - platform: windows-latest
             args: ""
             rust_targets: ""
+            tauri_env_target: ""
 
     runs-on: ${{ matrix.platform }}
+    env:
+      TAURI_ENV_TARGET_TRIPLE: ${{ matrix.tauri_env_target }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -82,7 +86,7 @@ jobs:
             This build is not notarized. On first launch, use **Right click → Open** if macOS blocks the app.
 
             ### Windows
-            Download the `.msi` installer or NSIS `setup.exe` and run the installer.
+            Download the NSIS `setup.exe` installer and run it.
 
             Built from this tag via GitHub Actions.
           releaseDraft: false
