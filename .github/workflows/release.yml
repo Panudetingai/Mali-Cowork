@@ -94,3 +94,67 @@ jobs:
           generateReleaseNotes: true
           tauriScript: bun run tauri
           args: ${{ matrix.args }}
+
+  # Mirror installers + release notes to the public Mali-Cowork-Releases repo (no source).
+  sync-public-release:
+    name: Sync release to public repo
+    needs: build-tauri
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (resolve version on manual runs)
+        uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+            echo "name=v${version}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download assets from private release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.tag.outputs.name }}"
+          mkdir -p release-assets
+          gh release download "$tag" \
+            --repo "${{ github.repository }}" \
+            --dir release-assets \
+            --clobber
+          ls -la release-assets
+
+      - name: Mirror release to Panudetingai/Mali-Cowork-Releases
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.tag.outputs.name }}"
+          public_repo="Panudetingai/Mali-Cowork-Releases"
+
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::RELEASES_REPO_TOKEN is not set — see docs/RELEASES_REPO_SETUP.md"
+            exit 1
+          fi
+
+          body_file="$(mktemp)"
+          gh release view "$tag" --repo "${{ github.repository }}" --json body -q .body > "$body_file"
+
+          if gh release view "$tag" --repo "$public_repo" >/dev/null 2>&1; then
+            gh release edit "$tag" --repo "$public_repo" --notes-file "$body_file"
+          else
+            title=$(gh release view "$tag" --repo "${{ github.repository }}" --json name -q .name)
+            gh release create "$tag" \
+              --repo "$public_repo" \
+              --title "$title" \
+              --notes-file "$body_file"
+          fi
+
+          gh release upload "$tag" --repo "$public_repo" release-assets/* --clobber
