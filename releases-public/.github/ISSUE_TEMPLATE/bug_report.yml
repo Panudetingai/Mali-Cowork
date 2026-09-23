@@ -1,0 +1,39 @@
+name: แจ้งบัค / Bug report
+description: เจอปัญหาในการใช้งาน Mali Cowork
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        🔒 **ห้ามใส่ API key, รหัสผ่าน หรือข้อมูลลับ** — หน้านี้ทุกคนมองเห็น
+  - type: input
+    id: version
+    attributes:
+      label: เวอร์ชันแอป
+      placeholder: เช่น 0.1.3
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: ระบบปฏิบัติการ
+      options: [macOS (Apple Silicon), macOS (Intel), Windows]
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model / Agent ที่ใช้
+      placeholder: เช่น OpenRouter / Claude, OpenCode, Codex
+  - type: textarea
+    id: what
+    attributes:
+      label: เกิดอะไรขึ้น
+      description: ทำอะไรอยู่ แล้วเจออะไร คาดว่าควรเป็นแบบไหน
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: ข้อความ error / ภาพหน้าจอ
+      description: คัดลอกข้อความ error ทั้งหมด หรือลากรูปมาวางได้

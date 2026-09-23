@@ -1,0 +1,46 @@
+name: Sync public releases repo content
+
+# Mirrors releases-public/ → Panudetingai/Mali-Cowork-Releases (docs, README, issue templates).
+# Does not copy application source. Requires RELEASES_REPO_TOKEN on this private repo.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "releases-public/**"
+      - ".github/workflows/sync-public-releases-repo.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Mali-Cowork
+        uses: actions/checkout@v4
+
+      - name: Push content to Mali-Cowork-Releases
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::RELEASES_REPO_TOKEN is not set — see docs/RELEASES_REPO_SETUP.md"
+            exit 1
+          fi
+
+          work="$(mktemp -d)"
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/Panudetingai/Mali-Cowork-Releases.git" "$work/repo"
+          rsync -av --delete --exclude .git/ ./releases-public/ "$work/repo/"
+          cd "$work/repo"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to sync."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "Sync content from Mali-Cowork releases-public/"
+          git push origin main

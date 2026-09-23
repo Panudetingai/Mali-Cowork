@@ -1,0 +1,37 @@
+name: ขอฟีเจอร์ / Feature request
+description: แนะนำความสามารถใหม่หรือการปรับปรุง Mali Cowork
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ขอบคุณที่ช่วยทำให้ Mali Cowork ดีขึ้น — อธิบายปัญหาที่อยากแก้หรือสิ่งที่อยากได้ เราจะอ่านทุก Issue (ภาษาไทยหรืออังกฤษได้)
+  - type: textarea
+    id: problem
+    attributes:
+      label: ปัญหาหรือความต้องการ
+      description: ตอนนี้ทำอะไรไม่ได้ / ยุ่งยากแค่ไหน / อยากให้ช่วยเรื่องอะไร
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: ไอเดียหรือพฤติกรรมที่อยากได้
+      description: ถ้ามี mockup, ลิงก์ตัวอย่างจากแอปอื่น หรือขั้นตอนที่คุณคิดว่าใช้งานง่าย — ใส่ได้
+  - type: dropdown
+    id: area
+    attributes:
+      label: ส่วนที่เกี่ยวข้อง (ถ้ารู้)
+      options:
+        - Chat
+        - Cowork / โฟลเดอร์งาน
+        - Models / API keys
+        - MCP / connectors
+        - Git / checkpoint
+        - การติดตั้ง / อัปเดต
+        - อื่น ๆ / ไม่แน่ใจ
+  - type: input
+    id: version
+    attributes:
+      label: เวอร์ชันแอป (ถ้ามี)
+      placeholder: เช่น 0.1.3
