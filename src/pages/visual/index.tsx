@@ -17,11 +17,10 @@ import {
 } from "@/features/visual";
 import { apiModelOf, buildMediaCatalog, type AiModel } from "@/pages/chat/models";
 import { cn } from "@/lib/utils";
-import { ArrowUpIcon, ImageIcon, LoaderIcon, VideoIcon } from "lucide-react";
+import { ArrowUpIcon, LoaderIcon } from "lucide-react";
+import { AnimatePresence } from "motion/react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
-import {motion} from "motion/react"
-import { VisualGallery } from "./gallery";
+import { VisualEmptyWelcome, VisualGallery } from "./gallery";
 import { VisualModelSelect } from "./model-select";
 import { ImageSettingsBar, VideoSettingsBar } from "./settings-popover";
 
@@ -75,6 +74,7 @@ export default function VisualPage() {
   }, [kind, selected, settings.modelId]);
 
   const shown = useMemo(() => items.filter((item) => item.kind === kind), [items, kind]);
+  const isEmpty = models.length === 0 || shown.length === 0;
   const canSend = prompt.trim().length > 0 && !!selected && !busy;
 
   const pick = (model: AiModel) =>
@@ -167,8 +167,19 @@ export default function VisualPage() {
         ))}
       </nav>
 
-      <div className="mt-5 min-h-0 flex-1 overflow-y-auto">
-        {models.length === 0 ? <NoModels kind={kind} /> : <VisualGallery items={shown} />}
+      <div
+        className={cn(
+          "mt-5 min-h-0 flex-1",
+          isEmpty ? "flex items-center justify-center overflow-hidden" : "overflow-y-auto",
+        )}
+      >
+        <AnimatePresence mode="wait" initial={false}>
+          {isEmpty ? (
+            <VisualEmptyWelcome key={`empty-${kind}`} kind={kind} />
+          ) : (
+            <VisualGallery key="gallery" items={shown} />
+          )}
+        </AnimatePresence>
       </div>
 
       {error && (
@@ -231,39 +242,5 @@ export default function VisualPage() {
         </div>
       </form>
     </div>
-  );
-}
-
-function NoModels({ kind }: { kind: MediaKind }) {
-  return (
-    <motion.div
-      key={kind.toString()}
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: 0.2 }}
-    >
-      welcome to {
-        kind === "image" ? (
-          <motion.h1
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
-          >
-            Image Creation
-          </motion.h1>
-        ) : (
-          <motion.h1
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
-          >
-            Video Creation
-          </motion.h1>
-        )
-      } what would you like to create today?
-    </motion.div>
   );
 }

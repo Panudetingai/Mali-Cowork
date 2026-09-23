@@ -2,137 +2,238 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/animate-ui/primitives/radix/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
 import { Switch } from "@/components/ui/switch";
+import { skillSlug, type Skill } from "@/features/instructions";
+import { applyConnector, McpToolIcon, useInstalledConnectors, useMcpBusy } from "@/features/mcp";
 import type { OpencodeState, WorkMode } from "@/features/opencode";
-import { folderName } from "@/features/workspace";
 import { cn } from "@/lib/utils";
 import {
+  BlocksIcon,
   BrainIcon,
-  FolderOpenIcon,
+  BriefcaseIcon,
+  CheckIcon,
+  ChevronRightIcon,
   FolderPlusIcon,
+  LoaderIcon,
   PaperclipIcon,
   PlusIcon,
   RefreshCwIcon,
+  ScrollTextIcon,
   ShieldCheckIcon,
+  TerminalIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 
 type Props = {
   /** Present only while an OpenCode model is selected. */
   opencode?: OpencodeState;
   mode: WorkMode;
-  /** The chat already has a bound working folder. */
+  /** The chat already has a bound working folder, so another can join it. */
   canAddFolder: boolean;
-  onPickWorkingFolder: () => void;
   onAddFolder: () => void;
   onAddFiles: () => void;
+  skills: Skill[];
+  pickedSkills: string[];
+  onToggleSkill: (skill: Skill) => void;
+  pickedConnectors: string[];
+  onToggleConnector: (id: string) => void;
 };
 
 const itemClass =
-  "flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50";
-const labelClass =
-  "px-2 pt-1.5 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase";
+  "flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[state=open]:bg-accent data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50";
+const contentClass = "z-50 rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg";
 const separatorClass = "-mx-1 my-1 h-px bg-border";
+const iconClass = "size-4 shrink-0 text-muted-foreground";
 
-/** Everything secondary to typing lives behind the plus button. */
+const MOD = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
+
+function SubTrigger({ icon, children, count }: { icon: ReactNode; children: ReactNode; count?: number }) {
+  return (
+    <DropdownMenuSubTrigger className={itemClass}>
+      {icon}
+      <span className="flex-1">{children}</span>
+      {!!count && (
+        <span className="rounded-full bg-primary/15 px-1.5 text-[11px] font-medium text-primary tabular-nums">{count}</span>
+      )}
+      <ChevronRightIcon className="size-4 text-muted-foreground" />
+    </DropdownMenuSubTrigger>
+  );
+}
+
+/** Attach, pick skills and connectors for this prompt — nothing else lives here. */
 export function PromptOptionsMenu({
   opencode,
   mode,
   canAddFolder,
-  onPickWorkingFolder,
   onAddFolder,
   onAddFiles,
+  skills,
+  pickedSkills,
+  onToggleSkill,
+  pickedConnectors,
+  onToggleConnector,
 }: Props) {
+  const navigate = useNavigate();
+  const connectors = useInstalledConnectors();
+  const busy = useMcpBusy();
   const isCowork = mode === "cowork";
+  const usable = skills.filter((s) => s.enabled);
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          size="icon-sm"
-          className="rounded-full"
-          aria-label="More options"
-        >
+        <Button type="button" variant="outline" size="icon-sm" className="rounded-full" aria-label="Add files, skills or connectors">
           <PlusIcon />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        side="top"
-        sideOffset={8}
-        className="z-50 w-72 rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg"
-      >
+      <DropdownMenuContent align="start" side="top" sideOffset={8} className={cn(contentClass, "w-64")}>
         <DropdownMenuItem className={itemClass} onSelect={onAddFiles}>
-          <PaperclipIcon className="size-4 text-muted-foreground" />
-          Add files or photos
+          <PaperclipIcon className={iconClass} />
+          <span className="flex-1">Add files or photos</span>
+          <Kbd className="bg-transparent tracking-wider">{MOD} U</Kbd>
         </DropdownMenuItem>
-
-        {isCowork && (
-          <>
-            <DropdownMenuItem className={itemClass} onSelect={onPickWorkingFolder}>
-              <FolderOpenIcon className="size-4 text-muted-foreground" />
-              <span className="flex flex-1 flex-col">
-                {canAddFolder ? "Change working folder" : "Working folder"}
-                {canAddFolder && (
-                  <span className="text-xs text-muted-foreground">Starts a new chat</span>
-                )}
-              </span>
-              {opencode && (
-                <span className="max-w-28 truncate text-xs text-muted-foreground" title={opencode.cwd}>
-                  {folderName(opencode.cwd)}
-                </span>
-              )}
-            </DropdownMenuItem>
-            {canAddFolder && (
-              <DropdownMenuItem className={itemClass} onSelect={onAddFolder}>
-                <FolderPlusIcon className="size-4 text-muted-foreground" />
-                <span className="flex-1">Add another folder</span>
-              </DropdownMenuItem>
-            )}
-          </>
+        {isCowork && canAddFolder && (
+          <DropdownMenuItem className={itemClass} onSelect={onAddFolder}>
+            <FolderPlusIcon className={iconClass} />
+            Add another folder
+          </DropdownMenuItem>
         )}
+
+        <DropdownMenuSeparator className={separatorClass} />
+
+        <DropdownMenuSub>
+          <SubTrigger icon={<ScrollTextIcon className={iconClass} />} count={pickedSkills.length}>
+            Skills
+          </SubTrigger>
+          <DropdownMenuSubContent sideOffset={6} alignOffset={-4} className={cn(contentClass, "w-60")}>
+            {usable.length > 0 ? (
+              <div className="max-h-72 overflow-y-auto">
+                {usable.map((skill) => {
+                  const slug = skillSlug(skill);
+                  const on = pickedSkills.includes(slug);
+                  return (
+                    <DropdownMenuItem
+                      key={skill.id}
+                      className={itemClass}
+                      title={skill.description || undefined}
+                      onSelect={() => onToggleSkill(skill)}
+                    >
+                      <ScrollTextIcon className={iconClass} />
+                      <span className="min-w-0 flex-1 truncate">{slug}</span>
+                      {on && <CheckIcon className="size-4 text-primary" />}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="px-2.5 py-2 text-xs text-muted-foreground">No skills yet.</p>
+            )}
+            <DropdownMenuSeparator className={separatorClass} />
+            <DropdownMenuItem className={itemClass} onSelect={() => navigate("/settings?tab=skills")}>
+              <BriefcaseIcon className={iconClass} />
+              Manage skills
+            </DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+
+        <DropdownMenuSub>
+          <SubTrigger icon={<BlocksIcon className={iconClass} />} count={pickedConnectors.length}>
+            Connectors
+          </SubTrigger>
+          <DropdownMenuSubContent sideOffset={6} alignOffset={-4} className={cn(contentClass, "w-64")}>
+            <DropdownMenuItem className={itemClass} onSelect={() => navigate("/settings?tab=mcp")}>
+              <PlusIcon className={iconClass} />
+              Add connector
+            </DropdownMenuItem>
+            <DropdownMenuItem className={itemClass} onSelect={() => navigate("/settings?tab=mcp")}>
+              <BriefcaseIcon className={iconClass} />
+              Manage connectors
+            </DropdownMenuItem>
+            {connectors.length > 0 && <DropdownMenuSeparator className={separatorClass} />}
+            <div className="max-h-72 overflow-y-auto">
+              {connectors.map((c) => {
+                const on = pickedConnectors.includes(c.id);
+                const working = busy[c.id];
+                return (
+                  <DropdownMenuItem
+                    key={c.id}
+                    className={itemClass}
+                    title={on ? `Stop using ${c.name} for this message` : `Use ${c.name} for this message`}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      // Picking a switched-off connector turns it on too.
+                      if (!on && !c.enabled) void applyConnector(c.id, { enabled: true }).catch(() => undefined);
+                      onToggleConnector(c.id);
+                    }}
+                  >
+                    <span className="flex size-5 items-center justify-center rounded bg-background ring-1 ring-border">
+                      <McpToolIcon mcp={c.ref} size={14} />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                    {on && <CheckIcon className="size-4 text-primary" />}
+                    {working ? (
+                      <LoaderIcon className="size-4 animate-spin text-muted-foreground" />
+                    ) : (
+                      <Switch
+                        size="sm"
+                        checked={c.enabled}
+                        aria-label={c.enabled ? `Turn off ${c.name}` : `Turn on ${c.name}`}
+                        onClick={(event) => event.stopPropagation()}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onCheckedChange={(enabled) => void applyConnector(c.id, { enabled }).catch(() => undefined)}
+                      />
+                    )}
+                  </DropdownMenuItem>
+                );
+              })}
+            </div>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
 
         {opencode && (
           <>
             <DropdownMenuSeparator className={separatorClass} />
-            <DropdownMenuLabel className={labelClass}>OpenCode</DropdownMenuLabel>
-            <ToggleItem
-              icon={<BrainIcon className="size-4 text-muted-foreground" />}
-              label="Show thinking"
-              // Next to the effort control in the composer these read as the
-              // same setting; the hint is what keeps them apart.
-              hint="Display the reasoning, don't change how much of it happens"
-              checked={opencode.thinking}
-              onChange={(thinking) => opencode.update({ thinking })}
-            />
-            {isCowork && (
-              <ToggleItem
-                icon={<ShieldCheckIcon className="size-4 text-muted-foreground" />}
-                label="Auto-approve actions"
-                hint="Skip permission prompts"
-                checked={opencode.autoApprove}
-                onChange={(autoApprove) => opencode.update({ autoApprove })}
-              />
-            )}
-            <DropdownMenuItem
-              className={itemClass}
-              disabled={opencode.loading}
-              onSelect={(event) => {
-                event.preventDefault();
-                opencode.refresh();
-              }}
-            >
-              <RefreshCwIcon
-                className={cn("size-4 text-muted-foreground", opencode.loading && "animate-spin")}
-              />
-              Reconnect and reload models
-            </DropdownMenuItem>
+            <DropdownMenuSub>
+              <SubTrigger icon={<TerminalIcon className={iconClass} />}>OpenCode</SubTrigger>
+              <DropdownMenuSubContent sideOffset={6} alignOffset={-4} className={cn(contentClass, "w-72")}>
+                <ToggleItem
+                  icon={<BrainIcon className={iconClass} />}
+                  label="Show thinking"
+                  hint="Display the reasoning, don't change how much of it happens"
+                  checked={opencode.thinking}
+                  onChange={(thinking) => opencode.update({ thinking })}
+                />
+                {isCowork && (
+                  <ToggleItem
+                    icon={<ShieldCheckIcon className={iconClass} />}
+                    label="Auto-approve actions"
+                    hint="Skip permission prompts"
+                    checked={opencode.autoApprove}
+                    onChange={(autoApprove) => opencode.update({ autoApprove })}
+                  />
+                )}
+                <DropdownMenuItem
+                  className={itemClass}
+                  disabled={opencode.loading}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    opencode.refresh();
+                  }}
+                >
+                  <RefreshCwIcon className={cn(iconClass, opencode.loading && "animate-spin")} />
+                  Reconnect and reload models
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
           </>
         )}
       </DropdownMenuContent>

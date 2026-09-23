@@ -3,7 +3,7 @@ import { removeVisualItem, type VisualItem } from "@/features/visual";
 import { cn } from "@/lib/utils";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { FolderOpenIcon, ImageIcon, Trash2Icon } from "lucide-react";
+import { FolderOpenIcon, Trash2Icon } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { ZoomableImage } from "@/components/chat-blocks/zoomable-image";
@@ -100,25 +100,61 @@ function Card({ item }: { item: VisualItem }) {
   );
 }
 
-export function VisualGallery({ items, className }: { items: VisualItem[]; className?: string }) {
-  if (items.length === 0) {
-    return (
-      <div>
-        
-      </div>
-    );
-  }
+const EMPTY_TITLE: Record<"image" | "video", string> = {
+  image: "Image Creation",
+  video: "Video Creation",
+};
 
+/** Shown while the gallery for this kind has nothing yet — parent centers it. */
+export function VisualEmptyWelcome({ kind }: { kind: "image" | "video" }) {
   return (
-    <div
+    <motion.div
+      key={kind}
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -12 }}
+      transition={{ duration: 0.35, ease: "easeOut" }}
+      className="max-w-xl px-4 text-center"
+    >
+      <p className="text-2xl leading-relaxed text-muted-foreground sm:text-3xl">
+        Welcome to{" "}
+        <motion.span
+          key={kind}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.05 }}
+          className="font-semibold text-foreground"
+        >
+          {EMPTY_TITLE[kind]}
+        </motion.span>
+        {" — "}what would you like to create today?
+      </p>
+    </motion.div>
+  );
+}
+
+export function VisualGallery({ items, className }: { items: VisualItem[]; className?: string }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, y: 8 }}
+      transition={{ duration: 0.25 }}
       className={cn(
-        "grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
+        "grid w-full gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
         className,
       )}
     >
-      {items.map((item) => (
-        <Card key={item.id} item={item} />
+      {items.map((item, index) => (
+        <motion.div
+          key={item.id}
+          initial={{ opacity: 0, y: 16, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.3, delay: Math.min(index * 0.04, 0.2), ease: "easeOut" }}
+        >
+          <Card item={item} />
+        </motion.div>
       ))}
-    </div>
+    </motion.div>
   );
 }

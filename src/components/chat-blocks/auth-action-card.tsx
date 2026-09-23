@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import type { AuthActionBlock } from "@/features/chat-blocks";
 import { lobeMcpIcon } from "@/features/mcp/lobe-icons";
-import { getCustomMcps, useRegistryIcon, type McpToolRef } from "@/features/mcp";
+import { getCustomMcps, useConnectorIcon, useRegistryIcon, type McpToolRef } from "@/features/mcp";
 import { signInConnector } from "@/features/mcp/connectors";
 import { cn } from "@/lib/utils";
 import type { IconType } from "@lobehub/icons/es/types";
@@ -81,7 +81,9 @@ function DefaultAuthIcon() {
 function AuthServiceIcon({ action }: { action: AuthActionBlock }) {
   const mcp = useMemo(() => resolveAuthMcp(action), [action]);
   const hay = useMemo(() => authHaystack(action), [action]);
-  const registrySrc = useRegistryIcon(mcp?.custom?.registry?.icons);
+  const own = useConnectorIcon(mcp?.serverId);
+  const registry = useRegistryIcon(own ? undefined : mcp?.custom?.registry?.icons);
+  const registrySrc = own ?? registry;
 
   let inner: ReactNode;
 

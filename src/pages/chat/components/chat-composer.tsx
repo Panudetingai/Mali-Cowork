@@ -73,7 +73,7 @@ export function ChatComposer({
   };
 
   return (
-    <div className="relative mx-auto w-full max-w-3xl shrink-0">
+    <div className="relative w-full shrink-0">
       {hasPermission && (
         <div className="relative z-0 -mb-2.5">
           <PermissionPrompt stacked requests={permissionRequests} onReply={replyPermission} onAllowFolder={allowFolder} />

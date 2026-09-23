@@ -65,28 +65,37 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
+      # Code stays in this private repo; installers, `latest.json` for the
+      # in-app updater, and bug reports live in the public releases repo.
       - name: Build and upload release
         uses: tauri-apps/tauri-action@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Fine-grained token with Contents: read & write on the releases repo.
+          GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          # Signs the update bundles; the app checks them with `plugins.updater.pubkey`.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          owner: Panudetingai
+          repo: Mali-Cowork-Releases
+          # Tags the releases repo's own branch: this repo's commits aren't there.
+          commitish: main
           # The pushed tag; a manual run releases the version in tauri.conf.json.
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
           releaseName: Mali Cowork v__VERSION__
           releaseBody: |
+            ## What's new
+            - (write the changes here before publishing — the app shows this text in its update dialog)
+
             ## Install
-
-            ### macOS
-            Download the `.dmg`, open it, and drag **Mali Cowork** into Applications.
-
-            This build is not notarized. On first launch, use **Right click → Open** if macOS blocks the app.
-
-            ### Windows
-            Download the `.msi` installer or NSIS `setup.exe` and run the installer.
-
-            Built from this tag via GitHub Actions.
-          releaseDraft: false
+            New here? See the [install guide](https://github.com/Panudetingai/Mali-Cowork-Releases#readme).
+            Already installed? The app offers this update by itself.
+          # A draft until you press Publish: the app only sees published releases,
+          # so you can try the build (and write the notes) first.
+          releaseDraft: true
           prerelease: false
-          generateReleaseNotes: true
+          includeUpdaterJson: true
+          # Windows updates through the NSIS installer (see `installMode`).
+          updaterJsonPreferNsis: true
           tauriScript: bun run tauri
           args: ${{ matrix.args }}

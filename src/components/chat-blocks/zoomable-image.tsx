@@ -1,10 +1,10 @@
 "use client";
 
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ExternalLinkIcon, ImageOffIcon, MaximizeIcon } from "lucide-react";
-import { useState } from "react";
+import { ImageOffIcon } from "lucide-react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { MediaPreviewDialog, type MediaPreviewItem } from "./media-preview-dialog";
 
 function isRemote(src: string) {
   return /^https?:\/\//i.test(src);
@@ -44,15 +44,39 @@ export function ZoomableImage({
   alt,
   className,
   imageClassName,
+  /** Size to the image’s aspect ratio instead of stretching to the column width. */
+  fitContent,
+  localPath,
+  gallery,
+  galleryIndex = 0,
 }: {
   src: string;
   alt?: string;
   className?: string;
   imageClassName?: string;
+  fitContent?: boolean;
+  localPath?: string;
+  /** When set, the preview dialog can slide between siblings. */
+  gallery?: MediaPreviewItem[];
+  galleryIndex?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  // Cached images often finish loading before React attaches onLoad.
+  useLayoutEffect(() => {
+    setLoaded(false);
+    setFailed(false);
+    const el = imgRef.current;
+    if (el?.complete && el.naturalWidth > 0) setLoaded(true);
+  }, [src]);
+
+  const items = useMemo<MediaPreviewItem[]>(() => {
+    if (gallery?.length) return gallery;
+    return [{ src, title: alt, kind: "image", localPath }];
+  }, [gallery, src, alt, localPath]);
 
   if (failed) return <BrokenImage src={src} className={className} />;
 
@@ -62,55 +86,38 @@ export function ZoomableImage({
         type="button"
         onClick={() => setOpen(true)}
         title={alt || "Open full size"}
-        className={cn("group relative block w-full overflow-hidden text-left", className)}
+        className={cn(
+          "relative block overflow-hidden text-left",
+          fitContent ? "w-fit max-w-full" : "w-full",
+          !loaded && (fitContent ? "min-h-36 min-w-56" : "min-h-36"),
+          className,
+        )}
       >
-        {!loaded && <div className="absolute inset-0 animate-pulse bg-muted/60" aria-hidden />}
+        {!loaded && !failed && (
+          <div className="absolute inset-0 animate-pulse bg-muted/50" aria-hidden />
+        )}
         <img
+          ref={imgRef}
           src={src}
           alt={alt ?? ""}
           loading="lazy"
+          decoding="async"
           onLoad={() => setLoaded(true)}
           onError={() => setFailed(true)}
           className={cn(
-            "w-full bg-muted/30 object-contain transition-opacity",
-            loaded ? "opacity-100" : "opacity-0",
+            "relative z-[1] block max-w-full bg-muted/20 object-contain",
+            fitContent ? "h-auto w-auto" : "w-full",
             imageClassName,
           )}
         />
-        <span
-          aria-hidden
-          className="pointer-events-none absolute top-2 right-2 flex items-center gap-1 rounded-md bg-black/60 px-1.5 py-1 text-[10px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100"
-        >
-          <MaximizeIcon className="size-3" />
-          Full size
-        </span>
       </button>
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-[min(72rem,94vw)] gap-0 overflow-hidden p-0 sm:max-w-[min(72rem,94vw)]">
-          <DialogTitle className="sr-only">{alt || "Image preview"}</DialogTitle>
-          <img
-            src={src}
-            alt={alt ?? ""}
-            className="max-h-[80svh] w-full bg-muted/20 object-contain"
-          />
-          <div className="flex items-center gap-2 border-t px-3 py-2">
-            <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={alt || src}>
-              {alt || src}
-            </p>
-            {isRemote(src) && (
-              <button
-                type="button"
-                onClick={() => void openUrl(src)}
-                className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-              >
-                Open in browser
-                <ExternalLinkIcon className="size-3" />
-              </button>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <MediaPreviewDialog
+        open={open}
+        onOpenChange={setOpen}
+        items={items}
+        initialIndex={gallery?.length ? galleryIndex : 0}
+      />
     </>
   );
 }

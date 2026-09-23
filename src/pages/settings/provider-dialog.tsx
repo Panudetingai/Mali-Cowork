@@ -28,14 +28,23 @@ import {
 } from "@/features/providers";
 import { cn } from "@/lib/utils";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { CheckIcon, ExternalLinkIcon, LoaderIcon, RefreshCwIcon } from "lucide-react";
-import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
+import { CheckIcon, ExternalLinkIcon, LoaderIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import { Field, IconTile, Notice, SecretInput, StatusPill, TagInput } from "./ui";
 
 export function ProviderDialog({ provider, onClose }: { provider: ProviderDef | null; onClose: () => void }) {
   return (
     <Dialog open={!!provider} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[calc(100svh-2rem)] gap-5 overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[calc(100svh-2rem)] gap-0 overflow-y-auto p-0 sm:max-w-lg">
         {provider && <ProviderForm key={provider.id} provider={provider} onClose={onClose} />}
       </DialogContent>
     </Dialog>
@@ -124,25 +133,30 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
   }
 
   return (
-    <form onSubmit={save} className="flex flex-col gap-5">
-      <DialogHeader className="flex-row items-center gap-3 space-y-0 pr-8 text-left">
-        <IconTile>
-          <ProviderLogo logo={provider.logo} name={provider.name} className="size-6" />
-        </IconTile>
-        <div className="min-w-0">
-          <DialogTitle className="truncate">{provider.name}</DialogTitle>
-          <DialogDescription className="flex flex-wrap items-center gap-2 pt-1">
-            <StatusPill tone={status.tone}>{status.label}</StatusPill>
-            <StatusPill tone="neutral">Chat + Cowork</StatusPill>
-          </DialogDescription>
-        </div>
-      </DialogHeader>
+    <form onSubmit={save} className="flex flex-col">
+      <div className="flex flex-col gap-4 px-6 pt-6 pb-5">
+        <DialogHeader className="flex-row items-start gap-3.5 space-y-0 pr-8 text-left">
+          <IconTile className="size-11 rounded-2xl bg-muted/60">
+            <ProviderLogo logo={provider.logo} name={provider.name} className="size-7" />
+          </IconTile>
+          <div className="min-w-0 flex-1 pt-0.5">
+            <DialogTitle className="truncate text-xl font-semibold tracking-tight">{provider.name}</DialogTitle>
+            <DialogDescription asChild>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <StatusPill tone={status.tone}>{status.label}</StatusPill>
+                <StatusPill tone="neutral">Chat + Cowork</StatusPill>
+              </div>
+            </DialogDescription>
+          </div>
+        </DialogHeader>
 
-      <p className="text-sm text-muted-foreground">
-        {provider.description}
-        {" Works in Chat and in Cowork agents, with your MCP tools. Syncs on save."}
-      </p>
+        <p className="rounded-xl border border-border/60 bg-muted/25 px-3.5 py-3 text-[13px] leading-relaxed text-muted-foreground">
+          {provider.description}
+          {" Works in Chat and in Cowork agents, with your MCP tools. Syncs on save."}
+        </p>
+      </div>
 
+      <div className="flex flex-col gap-4 border-t border-border/60 px-6 py-5">
       <Field
         label="API key"
         htmlFor={ids.key}
@@ -154,10 +168,10 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
               <button
                 type="button"
                 onClick={() => void openUrl(provider.keyUrl!)}
-                className="inline-flex items-center gap-1 underline-offset-2 hover:text-foreground hover:underline"
+                className="inline-flex items-center gap-1 font-medium text-foreground/80 underline-offset-2 hover:text-foreground hover:underline"
               >
                 Get an API key
-                <ExternalLinkIcon className="size-3" />
+                <ExternalLinkIcon className="size-3 opacity-70" />
               </button>
             )}
             {!provider.keyRequired && !provider.keyUrl && "Not needed for a local server"}
@@ -180,33 +194,36 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
           onChange={(e) => set({ baseUrl: e.target.value })}
           placeholder={provider.defaultBaseUrl}
           spellCheck={false}
-          className="font-mono text-xs"
+          className="h-10 font-mono text-[13px]"
         />
       </Field>
 
-      <Field
-        label="Models"
-        htmlFor={ids.models}
-        hint="Type a model id and press Enter. Each one appears in the model picker."
-        error={attempted && models.length === 0 ? "Add at least one model" : null}
-      >
-        <TagInput
+      {isOllama ? (
+        <OllamaModelPicker
           id={ids.models}
-          values={models}
-          onChange={(next) => set({ models: next.join(", ") })}
-          placeholder={provider.defaultModels || "e.g. llama3.2, qwen3:8b"}
-          invalid={attempted && models.length === 0}
-        />
-      </Field>
-
-      {isOllama && (
-        <OllamaModels
           cloud={provider.id === "ollama-cloud"}
           baseUrl={draft.baseUrl || provider.defaultBaseUrl}
           apiKey={draft.apiKey}
           selected={models}
           onChange={(next) => set({ models: next.join(", ") })}
+          invalid={attempted && models.length === 0}
+          error={attempted && models.length === 0 ? "Add at least one model" : null}
         />
+      ) : (
+        <Field
+          label="Models"
+          htmlFor={ids.models}
+          hint="Type a model id and press Enter. Each one appears in the model picker."
+          error={attempted && models.length === 0 ? "Add at least one model" : null}
+        >
+          <TagInput
+            id={ids.models}
+            values={models}
+            onChange={(next) => set({ models: next.join(", ") })}
+            placeholder={provider.defaultModels || "Add model id…"}
+            invalid={attempted && models.length === 0}
+          />
+        </Field>
       )}
 
       <Field
@@ -225,7 +242,7 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
           value={draft.contextLimit ?? ""}
           onChange={(e) => set({ contextLimit: e.target.value.replace(/[^\d]/g, "") })}
           placeholder={provider.contextLimit ? String(provider.contextLimit) : "No limit"}
-          className="w-40"
+          className="h-10 w-full text-sm"
         />
       </Field>
 
@@ -234,8 +251,9 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
           {syncError}
         </Notice>
       )}
+      </div>
 
-      <DialogFooter className="gap-2 sm:justify-between">
+      <DialogFooter className="gap-2 border-t border-border/60 bg-muted/15 px-6 py-4 sm:justify-between">
         {saved ? (
           <Button type="button" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={reset}>
             Remove
@@ -257,110 +275,227 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
   );
 }
 
-function OllamaModels({
+function OllamaModelPicker({
+  id,
   cloud,
   baseUrl,
   apiKey,
   selected,
   onChange,
+  invalid,
+  error,
 }: {
+  id: string;
   cloud: boolean;
   baseUrl: string;
   apiKey: string;
   selected: string[];
   onChange: (models: string[]) => void;
+  invalid?: boolean;
+  error?: string | null;
 }) {
   const [available, setAvailable] = useState<string[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [detectError, setDetectError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [text, setText] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const detect = useCallback(async (url: string, key: string) => {
     setLoading(true);
-    setError(null);
+    setDetectError(null);
     try {
-      setAvailable(await ollamaListModels(url, key));
+      const list = await ollamaListModels(url, key);
+      setAvailable(list.map((m) => m.trim()).filter(Boolean));
     } catch (e) {
       setAvailable(null);
-      setError(formatOllamaError(String(e)));
+      setDetectError(formatOllamaError(String(e)));
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Detect once on open; later only on request, so typing a URL doesn't spam requests.
   const [initial] = useState({ baseUrl, apiKey });
   useEffect(() => {
     if (!cloud || initial.apiKey.trim()) void detect(initial.baseUrl, initial.apiKey);
   }, [cloud, detect, initial]);
 
+  const catalog = available ?? [];
+  const catalogSet = new Set(catalog);
+  const manual = selected.filter((m) => m.trim() && !catalogSet.has(m));
+  const catalogChoices = catalog.filter((m) => !selected.includes(m));
+
   const toggle = (model: string) =>
     onChange(selected.includes(model) ? selected.filter((m) => m !== model) : [...selected, model]);
 
-  return (
-    <div className="rounded-xl border bg-muted/30 p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="text-sm font-medium">{cloud ? "Cloud models" : "Local models"}</p>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => void detect(baseUrl, apiKey)}
-          disabled={loading}
-          className="gap-1.5"
-        >
-          <RefreshCwIcon className={cn("size-3.5", loading && "animate-spin")} />
-          Detect
-        </Button>
-      </div>
+  const addManual = (raw: string) => {
+    const parts = raw.split(",").map((t) => t.trim()).filter(Boolean);
+    if (parts.length === 0) return false;
+    const next = [...selected];
+    for (const part of parts) if (!next.includes(part)) next.push(part);
+    if (next.length !== selected.length) onChange(next);
+    return true;
+  };
 
-      {error ? (
-        <p className="text-xs leading-relaxed text-red-700 [overflow-wrap:anywhere] dark:text-red-400">
-          {error}
-          {!cloud && (
-            <>
-              {" "}
-              — run <code className="font-mono">ollama serve</code>, then Detect
-            </>
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter" || event.key === "," || (event.key === "Tab" && text.trim())) {
+      event.preventDefault();
+      if (addManual(text)) setText("");
+    }
+  };
+
+  const onPaste = (event: ClipboardEvent<HTMLInputElement>) => {
+    const pasted = event.clipboardData.getData("text");
+    if (!pasted.includes(",") && !pasted.includes("\n")) return;
+    event.preventDefault();
+    if (addManual(pasted.replace(/\n/g, ","))) setText("");
+  };
+
+  return (
+    <Field
+      label="Models"
+      htmlFor={id}
+      hint="Tap to select from Detect, or type a model id and press Enter."
+      error={error}
+    >
+      <div
+        className={cn(
+          "overflow-hidden rounded-lg border border-input bg-background shadow-xs",
+          invalid && "border-destructive ring-3 ring-destructive/20 dark:ring-destructive/40",
+        )}
+      >
+        <div className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/20 px-3 py-2.5">
+          <p className="text-[12px] text-muted-foreground">
+            {cloud ? "Ollama Cloud catalog" : "Local Ollama catalog"}
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => void detect(baseUrl, apiKey)}
+            disabled={loading}
+            className="h-8 gap-1.5 px-2.5 text-xs shadow-xs"
+          >
+            <RefreshCwIcon className={cn("size-3.5", loading && "animate-spin")} />
+            Detect
+          </Button>
+        </div>
+
+        <div className="flex flex-col gap-3 p-2.5">
+          {detectError ? (
+            <p className="text-[12px] leading-relaxed text-red-700 wrap-anywhere dark:text-red-400">
+              {detectError}
+              {!cloud && (
+                <>
+                  {" "}
+                  — run <code className="font-mono">ollama serve</code>, then Detect
+                </>
+              )}
+            </p>
+          ) : loading && catalog.length === 0 && manual.length === 0 ? (
+            <p className="text-[12px] text-muted-foreground">Searching…</p>
+          ) : null}
+
+          {manual.length > 0 && (
+            <ModelGrid
+              title="Added manually (not in Detect list)"
+              models={manual}
+              selected={selected}
+              onToggle={toggle}
+            />
           )}
-        </p>
-      ) : available === null ? (
-        <p className="text-xs text-muted-foreground">
-          {loading ? "Searching…" : cloud ? "Add an API key, then Detect models" : "Detect to list models"}
-        </p>
-      ) : available.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          No models yet. Try <code className="font-mono">ollama pull llama3.2</code>
-        </p>
-      ) : (
-        <div className="scroll-hidden flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
-          {available.map((model) => {
-            const on = selected.includes(model);
-            return (
+
+          {catalog.length > 0 ? (
+            <ModelGrid
+              title={manual.length > 0 ? "From Detect" : undefined}
+              models={[...selected.filter((m) => catalogSet.has(m)), ...catalogChoices]}
+              selected={selected}
+              onToggle={toggle}
+            />
+          ) : !loading && !detectError ? (
+            <p className="text-[12px] text-muted-foreground">
+              {cloud ? "Add an API key, then Detect — or type a model id below." : "Detect to list models, or type an id below."}
+            </p>
+          ) : null}
+
+          {!cloud && (
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Cloud via local Ollama: <code className="font-mono">ollama signin</code>, then a{" "}
+              <code className="font-mono">-cloud</code> tag.
+            </p>
+          )}
+
+          <div className="flex items-center gap-2 rounded-md border border-input bg-background px-2 shadow-xs focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50">
+            <PlusIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            <input
+              ref={inputRef}
+              id={id}
+              value={text}
+              spellCheck={false}
+              autoComplete="off"
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={onKeyDown}
+              onPaste={onPaste}
+              onBlur={() => addManual(text) && setText("")}
+              placeholder={selected.length === 0 ? "Add model id…" : "Add another model…"}
+              className="h-9 min-w-0 flex-1 bg-transparent font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-[13px] placeholder:text-muted-foreground"
+            />
+          </div>
+        </div>
+      </div>
+    </Field>
+  );
+}
+
+function ModelGrid({
+  title,
+  models,
+  selected,
+  onToggle,
+}: {
+  title?: string;
+  models: string[];
+  selected: string[];
+  onToggle: (model: string) => void;
+}) {
+  const unique = [...new Set(models.map((m) => m.trim()).filter(Boolean))];
+  if (unique.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      {title && <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{title}</p>}
+      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {unique.map((model) => {
+          const on = selected.includes(model);
+          return (
+            <li key={model}>
               <button
-                key={model}
                 type="button"
                 aria-pressed={on}
-                onClick={() => toggle(model)}
+                onClick={() => onToggle(model)}
                 className={cn(
-                  "flex max-w-full items-center gap-1 rounded-md border px-2 py-1 font-mono text-xs transition-colors",
+                  "flex w-full min-h-10 items-center gap-2 rounded-lg border px-3 py-2 text-left font-mono text-[12px] leading-snug transition-colors",
                   on
-                    ? "border-emerald-600/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"
-                    : "bg-background text-muted-foreground hover:text-foreground",
+                    ? "border-emerald-600/40 bg-emerald-500/15 text-emerald-950 dark:text-emerald-100"
+                    : "border-border/80 bg-muted/30 text-foreground hover:bg-muted/50",
                 )}
               >
-                {on && <CheckIcon className="size-3 shrink-0" />}
-                <span className="truncate">{model}</span>
+                <span
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center rounded-full border",
+                    on ? "border-emerald-600/50 bg-emerald-600 text-white" : "border-border bg-background",
+                  )}
+                  aria-hidden
+                >
+                  {on && <CheckIcon className="size-2.5" strokeWidth={3} />}
+                </span>
+                <span className="min-w-0 flex-1 truncate" title={model}>
+                  {model}
+                </span>
               </button>
-            );
-          })}
-        </div>
-      )}
-      {!cloud && (
-        <p className="mt-2 text-xs text-muted-foreground">
-          For cloud models via local Ollama, run <code className="font-mono">ollama signin</code> and add
-          a <code className="font-mono">-cloud</code> model, e.g. gpt-oss:120b-cloud
-        </p>
-      )}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

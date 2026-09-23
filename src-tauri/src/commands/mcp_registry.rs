@@ -343,6 +343,10 @@ fn image_type(content_type: &str, bytes: &[u8]) -> Option<&'static str> {
         Some("image/webp")
     } else if bytes.starts_with(&[0, 0, 1, 0]) {
         Some("image/x-icon")
+    } else if bytes.len() > 12 && &bytes[4..8] == b"ftyp" && matches!(&bytes[8..12], b"avif" | b"avis") {
+        Some("image/avif")
+    } else if bytes.starts_with(b"BM") && bytes.len() > 26 {
+        Some("image/bmp")
     } else {
         None
     };
@@ -401,6 +405,70 @@ pub async fn mcp_registry_icon(urls: Vec<String>) -> Option<String> {
     }
     cache.insert(key, found.clone());
     found
+}
+
+/// Largest picture the user may point a connector's icon at; the app
+/// shrinks it to a small PNG right after.
+const MAX_CUSTOM_ICON_BYTES: usize = 8 * 1024 * 1024;
+
+/// An image link the user pasted as a connector's icon, as a data URL.
+/// Unlike registry icons, a failure says why, and nothing is cached: the
+/// user may fix the link and try again.
+#[tauri::command]
+pub async fn mcp_fetch_icon(url: String) -> Result<String, String> {
+    let url = https_url(&url).ok_or("Use a public https:// link")?;
+    let client = reqwest::Client::builder()
+        // Some image hosts turn away clients that don't look like a browser.
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15")
+        .timeout(Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::limited(6))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let response = client
+        .get(url)
+        .header(reqwest::header::ACCEPT, "image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5")
+        .send()
+        .await
+        .map_err(|e| {
+            if e.is_timeout() {
+                "The site took too long to answer".to_string()
+            } else {
+                "Couldn't reach that site".to_string()
+            }
+        })?;
+    https_url(response.url().as_str()).ok_or("The link redirected somewhere that isn't public https")?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(match status.as_u16() {
+            401 | 403 => format!("The site refused to share that image ({status}). Try another link, or download it and upload it"),
+            404 => "Nothing at that link (404)".to_string(),
+            _ => format!("The site answered {status}"),
+        });
+    }
+    if response.content_length().is_some_and(|n| n as usize > MAX_CUSTOM_ICON_BYTES) {
+        return Err("That image is over 8 MB".into());
+    }
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    let bytes = response.bytes().await.map_err(|_| "The download was cut off".to_string())?;
+    if bytes.len() > MAX_CUSTOM_ICON_BYTES {
+        return Err("That image is over 8 MB".into());
+    }
+    let Some(mime) = image_type(&content_type, &bytes) else {
+        let kind = content_type.split(';').next().unwrap_or_default().trim();
+        return Err(if kind.contains("html") {
+            "That link opens a web page, not an image. Right-click the picture and use \"Copy Image Address\"".into()
+        } else if kind.is_empty() {
+            "That link isn't an image".into()
+        } else {
+            format!("That link isn't an image this app can show ({kind})")
+        });
+    };
+    Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&bytes)))
 }
 
 #[cfg(test)]

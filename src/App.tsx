@@ -1,3 +1,4 @@
+import { UpdateDialog } from "@/features/updater/update-dialog";
 import { AppLayout } from "@/layouts/app-layout";
 import { OnboardingDialog, openOnboarding, isOnboardingDone, FORCE_ONBOARDING } from "@/features/onboarding";
 import { watchSkills } from "@/features/skills";
@@ -40,6 +41,7 @@ export default function AppWithOnboarding() {
   return (
     <>
       <OnboardingDialog />
+      <UpdateDialog />
       <App />
     </>
   );

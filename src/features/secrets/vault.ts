@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { createStore } from "@/lib/local-store";
 
 /**
@@ -91,6 +91,7 @@ function flush() {
 /** Read the vault, then let each store move legacy plain-text keys into it. */
 export async function loadVault() {
   try {
+    if (!isTauri()) throw new Error("Keychain is only available in the desktop app");
     const snapshot = await invoke<VaultSnapshot>("secrets_load");
     values = { ...snapshot.values };
     const moved = migrations.map((m) => m.load()).some(Boolean);

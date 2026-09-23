@@ -13,7 +13,7 @@ export function ChatRichBlocks({
 }) {
   if (authActions.length === 0 && mediaPreviews.length === 0) return null;
   return (
-    <div className="mt-3 flex flex-col gap-3">
+    <div className="mt-3 flex w-full flex-col gap-3">
       <AuthActionList actions={authActions} />
       <MediaPreviewList items={mediaPreviews} />
     </div>

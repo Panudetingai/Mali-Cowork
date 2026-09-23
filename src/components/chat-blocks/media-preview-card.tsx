@@ -5,8 +5,17 @@ import type { MediaPreviewBlock } from "@/features/chat-blocks";
 import { cn } from "@/lib/utils";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
-import { ExternalLinkIcon, FilmIcon, FolderOpenIcon, GlobeIcon, ImageIcon, VideoOffIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import {
+  ExternalLinkIcon,
+  FilmIcon,
+  FolderOpenIcon,
+  GlobeIcon,
+  ImageIcon,
+  MaximizeIcon,
+  VideoOffIcon,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { MediaPreviewDialog, type MediaPreviewItem } from "./media-preview-dialog";
 import { ZoomableImage } from "./zoomable-image";
 
 function hostOf(url: string) {
@@ -108,41 +117,99 @@ function VideoBody({ item, src }: { item: MediaPreviewBlock; src: string }) {
 export function MediaPreviewCard({
   item,
   className,
+  gallery,
+  galleryIndex = 0,
 }: {
   item: MediaPreviewBlock;
   className?: string;
+  gallery?: MediaPreviewItem[];
+  galleryIndex?: number;
 }) {
   const local = useLocalMedia(item.local ? item.url : undefined);
   const source = item.local ? local.url : item.url;
   const title = item.title?.trim() || (item.local ? fileNameOf(item.url) : hostOf(item.url));
   const Icon = KIND_ICON[item.kind];
+  const [videoOpen, setVideoOpen] = useState(false);
+  const videoPreview = useMemo<MediaPreviewItem[]>(
+    () => [{ src: source!, title, kind: "video", localPath: item.local ? item.url : undefined }],
+    [source, title, item.local, item.url],
+  );
+
+  if (item.kind === "image") {
+    if (item.local && !source) {
+      return (
+        <div
+          data-skip-markdown-delegate
+          className={cn(
+            "flex h-40 w-full max-w-2xl items-center justify-center rounded-xl border border-border/60 bg-muted/30 text-xs text-muted-foreground",
+            className,
+          )}
+        >
+          {local.failed ? "This file is no longer there" : "Loading…"}
+        </div>
+      );
+    }
+    if (!source) return null;
+    return (
+      <div data-skip-markdown-delegate className={cn("w-fit max-w-full", className)}>
+        <ZoomableImage
+          src={item.thumbnail ?? source}
+          alt={title}
+          fitContent
+          localPath={item.local ? item.url : undefined}
+          gallery={gallery}
+          galleryIndex={galleryIndex}
+          className="overflow-hidden rounded-xl border border-border/60"
+          imageClassName="max-h-96"
+        />
+      </div>
+    );
+  }
 
   return (
     <div
       data-skip-markdown-delegate
       className={cn(
-        "flex flex-col overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm",
+        "flex w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm",
         className,
       )}
     >
       {item.local && !source && (
-        <div className="flex h-40 items-center justify-center bg-muted/40 text-xs text-muted-foreground">
+        <div className="flex h-40 w-full items-center justify-center bg-muted/40 text-xs text-muted-foreground">
           {local.failed ? "This file is no longer there" : "Loading…"}
         </div>
       )}
-      {item.kind === "image" && source && (
-        <ZoomableImage src={item.thumbnail ?? source} alt={title} imageClassName="max-h-72" />
+      {item.kind === "video" && source && (
+        <>
+          <div className="group relative">
+            <VideoBody item={item} src={source} />
+            <button
+              type="button"
+              onClick={() => setVideoOpen(true)}
+              aria-label="Open preview"
+              className="absolute top-2 right-2 flex items-center gap-1 rounded-md bg-black/60 px-1.5 py-1 text-[10px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100"
+            >
+              <MaximizeIcon className="size-3" />
+              Preview
+            </button>
+          </div>
+          <MediaPreviewDialog open={videoOpen} onOpenChange={setVideoOpen} items={videoPreview} />
+        </>
       )}
-      {item.kind === "video" && source && <VideoBody item={item} src={source} />}
       {item.kind === "link" && item.thumbnail && (
-        <ZoomableImage src={item.thumbnail} alt={title} imageClassName="max-h-52" />
+        <ZoomableImage
+          src={item.thumbnail}
+          alt={title}
+          className="overflow-hidden"
+          imageClassName="max-h-52 w-full"
+        />
       )}
 
       <div className="flex items-start gap-2 px-3 py-2.5">
         <span className="mt-0.5 shrink-0 text-muted-foreground">
           <Icon className="size-3.5" aria-hidden />
         </span>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 max-w-lg">
           {item.kind === "link" ? (
             <LinkPreviewCard href={item.url} className="text-sm font-medium no-underline">
               {title}
@@ -187,8 +254,8 @@ export function MediaPreviewList({
   return (
     <div
       className={cn(
-        // One wide card reads better than a half-width one; two or more tile.
-        items.length === 1 ? "grid gap-2" : "grid gap-2 sm:grid-cols-2",
+        "w-full max-w-2xl",
+        items.length > 1 ? "grid gap-2 sm:grid-cols-2" : "grid gap-2",
         className,
       )}
     >

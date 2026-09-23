@@ -48,6 +48,12 @@ export type GenerateRequest = {
   attachments?: Attachment[];
   /** Custom instructions and enabled skills (Settings → Instructions). */
   instructions?: string;
+  /**
+   * Earlier turns of this chat the agent's session hasn't seen, as a
+   * transcript: another model answered them. Agents that keep their own
+   * session hear it once; provider APIs get `history` instead.
+   */
+  handoff?: string;
   /** Summary of the chat this one continues. */
   summary?: string;
   /** Skills the user called with `/name` in this prompt. */
@@ -78,6 +84,13 @@ function withInstructions(prompt: string, request: GenerateRequest) {
 /** The earlier chat's summary, heard once by agents that keep a session. */
 function withEarlierSummary(prompt: string, request: GenerateRequest) {
   return request.summary && !request.sessionId ? withSummary(prompt, request.summary) : prompt;
+}
+
+/** Turns another model had in this chat, so a session picked up mid-chat can carry on. */
+function withHandoff(prompt: string, request: GenerateRequest) {
+  const handoff = request.handoff?.trim();
+  if (!handoff) return prompt;
+  return `<earlier_conversation>\nThis chat was answered by other models before you. What was said, which you can't see in your own session:\n\n${handoff}\n</earlier_conversation>\n\nContinue the conversation from here.\n\n${prompt}`;
 }
 
 const NO_IMAGES = (name: string) =>
@@ -152,7 +165,7 @@ export async function generateStream(
     withCalledSkills(request.prompt, request.skills) +
     (await buildAttachmentAppendix(attachments, { filesInline: opencode }));
   // Provider APIs get the summary through the history instead.
-  const prompt = api && !opencode ? withFiles : withEarlierSummary(withFiles, request);
+  const prompt = api && !opencode ? withFiles : withEarlierSummary(withHandoff(withFiles, request), request);
 
   // OpenCode: opencode:<provider/model>
   if (opencode) {

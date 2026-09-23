@@ -41,6 +41,8 @@ export const gitApi = {
     invoke<void>("git_switch_branch", { folder, name, remote }),
   createBranch: (folder: string, name: string) => invoke<void>("git_create_branch", { folder, name }),
 
+  stash: (folder: string) => invoke<{ message: string }>("git_stash", { folder }),
+
   fetch: (folder: string) => invoke<{ message: string }>("git_fetch", { folder }),
   pull: (folder: string) => invoke<{ message: string }>("git_pull", { folder }),
   push: (folder: string) => invoke<{ message: string }>("git_push", { folder }),

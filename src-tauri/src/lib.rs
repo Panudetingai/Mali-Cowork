@@ -23,11 +23,11 @@ use commands::antigravity::{antigravity_abort, antigravity_check, antigravity_ge
 use commands::git::{
     git_avatars, git_branches, git_changes, git_commit, git_commit_context, git_commit_file_diff, git_commit_files,
     git_create_branch, git_discard, git_fetch, git_file_diff, git_init, git_log, git_pull,
-    git_push, git_stage, git_stage_all, git_status, git_switch_branch, git_unstage,
+    git_push, git_stage, git_stage_all, git_stash, git_status, git_switch_branch, git_unstage,
 };
 use commands::mcp::{mcp_auth, mcp_auth_remove, mcp_diagnose, mcp_status, mcp_sync};
 use commands::mcp_oauth::{mcp_auth_cancel, mcp_oauth_prepare};
-use commands::mcp_registry::{mcp_registry_get, mcp_registry_icon, mcp_registry_search};
+use commands::mcp_registry::{mcp_fetch_icon, mcp_registry_get, mcp_registry_icon, mcp_registry_search};
 use commands::native_alert::native_alert;
 use commands::setup::{setup_cancel, setup_codex_login, setup_install, setup_plan, setup_scan};
 use commands::opencode::{
@@ -124,6 +124,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
+        // Updates come from the public releases repo; see `plugins.updater`.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .menu(app_menu)
         .setup(|app| {
             supervisor::exit_on_signals();
@@ -179,6 +182,7 @@ pub fn run() {
             mcp_registry_search,
             mcp_registry_get,
             mcp_registry_icon,
+            mcp_fetch_icon,
             setup_scan,
             setup_plan,
             setup_install,
@@ -206,6 +210,7 @@ pub fn run() {
             git_stage_all,
             git_unstage,
             git_discard,
+            git_stash,
             git_commit,
             git_commit_context,
             git_log,

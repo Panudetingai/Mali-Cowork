@@ -7,11 +7,14 @@ import { loadOpencodeSettings, ProviderKeyDialog } from "@/features/opencode";
 import { FirstRunWizard } from "@/features/onboarding";
 import { getProject, useProjects } from "@/features/projects";
 import { folderName, normalizeFolder } from "@/features/workspace";
+import { cn } from "@/lib/utils";
 import { useChat } from "@/pages/chat/hooks/use-chat";
+import { AnimatePresence, motion } from "motion/react";
 import { startTransition, type ReactNode } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ChatComposer } from "./components/chat-composer";
 import { ChatMessagePanel } from "./components/chat-message-panel";
+import { ChatModeNav } from "./components/chat-mode-nav";
 import ChatTitle from "./components/chat-title";
 import { loadWorkMode, saveWorkMode, type WorkMode } from "./components/work-mode-toggle";
 
@@ -84,48 +87,78 @@ export default function ChatLayout() {
 
   return withGit(
     <div className="flex h-full min-h-0 w-full min-w-0">
-      <div
-        className={`relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden items-center gap-4 px-4 py-4 sm:gap-5 sm:py-5 ${hasMessages ? "justify-end" : "justify-center"}`}
-      >
-        {!hasMessages && <ChatTitle mode={mode} project={project} />}
-        {!hasMessages && <FirstRunWizard />}
+      <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col px-4 pt-6 pb-4 sm:px-6">
+        <ChatModeNav mode={mode} onModeChange={changeMode} />
 
-        <ChatMessagePanel
-          messages={messages}
-          isLoading={isLoading}
-          containerRef={containerRef}
-          atBottom={atBottom}
-          onScrollToBottom={scrollToBottom}
-          session={session}
-          project={project}
-          continuedFrom={session?.continuedFrom}
-          onRetry={(id) => void retryMessage(id)}
-          onRate={rateMessage}
-        />
+        <div
+          className={cn(
+            "relative mt-5 min-h-0 flex-1",
+            hasMessages ? "flex min-h-0 flex-col overflow-hidden" : "flex items-center justify-center overflow-hidden",
+          )}
+        >
+          <AnimatePresence mode="wait" initial={false}>
+            {!hasMessages ? (
+              <motion.div
+                key={`empty-${mode}`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="flex flex-col items-center gap-4"
+              >
+                <ChatTitle mode={mode} project={project} />
+                <FirstRunWizard />
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
 
-        {gitFolder && <GitBar />}
+          {/* Always mounted so scroll/follow keeps a container ref when the first reply arrives. */}
+          <ChatMessagePanel
+            messages={messages}
+            isLoading={isLoading}
+            containerRef={containerRef}
+            atBottom={atBottom}
+            onScrollToBottom={scrollToBottom}
+            session={session}
+            project={project}
+            continuedFrom={session?.continuedFrom}
+            onRetry={(id) => void retryMessage(id)}
+            onRate={rateMessage}
+            className={cn(
+              hasMessages ? "min-h-0 flex-1" : "pointer-events-none absolute h-px w-px overflow-hidden opacity-0",
+            )}
+          />
+        </div>
 
-        <ChatComposer
-          key={`${chatId ?? "new"}:${mode}:${project?.id ?? ""}`}
-          mode={mode}
-          projectId={project?.id}
-          session={session}
-          messages={messages}
-          isLoading={isLoading}
-          canStop={canStop}
-          promptInputRef={promptInputRef}
-          permissions={permissions}
-          questions={questions}
-          placeholder={hasMessages ? "Ask a follow-up" : undefined}
-          onReplyPermission={replyPermission}
-          onAnswerQuestion={answerQuestion}
-          onAllowFolder={allowFolder}
-          onStop={stop}
-          onNewChat={startNewChat}
-          onSummarize={summarizeAndContinue}
-          onModeChange={changeMode}
-          onSubmit={sendMessage}
-        />
+        {gitFolder && (
+          <div className="mt-3 shrink-0">
+            <GitBar />
+          </div>
+        )}
+
+        <div className="relative mt-4 shrink-0">
+          <ChatComposer
+            key={`${chatId ?? "new"}:${mode}:${project?.id ?? ""}`}
+            mode={mode}
+            projectId={project?.id}
+            session={session}
+            messages={messages}
+            isLoading={isLoading}
+            canStop={canStop}
+            promptInputRef={promptInputRef}
+            permissions={permissions}
+            questions={questions}
+            placeholder={hasMessages ? "Ask a follow-up" : undefined}
+            onReplyPermission={replyPermission}
+            onAnswerQuestion={answerQuestion}
+            onAllowFolder={allowFolder}
+            onStop={stop}
+            onNewChat={startNewChat}
+            onSummarize={summarizeAndContinue}
+            onModeChange={changeMode}
+            onSubmit={sendMessage}
+          />
+        </div>
 
         <ProviderKeyDialog />
         <CursorLoginDialog />

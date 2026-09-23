@@ -50,7 +50,9 @@
         "base-uri": "'self'",
         "form-action": "'none'"
       },
-      "dangerousDisableAssetCspModification": ["style-src"]
+      "dangerousDisableAssetCspModification": [
+        "style-src"
+      ]
     }
   },
   "bundle": {
@@ -59,7 +61,7 @@
     "category": "DeveloperTool",
     "publisher": "Panudet",
     "copyright": "© Panudet. All rights reserved.",
-    "homepage": "https://mali-cowork.example.com",
+    "homepage": "https://github.com/Panudetingai/Mali-Cowork-Releases",
     "license": "Proprietary",
     "icon": [
       "icons/32x32.png",
@@ -78,13 +80,27 @@
       }
     },
     "resources": [],
-    "externalBin": ["binaries/mali-mcp-runner"],
+    "externalBin": [
+      "binaries/mali-mcp-runner"
+    ],
     "macOS": {
       "frameworks": [],
       "minimumSystemVersion": "10.13",
       "signingIdentity": null,
       "entitlements": null,
       "exceptionDomain": ""
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIxRTcwQURGRTA4QTU0NkQKUldSdFZJcmczd3Juc1FVTndQUHVrbUZpajAvU2JUQzlsOTViNTFMU2dNSkJZV0luWmw3d0pWaEUK",
+      "endpoints": [
+        "https://github.com/Panudetingai/Mali-Cowork-Releases/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

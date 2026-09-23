@@ -1,5 +1,5 @@
 import { SmitheryIcon } from "@/components/app/smithery-icon";
-import { useRegistryIcon, type CustomMcp, type McpDef } from "@/features/mcp";
+import { useConnectorIcon, useRegistryIcon, type CustomMcp, type McpDef } from "@/features/mcp";
 import { lobeMcpIcon } from "@/features/mcp/lobe-icons";
 import { isSmitheryInstall } from "@/features/smithery";
 import { cn } from "@/lib/utils";
@@ -38,6 +38,15 @@ export function RegistryIcon({
   );
 }
 
+/** A picture in the same tile the brand marks use. */
+export function PictureTile({ src, size = 28, className }: { src: string; size?: number; className?: string }) {
+  return (
+    <span className={cn(TILE, className)} style={{ width: size, height: size }}>
+      <img src={src} alt="" className="size-full object-contain p-[3px]" draggable={false} />
+    </span>
+  );
+}
+
 export function ConnectorIcon({
   server,
   custom,
@@ -49,6 +58,8 @@ export function ConnectorIcon({
   size?: number;
   className?: string;
 }) {
+  const own = useConnectorIcon(custom?.id ?? server?.id);
+  if (own) return <PictureTile src={own} size={size} className={className} />;
   if (custom) {
     return (
       <RegistryIcon

@@ -27,6 +27,7 @@ type Props = {
   continuedFrom?: ChatSession["continuedFrom"];
   onRetry?: (userMessageId: string) => void;
   onRate?: (messageId: string, value: "up" | "down") => void;
+  className?: string;
 };
 
 export function ChatMessagePanel({
@@ -40,11 +41,18 @@ export function ChatMessagePanel({
   continuedFrom,
   onRetry,
   onRate,
+  className,
 }: Props) {
   const canExport = !!session && messages.length > 0 && !isLoading;
 
   return (
-    <div className={cn("flex min-h-0 w-full max-w-3xl flex-col gap-3 flex-1", messages.length > 0 ? "flex-1" : "flex-none")}>
+    <div
+      className={cn(
+        "mx-auto flex min-h-0 w-full flex-col gap-3 flex-1",
+        messages.length > 0 ? "flex-1" : "flex-none",
+        className,
+      )}
+    >
       {(canExport || (project && messages.length > 0)) && (
         <div className="flex items-center justify-between gap-2 px-1">
           {project && messages.length > 0 ? <ProjectChip project={project} /> : <span />}

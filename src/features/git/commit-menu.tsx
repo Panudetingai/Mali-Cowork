@@ -55,7 +55,7 @@ export function useSync() {
           </>
         ),
         confirmLabel: "Pull",
-        onConfirm: () => void act("Pulling…", async () => (await gitApi.pull(folder)).message),
+        onConfirm: () => void act("Pulling…", async () => (await gitApi.pull(folder)).message, "pull"),
       }),
     push: () =>
       confirm({
@@ -72,9 +72,9 @@ export function useSync() {
           </>
         ),
         confirmLabel: branch?.upstream ? "Push" : "Publish",
-        onConfirm: () => void act("Pushing…", async () => (await gitApi.push(folder)).message),
+        onConfirm: () => void act("Pushing…", async () => (await gitApi.push(folder)).message, "push"),
       }),
-    fetch: () => void act("Fetching…", async () => (await gitApi.fetch(folder)).message),
+    fetch: () => void act("Fetching…", async () => (await gitApi.fetch(folder)).message, "fetch"),
   };
 }
 

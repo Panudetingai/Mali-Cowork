@@ -37,7 +37,8 @@ const markdownExtras = {
       <ZoomableImage
         src={src}
         alt={alt ?? ""}
-        className={cn("my-2 max-w-full rounded-xl border border-border/60", className)}
+        fitContent
+        className={cn("my-2 max-w-full overflow-hidden rounded-xl border border-border/60", className)}
         imageClassName="max-h-80"
       />
     ) : null,

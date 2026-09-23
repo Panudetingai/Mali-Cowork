@@ -11,4 +11,6 @@ export * from "./oauth-limits";
 export * from "./export";
 export * from "./tool-label";
 export * from "./sandbox";
+export * from "./picked";
+export * from "./icon-override";
 export { McpToolIcon } from "./mcp-tool-icon";
