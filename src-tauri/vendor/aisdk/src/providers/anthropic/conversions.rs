@@ -1,6 +1,6 @@
 use crate::core::Message;
 use crate::core::language_model::{
-    LanguageModelOptions, LanguageModelResponseContentType, ReasoningEffort, Usage,
+    LanguageModelOptions, LanguageModelResponseContentType, Usage,
 };
 use crate::providers::anthropic::client::{
     AnthropicAssistantMessageParamContent, AnthropicMessageDeltaUsage, AnthropicMessageParam,
@@ -124,20 +124,13 @@ impl From<LanguageModelOptions> for AnthropicOptions {
             ));
         }
 
-        // convert reasoning to antropic thinking
-        request.thinking(options.reasoning_effort.map(|effort| match effort {
-            // Low is 25% of the max_tokens
-            ReasoningEffort::Low => AnthropicThinking::Enable {
-                budget_tokens: (max_tokens / 4) as usize,
-            },
-            // Medium is 50% of the max_tokens
-            ReasoningEffort::Medium => AnthropicThinking::Enable {
-                budget_tokens: (max_tokens / 2) as usize,
-            },
-            // High is 75% of the max_tokens
-            ReasoningEffort::High => AnthropicThinking::Enable {
-                budget_tokens: (max_tokens - (max_tokens / 4)) as usize,
-            },
+        // Anthropic takes a token budget rather than a level, so the level is
+        // a fraction of what this request may write. `none` disables thinking.
+        request.thinking(options.reasoning_effort.as_ref().and_then(|effort| {
+            let fraction = effort.budget_fraction()?;
+            Some(AnthropicThinking::Enable {
+                budget_tokens: ((max_tokens as f32) * fraction) as usize,
+            })
         }));
 
         request.build().expect("Failed to build AntropicRequest")

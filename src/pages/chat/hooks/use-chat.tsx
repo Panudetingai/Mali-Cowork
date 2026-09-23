@@ -54,6 +54,7 @@ import type {
     StreamMetadata,
     TodoItem,
 } from "@/pages/chat/api/chat";
+import { effortFor } from "@/features/effort";
 import { generateStream, runModelIdFor } from "@/pages/chat/api/router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -459,6 +460,7 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
               .filter(Boolean)
               .join("\n\n"),
             skills: skillsInPrompt(prompt, [...(project?.skills ?? []), ...getInstructions().skills]),
+            effort: resend.effort,
             summary: getChat(chatKey)?.continuedFrom?.summary,
           },
           {
@@ -550,6 +552,9 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
           modelName: model.name,
           maxTokens: budget.maxTokens,
           autoNewChat: budget.autoNewChat,
+          // Only ever a level this model listed, so a retry on another model
+          // falls back to that model's own default instead of being refused.
+          effort: effortFor(model.id, model.efforts),
         },
       }),
     [executeSend],

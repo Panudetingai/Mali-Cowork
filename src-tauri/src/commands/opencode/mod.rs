@@ -56,6 +56,8 @@ pub struct OpencodeRequest {
     pub session_id: Option<String>,
     /// Forward reasoning parts to the UI.
     pub thinking: Option<bool>,
+    /// How hard the model should think, as one of its own effort levels.
+    pub effort: Option<String>,
     /// Approve every permission request without asking.
     pub auto_approve: Option<bool>,
     /// `chat` answers without touching files; `cowork` (default) works in `cwd`.
@@ -139,6 +141,15 @@ pub struct OpencodeModel {
     pub context_limit: Option<u64>,
     /// Can call tools (files, MCP); `None` when the model has no metadata.
     pub tool_call: Option<bool>,
+    /// What the model produces: `text`, `image`, `video`. A model that makes
+    /// pictures is called over its own API rather than through an agent
+    /// (see `commands::media`), so the front end has to be able to tell.
+    pub output: Vec<String>,
+    /// Reasoning effort levels this model accepts, weakest first — the keys of
+    /// opencode's per-model `variants`, which is also what a prompt passes
+    /// back as `variant`. Empty when the model does not think in levels, and
+    /// the app then shows no effort control for it at all.
+    pub efforts: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]

@@ -51,6 +51,9 @@ pub struct AntigravityRequest {
     /// `"modelProvider": "gemini"` in the CLI's own settings.
     #[serde(default)]
     pub api_key: Option<String>,
+    /// How hard the model should think: `low`, `medium` or `high`, which is
+    /// all `agy --effort` takes.
+    pub effort: Option<String>,
 }
 
 impl AntigravityRequest {
@@ -102,4 +105,7 @@ pub struct AntigravityCheckResult {
 pub struct AntigravityModel {
     pub id: String,
     pub name: String,
+    /// Reasoning effort levels the CLI accepts for it, weakest first.
+    #[serde(default)]
+    pub efforts: Vec<String>,
 }

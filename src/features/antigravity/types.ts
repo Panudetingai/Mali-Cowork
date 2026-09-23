@@ -14,6 +14,8 @@ export type AntigravityRequest = {
   folders?: FolderGrantInput[];
   /** Identifies the run so it can be stopped. */
   runId: string;
+  /** How hard the model should think; `low`, `medium` or `high`. */
+  effort?: string;
 };
 
 export type AntigravityCheckResult = {
@@ -25,4 +27,9 @@ export type AntigravityCheckResult = {
   error?: string;
 };
 
-export type AntigravityModel = { id: string; name: string };
+export type AntigravityModel = {
+  id: string;
+  name: string;
+  /** Reasoning effort levels the model accepts, weakest first; empty for none. */
+  efforts?: string[];
+};

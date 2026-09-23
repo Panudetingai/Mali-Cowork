@@ -170,10 +170,16 @@ impl From<types::ResponseUsage> for Usage {
 
 impl From<ReasoningEffort> for types::ReasoningEffort {
     fn from(value: ReasoningEffort) -> Self {
-        match value {
-            ReasoningEffort::Low => client::ReasoningEffort::Minimal,
-            ReasoningEffort::Medium => client::ReasoningEffort::Medium,
-            ReasoningEffort::High => client::ReasoningEffort::High,
+        // The Responses API names the same levels, so each one maps straight
+        // across. A level this build does not know is read by name and falls
+        // back to the middle, which is the API's own default behaviour.
+        match value.as_str() {
+            "none" => client::ReasoningEffort::None,
+            "minimal" => client::ReasoningEffort::Minimal,
+            "low" => client::ReasoningEffort::Low,
+            "high" => client::ReasoningEffort::High,
+            "xhigh" | "max" => client::ReasoningEffort::XHigh,
+            _ => client::ReasoningEffort::Medium,
         }
     }
 }

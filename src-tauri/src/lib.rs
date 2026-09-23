@@ -2,12 +2,14 @@ mod ai;
 mod chat_stream;
 mod commands;
 pub mod mcp_runner;
+mod media;
 pub mod panic_log;
 mod sandbox;
 
 use commands::attachments::{attachment_import, attachment_save};
 use commands::link_preview::link_preview;
 use commands::chat::{chat_generate, ollama_list_models, provider_check_key, provider_env_keys};
+use commands::media::media_generate;
 use commands::checkpoint::{
     checkpoint_add_folder, checkpoint_begin, checkpoint_diff, checkpoint_finish, checkpoint_open,
     checkpoint_preview, checkpoint_restore,
@@ -145,6 +147,7 @@ pub fn run() {
             attachment_save,
             link_preview,
             chat_generate,
+            media_generate,
             checkpoint_begin,
             checkpoint_add_folder,
             checkpoint_finish,

@@ -44,6 +44,8 @@ pub struct CodexRequest {
     /// Attached pictures (paths from `attachment_import`).
     #[serde(default)]
     pub images: Vec<String>,
+    /// How hard the model should think; one of the model's own levels.
+    pub effort: Option<String>,
 }
 
 impl CodexRequest {
@@ -95,4 +97,8 @@ pub struct CodexCheckResult {
 pub struct CodexModel {
     pub id: String,
     pub name: String,
+    /// Reasoning effort levels this model accepts, weakest first, from the
+    /// catalogue's `supported_reasoning_levels`. Empty means no control.
+    #[serde(default)]
+    pub efforts: Vec<String>,
 }

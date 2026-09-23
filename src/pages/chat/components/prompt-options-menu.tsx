@@ -105,6 +105,9 @@ export function PromptOptionsMenu({
             <ToggleItem
               icon={<BrainIcon className="size-4 text-muted-foreground" />}
               label="Show thinking"
+              // Next to the effort control in the composer these read as the
+              // same setting; the hint is what keeps them apart.
+              hint="Display the reasoning, don't change how much of it happens"
               checked={opencode.thinking}
               onChange={(thinking) => opencode.update({ thinking })}
             />

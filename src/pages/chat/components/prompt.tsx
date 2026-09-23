@@ -32,12 +32,14 @@ import { filterSkills, skillSlug, useInstructions, type Skill } from "@/features
 import { useProjects } from "@/features/projects";
 import { cn } from "@/lib/utils";
 import { CoworkBot } from "@/components/anim/cowork-bot";
+import { useMcpConnections } from "@/features/mcp";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   ArrowUpIcon,
   EyeIcon,
   FolderIcon,
+  FolderLockIcon,
   LoaderIcon,
   SquareIcon,
   UploadIcon,
@@ -62,11 +64,13 @@ import {
 } from "../models";
 import type { ChatMessage } from "../types";
 import { useDebouncedValue } from "../hooks/use-debounced-value";
+import { effortFor, effortLevels, setEffortFor, useEffortChoices } from "@/features/effort";
 import { ContextMeter } from "./context-meter";
 import { buildMentionAppendix, parseMentions } from "./mention/mentions";
 import { filterMentions, MentionPopup } from "./mention/mention-popup";
 import { SkillPopup } from "./mention/skill-popup";
 import { useWorkspaceFiles } from "./mention/use-workspace-files";
+import { EffortPicker } from "./effort-picker";
 import { ModelPicker } from "./model-picker";
 import { PromptOptionsMenu } from "./prompt-options-menu";
 import { WorkModeToggle } from "./work-mode-toggle";
@@ -154,6 +158,9 @@ export default function PromptInput({
     !!ranOn && agentOf(ranOn) !== agentOf(selected.id)
       ? { from: agentNameOf(ranOn), to: agentNameOf(selected.id) }
       : undefined;
+  // Re-reads when the user moves the slider; the store keeps it per model.
+  useEffortChoices();
+  const effort = effortFor(selected.id, selected.efforts);
   const budget = contextBudgetFor(selected);
   const usageLive = useMemo(() => contextUsage(messages), [messages]);
   const usage = useDebouncedValue(usageLive, 400, !!isLoading);
@@ -572,13 +579,15 @@ export default function PromptInput({
             onAddFiles={() => void pickFiles()}
           />
           <WorkModeToggle mode={mode} onModeChange={onModeChange} />
-          {isCowork && (
+          {isCowork ? (
             <FolderChip
               opencode={opencode}
               cwd={cwd}
               boundToChat={!!session?.cwd}
               onClick={pickWorkingFolder}
             />
+          ) : (
+            <ChatReachChip onSwitchToCowork={() => onModeChange("cowork")} />
           )}
         </div>
 
@@ -601,6 +610,12 @@ export default function PromptInput({
               saveSelectedModelId(mode, model.id);
               askForAccess(model);
             }}
+          />
+          <EffortPicker
+            levels={effortLevels(selected.efforts)}
+            value={effort ?? ""}
+            onChange={(level) => setEffortFor(selected.id, level)}
+            disabled={isLoading}
           />
           {canStop ? (
             <Button
@@ -627,6 +642,39 @@ export default function PromptInput({
         </div>
       </div>
     </form>
+  );
+}
+
+/**
+ * What Chat can reach, where Cowork shows its folder.
+ *
+ * Chat leaves the file tools out and never hands a CLI a working folder, but
+ * nothing on screen said so — the tooltip on the mode switch is not where
+ * anyone looks. It also said nothing about connectors, so people assumed
+ * "no file access" meant no tools at all and switched to Cowork to use one.
+ */
+function ChatReachChip({ onSwitchToCowork }: { onSwitchToCowork: () => void }) {
+  const connectors = Object.values(useMcpConnections()).filter((c) => c.enabled).length;
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      onClick={onSwitchToCowork}
+      className="min-w-0 gap-1.5 rounded-full px-2 text-xs text-muted-foreground"
+      title={
+        `Chat answers from what it knows and from your connectors. It cannot open, ` +
+        `change or run anything on this Mac, and it is never given a folder.\n\n` +
+        `Click to switch to Cowork, which works in the folders you grant.`
+      }
+    >
+      <FolderLockIcon className="size-3.5" />
+      <span className="hidden truncate sm:inline">
+        {connectors > 0
+          ? `No files · ${connectors} connector${connectors === 1 ? "" : "s"}`
+          : "No file access"}
+      </span>
+    </Button>
   );
 }
 

@@ -149,6 +149,24 @@ OpenAI · Anthropic · Google · xAI · DeepSeek · Mistral · Alibaba (Qwen) ·
 - **Login แบบ Cowork**: remote server ที่ใช้ OAuth → เปิดหน้า login ในเบราว์เซอร์ (OpenCode รับ callback บน loopback + PKCE) token เก็บในไฟล์ owner-only ของ OpenCode — แอปและ AI ไม่เห็น token
 - **ติดตั้งผ่านแชท**: บอก AI เช่น "เชื่อม Notion ให้หน่อย" / "ติดตั้ง GitHub MCP" → AI ค้นใน registry แล้วแสดง **การ์ดติดตั้ง** ในแชท → ผู้ใช้กดตรวจและยืนยันเอง
 - Built-in: Word (สร้าง/แก้ .docx) · Exec (รันคำสั่ง) · Filesystem · GitHub · Fetch (Puppeteer) · Playwright · SQLite · Postgres · Memory · Sequential thinking · Brave Search · Slack
+- **Thinking effort**: model ที่ปรับระดับการคิดได้ จะมีปุ่ม (เช่น `Medium ⌄`) ข้างตัวเลือก model → เปิดมาเป็น slider เลือก none / low / medium / high / xhigh / max ตามที่ **model นั้นรองรับจริง** — model ที่ไม่มีให้ปรับ จะไม่มีปุ่มขึ้นมาเลย
+  - ระดับที่มีมาจากตัว model เอง ไม่ได้ hardcode: OpenCode/API อ่านจาก `variants` ของ opencode (models.dev), Codex อ่านจาก `supported_reasoning_levels` ใน `codex models`, Antigravity ใช้ low/medium/high ตาม `agy --effort`
+  - ส่งไปคนละทางตาม backend: opencode = `variant` ใน prompt body · Codex = `-c model_reasoning_effort=…` (override เฉพาะรอบนั้น ไม่แก้ `config.toml` ของผู้ใช้) · Antigravity = `--effort` · API ตรง = `reasoning_effort` (OpenAI) / thinking budget (Anthropic)
+  - จำแยกราย model เพราะ "high" ของ model เล็กกับใหญ่ราคาไม่เท่ากัน และถ้า provider เปลี่ยนชุดระดับ ค่าที่ค้างอยู่จะตกกลับเป็น default แทนที่จะถูกปฏิเสธ
+  - ไม่เกี่ยวกับ **Show thinking** ในเมนู `···` ซึ่งเป็นแค่การ *แสดง* reasoning ไม่ได้เปลี่ยนว่าคิดมากแค่ไหน
+  - หน้า Visual ไม่มีปุ่มนี้ — model ที่วาดรูปไม่ได้คิดเป็นระดับ
+- **หน้า Visual (สร้างรูป / วิดีโอ)**: เมนูใหม่ใน sidebar แยกออกจากแชท มีแท็บ **Video Creation / Image Creation**
+  - **model select ของรูป/วิดีโออยู่ในหน้านี้** ไม่ปนกับ model select ของแชทอีกต่อไป — model พวกนี้ตอบเป็นไฟล์อย่างเดียว ไม่มีบทสนทนา ไม่มี tool ไม่มีโฟลเดอร์ อยู่ในรายการแชทแล้วสับสน
+  - ตั้ง key provider ครั้งเดียวใน Settings → Models แล้ว **model ที่สร้างภาพ/วิดีโอได้จะขึ้นให้เอง** ไม่ต้องรู้ชื่อ model ไม่ต้องตั้ง key ที่สอง
+  - **Image**: Size (Auto / 16:9 / 4:3 / 1:1 / 3:4 / 9:16) · Image count (slider 1–4 ตามที่ backend รับจริง)
+  - **Video**: Resolution (1080P/720P/480P) · Ratio · Duration (ให้ model เลือกเอง หรือกำหนด 2/5/10/20/30s)
+  - ผลงานเก็บเป็น gallery ในหน้านั้น (เก็บ path ไว้ อ่านไฟล์ตอนแสดง) มีปุ่ม Show in folder และเอาออกจากรายการ
+  - ระบบยิง API ของ provider ตรง ๆ ด้วย key เดียวกับที่ใช้แชท (`commands/media.rs`) — ไม่ผ่าน agent ไม่ผ่าน MCP
+  - **รูป**: Google (Gemini image) · OpenAI (gpt-image) · OpenRouter · xAI (Grok Imagine) · Alibaba (Qwen Image)
+  - **วิดีโอ**: Google (Veo) · Alibaba (Wan) — API แบบ async ระบบ poll ให้เอง
+  - ตารางนี้บอกว่า **แอปเรียก API ไหนเป็น** ไม่ได้บอกว่า provider ทำอะไรได้ — Grok กับ Sora ทำวิดีโอได้แต่ยังไม่ได้ต่อ (Sora API ปิด 2026-09-24) model ที่ยังไม่มีทางเรียกจะไม่ถูกเสนอเลย
+  - รู้ว่า model ไหนวาดรูปจาก `modalities.output` ของ models.dev; **model ที่พิมพ์เอง** (เช่น `qwen-image-3.0`) ไม่มี metadata → ดูจากชื่อแทน ถ้า models.dev รู้จัก **metadata ชนะชื่อเสมอ** `qwen-vl-max` ที่แค่อ่านรูปจึงไม่ถูกเข้าใจผิด
+  - Qwen Image/Wan อยู่คนละ endpoint กับแชท — ที่มาของ error `Input should be 'user': input.messages.0.role`
 
 ---
 

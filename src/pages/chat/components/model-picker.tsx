@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollMore, useScrollFade } from "@/components/ui/scroll-fade";
 import { cn } from "@/lib/utils";
-import { CheckIcon, ChevronDownIcon, KeyRoundIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, FilmIcon, ImageIcon, KeyRoundIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { OPENCODE_DEFAULT_ID, type AiModel } from "../models";
 
@@ -30,16 +30,31 @@ const KIND_LABEL: Record<GroupKind, { badge: string; title: string }> = {
   chat: { badge: "Chat", title: "Answers only — no file access" },
 };
 
-/** Where a provider's models actually run, which is what the rail sorts by. */
-type SectionId = "cli" | "key" | "opencode";
+/**
+ * Where a provider's models actually run, which is what the rail sorts by —
+ * except `setup`, which wins over all of them: a provider with no API key and
+ * a CLI that has not been signed into cannot answer anything yet, and mixing
+ * them in with the ready ones made the list look like a menu of models that
+ * work. They keep their place in the rail so a key can still be added from
+ * here, but below everything that is ready, under a heading that says so.
+ */
+type SectionId = "cli" | "key" | "opencode" | "setup";
 
 const SECTIONS: { id: SectionId; label: string; hint: string }[] = [
   { id: "cli", label: "CLI agents", hint: "Runs on the subscription you signed in with" },
   { id: "key", label: "Your API keys", hint: "Called straight over its API with your key" },
   { id: "opencode", label: "Via OpenCode", hint: "Routed through the OpenCode server" },
+  {
+    id: "setup",
+    label: "Not set up yet",
+    hint: "No API key or sign-in yet — picking one asks for it first",
+  },
 ];
 
-type Group = {
+const SETUP_NOTICE =
+  "These can't answer yet. Pick one and you'll be asked for its API key or sign-in; it moves up the list once it works.";
+
+export type Group = {
   key: string;
   /** Provider name as the user knows it. */
   label: string;
@@ -281,6 +296,11 @@ function ModelList({
           {badge}
         </span>
       </div>
+      {group.section === "setup" && (
+        <p className="border-b bg-muted/40 px-3 py-2 text-[11px] leading-snug text-muted-foreground">
+          {SETUP_NOTICE}
+        </p>
+      )}
       <div className="relative min-h-0 flex-1">
         <ModelSelectorList
           ref={fade.ref}
@@ -313,7 +333,6 @@ function ModelRow({
   return (
     <ModelSelectorItem
       value={model.id}
-      disabled={!!model.coworkIssue}
       onSelect={() => onSelect(model)}
       className={cn("min-w-0 gap-2 py-2 [&>svg:last-child]:hidden my-1", active && "bg-muted")}
     >
@@ -323,14 +342,7 @@ function ModelRow({
         <span className="size-2 shrink-0" aria-hidden />
       )}
       <Logo provider={model.provider} />
-      {model.coworkIssue ? (
-        <div className="flex min-w-0 flex-1 flex-col">
-          <ModelSelectorName className="min-w-0">{model.name}</ModelSelectorName>
-          <span className="truncate text-[11px] text-muted-foreground">{model.coworkIssue}</span>
-        </div>
-      ) : (
-        <ModelSelectorName className="min-w-0">{model.name}</ModelSelectorName>
-      )}
+      <ModelSelectorName className="min-w-0">{model.name}</ModelSelectorName>
       <ModelBadge model={model} />
       {active && <CheckIcon className="size-4 shrink-0 text-foreground" />}
     </ModelSelectorItem>
@@ -356,10 +368,21 @@ function ConnectedDot({
 }
 
 function ModelBadge({ model }: { model: AiModel }) {
-  if (model.coworkIssue) {
+  // The one thing a row has to say about itself: this model answers with a
+  // file, not with words. Picking "Gemini 3 Pro Image" expecting a reply and
+  // getting a drawing is the mistake worth one badge.
+  if (model.media) {
     return (
-      <span className="ml-auto shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-        Not for Cowork
+      <span
+        title={`Answers with ${model.media === "video" ? "a video clip" : "a picture"}, not text — describe what you want made`}
+        className="ml-auto flex shrink-0 items-center gap-1 rounded-full border border-fuchsia-500/30 bg-fuchsia-500/10 px-1.5 py-0.5 text-[10px] font-medium text-fuchsia-700 dark:text-fuchsia-300"
+      >
+        {model.media === "video" ? (
+          <FilmIcon className="size-2.5" />
+        ) : (
+          <ImageIcon className="size-2.5" />
+        )}
+        {model.media === "video" ? "Video" : "Image"}
       </span>
     );
   }
@@ -377,11 +400,11 @@ function ModelBadge({ model }: { model: AiModel }) {
   if (model.needsKey) {
     return (
       <span
-        title="Needs an API key — you'll be asked to add one"
+        title={`${model.group} has no API key yet — picking this asks for one`}
         className="ml-auto flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] text-muted-foreground"
       >
         <KeyRoundIcon className="size-2.5" />
-        Key
+        Add key
       </span>
     );
   }
@@ -424,6 +447,7 @@ function groupIsConnected(items: AiModel[]) {
 }
 
 function sectionOf(model: AiModel): SectionId {
+  if (!modelIsConnected(model)) return "setup";
   if (model.source === "cli") return "cli";
   if (model.source === "opencode") return "opencode";
   return "key";
@@ -438,16 +462,28 @@ function groupKeyOf(model: AiModel) {
   return `${sectionOf(model)}:${model.group}`;
 }
 
-/** Only needed where the rail's section heading isn't in view. */
+/**
+ * Only needed where the rail's section heading isn't in view — and under
+ * "Not set up yet", where CLI agents and OpenCode providers sit together and
+ * the heading no longer says which is which.
+ */
 function noteFor(model: AiModel) {
   if (model.source === "api" || model.source === "local") return "· your key";
+  if (model.source === "cli") return model.needsLogin ? "· CLI agent, sign in" : undefined;
   if (model.source === "opencode" && model.id !== OPENCODE_DEFAULT_ID) return "· via OpenCode";
   return undefined;
 }
 
-function buildGroups(models: AiModel[]): Group[] {
+/**
+ * The list only ever offers models that work in the mode it was built for.
+ * A row that could be looked at but not picked was the worst of both: it
+ * lengthened every provider's list and still had to be explained. A model fit
+ * for both Chat and Cowork appears in both; one fit for neither appears in
+ * neither (see `issue` in `models.ts`).
+ */
+export function buildGroups(models: AiModel[]): Group[] {
   const map = new Map<string, Group>();
-  for (const model of models) {
+  for (const model of models.filter((m) => !m.issue)) {
     const key = groupKeyOf(model);
     const group = map.get(key);
     if (group) {
@@ -493,6 +529,6 @@ function sortModels(items: AiModel[]): AiModel[] {
     const ca = modelIsConnected(a);
     const cb = modelIsConnected(b);
     if (ca !== cb) return ca ? -1 : 1;
-    return Number(!!a.coworkIssue) - Number(!!b.coworkIssue) || a.name.localeCompare(b.name);
+    return a.name.localeCompare(b.name);
   });
 }

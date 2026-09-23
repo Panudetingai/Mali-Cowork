@@ -75,5 +75,7 @@ export type ChatMessage = {
     modelName: string;
     maxTokens: number;
     autoNewChat: boolean;
+    /** How hard the model was asked to think; kept so a retry matches. */
+    effort?: string;
   };
 };

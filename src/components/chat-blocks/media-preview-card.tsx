@@ -3,9 +3,10 @@
 import { LinkPreviewCard } from "@/components/link-preview";
 import type { MediaPreviewBlock } from "@/features/chat-blocks";
 import { cn } from "@/lib/utils";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { ExternalLinkIcon, FilmIcon, GlobeIcon, ImageIcon, VideoOffIcon } from "lucide-react";
-import { useState } from "react";
+import { readFile } from "@tauri-apps/plugin-fs";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
+import { ExternalLinkIcon, FilmIcon, FolderOpenIcon, GlobeIcon, ImageIcon, VideoOffIcon } from "lucide-react";
+import { useEffect, useState } from "react";
 import { ZoomableImage } from "./zoomable-image";
 
 function hostOf(url: string) {
@@ -16,13 +17,64 @@ function hostOf(url: string) {
   }
 }
 
+function fileNameOf(path: string) {
+  return path.split(/[\\/]/).pop() || path;
+}
+
+const MIME: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+  bmp: "image/bmp",
+  svg: "image/svg+xml",
+  mp4: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
+  m4v: "video/mp4",
+  ogv: "video/ogg",
+};
+
+/**
+ * A blob URL for a file on this computer. The webview cannot load `file://`
+ * from an app page, so generated media is read through the file API — the
+ * same route attachment previews take.
+ */
+function useLocalMedia(path: string | undefined) {
+  const [state, setState] = useState<{ url?: string; failed?: boolean }>({});
+
+  useEffect(() => {
+    if (!path) return;
+    let objectUrl: string | undefined;
+    let cancelled = false;
+    const type = MIME[path.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream";
+    readFile(path)
+      .then((bytes) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(new Blob([bytes], { type }));
+        setState({ url: objectUrl });
+      })
+      .catch(() => {
+        if (!cancelled) setState({ failed: true });
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [path]);
+
+  return state;
+}
+
 const KIND_ICON = {
   image: ImageIcon,
   video: FilmIcon,
   link: GlobeIcon,
 } as const;
 
-function VideoBody({ item }: { item: MediaPreviewBlock }) {
+function VideoBody({ item, src }: { item: MediaPreviewBlock; src: string }) {
   const [failed, setFailed] = useState(false);
   if (failed) {
     return (
@@ -31,17 +83,17 @@ function VideoBody({ item }: { item: MediaPreviewBlock }) {
         <p className="text-xs text-muted-foreground">This video can't play here</p>
         <button
           type="button"
-          onClick={() => void openUrl(item.url)}
+          onClick={() => void (item.local ? revealItemInDir(item.url) : openUrl(item.url))}
           className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
         >
-          Open in browser
+          {item.local ? "Show in folder" : "Open in browser"}
         </button>
       </div>
     );
   }
   return (
     <video
-      src={item.url}
+      src={src}
       poster={item.thumbnail}
       controls
       playsInline
@@ -60,7 +112,9 @@ export function MediaPreviewCard({
   item: MediaPreviewBlock;
   className?: string;
 }) {
-  const title = item.title?.trim() || hostOf(item.url);
+  const local = useLocalMedia(item.local ? item.url : undefined);
+  const source = item.local ? local.url : item.url;
+  const title = item.title?.trim() || (item.local ? fileNameOf(item.url) : hostOf(item.url));
   const Icon = KIND_ICON[item.kind];
 
   return (
@@ -71,10 +125,15 @@ export function MediaPreviewCard({
         className,
       )}
     >
-      {item.kind === "image" && (
-        <ZoomableImage src={item.thumbnail ?? item.url} alt={title} imageClassName="max-h-72" />
+      {item.local && !source && (
+        <div className="flex h-40 items-center justify-center bg-muted/40 text-xs text-muted-foreground">
+          {local.failed ? "This file is no longer there" : "Loading…"}
+        </div>
       )}
-      {item.kind === "video" && <VideoBody item={item} />}
+      {item.kind === "image" && source && (
+        <ZoomableImage src={item.thumbnail ?? source} alt={title} imageClassName="max-h-72" />
+      )}
+      {item.kind === "video" && source && <VideoBody item={item} src={source} />}
       {item.kind === "link" && item.thumbnail && (
         <ZoomableImage src={item.thumbnail} alt={title} imageClassName="max-h-52" />
       )}
@@ -98,12 +157,18 @@ export function MediaPreviewCard({
           )}
           <button
             type="button"
-            onClick={() => void openUrl(item.url)}
+            onClick={() => void (item.local ? revealItemInDir(item.url) : openUrl(item.url))}
             title={item.url}
             className="mt-1 flex max-w-full items-center gap-1 text-[11px] text-muted-foreground/75 underline-offset-2 hover:text-foreground hover:underline"
           >
-            <span className="truncate">{hostOf(item.url)}</span>
-            <ExternalLinkIcon className="size-2.5 shrink-0" aria-hidden />
+            <span className="truncate">
+              {item.local ? "Show in folder" : hostOf(item.url)}
+            </span>
+            {item.local ? (
+              <FolderOpenIcon className="size-2.5 shrink-0" aria-hidden />
+            ) : (
+              <ExternalLinkIcon className="size-2.5 shrink-0" aria-hidden />
+            )}
           </button>
         </div>
       </div>

@@ -97,6 +97,105 @@ fn cursor_entry(server: &McpServerEntry, argv: &[String], path: Option<&str>) ->
     })
 }
 
+// ── Antigravity tool permissions ──
+
+/// Where the Antigravity CLI keeps `permissions.allow` (its only settings file).
+fn antigravity_settings_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(".gemini").join("antigravity-cli").join("settings.json"))
+}
+
+/// Manifest key for the allow-rules the app owns in that file.
+const AGY_RULES: &str = "antigravity:permissions";
+
+fn mcp_allow_rule(id: &str) -> String {
+    format!("mcp({id}/*)")
+}
+
+/// Let `agy` call the connectors the app set up for it.
+///
+/// A headless `agy -p` run cannot prompt, so every tool it has no standing
+/// approval for is auto-denied — including MCP tools. Chat and read-only
+/// folders deliberately run without `--dangerously-skip-permissions`, which
+/// left the connectors listed but unusable: the model, denied the call, would
+/// answer from memory and invent a CLI command instead.
+///
+/// So each shared connector gets `mcp(<id>/*)` in `permissions.allow`. That is
+/// the narrowest rule that covers it: no file writes, no shell commands, and
+/// nothing granted for a connector the user has switched off.
+pub(crate) fn merge_allow_rules(
+    settings: &mut Value,
+    ids: &[String],
+    owned_before: &[String],
+) -> Result<Vec<String>, String> {
+    if !settings.is_object() {
+        return Err("not a JSON object".into());
+    }
+    let wanted: Vec<String> = ids.iter().map(|id| mcp_allow_rule(id)).collect();
+    let drop: HashSet<&str> = owned_before
+        .iter()
+        .map(String::as_str)
+        .filter(|rule| !wanted.iter().any(|w| w == rule))
+        .collect();
+
+    let permissions = settings
+        .as_object_mut()
+        .expect("checked above")
+        .entry("permissions")
+        .or_insert_with(|| json!({}));
+    let permissions = permissions
+        .as_object_mut()
+        .ok_or("permissions is not an object")?;
+    let allow = permissions.entry("allow").or_insert_with(|| json!([]));
+    let allow = allow.as_array_mut().ok_or("permissions.allow is not a list")?;
+
+    // Rules the app added for connectors that are gone; the user's own stay.
+    allow.retain(|rule| !rule.as_str().is_some_and(|rule| drop.contains(rule)));
+    for rule in &wanted {
+        if !allow.iter().any(|existing| existing.as_str() == Some(rule.as_str())) {
+            allow.push(json!(rule));
+        }
+    }
+    Ok(wanted)
+}
+
+fn write_antigravity_permissions(
+    ids: &[String],
+    owned_before: &[String],
+    warnings: &mut Vec<String>,
+) -> Option<Vec<String>> {
+    let path = antigravity_settings_path()?;
+    let mut settings: Value = match std::fs::read_to_string(&path) {
+        Ok(raw) if raw.trim().is_empty() => json!({}),
+        Ok(raw) => match serde_json::from_str(&raw) {
+            Ok(value) => value,
+            Err(_) => {
+                warnings.push(format!("{} isn't plain JSON; not changed", path.display()));
+                return None;
+            }
+        },
+        // No settings file yet: the CLI writes one the first time it runs, and
+        // adding rules for a CLI that was never started helps nobody.
+        Err(_) => return None,
+    };
+
+    match merge_allow_rules(&mut settings, ids, owned_before) {
+        Ok(owned) => {
+            let pretty = serde_json::to_string_pretty(&settings).unwrap_or_default();
+            match write_private(&path, &pretty) {
+                Ok(()) => Some(owned),
+                Err(e) => {
+                    warnings.push(e);
+                    None
+                }
+            }
+        }
+        Err(e) => {
+            warnings.push(format!("{}: {e}; not changed", path.display()));
+            None
+        }
+    }
+}
+
 fn manifest_path() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(std::env::temp_dir)
@@ -111,6 +210,11 @@ fn read_manifest() -> Manifest {
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or_default()
+}
+
+/// Connectors the app last wrote into one CLI's config, by its manifest name.
+pub fn shared_with(client: &str) -> Vec<String> {
+    read_manifest().remove(client).unwrap_or_default()
 }
 
 /// Merge the app's servers into one CLI's `mcpServers`, keeping the user's own.
@@ -196,6 +300,16 @@ pub fn write_all(
             }
             Err(e) => warnings.push(format!("{}: {e}; not changed", target.file.display())),
         }
+
+        // Writing the connectors is only half of it for Antigravity: without an
+        // allow-rule a headless run denies every MCP call it cannot prompt for.
+        if target.name == "antigravity" {
+            let ids: Vec<String> = manifest.get(target.name).cloned().unwrap_or_default();
+            let owned_before = manifest.get(AGY_RULES).cloned().unwrap_or_default();
+            if let Some(rules) = write_antigravity_permissions(&ids, &owned_before, &mut warnings) {
+                manifest.insert(AGY_RULES.to_string(), rules);
+            }
+        }
     }
 
     if let Ok(json) = serde_json::to_string_pretty(&manifest) {
@@ -235,5 +349,50 @@ mod tests {
     fn refuses_non_objects() {
         let mut config = json!([1, 2]);
         assert!(merge(&mut config, &[], &HashSet::new()).is_err());
+    }
+
+    #[test]
+    fn allows_the_connectors_headless_agy_would_otherwise_deny() {
+        let mut settings = json!({ "trustedWorkspaces": ["/w"] });
+        let ids = ["word".to_string(), "custom-canva".to_string()];
+        let owned = merge_allow_rules(&mut settings, &ids, &[]).unwrap();
+        assert_eq!(owned, ["mcp(word/*)", "mcp(custom-canva/*)"]);
+        assert_eq!(
+            settings["permissions"]["allow"],
+            json!(["mcp(word/*)", "mcp(custom-canva/*)"])
+        );
+        // Nothing beyond the connectors: no file writes, no shell commands.
+        assert_eq!(settings["trustedWorkspaces"], json!(["/w"]));
+        assert!(settings["permissions"].get("deny").is_none());
+    }
+
+    #[test]
+    fn keeps_the_users_own_rules_and_drops_only_its_own() {
+        let mut settings = json!({
+            "permissions": { "allow": ["command(git)", "mcp(word/*)", "mcp(github/*)"] }
+        });
+        let owned_before = ["mcp(word/*)".to_string(), "mcp(github/*)".to_string()];
+        let owned =
+            merge_allow_rules(&mut settings, &["word".to_string()], &owned_before).unwrap();
+        assert_eq!(owned, ["mcp(word/*)"]);
+        assert_eq!(
+            settings["permissions"]["allow"],
+            json!(["command(git)", "mcp(word/*)"])
+        );
+    }
+
+    #[test]
+    fn a_rule_the_user_wrote_themselves_is_never_duplicated() {
+        let mut settings = json!({ "permissions": { "allow": ["mcp(word/*)"] } });
+        merge_allow_rules(&mut settings, &["word".to_string()], &[]).unwrap();
+        assert_eq!(settings["permissions"]["allow"], json!(["mcp(word/*)"]));
+    }
+
+    #[test]
+    fn leaves_settings_it_cannot_understand_alone() {
+        let mut list = json!([1, 2]);
+        assert!(merge_allow_rules(&mut list, &[], &[]).is_err());
+        let mut wrong_shape = json!({ "permissions": { "allow": "everything" } });
+        assert!(merge_allow_rules(&mut wrong_shape, &[], &[]).is_err());
     }
 }

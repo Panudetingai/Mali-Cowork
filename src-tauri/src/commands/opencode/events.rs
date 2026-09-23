@@ -415,12 +415,53 @@ fn question_item(item: &Value) -> QuestionItem {
 }
 
 fn error_message(error: &Value) -> String {
-    error["data"]["message"]
+    let raw = error["data"]["message"]
         .as_str()
         .or_else(|| error["message"].as_str())
         .or_else(|| error["name"].as_str())
         .map(str::to_string)
-        .unwrap_or_else(|| format!("opencode error: {error}"))
+        .unwrap_or_else(|| format!("opencode error: {error}"));
+    explain(&raw).unwrap_or(raw)
+}
+
+/// A plainer version of the few provider errors whose own wording sends the
+/// user looking in the wrong place.
+fn explain(raw: &str) -> Option<String> {
+    let lower = raw.to_lowercase();
+    // Zen gates its free tier on the request looking like a full OpenCode
+    // coding session, which Chat mode — no file tools — is not. Its own
+    // message reads as if the app were not OpenCode at all.
+    if lower.contains("free tier") && lower.contains("within opencode") {
+        return Some(
+            "OpenCode Zen's free models only answer full coding sessions, so they can't be \
+             used in Chat. Switch to Cowork to use this model, or pick a paid Zen model or \
+             another provider for Chat."
+                .into(),
+        );
+    }
+    // Google validates the whole tool list before it reads the prompt, and
+    // names the offending field by index — `function_declarations[26]…` tells
+    // the user nothing about which connector to switch off. Tools with a
+    // schema Google is known to refuse are already left out (see `schema.rs`);
+    // this is for a shape that is new to us.
+    if lower.contains("generatecontentrequest.tools")
+        || (lower.contains("function_declarations") && lower.contains("parameters"))
+    {
+        return Some(format!(
+            "Gemini turned down the tool list from a connected MCP server, so it never saw the \
+             message. One of its tools describes an option in a way Gemini doesn't accept, and \
+             it refuses the whole request over it.\n\nPick a non-Google model for this chat, or \
+             switch that connector off in Settings → MCP.\n\n— Gemini —\n{}",
+            first_line(raw)
+        ));
+    }
+    None
+}
+
+/// The one line of a provider error worth showing under an explanation.
+fn first_line(raw: &str) -> String {
+    let line = raw.lines().find(|l| !l.trim().is_empty()).unwrap_or(raw).trim();
+    line.chars().take(300).collect()
 }
 
 fn first_str<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
@@ -447,6 +488,27 @@ mod tests {
     use serde_json::json;
 
     const SES: &str = "ses_main";
+
+    /// A provider error whose own wording sends the user to the wrong place
+    /// is replaced; everything else is passed through as the provider said it.
+    #[test]
+    fn the_errors_that_need_translating_get_it() {
+        let zen = error_message(&json!({ "data": { "message":
+            "OpenCode's free tier can only be used from within OpenCode" } }));
+        assert!(zen.contains("Cowork"), "{zen}");
+
+        let gemini = error_message(&json!({ "data": { "message":
+            "GenerateContentRequest.tools[0].function_declarations[26].parameters\
+             .properties[operations].items.any_of[8].properties[formatting]\
+             .properties[link].any_of[0].enum[0]: cannot be empty" } }));
+        assert!(gemini.contains("Settings → MCP"), "{gemini}");
+        assert!(gemini.contains("non-Google model"), "{gemini}");
+        // The provider's own words stay, below the explanation.
+        assert!(gemini.contains("cannot be empty"), "{gemini}");
+
+        let plain = error_message(&json!({ "data": { "message": "rate limit exceeded" } }));
+        assert_eq!(plain, "rate limit exceeded");
+    }
 
     fn texts(outcomes: &[Outcome]) -> Vec<String> {
         outcomes

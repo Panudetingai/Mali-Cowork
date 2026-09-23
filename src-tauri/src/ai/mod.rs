@@ -32,6 +32,11 @@ pub struct ChatRequest {
     /// The user's custom instructions and enabled skills.
     #[serde(default)]
     pub system: Option<String>,
+    /// How hard the model should think, as the provider spells the level
+    /// (`none`, `low`, `medium`, `high`, `xhigh`…). Only sent for models that
+    /// offer a choice; see `efforts` in the model list.
+    #[serde(default)]
+    pub effort: Option<String>,
 }
 
 pub(crate) struct ProviderInfo {
@@ -192,12 +197,16 @@ async fn consume_stream(
 }
 
 macro_rules! stream_with_model {
-    ($model:expr, $messages:expr, $on_event:expr) => {{
-        let mut request = LanguageModelRequest::builder()
+    ($model:expr, $messages:expr, $on_event:expr, $effort:expr) => {{
+        let builder = LanguageModelRequest::builder()
             .model($model)
             .system(SYSTEM_PROMPT)
-            .messages($messages)
-            .build();
+            .messages($messages);
+        let builder = match $effort {
+            Some(effort) => builder.reasoning_effort(effort),
+            None => builder,
+        };
+        let mut request = builder.build();
 
         let response = request
             .stream_text()
@@ -239,6 +248,11 @@ async fn run(request: &ChatRequest, on_event: &Channel<ChatStreamEvent>) -> Resu
         messages.insert(0, Message::System(system.into()));
     }
 
+    // Only what the user picked; a model with no effort control sends none
+    // and keeps the provider's own default.
+    let effort = non_empty(request.effort.as_deref())
+        .map(aisdk::core::language_model::ReasoningEffort::from);
+
     if request.provider == "anthropic" {
         let model = Anthropic::<DynamicModel>::builder()
             .model_name(model_name)
@@ -246,7 +260,7 @@ async fn run(request: &ChatRequest, on_event: &Channel<ChatStreamEvent>) -> Resu
             .api_key(api_key)
             .build()
             .map_err(|e| e.to_string())?;
-        return stream_with_model!(model, messages, on_event);
+        return stream_with_model!(model, messages, on_event, effort);
     }
 
     let model = OpenAICompatible::<DynamicModel>::builder()
@@ -256,7 +270,7 @@ async fn run(request: &ChatRequest, on_event: &Channel<ChatStreamEvent>) -> Resu
         .api_key(api_key)
         .build()
         .map_err(|e| e.to_string())?;
-    stream_with_model!(model, messages, on_event)
+    stream_with_model!(model, messages, on_event, effort)
 }
 
 pub async fn stream_chat_response(
@@ -270,9 +284,36 @@ pub async fn stream_chat_response(
             })
             .map_err(|e| e.to_string()),
         Err(message) => {
+            let message = explain(&message, &request).unwrap_or(message);
             // Report through the channel only; returning Err too would show the error twice.
             let _ = on_event.send(ChatStreamEvent::Error { message });
             Ok(())
         }
     }
+}
+
+/// A plainer version of the provider errors whose own wording sends the user
+/// looking in the wrong place.
+fn explain(raw: &str, request: &ChatRequest) -> Option<String> {
+    let lower = raw.to_ascii_lowercase();
+    // A picture model handed a conversation. Its API validates the message
+    // list against a shape chat never uses — no system message, content as a
+    // list of parts — and answers with field paths that name nothing the user
+    // can act on ("Input should be 'user': input.messages.0.role").
+    let message_shape = lower.contains("messages.0.role")
+        || (lower.contains("input.messages") && lower.contains("should be a valid list"));
+    if message_shape {
+        return Some(format!(
+            "{} doesn't hold a conversation — it looks like a picture or video model, and its              API turned the chat request down.
+
+If it generates pictures, remove it from              Settings → Models and add it again: Mali calls picture models straight over their              own API and shows the result in the chat. If it is meant to answer in words, check              the model id.
+
+— {} —
+{}",
+            request.model,
+            request.provider,
+            raw.lines().next().unwrap_or(raw).chars().take(300).collect::<String>(),
+        ));
+    }
+    None
 }
