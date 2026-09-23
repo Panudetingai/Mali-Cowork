@@ -11,6 +11,7 @@ pub mod git;
 pub mod link_preview;
 pub mod mcp;
 pub mod mcp_clients;
+pub mod media;
 pub mod mcp_oauth;
 pub mod mcp_registry;
 pub mod native_alert;

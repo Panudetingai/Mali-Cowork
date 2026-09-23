@@ -148,11 +148,19 @@ fn parse_model_line(line: &str) -> Option<AntigravityModel> {
     if !slug {
         return None;
     }
+    // Some slugs already name a level (`gemini-3.1-pro-high`); those are a
+    // model choice, not an effort choice, so `--effort` is left off them.
+    let baked_in = ANTIGRAVITY_EFFORTS.iter().any(|level| id.ends_with(&format!("-{level}")));
     Some(AntigravityModel {
         id: id.to_string(),
         name: if name.is_empty() { id.to_string() } else { name.to_string() },
+        efforts: if baked_in { Vec::new() } else { ANTIGRAVITY_EFFORTS.map(String::from).into() },
     })
 }
+
+/// Every level `agy --effort` accepts, weakest first. Sent to the front end
+/// so the control offers these and no others.
+pub const ANTIGRAVITY_EFFORTS: [&str; 3] = ["low", "medium", "high"];
 
 /// Base args for one prompt. The prompt itself is passed via `-p` last.
 pub fn build_args(request: &AntigravityRequest) -> Vec<String> {
@@ -165,7 +173,9 @@ pub fn build_args(request: &AntigravityRequest) -> Vec<String> {
 
     // Headless runs cannot ask, so what the agent may do is decided up front.
     // Under the CLI's default preset a tool it can't get approval for is
-    // soft-denied, which is what Chat and a read-only folder want. A folder
+    // soft-denied, which is what Chat and a read-only folder want — except for
+    // the connectors, which the app grants standing `mcp(<id>/*)` rules in the
+    // CLI's settings (see `mcp_clients`), so they work in every mode. A folder
     // granted for writing gets every tool approved instead, with the terminal
     // sandbox on so shell commands stay inside the workspace.
     if !(request.is_chat() || request.read_only()) {
@@ -180,6 +190,16 @@ pub fn build_args(request: &AntigravityRequest) -> Vec<String> {
     {
         args.extend(["--model".into(), model.into()]);
     }
+    // `agy --effort` takes these three and nothing else; anything the app
+    // offers beyond them would end the run before the prompt is read.
+    if let Some(effort) = request
+        .effort
+        .as_deref()
+        .map(str::trim)
+        .filter(|e| ANTIGRAVITY_EFFORTS.contains(e))
+    {
+        args.extend(["--effort".into(), effort.into()]);
+    }
     if let Some(conversation) = request
         .session_id
         .as_deref()
@@ -191,16 +211,44 @@ pub fn build_args(request: &AntigravityRequest) -> Vec<String> {
     args
 }
 
+/// The connectors the app set up for this CLI, named in the prompt.
+///
+/// Nothing in `agy` tells the model what is connected, so asked "what MCP
+/// servers do I have?" it answered from memory and invented a CLI command for
+/// the list. It also passed over tools it did have, for the same reason —
+/// the same note OpenCode gets (see `opencode::commands::mcp_note`).
+fn mcp_note(servers: &[String]) -> Option<String> {
+    if servers.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "Connected MCP servers, set up by the user in Mali Cowork: {}.\nThey are the only ones \
+         configured, and their tools are ready to call — use them when one covers the task \
+         rather than writing a script, or explaining how to list them. There is no `agy` \
+         subcommand that reports this list, so do not suggest one.",
+        servers.join(", ")
+    ))
+}
+
 /// The CLI has no flag for extra folders or per-folder access in headless mode,
 /// so the granted folders are stated in the prompt — same pattern as
 /// cursor/codex. Files outside the workspace also need
 /// `"allowNonWorkspaceAccess": true` in the CLI's settings.
 pub fn prompt_with_notes(request: &AntigravityRequest) -> String {
+    notes_for(request, &crate::commands::mcp_clients::shared_with("antigravity"))
+}
+
+fn notes_for(request: &AntigravityRequest, connectors: &[String]) -> String {
     let prompt = request.prompt.trim().to_string();
     if request.is_chat() {
-        return prompt;
+        // Chat touches no folders, but it does have the connectors.
+        return match mcp_note(connectors) {
+            Some(note) => format!("[{note}]\n\n{prompt}"),
+            None => prompt,
+        };
     }
     let mut notes: Vec<String> = Vec::new();
+    notes.extend(mcp_note(connectors));
     let extra = request.extra_folders();
     if !extra.is_empty() {
         notes.push(format!("The user also granted these folders:\n- {}", extra.join("\n- ")));
@@ -459,6 +507,7 @@ mod tests {
             folders,
             run_id: "run1".into(),
             api_key: None,
+            effort: None,
         }
     }
 
@@ -507,11 +556,52 @@ mod tests {
             .windows(2)
             .any(|w| w == ["--conversation", "055a398f-db14-4c5f-abbb-1bf03f8120a7"]));
 
-        let prompt = prompt_with_notes(&req);
+        let prompt = notes_for(&req, &[]);
         assert!(prompt.contains("/docs"));
         assert!(prompt.contains("read-only"));
         assert!(prompt.ends_with("do it"));
-        assert_eq!(prompt_with_notes(&request("chat", vec![grant("/docs", "read")])), "do it");
+        assert_eq!(notes_for(&request("chat", vec![grant("/docs", "read")]), &[]), "do it");
+    }
+
+    /// Nothing in `agy` tells the model what is connected, so it used to
+    /// answer "how do I list my MCP servers?" with a command that
+    /// does not exist.
+    #[test]
+    fn the_connectors_are_named_in_every_mode() {
+        let connectors = ["custom-canva".to_string(), "media".to_string()];
+        for mode in ["chat", "cowork"] {
+            let prompt = notes_for(&request(mode, vec![grant("/w", "write")]), &connectors);
+            assert!(prompt.contains("custom-canva"), "{mode}: {prompt}");
+            assert!(prompt.contains("media"), "{mode}: {prompt}");
+            assert!(prompt.ends_with("do it"), "{mode}: {prompt}");
+        }
+    }
+
+    /// `agy --effort` takes low/medium/high and nothing else, so anything
+    /// else is dropped rather than ending the run before the prompt is read.
+    #[test]
+    fn only_the_levels_agy_accepts_are_passed_on() {
+        let with = |effort: &str| {
+            let mut req = request("cowork", vec![grant("/w", "write")]);
+            req.effort = Some(effort.into());
+            build_args(&req)
+        };
+        let args = with("high");
+        let at = args.iter().position(|a| a == "--effort").expect("an effort flag");
+        assert_eq!(args[at + 1], "high");
+        for bad in ["xhigh", "none", "max", ""] {
+            assert!(!with(bad).iter().any(|a| a == "--effort"), "{bad} should be dropped");
+        }
+    }
+
+    /// A slug that already names a level is a model choice, not an effort
+    /// choice: `--effort` on top of it would be a second, conflicting answer.
+    #[test]
+    fn models_whose_slug_names_a_level_offer_no_control() {
+        let baked = parse_model_line("gemini-3.1-pro-high  Gemini 3.1 Pro (High)").unwrap();
+        assert!(baked.efforts.is_empty());
+        let plain = parse_model_line("gemini-3.8-flash  Gemini 3.8 Flash").unwrap();
+        assert_eq!(plain.efforts, ["low", "medium", "high"]);
     }
 
     #[test]

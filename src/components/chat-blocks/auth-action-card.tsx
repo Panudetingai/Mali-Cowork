@@ -3,13 +3,13 @@
 import { Button } from "@/components/ui/button";
 import type { AuthActionBlock } from "@/features/chat-blocks";
 import { lobeMcpIcon } from "@/features/mcp/lobe-icons";
-import { getCustomMcps, useRegistryIcon, type McpToolRef } from "@/features/mcp";
+import { getCustomMcps, useConnectorIcon, useRegistryIcon, type McpToolRef } from "@/features/mcp";
 import { signInConnector } from "@/features/mcp/connectors";
 import { cn } from "@/lib/utils";
 import type { IconType } from "@lobehub/icons/es/types";
 import { Brave, Cloudflare, Figma, Github, Google, MCP, Microsoft, Notion, Vercel } from "@lobehub/icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ExternalLinkIcon, KeyRound, LoaderIcon, LogInIcon, ShieldCheckIcon } from "lucide-react";
+import { CheckIcon, ExternalLinkIcon, KeyRound, LoaderIcon, LogInIcon, ShieldCheckIcon } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
 const ICON_TILE =
@@ -81,7 +81,9 @@ function DefaultAuthIcon() {
 function AuthServiceIcon({ action }: { action: AuthActionBlock }) {
   const mcp = useMemo(() => resolveAuthMcp(action), [action]);
   const hay = useMemo(() => authHaystack(action), [action]);
-  const registrySrc = useRegistryIcon(mcp?.custom?.registry?.icons);
+  const own = useConnectorIcon(mcp?.serverId);
+  const registry = useRegistryIcon(own ? undefined : mcp?.custom?.registry?.icons);
+  const registrySrc = own ?? registry;
 
   let inner: ReactNode;
 
@@ -121,8 +123,18 @@ export function AuthActionCard({
   className?: string;
 }) {
   const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const label = action.actionLabel ?? `Authorize ${action.service ?? action.title}`;
+  const host = useMemo(() => {
+    try {
+      return new URL(action.url).host;
+    } catch {
+      return "";
+    }
+  }, [action.url]);
+  // The button sits beside the title now, so its label has to be short: the
+  // service is already named above it.
+  const label = action.actionLabel?.trim() || "Sign in";
 
   const run = async () => {
     setError(null);
@@ -133,6 +145,7 @@ export function AuthActionCard({
       } else {
         await openUrl(action.url);
       }
+      setDone(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not start sign-in");
     } finally {
@@ -144,42 +157,58 @@ export function AuthActionCard({
     <div
       data-skip-markdown-delegate
       className={cn(
-        "flex flex-col gap-3 rounded-xl",
+        // A card, not loose text: this is the one thing in the reply the user
+        // has to act on, and it was previously indistinguishable from prose.
+        "overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm",
         className,
       )}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3 p-3">
         <AuthServiceIcon action={action} />
-        <div className="min-w-0 flex-1 space-y-1">
-          <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            <ShieldCheckIcon className="size-3.5 shrink-0 text-green-700" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-foreground" title={action.title}>
             {action.title}
           </p>
-          {action.description && (
-            <p className="text-xs leading-relaxed text-muted-foreground">{action.description}</p>
-          )}
-          <p className="text-[11px] text-muted-foreground/80">
-            Sign-in opens in your browser. Tokens stay on this device — not sent to the model.
+          <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+            {action.description ?? `${host || "This service"} needs your permission first.`}
           </p>
         </div>
+        <Button
+          type="button"
+          size="sm"
+          className="shrink-0 gap-1.5"
+          disabled={busy || done}
+          onClick={() => void run()}
+        >
+          {busy ? (
+            <LoaderIcon className="size-3.5 animate-spin" aria-hidden />
+          ) : done ? (
+            <CheckIcon className="size-3.5" aria-hidden />
+          ) : action.connectorId ? (
+            <LogInIcon className="size-3.5" aria-hidden />
+          ) : (
+            <ExternalLinkIcon className="size-3.5" aria-hidden />
+          )}
+          {busy ? "Opening…" : done ? "Opened" : label}
+        </Button>
       </div>
-      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
-      <Button
-        type="button"
-        className="gap-2"
-        variant="outline"
-        disabled={busy}
-        onClick={() => void run()}
-      >
-        {busy ? (
-          <LoaderIcon className="size-4 animate-spin" aria-hidden />
-        ) : action.connectorId ? (
-          <LogInIcon className="size-4" aria-hidden />
-        ) : (
-          <ExternalLinkIcon className="size-4" aria-hidden />
-        )}
-        {busy ? "Opening…" : label}
-      </Button>
+
+      {error ? (
+        <p className="border-t border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          {error}
+        </p>
+      ) : (
+        // Where the tokens end up is the question people actually have about
+        // a sign-in card, so it is answered on the card rather than nowhere.
+        <p className="flex items-center gap-1.5 border-t bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
+          <ShieldCheckIcon className="size-3 shrink-0 text-emerald-600 dark:text-emerald-500" aria-hidden />
+          <span className="min-w-0 flex-1 truncate" title={action.url}>
+            {done
+              ? "Finish in your browser, then send your message again."
+              : `Opens ${host || "the sign-in page"} in your browser — tokens stay on this device.`}
+          </span>
+        </p>
+      )}
     </div>
   );
 }

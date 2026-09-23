@@ -90,6 +90,16 @@ pub async fn commit(git: &Git, message: &str, stage_all_first: bool) -> Result<C
     Ok(CommitResult { hash: hash.to_string(), subject: subject.to_string() })
 }
 
+/// Put every change, new files included, on the stash and leave the folder clean.
+pub async fn stash(git: &Git) -> Result<String, String> {
+    let out = git.write(&["stash", "push", "--include-untracked"]).await?;
+    let text = out.stdout.trim();
+    if text.is_empty() || text.starts_with("No local changes") {
+        return Err("Nothing to stash".into());
+    }
+    Ok(text.lines().next().unwrap_or("Stashed").to_string())
+}
+
 /// Start a repository in `folder`.
 pub async fn init(folder: &str) -> Result<(), String> {
     let dir = std::path::Path::new(folder.trim());

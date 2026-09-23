@@ -31,7 +31,7 @@ import {
   notifyQuestionPending,
   notifyTaskDone,
 } from "@/features/notifications/notify";
-import { connectorInstructionsFor, hasEnabledMcp, syncMcpServers } from "@/features/mcp";
+import { connectorInstructionsFor, hasEnabledMcp, pickedConnectorInstructions, syncMcpServers } from "@/features/mcp";
 import {
     getOpencodeModels,
     loadOpencodeSettings,
@@ -43,7 +43,7 @@ import {
     type WorkMode,
 } from "@/features/opencode";
 import { getProviderConfig } from "@/features/providers";
-import { buildInstructions, getInstructions, skillsInPrompt } from "@/features/instructions";
+import { buildInstructions, getInstructions, skillSlug, skillsInPrompt, type Skill } from "@/features/instructions";
 import { getProject, projectContext } from "@/features/projects";
 import { skillsGrant } from "@/features/skills";
 import { findGrant, grantsFor, isWithin, normalizeFolder, requestFolderAccess } from "@/features/workspace";
@@ -54,11 +54,12 @@ import type {
     StreamMetadata,
     TodoItem,
 } from "@/pages/chat/api/chat";
+import { effortFor } from "@/features/effort";
 import { generateStream, runModelIdFor } from "@/pages/chat/api/router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { contextUsage } from "../context-usage";
-import { summarizeConversation } from "../summary";
+import { summarizeConversation, transcript } from "../summary";
 import {
     apiModelOf,
     isCodexModel,
@@ -266,6 +267,12 @@ export type SendMessage = {
   model: AiModel;
   budget: ContextBudget;
   attachments?: Attachment[];
+  /** Hidden context for the model (e.g. `@`-mentioned files), not shown in the message. */
+  context?: string;
+  /** Skills picked as badges, by slug; called like `/name` in the text. */
+  skills?: string[];
+  /** Connectors picked as badges, by id. */
+  connectors?: string[];
 };
 
 const MAX_HISTORY = 40;
@@ -295,10 +302,12 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
       prompt,
       resend,
       attachments = [],
+      context = "",
     }: {
       prompt: string;
       resend: NonNullable<ChatMessage["resend"]>;
       attachments?: Attachment[];
+      context?: string;
     }): Promise<boolean> => {
       const modelId = resend.modelId;
       const budget = { maxTokens: resend.maxTokens, autoNewChat: resend.autoNewChat };
@@ -326,7 +335,7 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
         chat &&
         chat.messages.length > 0 &&
         budget.autoNewChat &&
-        contextUsage(chat.messages, prompt).usedTokens > budget.maxTokens
+        contextUsage(chat.messages, prompt + context).usedTokens > budget.maxTokens
       ) {
         continuedFrom = { id: chat.id, title: chat.title, summarizing: true };
         previous = chat;
@@ -341,16 +350,20 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
       }
 
       const chatKey = chat.id;
-      const history = toHistory(chat.messages);
+      const earlier = chat.messages;
+      const history = toHistory(earlier);
       const assistantId = crypto.randomUUID();
-      const isOpencode = isOpencodeModel(modelId);
-      const isCursor = isCursorModel(modelId);
-      const isCodex = isCodexModel(modelId);
-      const isAntigravity = isAntigravityModel(modelId);
+      // The backend that actually runs: an API model moves onto OpenCode while
+      // MCP is on, and then keeps an OpenCode session like any OpenCode model.
+      const runModelId = runModelIdFor(modelId);
+      const isOpencode = isOpencodeModel(runModelId);
+      const isCursor = isCursorModel(runModelId);
+      const isCodex = isCodexModel(runModelId);
+      const isAntigravity = isAntigravityModel(runModelId);
       let hasErrored = false;
 
       // Show the prompt right away; anything slow (MCP sync) runs after.
-      const userMessage = createUserMessage(prompt, resend, attachments);
+      const userMessage = createUserMessage(prompt, resend, attachments, context);
       updateChatMessages(chatKey, (prev) => [
         ...prev,
         userMessage,
@@ -441,12 +454,14 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
           if (id) updateRun(chatKey, (r) => ({ ...r, checkpointId: id }));
         }
 
+        const sessionId = agentSessionId();
         await generateStream(
           {
-            prompt,
-            modelId: runModelIdFor(modelId),
-            sessionId: agentSessionId(),
+            prompt: prompt + context,
+            modelId: runModelId,
+            sessionId,
             history,
+            handoff: transcript(missedBy(earlier, sessionId), Math.floor(budget.maxTokens / 2)),
             mode: chatMode,
             runId: chatKey,
             cwd: folders[0],
@@ -455,10 +470,12 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
             instructions: [
               buildInstructions(undefined, projectContext(project), chatMode === "chat" ? "chat" : "cowork"),
               connectorInstructionsFor(prompt),
+              pickedConnectorInstructions(resend.connectors),
             ]
               .filter(Boolean)
               .join("\n\n"),
-            skills: skillsInPrompt(prompt, [...(project?.skills ?? []), ...getInstructions().skills]),
+            skills: calledSkills(prompt, resend.skills, [...(project?.skills ?? []), ...getInstructions().skills]),
+            effort: resend.effort,
             summary: getChat(chatKey)?.continuedFrom?.summary,
           },
           {
@@ -541,15 +558,21 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
 
   /** Resolves false when the message was not sent (e.g. folder access declined). */
   const sendMessage = useCallback(
-    async ({ prompt, model, budget, attachments }: SendMessage): Promise<boolean> =>
+    async ({ prompt, model, budget, attachments, context, skills, connectors }: SendMessage): Promise<boolean> =>
       executeSend({
         prompt,
         attachments,
+        context,
         resend: {
           modelId: model.id,
           modelName: model.name,
           maxTokens: budget.maxTokens,
           autoNewChat: budget.autoNewChat,
+          // Only ever a level this model listed, so a retry on another model
+          // falls back to that model's own default instead of being refused.
+          effort: effortFor(model.id, model.efforts),
+          ...(skills?.length ? { skills } : {}),
+          ...(connectors?.length ? { connectors } : {}),
         },
       }),
     [executeSend],
@@ -572,15 +595,17 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
       if (!chat || !original?.resend) return false;
       const chatMode = sessionMode(chat);
       const picked = loadSelectedModelId(chatMode);
+      const { skills, connectors } = original.resend;
       const resend =
         picked === original.resend.modelId
           ? original.resend
-          : resendSettingsFor(picked, getOpencodeModels(), chatMode) ?? original.resend;
+          : { ...(resendSettingsFor(picked, getOpencodeModels(), chatMode) ?? original.resend), skills, connectors };
       updateChatMessages(chatId, (prev) => prev.slice(0, index));
       return executeSend({
         prompt: original.content,
         resend,
         attachments: original.attachments,
+        context: original.context,
       });
     },
     [chatId, executeSend],
@@ -873,13 +898,37 @@ function toHistory(messages: ChatMessage[]): HistoryMessage[] {
         (m.role === "user" || m.role === "assistant") && !!m.content.trim(),
     )
     .slice(-MAX_HISTORY)
-    .map((m) => ({ role: m.role, content: m.content }));
+    .map((m) => ({ role: m.role, content: m.content + (m.context ?? "") }));
+}
+
+/**
+ * The turns an agent's own session hasn't seen: the whole chat when it starts
+ * a fresh session (the user switched to it mid-chat), or whatever other
+ * models said since it last replied.
+ */
+function missedBy(messages: ChatMessage[], sessionId: string | undefined): ChatMessage[] {
+  if (!sessionId) return messages;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === "assistant" && m.sessionId === sessionId) return messages.slice(i + 1);
+  }
+  return messages;
+}
+
+/** Skills picked as badges first, then any still typed as `/name`. */
+function calledSkills(prompt: string, picked: string[] = [], all: Skill[]): Skill[] {
+  const found = picked
+    .map((slug) => all.find((k) => skillSlug(k) === slug && k.instructions.trim()))
+    .filter((k): k is Skill => !!k);
+  for (const skill of skillsInPrompt(prompt, all)) if (!found.includes(skill)) found.push(skill);
+  return found;
 }
 
 function createUserMessage(
   prompt: string,
   resend: NonNullable<ChatMessage["resend"]>,
   attachments: Attachment[],
+  context: string,
 ): ChatMessage {
   return {
     id: crypto.randomUUID(),
@@ -887,6 +936,7 @@ function createUserMessage(
     content: prompt,
     resend,
     ...(attachments.length ? { attachments } : {}),
+    ...(context ? { context } : {}),
   };
 }
 

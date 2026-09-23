@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { sessionMode, useChatRuns, useChatSessions, type ChatSession } from "@/features/chat-history";
 import { useProjects, type Project } from "@/features/projects";
 import type { LucideIcon } from "lucide-react";
-import { FolderKanbanIcon, SearchIcon, Settings2Icon, SparklesIcon, SquarePenIcon } from "lucide-react";
+import { FolderKanbanIcon, ImagesIcon, SearchIcon, Settings2Icon, SparklesIcon, SquarePenIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { NavLink, useLocation, useMatch } from "react-router-dom";
 import { ChatHistoryItem } from "./chat-history-item";
@@ -142,6 +142,7 @@ export function AppSidebar() {
         <SidebarMenu className="gap-0.5">
           <NavItem title="New chat" url="/?mode=chat" icon={SquarePenIcon} />
           <NavItem title="Cowork" url="/?mode=cowork" icon={SparklesIcon} />
+          <NavItem title="Visual" url="/visual" icon={ImagesIcon} />
           <NavItem title="Projects" url="/projects" icon={FolderKanbanIcon} />
           <NavItem title="Settings" url="/settings" icon={Settings2Icon} />
         </SidebarMenu>

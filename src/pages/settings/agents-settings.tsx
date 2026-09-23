@@ -3,20 +3,12 @@ import { Input } from "@/components/ui/input";
 import { CursorLoginDialog, requestCursorLogin, useCursor } from "@/features/cursor";
 import { useAntigravity } from "@/features/antigravity";
 import { useOpencode } from "@/features/opencode";
-import {
-  PROVIDERS,
-  ProviderLogo,
-  useEnvKeys,
-  useProviderConfigs,
-  type ProviderDef,
-} from "@/features/providers";
 import { cn } from "@/lib/utils";
 import { checkCli, type CliCheckResult } from "@/pages/chat/api/cli";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Codex, Cursor, GeminiCLI as AntigravityCLI, OpenCode } from "@lobehub/icons";
 import { FolderOpenIcon, RefreshCwIcon } from "lucide-react";
 import { useEffect, useId, useState } from "react";
-import { ProviderDialog, providerStatus } from "./provider-dialog";
 import { OnboardingButton } from "@/features/onboarding";
 import {
   CardGrid,
@@ -34,12 +26,9 @@ export function AgentsSettings() {
   const opencode = useOpencode();
   const cursor = useCursor();
   const antigravity = useAntigravity();
-  const configs = useProviderConfigs();
-  const envKeys = useEnvKeys();
   const folderId = useId();
   const [cwdDraft, setCwdDraft] = useState(opencode.cwd);
   const [codex, setCodex] = useState<CliCheckResult | null>(null);
-  const [provider, setProvider] = useState<ProviderDef | null>(null);
 
   useEffect(() => setCwdDraft(opencode.cwd), [opencode.cwd]);
 
@@ -77,8 +66,8 @@ export function AgentsSettings() {
   return (
     <div className="flex flex-col gap-10">
       <SectionHeader
-        title="Agents"
-        description="Local agents for Cowork. Pick a model from the chat box."
+        title="CLI agents"
+        description="Agents already on this Mac, run on the subscription you signed in with. They show up in the model list next to your API models."
         actions={
           <div className="flex items-center gap-2">
             <OnboardingButton className="h-8 text-xs" />
@@ -228,51 +217,6 @@ export function AgentsSettings() {
         </div>
       </SettingsSection>
 
-      <SettingsSection>
-        <div className="flex flex-col gap-1">
-          <GroupLabel>Agent models</GroupLabel>
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            Set once for Chat and Cowork. Keys stay on this device.
-          </p>
-        </div>
-        <CardGrid className="lg:grid-cols-3 2xl:grid-cols-3">
-          {PROVIDERS.map((p) => {
-            const status = providerStatus(p, configs[p.id], envKeys);
-            const inAgent = opencode.models?.providers.find((x) => x.id === p.id)?.connected;
-            return (
-              <IntegrationCard
-                key={p.id}
-                icon={
-                  <IconTile>
-                    <ProviderLogo logo={p.logo} name={p.name} className="size-6" />
-                  </IconTile>
-                }
-                title={p.name}
-                description={p.description}
-                onOpen={() => setProvider(p)}
-                openLabel={`Set up ${p.name}`}
-                highlight={inAgent ? "success" : undefined}
-                status={
-                  inAgent ? (
-                    <StatusPill tone="success">Connected</StatusPill>
-                  ) : status.tone === "success" ? (
-                    <StatusPill tone="warning">Chat only</StatusPill>
-                  ) : (
-                    <StatusPill tone="neutral">Not connected</StatusPill>
-                  )
-                }
-                control={
-                  <Button type="button" variant="outline" size="sm" onClick={() => setProvider(p)}>
-                    {status.tone === "success" ? "Manage" : "Set up"}
-                  </Button>
-                }
-              />
-            );
-          })}
-        </CardGrid>
-      </SettingsSection>
-
-      <ProviderDialog provider={provider} onClose={() => setProvider(null)} />
       <CursorLoginDialog />
     </div>
   );

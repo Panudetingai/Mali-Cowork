@@ -32,13 +32,17 @@ import { filterSkills, skillSlug, useInstructions, type Skill } from "@/features
 import { useProjects } from "@/features/projects";
 import { cn } from "@/lib/utils";
 import { CoworkBot } from "@/components/anim/cowork-bot";
+import { McpToolIcon, useInstalledConnectors, useMcpConnections } from "@/features/mcp";
+import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   ArrowUpIcon,
   EyeIcon,
   FolderIcon,
+  FolderLockIcon,
   LoaderIcon,
+  ScrollTextIcon,
   SquareIcon,
   UploadIcon,
   XIcon,
@@ -62,14 +66,15 @@ import {
 } from "../models";
 import type { ChatMessage } from "../types";
 import { useDebouncedValue } from "../hooks/use-debounced-value";
+import { effortFor, effortLevels, setEffortFor, useEffortChoices } from "@/features/effort";
 import { ContextMeter } from "./context-meter";
 import { buildMentionAppendix, parseMentions } from "./mention/mentions";
 import { filterMentions, MentionPopup } from "./mention/mention-popup";
-import { SkillPopup } from "./mention/skill-popup";
+import { SkillPopup, slashItems, type SlashItem } from "./mention/skill-popup";
 import { useWorkspaceFiles } from "./mention/use-workspace-files";
+import { EffortPicker } from "./effort-picker";
 import { ModelPicker } from "./model-picker";
 import { PromptOptionsMenu } from "./prompt-options-menu";
-import { WorkModeToggle } from "./work-mode-toggle";
 
 type Props = {
   ref: RefObject<HTMLTextAreaElement | null>;
@@ -93,6 +98,8 @@ const NO_FOLDERS: string[] = [];
 const MAX_ATTACHMENTS = 10;
 /** Sent when the user attaches files but types nothing. */
 const ATTACHMENTS_ONLY_PROMPT = "Please take a look at the attached files.";
+/** Pasted text longer than this is attached as a file. */
+const LONG_PASTE_CHARS = 500;
 
 export default function PromptInput({
   ref,
@@ -145,8 +152,8 @@ export default function PromptInput({
   const selected = findModel(catalog, modelId);
   const usesOpencode = isOpencodeModel(selected.id);
   const opencodeMissing = usesOpencode && opencode.check?.available === false;
-  // Each agent keeps its own session, so one picked up mid-chat knows nothing
-  // about what the previous one did here. Say so before the prompt is sent.
+  // Each agent keeps its own session. One picked up mid-chat is handed the
+  // conversation so far (see `handoff`), but not the other's tool runs.
   const ranOn = [...messages]
     .reverse()
     .find((m) => m.role === "assistant" && m.modelId)?.modelId;
@@ -154,6 +161,9 @@ export default function PromptInput({
     !!ranOn && agentOf(ranOn) !== agentOf(selected.id)
       ? { from: agentNameOf(ranOn), to: agentNameOf(selected.id) }
       : undefined;
+  // Re-reads when the user moves the slider; the store keeps it per model.
+  useEffortChoices();
+  const effort = effortFor(selected.id, selected.efforts);
   const budget = contextBudgetFor(selected);
   const usageLive = useMemo(() => contextUsage(messages), [messages]);
   const usage = useDebouncedValue(usageLive, 400, !!isLoading);
@@ -265,14 +275,24 @@ export default function PromptInput({
 
   const pasteFiles = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = Array.from(event.clipboardData.files);
-    if (files.length === 0) return;
-    event.preventDefault();
-    void addAttachments(files);
+    if (files.length > 0) {
+      event.preventDefault();
+      void addAttachments(files);
+      return;
+    }
+    // Long pasted text becomes a text attachment instead of flooding the box.
+    const text = event.clipboardData.getData("text/plain");
+    if (text.length > LONG_PASTE_CHARS) {
+      event.preventDefault();
+      const name = `pasted-text-${new Date().toISOString().slice(11, 19).replace(/:/g, "")}.txt`;
+      void addAttachments([new File([text], name, { type: "text/plain" })]);
+    }
   };
 
   // Files dragged from Finder / Explorer onto the window.
   const addRef = useLatest(addAttachments);
   useEffect(() => {
+    if (!isTauri()) return;
     let unlisten: (() => void) | undefined;
     let disposed = false;
     getCurrentWebview()
@@ -312,7 +332,23 @@ export default function PromptInput({
   }, [projects, projectId, globalSkills]);
   const [slash, setSlash] = useState<{ query: string; start: number } | null>(null);
   const [slashActive, setSlashActive] = useState(0);
-  const skillMatches = useMemo(() => (slash ? filterSkills(skills, slash.query) : []), [slash, skills]);
+  const skillMatches = useMemo(
+    () => (slash ? filterSkills(skills.filter((k) => k.enabled), slash.query) : []),
+    [slash, skills],
+  );
+  const slashList = useMemo(() => (slash ? slashItems(skillMatches, slash.query) : []), [slash, skillMatches]);
+
+  // Skills and connectors picked for this prompt, shown as badges.
+  const [pickedSkills, setPickedSkills] = useState<string[]>([]);
+  const [pickedConnectors, setPickedConnectors] = useState<string[]>([]);
+  const connectors = useInstalledConnectors();
+  const skillBySlug = (slug: string) => skills.find((k) => skillSlug(k) === slug);
+  const toggleSkill = (skill: Skill) => {
+    const slug = skillSlug(skill);
+    setPickedSkills((prev) => (prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug]));
+  };
+  const toggleConnector = (id: string) =>
+    setPickedConnectors((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]));
 
   /** Recompute an open `@` or `/` query from the caret position. */
   function updateMention(value: string, caret: number | undefined) {
@@ -350,25 +386,30 @@ export default function PromptInput({
     });
   }
 
-  function insertSkill(skill: Skill) {
+  /** A `/` pick: the typed `/query` goes away, the skill becomes a badge. */
+  function pickSlash(item: SlashItem) {
     if (!slash) return;
     const caret = ref.current?.selectionStart ?? prompt.length;
-    const token = `/${skillSlug(skill)} `;
-    const next = `${prompt.slice(0, slash.start)}${token}${prompt.slice(caret)}`;
-    const nextCaret = slash.start + token.length;
+    const next = `${prompt.slice(0, slash.start)}${prompt.slice(caret)}`;
     setPrompt(next);
     setSlash(null);
+    if (item.kind === "files") void pickFiles();
+    else {
+      const slug = skillSlug(item.skill);
+      setPickedSkills((prev) => (prev.includes(slug) ? prev : [...prev, slug]));
+    }
     requestAnimationFrame(() => {
       ref.current?.focus();
-      ref.current?.setSelectionRange(nextCaret, nextCaret);
+      ref.current?.setSelectionRange(slash.start, slash.start);
     });
   }
 
-  async function withMentions(text: string): Promise<string> {
-    if (!mentionRoot || parseMentions(text).length === 0) return text;
+  /** What the `@` mentions point at, for the model only — the message shows just the text. */
+  async function mentionContext(text: string): Promise<string> {
+    if (!mentionRoot || parseMentions(text).length === 0) return "";
     setAttaching(true);
     try {
-      return text + (await buildMentionAppendix(mentionRoot, text));
+      return await buildMentionAppendix(mentionRoot, text);
     } finally {
       setAttaching(false);
     }
@@ -376,20 +417,50 @@ export default function PromptInput({
 
   async function send(text: string, model: AiModel) {
     const files = attachments;
+    const picks = { skills: pickedSkills, connectors: pickedConnectors };
     setPrompt("");
     setAttachments([]);
+    setPickedSkills([]);
+    setPickedConnectors([]);
     setAttachError(null);
     setMention(null);
     setSlash(null);
-    const full = await withMentions(text || ATTACHMENTS_ONLY_PROMPT);
-    const sent = await onSubmit({ prompt: full, model, budget: contextBudgetFor(model), attachments: files });
+    const skillNames = picks.skills.map((slug) => skillBySlug(slug)?.name ?? slug);
+    const fallback = skillNames.length ? `Use ${skillNames.join(", ")}.` : ATTACHMENTS_ONLY_PROMPT;
+    const shown = text || fallback;
+    const context = await mentionContext(shown);
+    const sent = await onSubmit({
+      prompt: shown,
+      context,
+      model,
+      budget: contextBudgetFor(model),
+      attachments: files,
+      skills: picks.skills,
+      connectors: picks.connectors,
+    });
     if (!sent) {
       setPrompt((current) => current || text);
       setAttachments((current) => (current.length ? current : files));
+      setPickedSkills((current) => (current.length ? current : picks.skills));
+      setPickedConnectors((current) => (current.length ? current : picks.connectors));
     }
   }
 
-  const canSend = (!!prompt.trim() || attachments.length > 0) && importing === 0;
+  const canSend = (!!prompt.trim() || attachments.length > 0 || pickedSkills.length > 0) && importing === 0;
+
+  // ⌘U / Ctrl+U: attach files, as the plus menu says.
+  const pickFilesRef = useLatest(pickFiles);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? event.metaKey : event.ctrlKey;
+      if (mod && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "u") {
+        event.preventDefault();
+        void pickFilesRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pickFilesRef]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -402,7 +473,7 @@ export default function PromptInput({
   return (
     <form
       onSubmit={handleSubmit}
-      className="relative mx-auto w-full max-w-3xl rounded-2xl border bg-card p-3 shadow-sm transition-shadow focus-within:ring-1 focus-within:ring-amber-300"
+      className="relative w-full rounded-xl border bg-card p-3 shadow-sm transition-shadow focus-within:ring-1 focus-within:ring-amber-300"
     >
       {dragging && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-amber-400 bg-amber-50/90 text-sm font-medium text-amber-800 dark:bg-amber-950/90 dark:text-amber-200">
@@ -450,17 +521,46 @@ export default function PromptInput({
         </div>
       )}
 
+      {(pickedSkills.length > 0 || pickedConnectors.length > 0) && (
+        <div className="mb-1.5 flex flex-wrap gap-1.5 px-1">
+          {pickedSkills.map((slug) => (
+            <PickBadge
+              key={`skill-${slug}`}
+              icon={<ScrollTextIcon className="size-3.5 text-violet-500" />}
+              label={slug}
+              title={skillBySlug(slug)?.description}
+              onRemove={() => setPickedSkills((prev) => prev.filter((s) => s !== slug))}
+            />
+          ))}
+          {pickedConnectors.map((id) => {
+            const connector = connectors.find((c) => c.id === id);
+            if (!connector) return null;
+            return (
+              <PickBadge
+                key={`mcp-${id}`}
+                icon={<McpToolIcon mcp={connector.ref} size={14} />}
+                label={connector.name}
+                title={connector.enabled ? `Uses ${connector.name}` : `${connector.name} is off — turn it on in Connectors`}
+                muted={!connector.enabled}
+                onRemove={() => setPickedConnectors((prev) => prev.filter((c) => c !== id))}
+              />
+            );
+          })}
+        </div>
+      )}
+
       <div className="relative">
         {slash && !mention && (
           <SkillPopup
-            matches={skillMatches}
+            items={slashList}
             hasSkills={skills.length > 0}
+            picked={pickedSkills}
             active={slashActive}
             onActiveChange={setSlashActive}
-            onSelect={insertSkill}
+            onSelect={pickSlash}
           />
         )}
-        {mention && mentionMatches.length > 0 && (
+        {mention && (mentionMatches.length > 0 || workspaceLoading) && (
           <MentionPopup
             query={mention.query}
             entries={workspaceEntries}
@@ -492,19 +592,19 @@ export default function PromptInput({
                 setSlash(null);
                 return;
               }
-              if (skillMatches.length > 0) {
+              if (slashList.length > 0) {
                 if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                   event.preventDefault();
                   setSlashActive((i) =>
                     event.key === "ArrowDown"
-                      ? Math.min(i + 1, skillMatches.length - 1)
+                      ? Math.min(i + 1, slashList.length - 1)
                       : Math.max(i - 1, 0),
                   );
                   return;
                 }
                 if (event.key === "Enter" || event.key === "Tab") {
                   event.preventDefault();
-                  insertSkill(skillMatches[slashActive] ?? skillMatches[0]);
+                  pickSlash(slashList[slashActive] ?? slashList[0]);
                   return;
                 }
               }
@@ -529,6 +629,10 @@ export default function PromptInput({
                 setMention(null);
                 return;
               }
+            }
+            if (event.key === "Backspace" && !prompt && event.currentTarget.selectionStart === 0) {
+              if (pickedConnectors.length) setPickedConnectors((prev) => prev.slice(0, -1));
+              else if (pickedSkills.length) setPickedSkills((prev) => prev.slice(0, -1));
             }
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
@@ -555,9 +659,9 @@ export default function PromptInput({
       )}
 
       {!opencodeMissing && switchesAgent && (
-        <p className="mt-1 flex items-center gap-1.5 px-1 text-xs text-amber-600 dark:text-amber-400">
+        <p className="mt-1 flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
           <CoworkBot state="alert" size={28} className="-my-1" />
-          {`${switchesAgent.to} starts fresh here — it won't see what ${switchesAgent.from} did earlier in this chat.`}
+          {`${switchesAgent.to} picks up this conversation — it gets what was said, not ${switchesAgent.from}'s own tool steps.`}
         </p>
       )}
 
@@ -567,18 +671,23 @@ export default function PromptInput({
             opencode={usesOpencode ? opencode : undefined}
             mode={mode}
             canAddFolder={!!session?.cwd}
-            onPickWorkingFolder={pickWorkingFolder}
             onAddFolder={addAttachedFolder}
             onAddFiles={() => void pickFiles()}
+            skills={skills}
+            pickedSkills={pickedSkills}
+            onToggleSkill={toggleSkill}
+            pickedConnectors={pickedConnectors}
+            onToggleConnector={toggleConnector}
           />
-          <WorkModeToggle mode={mode} onModeChange={onModeChange} />
-          {isCowork && (
+          {isCowork ? (
             <FolderChip
               opencode={opencode}
               cwd={cwd}
               boundToChat={!!session?.cwd}
               onClick={pickWorkingFolder}
             />
+          ) : (
+            <ChatReachChip onSwitchToCowork={() => onModeChange("cowork")} />
           )}
         </div>
 
@@ -601,6 +710,12 @@ export default function PromptInput({
               saveSelectedModelId(mode, model.id);
               askForAccess(model);
             }}
+          />
+          <EffortPicker
+            levels={effortLevels(selected.efforts)}
+            value={effort ?? ""}
+            onChange={(level) => setEffortFor(selected.id, level)}
+            disabled={isLoading}
           />
           {canStop ? (
             <Button
@@ -627,6 +742,39 @@ export default function PromptInput({
         </div>
       </div>
     </form>
+  );
+}
+
+/**
+ * What Chat can reach, where Cowork shows its folder.
+ *
+ * Chat leaves the file tools out and never hands a CLI a working folder, but
+ * nothing on screen said so — the tooltip on the mode switch is not where
+ * anyone looks. It also said nothing about connectors, so people assumed
+ * "no file access" meant no tools at all and switched to Cowork to use one.
+ */
+function ChatReachChip({ onSwitchToCowork }: { onSwitchToCowork: () => void }) {
+  const connectors = Object.values(useMcpConnections()).filter((c) => c.enabled).length;
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      onClick={onSwitchToCowork}
+      className="min-w-0 gap-1.5 rounded-full px-2 text-xs text-muted-foreground"
+      title={
+        `Chat answers from what it knows and from your connectors. It cannot open, ` +
+        `change or run anything on this Mac, and it is never given a folder.\n\n` +
+        `Click to switch to Cowork, which works in the folders you grant.`
+      }
+    >
+      <FolderLockIcon className="size-3.5" />
+      <span className="hidden truncate sm:inline">
+        {connectors > 0
+          ? `No files · ${connectors} connector${connectors === 1 ? "" : "s"}`
+          : "No file access"}
+      </span>
+    </Button>
   );
 }
 
@@ -668,6 +816,42 @@ function FolderChip({
       <span className="max-w-32 truncate">{folderName(cwd)}</span>
       {grant?.access === "read" && <EyeIcon className="size-3" aria-label="Read only" />}
     </Button>
+  );
+}
+
+/** A skill or connector picked for this prompt. */
+function PickBadge({
+  icon,
+  label,
+  title,
+  muted,
+  onRemove,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  title?: string;
+  muted?: boolean;
+  onRemove: () => void;
+}) {
+  return (
+    <span
+      title={title}
+      className={cn(
+        "group/badge flex h-7 items-center gap-1.5 rounded-lg border bg-muted/50 pr-1 pl-2 text-xs font-medium animate-in fade-in-0 zoom-in-95 duration-150",
+        muted && "opacity-60",
+      )}
+    >
+      {icon}
+      <span className="max-w-40 truncate">{label}</span>
+      <button
+        type="button"
+        aria-label={`Remove ${label}`}
+        onClick={onRemove}
+        className="rounded-md p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+      >
+        <XIcon className="size-3" />
+      </button>
+    </span>
   );
 }
 

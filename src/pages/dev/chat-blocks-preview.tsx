@@ -1,4 +1,7 @@
 import { ChatRichBlocks } from "@/components/chat-blocks/chat-rich-blocks";
+import { EffortPicker } from "@/pages/chat/components/effort-picker";
+import { effortLevels } from "@/features/effort";
+import { useState } from "react";
 import { SectionHeader, SettingsSection } from "@/pages/settings/ui";
 import type { AuthActionBlock, MediaPreviewBlock } from "@/features/chat-blocks";
 import { Link } from "react-router-dom";
@@ -42,6 +45,32 @@ const DEMO_MEDIA: MediaPreviewBlock[] = [
   },
 ];
 
+/** The level sets real models come back with, so the control can be checked
+ *  against the shapes it actually has to render. */
+const DEMO_EFFORTS: { model: string; levels: string[] }[] = [
+  { model: "gpt-5.2", levels: ["none", "low", "medium", "high", "xhigh"] },
+  { model: "claude-opus-5-5", levels: ["low", "medium", "high", "max"] },
+  { model: "agy · gemini-3.1-pro", levels: ["low", "medium", "high"] },
+  { model: "a level we don't know yet", levels: ["low", "ludicrous"] },
+  { model: "no effort control", levels: [] },
+];
+
+function EffortRow({ model, levels }: { model: string; levels: string[] }) {
+  const [value, setValue] = useState(levels.includes("medium") ? "medium" : (levels[0] ?? ""));
+  return (
+    <div className="flex items-center gap-3 border-b py-2 last:border-b-0">
+      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
+        {model}
+      </span>
+      {levels.length > 1 ? (
+        <EffortPicker levels={effortLevels(levels)} value={value} onChange={setValue} />
+      ) : (
+        <span className="text-[11px] text-muted-foreground/70">no control shown</span>
+      )}
+    </div>
+  );
+}
+
 export default function ChatBlocksPreviewPage() {
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 lg:py-10">
@@ -73,6 +102,16 @@ export default function ChatBlocksPreviewPage() {
       <SettingsSection className="mt-10">
         <h3 className="text-sm font-medium text-foreground">MCP media & links</h3>
         <ChatRichBlocks authActions={[]} mediaPreviews={DEMO_MEDIA} />
+      </SettingsSection>
+
+      <SettingsSection className="mt-10">
+        <h3 className="text-sm font-medium text-foreground">Thinking effort</h3>
+        <p className="mb-2 text-xs text-muted-foreground">
+          Shown only for models that offer more than one level; the levels come from the model.
+        </p>
+        {DEMO_EFFORTS.map((row) => (
+          <EffortRow key={row.model} {...row} />
+        ))}
       </SettingsSection>
 
       <SettingsSection className="mt-10 rounded-xl border border-dashed border-border/80 bg-muted/20 p-4">

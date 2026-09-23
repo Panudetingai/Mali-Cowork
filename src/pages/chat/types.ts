@@ -65,6 +65,8 @@ export type ChatMessage = {
   durationMs?: number;
   /** Files and pictures sent with a user message. */
   attachments?: Attachment[];
+  /** Sent to the model after `content` but not shown: files and folders the prompt `@`-mentions. */
+  context?: string;
   /** On an error: what the user can do about it, offered in the message. */
   fix?: ErrorFix;
   /** Thumbs up/down on a finished assistant reply. */
@@ -75,5 +77,11 @@ export type ChatMessage = {
     modelName: string;
     maxTokens: number;
     autoNewChat: boolean;
+    /** How hard the model was asked to think; kept so a retry matches. */
+    effort?: string;
+    /** Skills (by slug) picked as badges in the composer. */
+    skills?: string[];
+    /** Connector ids picked as badges in the composer. */
+    connectors?: string[];
   };
 };

@@ -15,7 +15,9 @@ import {
 } from "@/components/ui/select";
 import {
   effectiveCommand,
+  getConnectorIcon,
   parseMcpErrorMessage,
+  setConnectorIcon,
   type McpConnection,
   type McpDef,
   type McpServerStatus,
@@ -30,6 +32,7 @@ import {
   McpMeta,
   RunOnDeviceBlock,
 } from "./mcp-connection-ui";
+import { IconPicker } from "./icon-picker";
 import { McpIcon } from "./mcp-icon";
 import type { CardState } from "./use-mcp-manager";
 
@@ -121,6 +124,7 @@ function DetailsForm({
   const [customCommand, setCustomCommand] = useState(conn?.customCommand ?? "");
   const [advanced, setAdvanced] = useState(!!conn?.customCommand);
   const [submitted, setSubmitted] = useState(false);
+  const [icon, setIcon] = useState(() => getConnectorIcon(server.id));
 
   const draft: McpConnection = {
     enabled,
@@ -142,6 +146,7 @@ function DetailsForm({
     event.preventDefault();
     setSubmitted(true);
     if (willConnect && missing.length > 0) return;
+    setConnectorIcon(server.id, icon);
     const ok = await onApply(server.id, {
       env: Object.fromEntries(Object.entries(env).filter(([, v]) => v.trim())),
       variantId,
@@ -159,7 +164,11 @@ function DetailsForm({
     <form onSubmit={save} className="flex flex-col">
       <div className="flex flex-col gap-5 px-6 pt-6 pb-2">
         <header className="flex gap-4 pr-6">
-          <McpIcon server={server} className="size-14 rounded-2xl [&_svg]:size-7" />
+          <IconPicker
+            value={icon}
+            onChange={setIcon}
+            fallback={<McpIcon server={server} plain className="size-full rounded-2xl [&_svg]:size-7" />}
+          />
           <div className="min-w-0 flex-1 space-y-1.5">
             <DialogTitle className="text-left text-xl font-semibold tracking-tight">
               {server.name}

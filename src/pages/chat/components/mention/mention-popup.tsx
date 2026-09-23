@@ -1,8 +1,8 @@
 "use client";
 
-import { cn } from "@/lib/utils";
-import { FileIcon, FolderIcon } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { FileIcon, FolderIcon, LoaderIcon } from "lucide-react";
+import { useMemo } from "react";
+import { PickerRow, PickerShell } from "./picker-shell";
 import type { WorkspaceEntry } from "./use-workspace-files";
 
 type Props = {
@@ -38,55 +38,48 @@ export function filterMentions(entries: WorkspaceEntry[], query: string): Worksp
     .map((s) => s.e);
 }
 
-/** Presentational list; the composer owns keyboard navigation. */
+function split(rel: string) {
+  const at = rel.lastIndexOf("/");
+  return at < 0 ? { name: rel, dir: "" } : { name: rel.slice(at + 1), dir: rel.slice(0, at) };
+}
+
+/** The `@` picker: file name first, its folder dimmed beside it. */
 export function MentionPopup({ query, entries, loading, active, onActiveChange, onSelect }: Props) {
   const matches = useMemo(() => filterMentions(entries, query), [entries, query]);
-
-  useEffect(() => {
-    if (matches.length === 0) return;
-    document.getElementById(`mention-item-${active}`)?.scrollIntoView({ block: "nearest" });
-  }, [active, matches.length]);
+  const current = matches[active];
 
   return (
-    <div
-      role="listbox"
-      aria-label="Mention a file or folder"
-      className="absolute right-0 bottom-full left-0 z-20 mb-2 overflow-hidden rounded-xl border bg-popover shadow-lg"
+    <PickerShell
+      label="Mention a file or folder"
+      idPrefix="mention-item"
+      active={active}
+      detail={current && current.rel.includes("/") ? <span className="font-mono break-all">{current.rel}</span> : undefined}
+      footer={
+        loading ? (
+          <span className="flex items-center gap-1.5">
+            <LoaderIcon className="size-3 animate-spin" /> Scanning folder…
+          </span>
+        ) : matches.length === 0 ? (
+          "No matching files"
+        ) : undefined
+      }
     >
-      <p className="border-b px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
-        {loading ? "Scanning workspace…" : matches.length > 0 ? "Files & folders — Tab/Enter to insert" : "No matches"}
-      </p>
-      <ul className="max-h-56 overflow-auto p-1">
-        {matches.map((m, i) => {
-          const Icon = m.isDirectory ? FolderIcon : FileIcon;
-          return (
-            <li key={m.rel}>
-              <button
-                id={`mention-item-${i}`}
-                type="button"
-                role="option"
-                aria-selected={i === active}
-                onMouseDown={(e) => {
-                  // Select before the textarea loses focus.
-                  e.preventDefault();
-                  onSelect(m.rel, m.isDirectory);
-                }}
-                onMouseEnter={() => onActiveChange(i)}
-                className={cn(
-                  "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm",
-                  i === active ? "bg-accent text-accent-foreground" : "text-foreground",
-                )}
-              >
-                <Icon className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate font-mono text-[13px]">{m.rel}</span>
-                {m.isDirectory && (
-                  <span className="shrink-0 text-[10px] text-muted-foreground">folder</span>
-                )}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
+      {matches.map((m, i) => {
+        const { name, dir } = split(m.rel);
+        return (
+          <PickerRow
+            key={m.rel}
+            id={`mention-item-${i}`}
+            active={i === active}
+            onHover={() => onActiveChange(i)}
+            onPick={() => onSelect(m.rel, m.isDirectory)}
+            icon={m.isDirectory ? <FolderIcon className="size-4 text-amber-500" /> : <FileIcon className="size-4" />}
+          >
+            <span className="shrink-0 truncate">{name}</span>
+            {dir && <span className="min-w-0 truncate text-xs text-muted-foreground">{dir}</span>}
+          </PickerRow>
+        );
+      })}
+    </PickerShell>
   );
 }

@@ -8,9 +8,8 @@ import {
   TabPanels,
 } from "@/components/animate-ui/primitives/headless/tabs";
 import { cn } from "@/lib/utils";
-import { BookOpenIcon, BotIcon, FolderIcon, NotebookPenIcon, SparklesIcon } from "lucide-react";
+import { BookOpenIcon, FolderIcon, NotebookPenIcon, SparklesIcon } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
-import { AgentsSettings } from "./agents-settings";
 import { FoldersSettings } from "./folders-settings";
 import { InstructionsSettings } from "./instructions-settings";
 import { McpTabIcon } from "./mcp/mcp-icon";
@@ -19,8 +18,10 @@ import { ModelsSettings } from "./models-settings";
 import { SkillsSettings } from "./skills/skills-settings";
 
 const TABS = [
-  { id: "models", label: "Models", description: "AI providers & keys", icon: SparklesIcon },
-  { id: "agents", label: "Agents", description: "Cowork CLIs", icon: BotIcon },
+  // Providers and CLI agents are one page: both answer "where do the models
+  // in the chat box come from", and split across two tabs the same key had
+  // two homes.
+  { id: "models", label: "Models", description: "Providers, keys & CLI agents", icon: SparklesIcon },
   { id: "instructions", label: "Instructions", description: "Tone & context", icon: NotebookPenIcon },
   { id: "skills", label: "Skills", description: "How-tos the AI follows", icon: BookOpenIcon },
   { id: "mcp", label: "Connectors", description: "Apps & MCP tools", lobeMcp: true as const },
@@ -94,9 +95,6 @@ export default function SettingsPage() {
           <TabPanels mode="layout">
             <TabPanel>
               <ModelsSettings />
-            </TabPanel>
-            <TabPanel>
-              <AgentsSettings />
             </TabPanel>
             <TabPanel>
               <InstructionsSettings />

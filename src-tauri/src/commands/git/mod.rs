@@ -5,7 +5,7 @@
 //!   programs, timeouts, output cap).
 //! - [`status`]: repository, branch, changed files.
 //! - [`diff`]: one file's working-folder diff; context for commit messages.
-//! - [`actions`]: stage, unstage, discard, commit, init.
+//! - [`actions`]: stage, unstage, discard, stash, commit, init.
 //! - [`history`]: log, a commit's files and diffs.
 //! - [`branches`]: list, switch, create.
 //! - [`remote`]: fetch, pull, push.
@@ -77,6 +77,12 @@ pub async fn git_unstage(folder: String, paths: Vec<String>) -> Result<(), Strin
 #[tauri::command]
 pub async fn git_discard(folder: String, paths: Vec<String>) -> Result<(), String> {
     actions::discard(&open(&folder).await?, &paths).await
+}
+
+#[tauri::command]
+pub async fn git_stash(folder: String) -> Result<SyncResult, String> {
+    let message = actions::stash(&open(&folder).await?).await?;
+    Ok(SyncResult { message })
 }
 
 #[tauri::command]

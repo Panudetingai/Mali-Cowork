@@ -4,6 +4,8 @@ const AUTH_BLOCK = /```auth[^\S\n]*\n([\s\S]*?)```/g;
 const OPEN_AUTH = /```auth[^\S\n]*(\n[\s\S]*)?$/;
 const PREVIEW_BLOCK = /```preview[^\S\n]*\n([\s\S]*?)```/g;
 const OPEN_PREVIEW = /```preview[^\S\n]*(\n[\s\S]*)?$/;
+const MEDIA_BLOCK = /```media[^\S\n]*\n([\s\S]*?)```/g;
+const OPEN_MEDIA = /```media[^\S\n]*(\n[\s\S]*)?$/;
 
 const MD_LINK = /\[([^\]]+)\]\(([^)]+)\)/g;
 const HTML_ANCHOR = /<a\s+[^>]*href=["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
@@ -95,6 +97,40 @@ function parsePreview(body: string): MediaPreviewBlock | null {
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif|bmp|svg)(\?[^\s]*)?$/i;
 const VIDEO_EXT = /\.(mp4|webm|mov|m4v|ogv)(\?[^\s]*)?$/i;
+
+/** `/Users/me/a.png`, `C:\pics\a.png`, `\\server\share\a.png`. */
+const ABSOLUTE_PATH = /^(\/|[A-Za-z]:[\\/]|\\\\)/;
+
+/**
+ * A picture or clip just generated, named in a ```media block.
+ *
+ * Only a picture or a clip is shown, and only by absolute path. The block is
+ * written by the app itself today, but an agent could put one in its reply,
+ * so it is treated as something a prompt could have talked a model into
+ * writing: any other extension is dropped rather than handed to the file
+ * reader.
+ */
+function parseMedia(body: string): MediaPreviewBlock | null {
+  const value = parseJson<Record<string, unknown>>(body);
+  if (!value) return null;
+  const raw = typeof value.path === "string" ? value.path : value.url;
+  if (typeof raw !== "string") return null;
+  const path = raw.trim().replace(/^file:\/\//, "");
+  if (!path || !ABSOLUTE_PATH.test(path)) {
+    // A web address in a ```media block is just a preview.
+    return typeof value.url === "string" ? parsePreview(body) : null;
+  }
+  const kind = IMAGE_EXT.test(path) ? "image" : VIDEO_EXT.test(path) ? "video" : undefined;
+  if (!kind) return null;
+  return {
+    kind,
+    url: path,
+    local: true,
+    title: typeof value.title === "string" ? value.title.trim() || undefined : undefined,
+    description:
+      typeof value.description === "string" ? value.description.trim() || undefined : undefined,
+  };
+}
 
 /** `image` / `video` for a URL that plainly is one, undefined otherwise. */
 function mediaKindOf(url: string): "image" | "video" | undefined {
@@ -238,6 +274,16 @@ export function extractChatBlocks(content: string): {
         return "";
       })
       .replace(OPEN_PREVIEW, "");
+  }
+
+  if (text.includes("```media")) {
+    text = text
+      .replace(MEDIA_BLOCK, (_, body: string) => {
+        const parsed = parseMedia(body);
+        if (parsed) mediaPreviews.push(parsed);
+        return "";
+      })
+      .replace(OPEN_MEDIA, "");
   }
 
   text = extractAuthFromProse(text, authActions);

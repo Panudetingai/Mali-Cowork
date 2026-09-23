@@ -9,8 +9,20 @@ import { MessageSquareIcon, SparklesIcon } from "lucide-react";
 export type { WorkMode };
 
 const MODES: { value: WorkMode; label: string; hint: string; icon: typeof MessageSquareIcon }[] = [
-  { value: "chat", label: "Chat", hint: "Ask and talk — no file access", icon: MessageSquareIcon },
-  { value: "cowork", label: "Cowork", hint: "Let the agent work in your folders", icon: SparklesIcon },
+  {
+    value: "chat",
+    label: "Chat",
+    // Both halves matter: people assume "no file access" means no tools at
+    // all, and stop using connectors in Chat for no reason.
+    hint: "Answers only — no folders and nothing on this Mac. Connectors still work.",
+    icon: MessageSquareIcon,
+  },
+  {
+    value: "cowork",
+    label: "Cowork",
+    hint: "Works in the folders you grant — reads, edits and runs commands there",
+    icon: SparklesIcon,
+  },
 ];
 
 const LAST_MODE_KEY = "chat_work_mode";

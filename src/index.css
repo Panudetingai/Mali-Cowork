@@ -360,3 +360,13 @@
     background-position: -200% 50%;
   }
 }
+
+/* Indeterminate progress (git pull/push/fetch): a short bar slides across. */
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}

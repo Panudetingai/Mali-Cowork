@@ -14,6 +14,7 @@ import {
   closeInstallRequest,
   diagnoseMcpBinaries,
   installConnector,
+  setConnectorIcon,
   installedFromRegistry,
   installOptions,
   oauthLimitFor,
@@ -43,6 +44,7 @@ import {
 import { useEffect, useId, useMemo, useState, type ChangeEvent } from "react";
 import { CopyCommand, Field, Notice, SecretInput } from "../ui";
 import { RegistryIcon } from "./connector-icon";
+import { IconPicker } from "./icon-picker";
 import { InstallMethodSelect } from "./install-method-select";
 import { McpErrorHelp } from "./mcp-details-dialog";
 import { OAuthLimitBanner } from "./oauth-limit-banner";
@@ -148,6 +150,7 @@ function InstallForm({ server, fromChat, onClose }: { server: RegistryServer; fr
   const [error, setError] = useState<string | null>(null);
   const [missingBinary, setMissingBinary] = useState<string | null>(null);
   const [signInFailed, setSignInFailed] = useState(false);
+  const [icon, setIcon] = useState<string | null>(null);
 
   // Say up front when the method needs a program that isn't installed.
   useEffect(() => {
@@ -188,6 +191,7 @@ function InstallForm({ server, fromChat, onClose }: { server: RegistryServer; fr
     try {
       const { connector, env } = registryConnector(server, option, values, existing);
       const result = await installConnector(connector, env);
+      if (icon) setConnectorIcon(connector.id, icon);
       setStatus(result ?? { id: connector.id, status: "unknown" });
       // Remote servers that use OAuth ask to sign in right away.
       if (result?.status === "needs_auth") await signIn(connector.id);
@@ -222,7 +226,7 @@ function InstallForm({ server, fromChat, onClose }: { server: RegistryServer; fr
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
-      <Header server={server} />
+      <Header server={server} icon={{ value: icon, onChange: setIcon }} />
 
       {fromChat && !status && (
         <Notice tone="info" title="Suggested by the AI">
@@ -436,10 +440,27 @@ function InstallForm({ server, fromChat, onClose }: { server: RegistryServer; fr
   );
 }
 
-function Header({ server }: { server: RegistryServer }) {
+function Header({
+  server,
+  icon,
+}: {
+  server: RegistryServer;
+  /** When set, the icon can be replaced before installing. */
+  icon?: { value: string | null; onChange: (icon: string | null) => void };
+}) {
+  const own = <RegistryIcon icons={server.icons} size={44} className="shrink-0 rounded-xl" />;
   return (
     <DialogHeader className="min-w-0 flex-row items-start gap-3 space-y-0 pr-10 text-left">
-      <RegistryIcon icons={server.icons} size={44} className="shrink-0 rounded-xl" />
+      {icon ? (
+        <IconPicker
+          value={icon.value}
+          onChange={icon.onChange}
+          className="size-11 rounded-xl"
+          fallback={<RegistryIcon icons={server.icons} size={44} className="size-full rounded-xl border-0" />}
+        />
+      ) : (
+        own
+      )}
       <div className="min-w-0 flex-1">
         <DialogTitle className="text-base leading-snug line-clamp-2">{server.title}</DialogTitle>
         <DialogDescription asChild>

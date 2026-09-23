@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -17,7 +17,7 @@ use super::{
     lease_instance,
     policy::{Decision, FolderPolicy},
     providers::{overlay_model_ids, APP_PROVIDERS},
-    schema::is_recursive,
+    schema::{self, Unsupported},
     server::{ensure_server, not_found_message, restart},
     OpencodeCheckResult, OpencodeModel, OpencodeModelsResult, OpencodeProvider, OpencodeRequest,
     FolderGrant, PermissionReplyRequest, QuestionReplyRequest, SetAuthRequest,
@@ -101,10 +101,16 @@ pub async fn opencode_list_models(cwd: Option<String>) -> Result<OpencodeModelsR
 
         for (model_id, model) in provider["models"].as_object().into_iter().flatten() {
             let context_limit = model["limit"]["context"].as_u64().filter(|&n| n > 0);
-            // Speech, image and deprecated models can't hold a conversation.
             // Models the user added in Settings have no metadata but are chat models.
             let added_by_user = app_models.contains(&format!("{provider_id}/{model_id}"));
-            if (context_limit.is_none() && !added_by_user) || model["status"] == "deprecated" {
+            let output = string_list(&model["modalities"]["output"]);
+            // A picture model has a context window like any other, so the
+            // window alone never told them apart: `gemini-3-pro-image-preview`
+            // was offered as something to chat with and answered nothing.
+            let draws = output.iter().any(|m| m == "image" || m == "video");
+            if (context_limit.is_none() && !added_by_user && !draws)
+                || model["status"] == "deprecated"
+            {
                 continue;
             }
             let cost = &model["cost"];
@@ -121,6 +127,8 @@ pub async fn opencode_list_models(cwd: Option<String>) -> Result<OpencodeModelsR
                 tool_call: model["capabilities"]["toolcall"]
                     .as_bool()
                     .or_else(|| model["tool_call"].as_bool()),
+                output,
+                efforts: effort_levels(&model["variants"]),
             });
         }
     }
@@ -139,6 +147,35 @@ pub async fn opencode_list_models(cwd: Option<String>) -> Result<OpencodeModelsR
         default_model,
         providers,
     })
+}
+
+/// Weakest to strongest, from opencode's own per-model `variants`.
+///
+/// The names differ by model — `gpt-5.2` offers none…xhigh, Claude offers
+/// low…max, and plenty of models offer nothing at all — so the order is fixed
+/// here rather than guessed from whatever order the map came back in. A name
+/// this list has never heard of is kept, at the end, so a new level still
+/// reaches the user.
+fn effort_levels(variants: &Value) -> Vec<String> {
+    const ORDER: &[&str] = &[
+        "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra",
+    ];
+    let Some(names) = variants.as_object() else {
+        return Vec::new();
+    };
+    let mut levels: Vec<String> = names.keys().cloned().collect();
+    levels.sort_by_key(|name| {
+        ORDER
+            .iter()
+            .position(|known| known == name)
+            .unwrap_or(ORDER.len())
+    });
+    // One choice is not a choice: a model with a single variant is offered no
+    // control, the same as one with none.
+    if levels.len() < 2 {
+        return Vec::new();
+    }
+    levels
 }
 
 /// Save an API key for a provider; its models become usable immediately.
@@ -353,12 +390,37 @@ async fn run_prompt(
     };
     // One tool the provider refuses fails the whole prompt, so those are left
     // out and said out loud rather than taking the chat down with them.
-    let skip = if mcp.is_empty() { Vec::new() } else { unusable_tools(&client, &directory, model, &mcp).await };
-    if !skip.is_empty() {
-        emit(on_event, skipped_tools_activity(&skip))?;
+    let skipped = if mcp.is_empty() {
+        Vec::new()
+    } else {
+        unusable_tools(&client, &directory, model, &mcp).await
+    };
+    for activity in skipped_tools_activities(&skipped) {
+        emit(on_event, activity)?;
     }
-    let mut options =
-        prompt_options(request, &policy.lock().unwrap(), &directory, model, tool_call, &mcp, &skip);
+    let mut skip: Vec<String> = skipped.iter().map(|(name, _)| name.clone()).collect();
+
+    // A provider that already refused this model's connector tools refuses
+    // them every time, so the failed round trip is skipped from then on.
+    let mut without_mcp = !mcp.is_empty() && mcp_was_refused(model, &mcp);
+    if without_mcp {
+        skip.extend(mcp_tool_patterns(&mcp));
+        emit(on_event, mcp_refused_activity(&mcp, false))?;
+    }
+
+    // Without their tools the servers are not "connected" as far as this
+    // prompt goes, so they are left out of the note as well — a model told it
+    // has a connector it cannot call says it will use it, then cannot.
+    let announced = |off: bool| if off { Vec::new() } else { mcp.clone() };
+    let mut options = prompt_options(
+        request,
+        &policy.lock().unwrap(),
+        &directory,
+        model,
+        tool_call,
+        &announced(without_mcp),
+        &skip,
+    );
     options.files = file_parts(&request.files)?;
     client
         .prompt_async(&directory, &session_id, prompt, &options)
@@ -367,7 +429,25 @@ async fn run_prompt(
     let auto_approve = request.auto_approve.unwrap_or(false);
     let mut translator = EventTranslator::new(session_id.clone(), request.thinking.unwrap_or(false));
 
+    // Set when the tool list was refused and the prompt is being sent again
+    // without the connector tools; the stream then carries the second answer.
+    let mut resent = false;
+
     loop {
+        if resent {
+            resent = false;
+            // A fresh subscription first: the refused turn's own trailing
+            // `session.idle` is still in the stream, and reading it against
+            // the new turn would end the reply before it had started.
+            events = SseStream::new(client.events(&directory).await?);
+            tokio::time::timeout(CONNECT_TIMEOUT, events.wait_for("server.connected"))
+                .await
+                .map_err(|_| "Timed out connecting to the opencode event stream".to_string())??;
+            translator = EventTranslator::new(session_id.clone(), request.thinking.unwrap_or(false));
+            client
+                .prompt_async(&directory, &session_id, prompt, &options)
+                .await?;
+        }
         let event = match tokio::time::timeout(STREAM_IDLE, events.next()).await {
             Ok(next) => match next? {
                 Some(event) => event,
@@ -446,6 +526,28 @@ async fn run_prompt(
                         },
                     );
                 }
+                // The provider threw the whole request out over a tool it was
+                // offered, so the message was never read. Send it again with
+                // the connector tools left out rather than answering nothing.
+                Outcome::Failed(message)
+                    if !without_mcp && !mcp.is_empty() && schema::is_tool_list_rejection(&message) =>
+                {
+                    remember_mcp_refused(model, &mcp);
+                    without_mcp = true;
+                    resent = true;
+                    skip.extend(mcp_tool_patterns(&mcp));
+                    options = prompt_options(
+                        request,
+                        &policy.lock().unwrap(),
+                        &directory,
+                        model,
+                        tool_call,
+                        &announced(true),
+                        &skip,
+                    );
+                    options.files = file_parts(&request.files)?;
+                    emit(on_event, mcp_refused_activity(&mcp, true))
+                }
                 Outcome::Failed(message) => return Err(message),
             };
 
@@ -453,6 +555,9 @@ async fn run_prompt(
             if let Err(e) = sent {
                 let _ = client.abort(&directory, &session_id).await;
                 return Err(e);
+            }
+            if resent {
+                break;
             }
         }
     }
@@ -546,48 +651,122 @@ async fn unusable_tools(
     directory: &str,
     model: Option<&str>,
     mcp: &[String],
-) -> Vec<String> {
+) -> SkippedTools {
     let Some((provider_id, model_id)) = model.and_then(|m| m.split_once('/')) else {
         return Vec::new();
     };
-    let key = format!("{directory}|{model_id}|{}", mcp.join(","));
+    // Keyed by provider too: the same model name reaches Google through more
+    // than one provider, and only some of them mind an empty choice.
+    let key = format!("{directory}|{provider_id}/{model_id}|{}", mcp.join(","));
     if let Some(known) = unusable_cache().lock().unwrap().get(&key) {
         return known.clone();
     }
     let Ok(tools) = client.tools(directory, provider_id, model_id).await else {
         return Vec::new();
     };
-    let skip: Vec<String> = tools
+    let google = schema::goes_to_google(provider_id, model_id);
+    let skip: SkippedTools = tools
         .into_iter()
-        .filter(|(_, schema)| is_recursive(schema))
-        .map(|(name, _)| name)
+        .filter_map(|(name, schema)| Some((name, schema::unsupported(&schema, google)?)))
         .collect();
     if !skip.is_empty() {
-        eprintln!("[opencode] leaving out tools the provider can't accept: {}", skip.join(", "));
+        let names: Vec<&str> = skip.iter().map(|(name, _)| name.as_str()).collect();
+        eprintln!(
+            "[opencode] leaving out tools {provider_id}/{model_id} can't accept: {}",
+            names.join(", ")
+        );
     }
     unusable_cache().lock().unwrap().insert(key, skip.clone());
     skip
 }
 
-fn unusable_cache() -> &'static Mutex<HashMap<String, Vec<String>>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, Vec<String>>>> = OnceLock::new();
+/// Tools left out for one folder, model and server set.
+type SkippedTools = Vec<(String, Unsupported)>;
+
+fn unusable_cache() -> &'static Mutex<HashMap<String, SkippedTools>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, SkippedTools>>> = OnceLock::new();
     CACHE.get_or_init(Default::default)
 }
 
-/// Say which tools were left out, where the user is already looking.
-fn skipped_tools_activity(skip: &[String]) -> ChatStreamEvent {
+/// Say which tools were left out, where the user is already looking — one
+/// line per reason, because the two have different answers: recursion is the
+/// server's to fix, an empty choice goes away on a non-Google model.
+fn skipped_tools_activities(skipped: &[(String, Unsupported)]) -> Vec<ChatStreamEvent> {
+    let mut by_reason: Vec<(Unsupported, Vec<&str>)> = Vec::new();
+    for (name, reason) in skipped {
+        match by_reason.iter_mut().find(|(known, _)| known == reason) {
+            Some((_, names)) => names.push(name),
+            None => by_reason.push((*reason, vec![name])),
+        }
+    }
+    by_reason
+        .into_iter()
+        .map(|(reason, names)| ChatStreamEvent::Activity {
+            id: Some(format!("skipped-tools-{reason:?}")),
+            kind: "system".into(),
+            title: format!("{} left out: {}", names.join(", "), reason.explanation()),
+            detail: Some(format!(
+                "{} The rest of the server works as usual.\n\n{}",
+                reason.detail(),
+                names.join("\n")
+            )),
+            done: true,
+            duration_ms: None,
+        })
+        .collect()
+}
+
+/// `server_*` switches off a whole MCP server's tools for one prompt, the
+/// same pattern Chat uses for the workspace servers.
+fn mcp_tool_patterns(mcp: &[String]) -> Vec<String> {
+    mcp.iter().map(|id| format!("{id}_*")).collect()
+}
+
+/// Models whose provider refused the tool list these MCP servers contributed.
+/// Keyed by the server set too, so changing the connectors tries again.
+fn refused_mcp_cache() -> &'static Mutex<HashSet<String>> {
+    static CACHE: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
+fn refused_key(model: Option<&str>, mcp: &[String]) -> String {
+    format!("{}|{}", model.unwrap_or_default(), mcp.join(","))
+}
+
+fn mcp_was_refused(model: Option<&str>, mcp: &[String]) -> bool {
+    refused_mcp_cache().lock().unwrap().contains(&refused_key(model, mcp))
+}
+
+fn remember_mcp_refused(model: Option<&str>, mcp: &[String]) {
+    refused_mcp_cache().lock().unwrap().insert(refused_key(model, mcp));
+}
+
+/// Said where the user is already looking, because the reply that follows is
+/// missing tools they switched on and nothing else would explain why.
+fn mcp_refused_activity(mcp: &[String], first_time: bool) -> ChatStreamEvent {
+    let named = if mcp.len() == 1 {
+        format!("the {} connector", mcp[0])
+    } else {
+        format!("one of these connectors: {}", mcp.join(", "))
+    };
     ChatStreamEvent::Activity {
-        id: Some("skipped-tools".into()),
+        id: Some("mcp-tools-refused".into()),
         kind: "system".into(),
         title: format!(
-            "{} left out: the model's provider rejects schemas that refer to themselves",
-            skip.join(", ")
+            "Connector tools left out: this model's provider won't accept {}",
+            if mcp.len() == 1 { mcp[0].clone() } else { mcp.join(", ") }
         ),
         detail: Some(format!(
-            "These tools describe themselves in terms of themselves, which this provider answers \
-             with \"Recursive JSON schemas are not currently supported\" — and it turns down the \
-             whole request, not just the tool. The rest of the server works as usual.\n\n{}",
-            skip.join("\n")
+            "The provider checks every tool it is offered before it reads the message, and it \
+             turned the whole request down over a tool from {named}. {}\n\nThe reply below was \
+             made without those tools. To use them, pick a model from another provider — \
+             Anthropic, OpenAI and OpenCode take them — or switch that connector off in \
+             Settings → MCP to stop this happening.",
+            if first_time {
+                "The message was sent again without them."
+            } else {
+                "That happened earlier in this session, so they were left out from the start."
+            }
         )),
         done: true,
         duration_ms: None,
@@ -607,9 +786,9 @@ fn mcp_note(servers: &[String]) -> Option<String> {
         .join("\n");
     Some(format!(
         "Connected MCP servers:\n{list}\n\nWhen one of these servers covers the task \
-         (e.g. `word_*` for Word documents), call its tools directly rather than writing a \
-         script for what they already do. A skill listed below may still tell you how the \
-         user wants that work done."
+         (e.g. `word_*` for Word documents, `media_*` to make a picture or a video), call its \
+         tools directly rather than writing a script — or saying you cannot — for what they \
+         already do. A skill listed below may still tell you how the user wants that work done."
     ))
 }
 
@@ -634,10 +813,12 @@ fn prompt_options<'a>(
         .map(str::trim)
         .filter(|text| !text.is_empty())
         .map(str::to_string);
+    let variant = request.effort.as_deref().map(str::trim).filter(|v| !v.is_empty()).map(str::to_string);
     if request.is_chat() {
         let system = [Some(CHAT_SYSTEM.to_string()), mcp_note, instructions].into_iter().flatten();
         return PromptOptions {
             model,
+            variant,
             // A model without tool calling takes no tools at all, so there is
             // nothing left to skip.
             disabled_tools: if tool_call {
@@ -654,6 +835,7 @@ fn prompt_options<'a>(
     notes.extend(instructions);
     PromptOptions {
         model,
+        variant,
         disabled_tools: with_skipped(Vec::new()),
         system: Some(notes.join("\n\n")),
         ..Default::default()
@@ -774,6 +956,30 @@ impl SseStream {
 mod tests {
     use crate::commands::supervisor::shutdown_all as shutdown;
     use super::*;
+    use serde_json::json;
+
+    /// The levels a model actually accepts, in the order a slider should show
+    /// them — not the order the map happened to come back in.
+    #[test]
+    fn effort_levels_are_sorted_weakest_first() {
+        let variants = json!({ "high": {}, "none": {}, "medium": {}, "low": {}, "xhigh": {} });
+        assert_eq!(
+            effort_levels(&variants),
+            ["none", "low", "medium", "high", "xhigh"]
+        );
+        // A level we have never heard of still reaches the user, at the end.
+        let future = json!({ "low": {}, "high": {}, "ludicrous": {} });
+        assert_eq!(effort_levels(&future), ["low", "high", "ludicrous"]);
+    }
+
+    /// One variant is not a choice, so no control is offered for it.
+    #[test]
+    fn a_model_without_a_real_choice_offers_no_control() {
+        assert!(effort_levels(&json!({})).is_empty());
+        assert!(effort_levels(&json!({ "high": {} })).is_empty());
+        assert!(effort_levels(&Value::Null).is_empty());
+    }
+
 
     /// A model without tool calling (Groq Compound) still answers in Chat.
     /// Run with `cargo test -- --ignored opencode_live_no_tools`.
@@ -794,6 +1000,7 @@ mod tests {
             cwd: None,
             session_id: None,
             thinking: Some(false),
+            effort: None,
             auto_approve: Some(false),
             mode: Some("chat".into()),
             folders: Vec::new(),
@@ -839,6 +1046,7 @@ mod tests {
             cwd: Some(path_str(&work)),
             session_id: None,
             thinking: Some(false),
+            effort: None,
             auto_approve: Some(false),
             mode: Some("cowork".into()),
             folders: vec![grant(&work, "write"), grant(&rw, "write"), grant(&ro, "read")],

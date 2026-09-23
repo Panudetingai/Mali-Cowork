@@ -20,6 +20,8 @@ export type OpencodeRequest = {
   files?: string[];
   /** Custom instructions and enabled skills, added to the system prompt. */
   instructions?: string;
+  /** How hard the model should think; one of the model's own effort levels. */
+  effort?: string;
 };
 
 export type FolderGrantInput = { path: string; access: "read" | "write" };
@@ -47,6 +49,10 @@ export type OpencodeModel = {
   contextLimit?: number | null;
   /** Can call tools (files, MCP); null when the model has no metadata. */
   toolCall?: boolean | null;
+  /** What it produces: `text`, `image`, `video`. */
+  output?: string[];
+  /** Reasoning effort levels it accepts, weakest first; empty for none. */
+  efforts?: string[];
 };
 
 export type OpencodeProvider = {

@@ -9,6 +9,7 @@ import {
 import { useVaultStatus } from "@/features/secrets";
 import { LockKeyholeIcon } from "lucide-react";
 import { useState } from "react";
+import { AgentsSettings } from "./agents-settings";
 import { ProviderDialog, providerStatus } from "./provider-dialog";
 import {
   CardGrid,
@@ -26,6 +27,13 @@ const GROUPS: { id: ProviderDef["group"]; label: string }[] = [
   { id: "cloud", label: "Cloud providers" },
 ];
 
+/**
+ * Everything a model can come from, on one page.
+ *
+ * Providers and CLI agents used to be two tabs that each showed the provider
+ * cards, so the same Gemini key had two homes and neither said which one the
+ * chat box would read. There is one list now.
+ */
 export function ModelsSettings() {
   const configs = useProviderConfigs();
   const envKeys = useEnvKeys();
@@ -36,8 +44,8 @@ export function ModelsSettings() {
   return (
     <div className="flex flex-col gap-10">
       <SectionHeader
-        title="AI Providers"
-        description="Connect a provider, then pick its models in the chat box. “Chat + Cowork” providers also work with agents."
+        title="Models"
+        description="Every model the chat box offers comes from here: a provider you hold the key for, or a CLI agent already signed in on this Mac."
         actions={
           <StatusPill tone={connected > 0 ? "success" : "neutral"}>
             {connected}/{PROVIDERS.length} connected
@@ -79,6 +87,8 @@ export function ModelsSettings() {
           </CardGrid>
         </SettingsSection>
       ))}
+
+      <AgentsSettings />
 
       <ProviderDialog provider={open} onClose={() => setOpen(null)} />
     </div>

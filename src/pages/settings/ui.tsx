@@ -282,7 +282,7 @@ export function SecretInput({ className, ...props }: Omit<ComponentProps<typeof 
         type={show ? "text" : "password"}
         autoComplete="off"
         spellCheck={false}
-        className={cn("pr-9", className)}
+        className={cn("h-10 pr-10 text-sm", className)}
         {...props}
       />
       <button
@@ -351,54 +351,65 @@ export function TagInput({
     if (add(pasted.replace(/\n/g, ","))) setText("");
   };
 
+  const addPlaceholder = values.length === 0 ? placeholder : "Add another…";
+
   return (
     <div
-      onClick={() => input.current?.focus()}
       aria-invalid={invalid || undefined}
       className={cn(
-        "flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-md border border-input bg-transparent px-2 py-1.5 shadow-xs transition-[color,box-shadow] dark:bg-input/30",
-        "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
+        "w-full overflow-hidden rounded-lg border border-input bg-background shadow-xs transition-[color,box-shadow] dark:bg-input/30",
+        "has-[:focus-visible]:border-ring has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50",
         invalid && "border-destructive ring-3 ring-destructive/20 dark:ring-destructive/40",
         disabled && "pointer-events-none opacity-50",
         className,
       )}
     >
-      {values.map((value) => (
-        <span
-          key={value}
-          className="flex h-6 max-w-full items-center gap-1 rounded-md border bg-muted/60 pr-1 pl-2 font-mono text-xs"
+      {values.length > 0 && (
+        <ul
+          className="grid grid-cols-1 gap-2 border-b border-border/60 p-2.5 sm:grid-cols-2"
+          aria-label="Selected models"
         >
-          <span className="truncate" title={value}>
-            {value}
-          </span>
-          <button
-            type="button"
-            aria-label={`Remove ${value}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              onChange(values.filter((v) => v !== value));
-            }}
-            className="rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-destructive"
-          >
-            <XIcon className="size-3" />
-          </button>
-        </span>
-      ))}
-      <input
-        ref={input}
-        id={id}
-        value={text}
-        disabled={disabled}
-        spellCheck={false}
-        autoComplete="off"
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={onKeyDown}
-        onPaste={onPaste}
-        // Typing then clicking elsewhere should keep the model, not drop it.
-        onBlur={() => add(text) && setText("")}
-        placeholder={values.length === 0 ? placeholder : "Add another…"}
-        className="h-6 min-w-28 flex-1 bg-transparent font-mono text-xs outline-none placeholder:font-sans placeholder:text-muted-foreground"
-      />
+          {values.map((value) => (
+            <li key={value}>
+              <span className="flex min-w-0 items-center justify-between gap-2 rounded-lg bg-muted/55 px-3 py-2 font-mono text-[12px] leading-snug text-foreground">
+                <span className="min-w-0 truncate" title={value}>
+                  {value}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${value}`}
+                  onClick={() => onChange(values.filter((v) => v !== value))}
+                  className="shrink-0 rounded-md p-0.5 text-muted-foreground hover:bg-background/80 hover:text-destructive"
+                >
+                  <XIcon className="size-3.5" />
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="p-2.5">
+        <input
+          ref={input}
+          id={id}
+          value={text}
+          disabled={disabled}
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+          // Typing then clicking elsewhere should keep the model, not drop it.
+          onBlur={() => add(text) && setText("")}
+          placeholder={addPlaceholder}
+          className={cn(
+            "h-9 w-full rounded-md border border-input bg-background px-3 font-mono text-[13px] outline-none transition-[color,box-shadow]",
+            "placeholder:font-sans placeholder:text-[13px] placeholder:text-muted-foreground",
+            "focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+          )}
+        />
+      </div>
     </div>
   );
 }
@@ -419,16 +430,16 @@ export function Field({
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      <label htmlFor={htmlFor} className="text-sm font-medium">
+    <div className="flex min-w-0 flex-col gap-2">
+      <label htmlFor={htmlFor} className="text-[13px] font-semibold tracking-tight text-foreground">
         {label}
-        {optional && <span className="ml-1 text-xs font-normal text-muted-foreground">(optional)</span>}
+        {optional && <span className="ml-1.5 text-[12px] font-normal text-muted-foreground">(optional)</span>}
       </label>
       {children}
       {error ? (
-        <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+        <p className="text-[12px] leading-relaxed text-red-600 dark:text-red-400">{error}</p>
       ) : (
-        hint && <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
+        hint && <p className="text-[12px] leading-relaxed text-muted-foreground">{hint}</p>
       )}
     </div>
   );

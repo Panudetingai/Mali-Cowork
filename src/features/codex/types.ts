@@ -16,6 +16,8 @@ export type CodexRequest = {
   runId: string;
   /** Attached pictures (attachment paths). */
   images?: string[];
+  /** How hard the model should think; one of the model's own levels. */
+  effort?: string;
 };
 
 export type CodexCheckResult = {
@@ -27,4 +29,9 @@ export type CodexCheckResult = {
   error?: string;
 };
 
-export type CodexModel = { id: string; name: string };
+export type CodexModel = {
+  id: string;
+  name: string;
+  /** Reasoning effort levels the model accepts, weakest first; empty for none. */
+  efforts?: string[];
+};

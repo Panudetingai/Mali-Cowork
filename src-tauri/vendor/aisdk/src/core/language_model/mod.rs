@@ -576,8 +576,18 @@ pub enum StopReason {
 }
 
 /// Levels of reasoning effort for language models that support it.
-#[derive(Debug, Clone, Copy, Default)]
+///
+/// Providers keep adding levels either side of low/medium/high — OpenAI now
+/// takes `none`, `minimal` and `xhigh`, Anthropic `max` — and the names differ
+/// per model, so `Other` carries a level this build has not heard of straight
+/// through to the wire instead of rounding it to the nearest known one.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum ReasoningEffort {
+    /// Think as little as possible; on providers with a thinking toggle this
+    /// turns it off rather than setting a budget.
+    None,
+    /// Minimal reasoning effort.
+    Minimal,
     /// Low reasoning effort.
     #[default]
     Low,
@@ -585,6 +595,65 @@ pub enum ReasoningEffort {
     Medium,
     /// High reasoning effort.
     High,
+    /// More than high, where the provider offers it.
+    XHigh,
+    /// The most the provider offers.
+    Max,
+    /// A level named by the provider that this build does not know.
+    Other(String),
+}
+
+impl ReasoningEffort {
+    /// The value as the provider spells it on the wire.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::None => "none",
+            Self::Minimal => "minimal",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::XHigh => "xhigh",
+            Self::Max => "max",
+            Self::Other(level) => level,
+        }
+    }
+
+    /// How much of the output budget to spend thinking, for providers that
+    /// take a token budget instead of a level. `None` means do not think.
+    pub fn budget_fraction(&self) -> Option<f32> {
+        match self {
+            Self::None => None,
+            Self::Minimal => Some(0.1),
+            Self::Low => Some(0.25),
+            Self::Medium => Some(0.5),
+            Self::High => Some(0.75),
+            Self::XHigh | Self::Max => Some(0.9),
+            // An unknown level is still a request to think; treat it as the
+            // middle rather than guessing at either end.
+            Self::Other(_) => Some(0.5),
+        }
+    }
+}
+
+impl From<&str> for ReasoningEffort {
+    fn from(level: &str) -> Self {
+        match level.trim().to_ascii_lowercase().as_str() {
+            "none" | "off" => Self::None,
+            "minimal" => Self::Minimal,
+            "low" => Self::Low,
+            "medium" => Self::Medium,
+            "high" => Self::High,
+            "xhigh" | "x-high" => Self::XHigh,
+            "max" => Self::Max,
+            other => Self::Other(other.to_string()),
+        }
+    }
+}
+
+impl From<String> for ReasoningEffort {
+    fn from(level: String) -> Self {
+        Self::from(level.as_str())
+    }
 }
 
 #[cfg(test)]

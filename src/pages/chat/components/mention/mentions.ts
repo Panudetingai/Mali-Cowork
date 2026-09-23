@@ -53,10 +53,8 @@ export async function buildMentionAppendix(root: string, text: string): Promise<
   let files = 0;
   for (const token of tokens) {
     const target = await resolve(root, token);
-    if (target.kind === "missing") {
-      parts.push(`--- @${token} ---\n(not found under the workspace)`);
-      continue;
-    }
+    // Not a path (e.g. `@claude`, an email): leave it as plain text.
+    if (target.kind === "missing") continue;
     if (target.kind === "dir") {
       let names: string[] = [];
       try {

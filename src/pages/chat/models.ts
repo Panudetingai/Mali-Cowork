@@ -2,6 +2,8 @@ import type { CodexModel } from "@/features/codex";
 import type { CursorModel } from "@/features/cursor";
 import type { OpencodeModel, OpencodeModelsResult, WorkMode } from "@/features/opencode";
 import type { AntigravityModel } from "@/features/antigravity";
+import { effortFor, storedEffortFor } from "@/features/effort";
+import type { MediaKind } from "@/features/media";
 import { providerContextLimit, type ProviderDef } from "@/features/providers";
 
 /**
@@ -26,9 +28,133 @@ export type AiModel = {
   needsLogin?: boolean;
   /** Context window in tokens, when known. */
   contextLimit?: number;
-  /** Why the model can't do Cowork's agent work; shown disabled when set. */
-  coworkIssue?: string;
+  /**
+   * Why this model can't do the work in the mode the catalog was built for.
+   * Set means "not offered here": the picker leaves it out and a stored
+   * selection is replaced (see `substituteFor`).
+   */
+  issue?: string;
+  /**
+   * The model draws instead of answering, so the prompt goes straight to the
+   * provider's picture or video API (see `features/media`) rather than to a
+   * chat endpoint or an agent.
+   */
+  media?: MediaKind;
+  /**
+   * Reasoning effort levels this model accepts, weakest first. Empty or
+   * absent means the model has no such setting and no control is shown.
+   */
+  efforts?: string[];
 };
+
+/**
+ * Providers whose picture and video APIs Mali can call. Each one is a
+ * provider Settings → Models already holds a key for, so making a picture
+ * needs nothing set up beyond the key you chat with.
+ *
+ * Keep in step with `Provider::routes` in `src-tauri/src/media/providers.rs`,
+ * which is what actually makes the call.
+ */
+const MEDIA_PROVIDERS = new Set(["google", "openai", "openrouter", "xai", "alibaba"]);
+
+/** …and of those, the ones Mali knows how to ask for a video. */
+const VIDEO_PROVIDERS = new Set(["google", "alibaba"]);
+
+/** Why a model that draws can't run here, or undefined when it can. */
+export function mediaIssue(providerId: string, media: MediaKind | undefined) {
+  if (!media) return undefined;
+  if (media === "video" && !VIDEO_PROVIDERS.has(providerId)) {
+    return "Mali can't ask this provider for video yet — Gemini and Qwen can";
+  }
+  return undefined;
+}
+
+/**
+ * Every picture or video model the configured providers sell, for the Visual
+ * page. A key entered once to chat with is the same key that draws, so
+ * nothing more is set up — and nobody has to know that
+ * `gemini-3-pro-image-preview` exists to use it.
+ *
+ * Models the metadata does not cover are recognised by name, which is how a
+ * `qwen-image-3.0` typed into Settings → Models is found.
+ */
+export function buildMediaCatalog(
+  opencode: OpencodeModelsResult | null,
+  providers: ConfiguredProvider[],
+  kind: MediaKind,
+): AiModel[] {
+  return providers.flatMap(({ provider, models }) => {
+    if (!MEDIA_PROVIDERS.has(provider.id)) return [];
+    const prefix = `${provider.id}/`;
+    const fromCatalogue = (opencode?.models ?? [])
+      .filter((m) => m.id.startsWith(prefix))
+      .map((m) => m.id.slice(prefix.length));
+    const seen = new Set<string>();
+    return [...models, ...fromCatalogue].flatMap((name) => {
+      if (seen.has(name)) return [];
+      seen.add(name);
+      const meta = opencode?.models.find((m) => m.id === `${prefix}${name}`);
+      const media = mediaKindFor(meta, name);
+      if (media !== kind || mediaIssue(provider.id, media)) return [];
+      return [
+        {
+          id: apiModelId(provider.id, name),
+          name,
+          provider: provider.logo,
+          source: "api" as const,
+          group: provider.name,
+          media,
+        },
+      ];
+    });
+  });
+}
+
+/**
+ * Model names that say outright what they make. Used only as a fallback, when
+ * the metadata has nothing to say about a model — which is exactly the case
+ * for one typed into Settings → Models by hand: `qwen-image-3.0` is not in
+ * models.dev, so it arrived with no modalities, went down the chat path, and
+ * came back as a validation error about `messages.0.role` that told the user
+ * nothing. Any model the metadata *does* cover is decided by its real
+ * modalities, so a naming coincidence cannot override the facts.
+ */
+const VIDEO_NAME = /(^|[-_/.])(video|veo|sora|t2v|wan[-_.]?\d)([-_./]|$)/i;
+const IMAGE_NAME = /(^|[-_/.])(image|imagen|imagine|flux|dall[-_.]?e|t2i)([-_./0-9]|$)/i;
+
+function mediaKindFromName(model: string): MediaKind | undefined {
+  if (VIDEO_NAME.test(model)) return "video";
+  if (IMAGE_NAME.test(model)) return "image";
+  return undefined;
+}
+
+/**
+ * What a model makes: its metadata when there is any, its name when there is
+ * not. The name is never consulted for a model models.dev describes, so a
+ * chat model that happens to have "image" in its name stays a chat model.
+ */
+function mediaKindFor(
+  meta: Pick<OpencodeModel, "output"> | undefined,
+  model: string,
+): MediaKind | undefined {
+  return (meta?.output?.length ?? 0) > 0 ? mediaKindOf(meta) : mediaKindFromName(model);
+}
+
+/**
+ * What a model produces, when it is not words.
+ *
+ * models.dev carries this as `modalities.output`, and it is the only thing
+ * that tells `gemini-3-pro-image-preview` apart from `gemini-3-pro`: both have
+ * a context window, both are listed under Gemini, and only one of them will
+ * ever answer a question.
+ */
+export function mediaKindOf(model: Pick<OpencodeModel, "output"> | undefined): MediaKind | undefined {
+  const output = model?.output ?? [];
+  if (output.includes("video") && !output.includes("text")) return "video";
+  if (output.includes("image")) return "image";
+  if (output.includes("video")) return "video";
+  return undefined;
+}
 
 export type ConfiguredProvider = { provider: ProviderDef; models: string[] };
 
@@ -109,6 +235,41 @@ export function coworkIssueOf(model: Pick<OpencodeModel, "toolCall" | "contextLi
   return undefined;
 }
 
+/** The provider id OpenCode Zen's own models sit under. */
+const ZEN_PROVIDER = "opencode";
+
+const ZEN_FREE_ISSUE =
+  "OpenCode Zen's free tier only answers full coding sessions — use it in Cowork";
+
+/**
+ * Why a model is not fit for Chat, or undefined when it is.
+ *
+ * Chat mode runs without the file tools, and OpenCode Zen turns its *free*
+ * models down unless the request looks like a real OpenCode coding session:
+ * every prompt came back as "OpenCode's free tier can only be used from within
+ * OpenCode". Paid Zen models and every other provider are unaffected, so only
+ * the free ones are held back — in Cowork, where the tools are there, they
+ * work as before.
+ */
+export function chatIssueOf(model: Pick<AiModel, "provider" | "source" | "free">) {
+  const zen = model.source === "opencode" && model.provider === ZEN_PROVIDER;
+  return zen && model.free ? ZEN_FREE_ISSUE : undefined;
+}
+
+/**
+ * What a stored model id produces, without building the whole catalog — the
+ * send path carries an id, not a model.
+ */
+export function mediaKindForId(
+  modelId: string,
+  opencode: OpencodeModelsResult | null,
+): MediaKind | undefined {
+  const api = apiModelOf(modelId);
+  if (!api || !MEDIA_PROVIDERS.has(api.provider)) return undefined;
+  const meta = opencode?.models.find((m) => m.id === `${api.provider}/${api.model}`);
+  return mediaKindFor(meta, api.model);
+}
+
 /**
  * Selectable models for a mode. Chat talks to provider APIs and OpenCode
  * (without file access); Cowork only offers agents that can work on folders.
@@ -121,20 +282,30 @@ export function buildModelCatalog(
   codex: { models: CodexModel[]; loggedIn: boolean } = { models: [], loggedIn: false },
   antigravity: { models: AntigravityModel[]; loggedIn: boolean } = { models: [], loggedIn: false },
 ): AiModel[] {
-  const knownLimits = new Map(
-    (opencode?.models ?? []).map((m) => [m.id, m.contextLimit ?? undefined]),
-  );
+  // models.dev metadata for every model, so a model the user typed into
+  // Settings → Models is recognised as a picture model without a second call.
+  const known = new Map((opencode?.models ?? []).map((m) => [m.id, m]));
 
   const apiModels: AiModel[] = providers.flatMap(({ provider, models }) =>
-    models.map((model) => ({
-      id: apiModelId(provider.id, model),
-      name: model,
-      provider: provider.logo,
-      source: provider.group === "local" ? "local" : "api",
-      group: provider.name,
-      contextLimit: knownLimits.get(`${provider.id}/${model}`),
-    })),
+    models.map((model) => {
+      const meta = known.get(`${provider.id}/${model}`);
+      const media = MEDIA_PROVIDERS.has(provider.id) ? mediaKindFor(meta, model) : undefined;
+      return {
+        id: apiModelId(provider.id, model),
+        name: model,
+        provider: provider.logo,
+        source: provider.group === "local" ? "local" : ("api" as const),
+        group: provider.name,
+        contextLimit: meta?.contextLimit ?? undefined,
+        media,
+        efforts: meta?.efforts,
+        // Drawing models live on the Visual page; a chat request to one comes
+        // back as a validation error about the message shape.
+        issue: media ? `Makes ${media}s — use the Visual page` : undefined,
+      };
+    }),
   );
+
 
   // A provider configured in Settings → Models is synced into OpenCode, so the
   // same model was offered twice — once with the user's key, once "via
@@ -146,6 +317,17 @@ export function buildModelCatalog(
       ? new Set<string>()
       : new Set(providers.flatMap(({ provider, models }) => models.map((m) => `${provider.id}/${m}`)));
 
+  const issueOf = (m: OpencodeModel) => {
+    // OpenCode is a coding agent: handed a picture model it has nothing to
+    // send and nothing to read back. Those live on the Visual page, where the
+    // app calls the picture API directly.
+    const media = mediaKindFor(m, m.id);
+    if (media) return `Makes ${media}s — use the Visual page`;
+    return mode === "cowork"
+      ? coworkIssueOf(m)
+      : chatIssueOf({ provider: m.providerId, source: "opencode", free: m.free });
+  };
+
   const defaultModel = opencode?.models.find((m) => m.id === opencode.defaultModel);
   const opencodeModels: AiModel[] = [
     {
@@ -156,6 +338,9 @@ export function buildModelCatalog(
       group: "OpenCode",
       free: defaultModel?.free,
       contextLimit: defaultModel?.contextLimit ?? undefined,
+      efforts: defaultModel?.efforts,
+      // "Auto" is only as usable as the model behind it.
+      issue: defaultModel ? issueOf(defaultModel) : undefined,
     },
     ...(opencode?.models ?? []).filter((m) => !ownKeyModels.has(m.id)).map((m) => ({
       id: `${OPENCODE_PREFIX}${m.id}`,
@@ -168,7 +353,8 @@ export function buildModelCatalog(
       free: m.free,
       needsKey: !m.connected,
       contextLimit: m.contextLimit ?? undefined,
-      coworkIssue: mode === "cowork" ? coworkIssueOf(m) : undefined,
+      efforts: m.efforts,
+      issue: issueOf(m),
     })),
   ];
 
@@ -201,6 +387,7 @@ export function buildModelCatalog(
           provider: "codex",
           source: "cli",
           group: "Codex CLI",
+          efforts: m.efforts,
         }))
       : [
           {
@@ -222,6 +409,7 @@ export function buildModelCatalog(
           provider: "antigravity",
           source: "cli",
           group: "Antigravity CLI",
+          efforts: m.efforts,
         }))
       : [
           {
@@ -247,7 +435,7 @@ export function buildModelCatalog(
  */
 function substituteFor(catalog: AiModel[], model: AiModel): AiModel | undefined {
   const usable = catalog.filter(
-    (m) => m.id !== model.id && !m.coworkIssue && !m.needsKey && !m.needsLogin,
+    (m) => m.id !== model.id && !m.issue && !m.needsKey && !m.needsLogin,
   );
   return (
     usable.find((m) => m.source === model.source && m.provider === model.provider) ??
@@ -259,8 +447,8 @@ function substituteFor(catalog: AiModel[], model: AiModel): AiModel | undefined 
 /** Resolve a stored id even before OpenCode models have loaded. */
 export function findModel(catalog: AiModel[], id: string): AiModel {
   const found = catalog.find((m) => m.id === id);
-  if (found && !found.coworkIssue) return found;
-  // A model picked in Chat that can't do agent work: stay with its own kind.
+  if (found && !found.issue) return found;
+  // Picked in the other mode and not offered here: stay with its own kind.
   if (found) return substituteFor(catalog, found) ?? found;
   if (isCursorModel(id)) {
     const model = cursorModelOf(id);
@@ -403,6 +591,8 @@ export type ResendSettings = {
   modelName: string;
   maxTokens: number;
   autoNewChat: boolean;
+  /** How hard the model was asked to think; kept so a retry matches. */
+  effort?: string;
 };
 
 /**
@@ -423,7 +613,14 @@ export function resendSettingsFor(
     opencodeModelOf(modelId) ??
     (apiModelOf(modelId) ? `${apiModelOf(modelId)!.provider}/${apiModelOf(modelId)!.model}` : undefined);
   const known = agentId ? opencode?.models.find((m) => m.id === agentId) : undefined;
-  if (mode === "cowork" && known && coworkIssueOf(known)) return undefined;
+  const issue = !known
+    ? undefined
+    : mode === "cowork"
+      ? coworkIssueOf(known)
+      : isOpencodeModel(modelId)
+        ? chatIssueOf({ provider: known.providerId, source: "opencode", free: known.free })
+        : undefined;
+  if (issue) return undefined;
   const budget = contextBudgetFor({
     id: modelId,
     name: meta.name,
@@ -432,7 +629,10 @@ export function resendSettingsFor(
     group: "",
     contextLimit: known?.contextLimit ?? undefined,
   });
-  return { modelId, modelName: meta.name, ...budget };
+  // A CLI agent's levels are not in the shared metadata, so for those the
+  // last choice stands rather than silently dropping back to the default.
+  const effort = known ? effortFor(modelId, known.efforts) : storedEffortFor(modelId);
+  return { modelId, modelName: meta.name, ...budget, effort };
 }
 
 const DEFAULT_MODEL: Record<WorkMode, string> = {

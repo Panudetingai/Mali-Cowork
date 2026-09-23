@@ -15,6 +15,8 @@ export type ChatRequest = {
   history: HistoryMessage[];
   /** Custom instructions and enabled skills, sent as the system message. */
   system?: string | null;
+  /** How hard the model should think, as the provider spells the level. */
+  effort?: string;
 };
 
 export type StreamMetadata = {

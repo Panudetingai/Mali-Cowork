@@ -22,7 +22,7 @@ export function ChatMessages({ messages, isLoading, onRetry, onRate }: Props) {
   if (isEmpty) return null;
 
   return (
-    <div className="flex w-full max-w-3xl flex-col">
+    <div className="flex w-full flex-col">
       <AnimatePresence initial={false}>
         {messages.map((msg, index) => {
           const isLast = index === messages.length - 1;

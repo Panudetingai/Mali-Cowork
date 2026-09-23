@@ -20,7 +20,14 @@ export type McpVariant = {
   command: string;
 };
 
-export type McpCategory = "Documents" | "Execute" | "Dev" | "Web" | "Data" | "Memory" | "Custom";
+export type McpCategory =
+  | "Documents"
+  | "Execute"
+  | "Dev"
+  | "Web"
+  | "Data"
+  | "Memory"
+  | "Custom";
 
 export type McpDef = {
   id: string;

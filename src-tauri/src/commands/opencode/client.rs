@@ -27,6 +27,8 @@ pub struct PromptOptions<'a> {
     pub system: Option<String>,
     /// Attached pictures and documents, as opencode `file` parts.
     pub files: Vec<Value>,
+    /// Reasoning effort, as one of the model's own variant names.
+    pub variant: Option<String>,
 }
 
 #[derive(Clone)]
@@ -166,6 +168,9 @@ impl OpencodeClient {
         }
         if let Some(system) = options.system.as_deref() {
             body["system"] = json!(system);
+        }
+        if let Some(variant) = options.variant.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+            body["variant"] = json!(variant);
         }
         let req = self
             .request(Method::POST, &format!("/session/{session_id}/prompt_async"), Some(directory))

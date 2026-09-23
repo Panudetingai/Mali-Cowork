@@ -214,9 +214,14 @@ fn validate(server: &McpServerEntry) -> Result<(), String> {
 
 // ── binaries ──
 
-/// Extra folders where `uv`/`uvx`/`node` usually live but GUI `PATH` may miss.
+/// Extra folders where `uv`/`uvx`/`node` usually live but GUI `PATH` may miss,
+/// plus the app's own folder, which holds the sandbox runner and is never on
+/// `PATH`.
 fn extra_bin_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
+    if let Some(app_dir) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf)) {
+        dirs.push(app_dir);
+    }
     if let Some(home) = dirs::home_dir() {
         dirs.push(home.join(".local").join("bin"));
         dirs.push(home.join(".cargo").join("bin"));
@@ -266,6 +271,14 @@ fn find_binary(binary: &str) -> Option<PathBuf> {
     if binary.contains('/') || binary.contains('\\') {
         let p = PathBuf::from(binary);
         return p.is_file().then_some(p);
+    }
+    // The app's own helper, which hosts the built-in servers. It ships beside
+    // the app and is never on `PATH`, so it is looked up the same way the
+    // sandbox wrapper finds it.
+    if Path::new(binary).file_stem().and_then(|s| s.to_str()) == Some("mali-mcp-runner") {
+        if let Some(runner) = runner_binary_path() {
+            return Some(runner);
+        }
     }
     let mut search: Vec<PathBuf> = Vec::new();
     if let Some(path) = std::env::var_os("PATH") {
@@ -402,6 +415,9 @@ fn hint_for_binary(binary: &str) -> &'static str {
         }
         "docker" => "Needs Docker Desktop running",
         "python" | "python3" | "py" => "Needs Python 3.11+ on PATH",
+        // Shipped inside the app; missing means a broken install, not a
+        // missing tool the user could go and fetch.
+        "mali-mcp-runner" => "Part of Mali Cowork — reinstall the app to restore it",
         _ => "Check the command runs in a terminal and is on PATH, then retry",
     }
 }
@@ -590,23 +606,27 @@ fn codex_set(table: &mut Table, key: &str, value: TomlValue) {
     table.insert(key, Item::Value(value));
 }
 
-fn codex_server_table(server: &McpServerEntry, argv: &[String]) -> Table {
+/// One `[mcp_servers.<id>]` table, or `None` when the entry has no transport
+/// to write.
+///
+/// Codex reads the transport (`command`, or `url`) out of every entry before
+/// it looks at `enabled`, so a table carrying `enabled = false` on its own
+/// fails the *whole* file with `invalid transport in mcp_servers.<id>` — and
+/// Codex then starts with no MCP servers at all, not even the working ones.
+/// A switched-off server therefore keeps its command; one that never had a
+/// command is left out of the file entirely.
+fn codex_server_table(server: &McpServerEntry, argv: &[String]) -> Option<Table> {
     let mut table = Table::new();
     table.set_implicit(false);
-    if !server.enabled {
-        codex_set(&mut table, "enabled", TomlValue::from(false));
-        return table;
-    }
-
-    codex_set(&mut table, "enabled", TomlValue::from(true));
+    codex_set(&mut table, "enabled", TomlValue::from(server.enabled));
     let startup_sec = server.timeout().div_ceil(1000).clamp(5, 600);
 
     if server.is_remote() {
-        codex_set(
-            &mut table,
-            "url",
-            TomlValue::from(server.url.as_deref().unwrap_or_default().trim()),
-        );
+        let url = server.url.as_deref().unwrap_or_default().trim();
+        if url.is_empty() {
+            return None;
+        }
+        codex_set(&mut table, "url", TomlValue::from(url));
         if !server.headers.is_empty() {
             codex_set(
                 &mut table,
@@ -619,13 +639,21 @@ fn codex_server_table(server: &McpServerEntry, argv: &[String]) -> Table {
             "startup_timeout_sec",
             TomlValue::from(startup_sec as i64),
         );
-        return table;
+        return Some(table);
     }
 
-    let resolved = runner_wrapped_argv(server, argv);
-    if let Some(command) = resolved.first() {
-        codex_set(&mut table, "command", TomlValue::from(command.as_str()));
+    // A switched-off server is never started, so it is written as it stands —
+    // no sandbox policy file, no launch record, just enough for Codex to parse.
+    let resolved = if server.enabled {
+        runner_wrapped_argv(server, argv)
+    } else {
+        argv.to_vec()
+    };
+    let command = resolved.first().map(String::as_str).unwrap_or_default();
+    if command.is_empty() {
+        return None;
     }
+    codex_set(&mut table, "command", TomlValue::from(command));
     if resolved.len() > 1 {
         let mut args = Array::new();
         for arg in &resolved[1..] {
@@ -633,16 +661,32 @@ fn codex_server_table(server: &McpServerEntry, argv: &[String]) -> Table {
         }
         codex_set(&mut table, "args", TomlValue::Array(args));
     }
-    let env = codex_env_table(server);
-    if !env.is_empty() {
-        codex_set(&mut table, "env", TomlValue::InlineTable(env));
+    if server.enabled {
+        let env = codex_env_table(server);
+        if !env.is_empty() {
+            codex_set(&mut table, "env", TomlValue::InlineTable(env));
+        }
     }
     codex_set(
         &mut table,
         "startup_timeout_sec",
         TomlValue::from(startup_sec as i64),
     );
-    table
+    Some(table)
+}
+
+/// True when an entry already in the file names a transport Codex can parse.
+/// Entries written by older builds hold `enabled = false` and nothing else,
+/// which stops Codex loading `config.toml` at all; those are dropped on the
+/// next sync so the file starts working again without the user editing TOML.
+///
+/// Only the exact shape Codex rejects — no `command`, no `url` — is dropped.
+/// Anything else in the file is the user's to keep, however odd it looks.
+fn codex_entry_is_loadable(item: &Item) -> bool {
+    let Some(table) = item.as_table_like() else {
+        return false;
+    };
+    table.get("command").is_some() || table.get("url").is_some()
 }
 
 /// Mirror MCP choices into `~/.codex/config.toml` so Codex CLI picks them up
@@ -685,10 +729,27 @@ fn write_codex_mcp_config(servers: &[McpServerEntry], removed: &[String]) -> Res
         } else {
             server.command.clone()
         };
-        mcp.insert(
-            server.id.as_str(),
-            Item::Table(codex_server_table(server, &argv)),
-        );
+        match codex_server_table(server, &argv) {
+            Some(table) => {
+                mcp.insert(server.id.as_str(), Item::Table(table));
+            }
+            // Nothing Codex could load: better absent than breaking the file.
+            None => {
+                mcp.remove(server.id.as_str());
+            }
+        }
+    }
+
+    // Repair what earlier builds wrote: any entry without a transport, ours or
+    // not, is what Codex refuses the file over.
+    let unloadable: Vec<String> = mcp
+        .iter()
+        .filter(|(_, item)| !codex_entry_is_loadable(item))
+        .map(|(id, _)| id.to_string())
+        .collect();
+    for id in unloadable {
+        eprintln!("[mcp] dropping {id} from codex config.toml: it names no command or url");
+        mcp.remove(&id);
     }
 
     write_private(&path, &doc.to_string())
@@ -1148,7 +1209,7 @@ mod tests {
     #[test]
     fn codex_table_splits_command_and_args() {
         let server = entry("github");
-        let table = codex_server_table(&server, &server.command);
+        let table = codex_server_table(&server, &server.command).expect("has a command");
         assert_eq!(
             table
                 .get("enabled")
@@ -1185,11 +1246,15 @@ mod tests {
         assert_eq!(launch_argv(&other).len(), 3);
     }
 
+    /// Codex parses the transport of every entry before it reads `enabled`,
+    /// so a switched-off server keeps its command — `enabled = false` alone
+    /// is the "invalid transport in mcp_servers.<id>" that stops Codex
+    /// loading `config.toml` at all.
     #[test]
-    fn codex_disabled_is_a_single_flag() {
+    fn codex_disabled_keeps_a_transport() {
         let mut server = entry("word");
         server.enabled = false;
-        let table = codex_server_table(&server, &[]);
+        let table = codex_server_table(&server, &server.command).expect("has a command");
         assert_eq!(
             table
                 .get("enabled")
@@ -1197,6 +1262,53 @@ mod tests {
                 .and_then(|v| v.as_bool()),
             Some(false)
         );
-        assert!(!table.contains_key("command"));
+        assert_eq!(
+            table
+                .get("command")
+                .and_then(|i| i.as_value())
+                .and_then(|v| v.as_str()),
+            Some("npx")
+        );
+        // Nothing runs, so the sandbox policy and the secrets stay out of it.
+        assert!(!table.contains_key("env"));
+    }
+
+    #[test]
+    fn codex_entries_without_a_transport_are_left_out() {
+        let mut off = entry("word");
+        off.enabled = false;
+        off.command.clear();
+        assert!(codex_server_table(&off, &[]).is_none());
+
+        let mut remote = entry("remote");
+        remote.kind = "remote".into();
+        remote.url = Some("   ".into());
+        assert!(codex_server_table(&remote, &[]).is_none());
+    }
+
+    #[test]
+    fn codex_spots_the_entries_that_break_the_file() {
+        let doc: DocumentMut = r#"
+            [mcp_servers.broken]
+            enabled = false
+
+            [mcp_servers.stdio]
+            command = "npx"
+
+            [mcp_servers.remote]
+            url = "https://example.com/mcp"
+
+            [mcp_servers.blank]
+            command = ""
+        "#
+        .parse()
+        .unwrap();
+        let mcp = doc["mcp_servers"].as_table().unwrap();
+        let loadable = |id: &str| codex_entry_is_loadable(mcp.get(id).unwrap());
+        assert!(!loadable("broken"));
+        assert!(loadable("stdio"));
+        assert!(loadable("remote"));
+        // Odd but parseable, and the user's own: left where it is.
+        assert!(loadable("blank"));
     }
 }

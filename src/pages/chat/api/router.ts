@@ -11,6 +11,7 @@ import {
     type FolderGrantInput,
     type WorkMode,
 } from "@/features/opencode";
+import { mediaGenerateStream } from "@/features/media";
 import { requestConfigFor } from "@/features/providers";
 import {
     apiModelOf,
@@ -21,6 +22,7 @@ import {
     isCursorModel,
     isAntigravityModel,
     isOpencodeModel,
+    mediaKindForId,
     OPENCODE_PREFIX,
     opencodeModelOf,
 } from "../models";
@@ -46,10 +48,22 @@ export type GenerateRequest = {
   attachments?: Attachment[];
   /** Custom instructions and enabled skills (Settings → Instructions). */
   instructions?: string;
+  /**
+   * Earlier turns of this chat the agent's session hasn't seen, as a
+   * transcript: another model answered them. Agents that keep their own
+   * session hear it once; provider APIs get `history` instead.
+   */
+  handoff?: string;
   /** Summary of the chat this one continues. */
   summary?: string;
   /** Skills the user called with `/name` in this prompt. */
   skills?: Skill[];
+  /**
+   * How hard the model should think, as one of its own levels. Derived from
+   * the picked model rather than passed in, so a resend on a different model
+   * uses that model's setting and never a level it would reject.
+   */
+  effort?: string;
 };
 
 /** Skills called with `/name` travel with this one prompt, for every backend. */
@@ -72,6 +86,13 @@ function withEarlierSummary(prompt: string, request: GenerateRequest) {
   return request.summary && !request.sessionId ? withSummary(prompt, request.summary) : prompt;
 }
 
+/** Turns another model had in this chat, so a session picked up mid-chat can carry on. */
+function withHandoff(prompt: string, request: GenerateRequest) {
+  const handoff = request.handoff?.trim();
+  if (!handoff) return prompt;
+  return `<earlier_conversation>\nThis chat was answered by other models before you. What was said, which you can't see in your own session:\n\n${handoff}\n</earlier_conversation>\n\nContinue the conversation from here.\n\n${prompt}`;
+}
+
 const NO_IMAGES = (name: string) =>
   `${name} can't look at pictures here. Remove the picture, or pick an OpenCode or Codex model.`;
 
@@ -84,6 +105,9 @@ const NO_IMAGES = (name: string) =>
 export function runModelIdFor(modelId: string): string {
   const api = apiModelOf(modelId);
   if (!api || !hasEnabledMcp()) return modelId;
+  // A picture model is called over its own API; OpenCode has no use for it
+  // and would turn a drawing request into an empty reply.
+  if (mediaKindForId(modelId, getOpencodeModels())) return modelId;
   const agentId = `${api.provider}/${api.model}`;
   const agentModel = getOpencodeModels()?.models.find((m) => m.id === agentId);
   if (!agentModel?.connected || agentModel.toolCall === false) return modelId;
@@ -95,13 +119,34 @@ export async function generateStream(
   handlers: ChatStreamHandlers,
 ): Promise<void> {
   let { modelId } = request;
+
+  // A picture model, which the chat picker does not offer — the Visual page
+  // does. A selection stored before that change would otherwise be sent to a
+  // chat endpoint that answers with a validation error, so it is drawn here
+  // instead of failing.
+  const api = apiModelOf(modelId);
+  const media = mediaKindForId(modelId, getOpencodeModels());
+  if (media && api) {
+    return mediaGenerateStream(
+      {
+        prompt: withCalledSkills(request.prompt, request.skills),
+        provider: api.provider,
+        model: api.model,
+        kind: media,
+        ...requestConfigFor(api.provider),
+        // Cowork works in a folder, so the file belongs there; Chat has none.
+        outputDir: request.mode === "cowork" ? request.cwd ?? null : null,
+      },
+      handlers,
+    );
+  }
+
   const attachments = request.attachments ?? [];
   const images = attachments.filter((a) => a.kind === "image").map((a) => a.path);
   const videos = attachments.filter((a) => a.kind === "video").map((a) => a.path);
   const pdfs = attachments.filter((a) => a.mime === "application/pdf").map((a) => a.path);
 
   // Provider APIs here only take text; OpenCode can send the same model a picture.
-  const api = apiModelOf(modelId);
   if (api && images.length > 0) {
     const agentId = `${api.provider}/${api.model}`;
     const agentModel = getOpencodeModels()?.models.find((m) => m.id === agentId);
@@ -109,13 +154,18 @@ export async function generateStream(
     modelId = `${OPENCODE_PREFIX}${agentId}`;
   }
 
+  // Only ever a level the picked model listed (see `efforts`), so it is safe
+  // to hand to whichever backend ends up running: an api model that moves
+  // onto OpenCode keeps the same levels, because both read the same metadata.
+  const { effort } = request;
+
   const opencode = isOpencodeModel(modelId);
   // OpenCode takes PDFs as files; elsewhere their path is mentioned instead.
   const withFiles =
     withCalledSkills(request.prompt, request.skills) +
     (await buildAttachmentAppendix(attachments, { filesInline: opencode }));
   // Provider APIs get the summary through the history instead.
-  const prompt = api && !opencode ? withFiles : withEarlierSummary(withFiles, request);
+  const prompt = api && !opencode ? withFiles : withEarlierSummary(withHandoff(withFiles, request), request);
 
   // OpenCode: opencode:<provider/model>
   if (opencode) {
@@ -133,6 +183,7 @@ export async function generateStream(
         folders: request.folders,
         files: [...images, ...pdfs, ...videos],
         instructions: request.instructions,
+        effort,
       },
       handlers,
     );
@@ -167,6 +218,7 @@ export async function generateStream(
         folders: request.folders,
         runId: request.runId,
         images,
+        effort,
       },
       handlers,
     );
@@ -185,6 +237,7 @@ export async function generateStream(
         mode: request.mode,
         folders: request.folders,
         runId: request.runId,
+        effort,
       },
       handlers,
     );
@@ -210,6 +263,7 @@ export async function generateStream(
       provider: api.provider,
       model: api.model,
       ...requestConfigFor(api.provider),
+      effort,
       history: [
         ...(request.summary
           ? ([

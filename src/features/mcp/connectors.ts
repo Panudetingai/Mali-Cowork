@@ -3,6 +3,7 @@ import { createStore } from "@/lib/local-store";
 import { loadOpencodeSettings } from "@/features/opencode/settings";
 import { fetchMcpStatus, syncMcpServers } from "./api";
 import { getCustomMcps, removeCustomMcp, saveCustomMcp, type CustomMcp } from "./custom";
+import { setConnectorIcon } from "./icon-override";
 import { oauthLimitFor } from "./oauth-limits";
 import type { RegistryServer } from "./registry";
 import { getMcpConnections, patchMcpConnection, removeMcpConnection, setMcpConnections } from "./store";
@@ -128,6 +129,7 @@ export async function installConnector(connector: CustomMcp, env: Record<string,
 
 export async function removeConnector(id: string) {
   removeCustomMcp(id);
+  setConnectorIcon(id, null);
   removeMcpConnection(id);
   liveStore.set(({ [id]: _gone, ...rest }) => rest);
   await syncMcpServers({ cwd: folder(), targets: [], removed: [id] });

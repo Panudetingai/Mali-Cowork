@@ -10,6 +10,9 @@ export type GitTab = "changes" | "commits" | "branches";
 
 type Notice = { kind: "ok" | "error"; text: string };
 
+/** A git action that talks to the remote, so it can take a while. */
+export type RemoteOp = "pull" | "push" | "fetch";
+
 type GitContextValue = {
   folder: string;
   /** Undefined until the first status arrives. */
@@ -19,10 +22,12 @@ type GitContextValue = {
   refresh: () => Promise<void>;
   /** Label of the action in progress. */
   busy?: string;
+  /** Set while a pull, push or fetch is running. */
+  remoteBusy?: RemoteOp;
   /** Bumped after every action, so views reload what they show. */
   version: number;
   /** Run a git action: shows progress, then its message or error, then refreshes. */
-  act: (label: string, work: () => Promise<string | void>) => Promise<void>;
+  act: (label: string, work: () => Promise<string | void>, remote?: RemoteOp) => Promise<void>;
   confirm: (request: ConfirmRequest) => void;
   panel: { open: boolean; tab: GitTab; wide: boolean };
   openPanel: (tab?: GitTab) => void;
@@ -71,6 +76,7 @@ export function GitProvider({
   const { status, refresh } = useGitStatus(folder, { poll: panel.open });
   const [changes, setChanges] = useState<ChangedFile[]>([]);
   const [busy, setBusy] = useState<string>();
+  const [remoteBusy, setRemoteBusy] = useState<RemoteOp>();
   const [notice, setNotice] = useState<Notice>();
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest>();
   const [version, setVersion] = useState(0);
@@ -124,8 +130,9 @@ export function GitProvider({
   }, [notice]);
 
   const act = useCallback(
-    async (label: string, work: () => Promise<string | void>) => {
+    async (label: string, work: () => Promise<string | void>, remote?: RemoteOp) => {
       setBusy(label);
+      setRemoteBusy(remote);
       setNotice(undefined);
       try {
         const message = await work();
@@ -134,6 +141,7 @@ export function GitProvider({
         setNotice({ kind: "error", text: String(e) });
       } finally {
         setBusy(undefined);
+        setRemoteBusy(undefined);
         setVersion((v) => v + 1);
         await refresh();
       }
@@ -148,6 +156,7 @@ export function GitProvider({
       changes,
       refresh,
       busy,
+      remoteBusy,
       version,
       act,
       confirm: setConfirmRequest,
@@ -158,7 +167,7 @@ export function GitProvider({
       toggleWide: () => setPanel((p) => ({ ...p, wide: !p.wide })),
       agentRunning,
     }),
-    [folder, status, changes, refresh, busy, version, act, panel, setPanel, agentRunning],
+    [folder, status, changes, refresh, busy, remoteBusy, version, act, panel, setPanel, agentRunning],
   );
 
   return (

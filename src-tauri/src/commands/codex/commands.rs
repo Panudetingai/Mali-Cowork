@@ -85,6 +85,31 @@ pub async fn codex_list_models() -> Result<Vec<CodexModel>, String> {
     })
 }
 
+/// `supported_reasoning_levels: [{ "effort": "low", … }]` from the catalogue.
+///
+/// Only what the catalogue actually lists is offered: the levels differ by
+/// model, and asking for one a model does not have is a hard failure rather
+/// than a quiet downgrade. Fewer than two is no choice at all.
+fn catalog_efforts(model: &Value) -> Vec<String> {
+    let levels: Vec<String> = model["supported_reasoning_levels"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|level| {
+            level["effort"]
+                .as_str()
+                .or_else(|| level.as_str())
+                .map(str::trim)
+                .filter(|e| !e.is_empty())
+                .map(str::to_string)
+        })
+        .collect();
+    if levels.len() < 2 {
+        return Vec::new();
+    }
+    levels
+}
+
 /// The JSON catalogue, or the old one-per-line text.
 fn parse_models(output: &str) -> Vec<CodexModel> {
     if let Some(models) = parse_model_catalog(output) {
@@ -108,7 +133,11 @@ fn parse_model_catalog(output: &str) -> Option<Vec<CodexModel>> {
                 return None;
             }
             let name = m["display_name"].as_str().map(str::trim).filter(|n| !n.is_empty());
-            Some(CodexModel { id: id.to_string(), name: name.unwrap_or(id).to_string() })
+            Some(CodexModel {
+                id: id.to_string(),
+                name: name.unwrap_or(id).to_string(),
+                efforts: catalog_efforts(m),
+            })
         })
         .collect();
     (!models.is_empty()).then_some(models)
@@ -136,6 +165,9 @@ fn parse_model_line(line: &str) -> Option<CodexModel> {
     Some(CodexModel {
         id: id.to_string(),
         name: if name.is_empty() { id.to_string() } else { name.to_string() },
+        // The plain-text listing says nothing about effort, so nothing is
+        // offered: an unsupported level fails the run outright.
+        efforts: Vec::new(),
     })
 }
 
@@ -160,6 +192,16 @@ pub fn build_args(request: &CodexRequest) -> Vec<String> {
         .filter(|m| !m.is_empty() && *m != "auto")
     {
         args.extend(["-m".into(), model.into()]);
+    }
+    // Codex reads the effort from its config, so it is overridden per run
+    // rather than written into the user's `config.toml`.
+    if let Some(effort) = request
+        .effort
+        .as_deref()
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+    {
+        args.extend(["-c".into(), format!("model_reasoning_effort=\"{effort}\"")]);
     }
     if let Some(cwd) = request.workspace() {
         args.extend(["-C".into(), cwd.into()]);
@@ -385,6 +427,7 @@ mod tests {
             folders,
             run_id: "run1".into(),
             images: Vec::new(),
+            effort: None,
         }
     }
 
@@ -448,6 +491,36 @@ mod tests {
         assert!(prompt.contains("read-only"));
         assert!(prompt.ends_with("do it"));
         assert_eq!(prompt_with_notes(&request("chat", vec![grant("/docs", "read")])), "do it");
+    }
+
+    /// Codex reads the level from its config file, so a per-run override is
+    /// the only way to set it without editing the user's `config.toml`.
+    #[test]
+    fn the_chosen_effort_is_overridden_for_this_run_only() {
+        let mut req = request("cowork", vec![grant("/w", "write")]);
+        req.effort = Some("xhigh".into());
+        let args = build_args(&req);
+        let at = args.iter().position(|a| a == "-c").expect("an override");
+        assert_eq!(args[at + 1], "model_reasoning_effort=\"xhigh\"");
+
+        // No choice made: whatever the user configured stands.
+        let plain = build_args(&request("cowork", vec![grant("/w", "write")]));
+        assert!(!plain.iter().any(|a| a.starts_with("model_reasoning_effort")));
+    }
+
+    #[test]
+    fn a_model_that_lists_one_level_offers_no_choice() {
+        let catalog = r#"{"models":[
+            {"slug":"gpt-5.3-codex","display_name":"Codex","supported_reasoning_levels":[
+                {"effort":"low","description":"x"},{"effort":"high","description":"y"}]},
+            {"slug":"solo","display_name":"Solo","supported_reasoning_levels":[
+                {"effort":"medium","description":"x"}]},
+            {"slug":"none","display_name":"None"}
+        ]}"#;
+        let models = parse_models(catalog);
+        assert_eq!(models[0].efforts, ["low", "high"]);
+        assert!(models[1].efforts.is_empty());
+        assert!(models[2].efforts.is_empty());
     }
 
     #[test]

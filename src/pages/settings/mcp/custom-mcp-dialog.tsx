@@ -16,9 +16,11 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import {
   customMcpId,
+  getConnectorIcon,
   oauthLimitFor,
   parseCommand,
   saveCustomMcp,
+  setConnectorIcon,
   signOutConnector,
   type CustomMcp,
   type McpConnection,
@@ -38,6 +40,7 @@ import {
 import { KeychainNote, RemoteConnectionBlock, RunOnDeviceBlock } from "./mcp-connection-ui";
 import { OAuthLimitBanner } from "./oauth-limit-banner";
 import { McpErrorHelp } from "./mcp-details-dialog";
+import { IconPicker } from "./icon-picker";
 import { CustomMcpIcon } from "./mcp-icon";
 import type { CardState } from "./use-mcp-manager";
 
@@ -200,6 +203,7 @@ function CustomForm({
   const [pasteText, setPasteText] = useState("");
   const [pasteError, setPasteError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [icon, setIcon] = useState(() => (existing ? getConnectorIcon(existing.id) : null));
 
   const set = (patch: Partial<Draft>) => setDraft((prev) => ({ ...prev, ...patch }));
 
@@ -255,6 +259,7 @@ function CustomForm({
       await signOutConnector(existing.id).catch(() => undefined);
     }
     saveCustomMcp(server);
+    setConnectorIcon(server.id, icon);
     const ok = await onApply(server.id, {
       enabled: available ? true : !!conn?.enabled,
       env: draft.kind === "local" ? toRecord(draft.env) : {},
@@ -270,11 +275,17 @@ function CustomForm({
     <form onSubmit={save} className="flex flex-col">
       <div className="flex flex-col gap-5 px-6 pt-6 pb-2">
         <header className="flex gap-4 pr-6">
-          {existing ? (
-            <CustomMcpIcon server={existing} className="size-14 rounded-2xl [&_svg]:size-7" />
-          ) : (
-            <CustomMcpIcon server={{ id: "new", name: "", kind: "local", createdAt: 0 }} className="size-14 rounded-2xl [&_svg]:size-7" />
-          )}
+          <IconPicker
+            value={icon}
+            onChange={setIcon}
+            fallback={
+              <CustomMcpIcon
+                server={existing ?? { id: "new", name: "", kind: "local", createdAt: 0 }}
+                plain
+                className="size-full rounded-2xl [&_svg]:size-7"
+              />
+            }
+          />
           <div className="min-w-0 flex-1 space-y-1.5">
             <DialogTitle className="text-left text-xl font-semibold tracking-tight">
               {existing ? existing.name : "Add custom MCP"}

@@ -1,3 +1,4 @@
+import { UpdateDialog } from "@/features/updater/update-dialog";
 import { AppLayout } from "@/layouts/app-layout";
 import { OnboardingDialog, openOnboarding, isOnboardingDone, FORCE_ONBOARDING } from "@/features/onboarding";
 import { watchSkills } from "@/features/skills";
@@ -7,6 +8,7 @@ import ChatLayout from "./pages/chat/layout";
 import ProjectsPage from "./pages/projects";
 import ProjectPage from "./pages/projects/project-page";
 import SettingsPage from "./pages/settings";
+import VisualPage from "./pages/visual";
 import ChatBlocksPreviewPage from "./pages/dev/chat-blocks-preview";
 
 function App() {
@@ -22,6 +24,7 @@ function App() {
       <Route element={<AppLayout />}>
         <Route index element={<ChatLayout />} />
         <Route path="chat/:chatId" element={<ChatLayout />} />
+        <Route path="visual" element={<VisualPage />} />
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="projects/:projectId" element={<ProjectPage />} />
         <Route path="settings" element={<SettingsPage />} />
@@ -38,6 +41,7 @@ export default function AppWithOnboarding() {
   return (
     <>
       <OnboardingDialog />
+      <UpdateDialog />
       <App />
     </>
   );

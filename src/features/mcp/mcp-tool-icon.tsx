@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { useConnectorIcon } from "./icon-override";
 import { lobeMcpIcon } from "./lobe-icons";
 import { useRegistryIcon } from "./registry";
 import type { McpToolRef } from "./tool-label";
@@ -16,7 +17,9 @@ export function McpToolIcon({
   className?: string;
   size?: number;
 }) {
-  const src = useRegistryIcon(mcp.custom?.registry?.icons);
+  const own = useConnectorIcon(mcp.serverId);
+  const registry = useRegistryIcon(own ? undefined : mcp.custom?.registry?.icons);
+  const src = own ?? registry;
   if (src) {
     return (
       <img
