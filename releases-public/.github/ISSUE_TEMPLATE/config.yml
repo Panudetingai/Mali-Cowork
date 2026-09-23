@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: ดาวน์โหลดแอป / Download
+    url: https://github.com/Panudetingai/Mali-Cowork-Releases/releases/latest
+    about: ติดตั้ง Mali Cowork สำหรับ macOS และ Windows
+  - name: เอกสารผู้ใช้ / User docs
+    url: https://github.com/Panudetingai/Mali-Cowork-Releases/blob/main/docs/LANDING.md
+    about: ภาพรวมฟีเจอร์ ความปลอดภัย และคำถามที่พบบ่อย
