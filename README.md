@@ -74,7 +74,7 @@ git push origin v0.1.2
 3. รอ workflow **Release** บน GitHub Actions ให้เสร็จ
 4. เปิดหน้า **Releases** ของ repo — จะมีไฟล์ประมาณนี้:
    - **macOS**: `.dmg` (Universal: Apple Silicon + Intel)
-   - **Windows**: `.msi` และ/หรือ NSIS `.exe`
+   - **Windows**: NSIS `setup.exe`
 
 หรือรันมือจาก **Actions → Release → Run workflow** (ใช้เวอร์ชันจาก `tauri.conf.json` สร้าง tag `v<version>` ให้อัตโนมัติ)
 

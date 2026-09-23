@@ -9,10 +9,11 @@
 // Runs from `beforeBuildCommand`, so a release build always carries it. The
 // release workflow builds macOS as `--target universal-apple-darwin`, so when
 // both Apple targets are installed the two builds are `lipo`-ed together and
-// staged under the universal name as well.
+// staged under the universal name as well. Tauri also expects the fat runner at
+// `target/universal-apple-darwin/release/mali-mcp-runner` beside the lipo'd app.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -68,6 +69,39 @@ function stage(triple, from) {
   console.log(`[sidecar] ${from} -> ${to}`);
 }
 
+/** Universal macOS bundles read sidecars beside the lipo'd main binary, not only under `binaries/`. */
+function stageBundlerTarget(triple, from) {
+  const dir = join(tauriDir, "target", triple, profile);
+  mkdirSync(dir, { recursive: true });
+  const dest = join(dir, `mali-mcp-runner${exe}`);
+  copyFileSync(from, dest);
+  if (process.platform !== "win32") {
+    chmodSync(dest, 0o755);
+  }
+  console.log(`[sidecar] bundler staging ${dest}`);
+}
+
+function linkArchBinariesToUniversal() {
+  if (process.platform !== "darwin") return;
+  const universalName = `mali-mcp-runner-${UNIVERSAL}`;
+  for (const triple of APPLE) {
+    const linkPath = join(binaries, `mali-mcp-runner-${triple}`);
+    if (existsSync(linkPath)) rmSync(linkPath);
+    symlinkSync(universalName, linkPath);
+    console.log(`[sidecar] ${linkPath} -> ${universalName}`);
+  }
+}
+
+function resolveRequestedTriple() {
+  if (process.env.TAURI_ENV_TARGET_TRIPLE) {
+    return process.env.TAURI_ENV_TARGET_TRIPLE;
+  }
+  const hint = [process.env.npm_lifecycle_script, process.env.TAURI_CLI_ARGS, ...process.argv]
+    .filter(Boolean)
+    .join(" ");
+  return hint.includes(UNIVERSAL) ? UNIVERSAL : undefined;
+}
+
 // `tauri dev` runs the app straight out of `target/debug`, so a debug build only
 // has to put the runner in the same folder — no staging, no triple.
 if (!release) {
@@ -80,7 +114,7 @@ const APPLE = ["aarch64-apple-darwin", "x86_64-apple-darwin"];
 const UNIVERSAL = "universal-apple-darwin";
 // Tauri sets the triple it is bundling for; without it (a bare `cargo`-side run)
 // fall back to what the toolchain can do.
-const requested = process.env.TAURI_ENV_TARGET_TRIPLE;
+const requested = resolveRequestedTriple();
 const universal =
   requested === UNIVERSAL ||
   (!requested && process.platform === "darwin" && APPLE.every((t) => installedTargets().includes(t)));
@@ -101,10 +135,12 @@ if (universal) {
     stdio: "inherit",
   });
   console.log(`[sidecar] lipo -> ${fat}`);
+  linkArchBinariesToUniversal();
+  stageBundlerTarget(UNIVERSAL, fat);
 } else {
   // One target: build for the host and stage it under the name the bundler
   // asks for, which is the host triple unless Tauri is cross-compiling.
-  const triple = process.env.TAURI_ENV_TARGET_TRIPLE || host;
+  const triple = requested || host;
   const cross = triple !== host;
   stage(triple, build(cross ? triple : null));
 }

@@ -21,11 +21,15 @@ jobs:
           - platform: macos-latest
             args: --target universal-apple-darwin
             rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            tauri_env_target: universal-apple-darwin
           - platform: windows-latest
             args: ""
             rust_targets: ""
+            tauri_env_target: ""
 
     runs-on: ${{ matrix.platform }}
+    env:
+      TAURI_ENV_TARGET_TRIPLE: ${{ matrix.tauri_env_target }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -87,12 +91,11 @@ jobs:
             ## What's new
             - (write the changes here before publishing — the app shows this text in its update dialog)
 
-            ## Install
-            New here? See the [install guide](https://github.com/Panudetingai/Mali-Cowork-Releases#readme).
-            Already installed? The app offers this update by itself.
-          # A draft until you press Publish: the app only sees published releases,
-          # so you can try the build (and write the notes) first.
-          releaseDraft: true
+            ### Windows
+            Download the NSIS `setup.exe` installer and run it.
+
+            Built from this tag via GitHub Actions.
+          releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
           # Windows updates through the NSIS installer (see `installMode`).
