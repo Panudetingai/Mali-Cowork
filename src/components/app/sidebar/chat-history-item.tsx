@@ -19,6 +19,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Checkbox,
+  CheckboxIndicator,
+} from "@/components/animate-ui/primitives/radix/checkbox";
+import {
   deleteChat,
   moveChatToProject,
   renameChat,
@@ -65,10 +69,23 @@ function StatusIcon({ session, running }: { session: ChatSession; running: boole
   return <MessageCircleIcon strokeWidth={1.75} className="text-muted-foreground" />;
 }
 
-export function ChatHistoryItem({ session, running }: { session: ChatSession; running: boolean }) {
+export function ChatHistoryItem({
+  session,
+  running,
+  selecting = false,
+  selected = false,
+  onToggleSelected,
+}: {
+  session: ChatSession;
+  running: boolean;
+  selecting?: boolean;
+  selected?: boolean;
+  onToggleSelected?: () => void;
+}) {
   const navigate = useNavigate();
   const url = `/chat/${session.id}`;
   const isActive = !!useMatch(url);
+  const selectable = selecting && !running;
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(session.title);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -114,6 +131,30 @@ export function ChatHistoryItem({ session, running }: { session: ChatSession; ru
             className="min-w-0 flex-1 bg-transparent outline-none"
           />
         </div>
+      ) : selectable ? (
+        // The checkbox is the control (focusable, labelled); clicking the rest
+        // of the row is a mouse shortcut for it. A button here would nest one
+        // button inside another.
+        <div
+          onClick={onToggleSelected}
+          title={session.title}
+          className={cn(
+            sidebarItemClass,
+            "cursor-pointer pr-8 text-left",
+            selected && "bg-sidebar-accent text-sidebar-accent-foreground",
+          )}
+        >
+          <Checkbox
+            checked={selected}
+            onCheckedChange={onToggleSelected}
+            onClick={(event) => event.stopPropagation()}
+            aria-label={`Select ${session.title}`}
+          >
+            <CheckboxIndicator className="size-3.5" />
+          </Checkbox>
+          <StatusIcon session={session} running={running} />
+          <span className="truncate">{session.title}</span>
+        </div>
       ) : (
         <NavLink
           to={url}
@@ -126,7 +167,7 @@ export function ChatHistoryItem({ session, running }: { session: ChatSession; ru
         </NavLink>
       )}
 
-      {!renaming && (
+      {!renaming && !selecting && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button

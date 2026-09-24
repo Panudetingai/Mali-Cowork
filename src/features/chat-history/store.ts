@@ -233,6 +233,11 @@ export function deleteChat(id: string) {
   );
 }
 
+/** Remove many chats at once. */
+export function deleteChats(ids: string[]) {
+  for (const id of ids) deleteChat(id);
+}
+
 /** Returns the run's token for `endRun`. */
 export function startRun(id: string, modelId: string) {
   const token = crypto.randomUUID();
