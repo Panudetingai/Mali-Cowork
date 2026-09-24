@@ -12,6 +12,7 @@ import type { QuickSavePayload } from "./types";
 const SAVE = "quick:save";
 const THEME = "quick:theme";
 const THEME_REQUEST = "quick:theme-request";
+const OPEN_SETTINGS = "quick:open-settings";
 
 /** Quick bar: keep the thread as a chat, and with `open`, show it in Mali. */
 export async function saveQuickThread(payload: QuickSavePayload) {
@@ -68,4 +69,18 @@ export function serveQuickTheme(getTheme: () => string | undefined) {
   };
   const stop = listen(THEME_REQUEST, push);
   return { push, stop: () => void stop.then((unlisten) => unlisten()) };
+}
+
+/** Quick bar: open Settings → Quick bar in the main window (e.g. to pick another model). */
+export async function openQuickSettings() {
+  if (!isTauri()) return;
+  await emitTo("main", OPEN_SETTINGS);
+  await openInMali();
+}
+
+/** Main window: go to Settings → Quick bar when the Quick bar asks. */
+export function onOpenQuickSettings(handler: () => void) {
+  if (!isTauri()) return () => {};
+  const stop = listen(OPEN_SETTINGS, handler);
+  return () => void stop.then((unlisten) => unlisten());
 }

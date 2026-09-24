@@ -13,12 +13,7 @@
         "width": 1280,
         "height": 720,
         "title": "Mali Cowork",
-        "label": "main",
-        "windowEffects": {
-          "effects": ["hudWindow"],
-          "state": "active",
-          "radius": 6
-        }
+        "label": "main"
       }
     ]
   }

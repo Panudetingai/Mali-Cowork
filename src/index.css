@@ -153,6 +153,11 @@
     border-radius: 0;
     transform: none;
   }
+  /* Quick bar (macOS: transparent window): the card inside draws the frame and shadow. */
+  html[data-window="quick"] #root {
+    background-color: transparent;
+    border-radius: 0;
+  }
 
   iframe[data-cowork-bot] {
     background: transparent !important;

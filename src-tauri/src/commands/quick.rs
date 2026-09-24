@@ -134,15 +134,16 @@ fn quick_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WebviewWindow<R
         .title("Mali Quick")
         .inner_size(720.0, 480.0)
         .decorations(false)
-        .shadow(true)
         .resizable(false)
         .always_on_top(true)
         .skip_taskbar(true)
         .visible(false)
         .center();
-    // Rounded like the main window: #root draws the rounded background.
+    // Like the main window: transparent on macOS so the page's rounded card
+    // is the window's shape, and the system shadow follows it.
     #[cfg(target_os = "macos")]
     let builder = builder.transparent(true);
+    let builder = builder.shadow(true);
     builder.build()
 }
 

@@ -270,6 +270,18 @@ export function mediaKindForId(
   return mediaKindFor(meta, api.model);
 }
 
+/** Whether a model id names a picture or video model, by id/name alone. */
+export function isMediaModelId(modelId: string): boolean {
+  const api = apiModelOf(modelId);
+  if (api && MEDIA_PROVIDERS.has(api.provider)) return mediaKindFromName(api.model) !== undefined;
+  if (isOpencodeModel(modelId)) {
+    const ocId = opencodeModelOf(modelId);
+    const name = ocId?.split("/")[1] ?? "";
+    return mediaKindFromName(name) !== undefined;
+  }
+  return mediaKindFromName(modelId) !== undefined;
+}
+
 /**
  * Selectable models for a mode. Chat talks to provider APIs and OpenCode
  * (without file access); Cowork only offers agents that can work on folders.

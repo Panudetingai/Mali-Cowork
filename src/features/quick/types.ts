@@ -64,6 +64,7 @@ export type QuickTurn = {
   answer: string;
   status: "streaming" | "done" | "error" | "stopped";
   error?: string;
+  errorFix?: QuickFix;
   modelId: string;
 };
 
@@ -82,4 +83,7 @@ export type QuickSavePayload = {
 export type QuickEvent =
   | { type: "text"; delta: string }
   | { type: "done"; text: string }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; fix?: QuickFix };
+
+/** A one-tap way out of an error, shown under it in the Quick bar. */
+export type QuickFix = "pick-model";

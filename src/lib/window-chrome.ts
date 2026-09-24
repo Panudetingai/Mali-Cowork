@@ -1,10 +1,4 @@
-import {
-  Effect,
-  EffectState,
-  getCurrentWindow,
-} from "@tauri-apps/api/window";
-
-const WINDOW_RADIUS = 12;
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 function isTauri() {
   return "__TAURI__" in window || "__TAURI_INTERNALS__" in window;
@@ -21,20 +15,13 @@ export async function applyWindowChrome() {
 
   const win = getCurrentWindow();
 
+  // The system shadow follows the rounded #root (index.css) on the transparent
+  // macOS window. No vibrancy effect: #root is opaque, so it only ever showed
+  // as a dark rim around the corners, worst in light mode.
   try {
     await win.setShadow(true);
   } catch {
     // Windows/Linux may ignore on some builds
-  }
-
-  try {
-    await win.setEffects({
-      effects: [Effect.HudWindow],
-      state: EffectState.Active,
-      radius: WINDOW_RADIUS,
-    });
-  } catch {
-    // radius applies on macOS only
   }
 
   try {

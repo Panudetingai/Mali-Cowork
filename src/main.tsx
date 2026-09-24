@@ -11,7 +11,6 @@ import { ThemeProvider } from "@/components/theme-provider";
 import "./index.css";
 import App from "./App";
 
-void applyWindowChrome();
 applyProductionHardening();
 
 const root = () =>
@@ -20,6 +19,9 @@ const root = () =>
 // The Quick bar (Epic A) is its own small window on the same bundle. It
 // skips the history/projects load: it opens on a shortcut and must be instant.
 if (new URLSearchParams(window.location.search).get("window") === "quick") {
+  // No main-window chrome here: its vibrancy and system shadow drew a dark
+  // edge around the Quick bar, which draws its own frame (index.css).
+  document.documentElement.dataset.window = "quick";
   root().render(
     <React.StrictMode>
       <ThemeProvider>
@@ -32,6 +34,7 @@ if (new URLSearchParams(window.location.search).get("window") === "quick") {
 }
 
 function startMainWindow() {
+  void applyWindowChrome();
   // Chats and projects come from SQLite, and keys from the keychain, before
   // the first render, so nothing flashes as missing. A keychain prompt (dev
   // builds) doesn't hold the window blank: syncs that need keys wait for it.
