@@ -7,7 +7,7 @@ import { antigravityAbort } from "@/features/antigravity";
 import { codexAbort } from "@/features/codex";
 import { cursorAbort } from "@/features/cursor";
 import { buildInstructions } from "@/features/instructions";
-import { getOpencodeModels, loadOpencodeSettings, opencodeAbort, opencodeListModels } from "@/features/opencode";
+import { ensureOpencodeModels, loadOpencodeSettings, opencodeAbort } from "@/features/opencode";
 import { loadVault } from "@/features/secrets";
 import { normalizeFolder } from "@/features/workspace";
 import type { HistoryMessage } from "@/pages/chat/api/chat";
@@ -56,7 +56,7 @@ const quickCwd = () => normalizeFolder(loadOpencodeSettings().cwd) || undefined;
  */
 export async function describeQuickModel(): Promise<QuickModelInfo> {
   const id = quickModelId();
-  const list = getOpencodeModels() ?? (await opencodeListModels(quickCwd()).catch(() => null));
+  const list = await ensureOpencodeModels(quickCwd());
   const meta = modelMetaFromId(id, list);
   const api = apiModelOf(id);
   // Provider API ids are raw (`claude-sonnet-5`); OpenCode lists the same model by name.
@@ -79,7 +79,7 @@ export async function describeQuickModel(): Promise<QuickModelInfo> {
  */
 export async function quickModelIssue(modelId: string, cwd?: string): Promise<string | undefined> {
   if (!isOpencodeModel(modelId)) return undefined;
-  const list = getOpencodeModels() ?? (await opencodeListModels(cwd).catch(() => null));
+  const list = await ensureOpencodeModels(cwd);
   if (!list) return undefined;
   const auto = modelId === OPENCODE_DEFAULT_ID;
   const agentId = auto ? list.defaultModel : opencodeModelOf(modelId);
@@ -114,6 +114,9 @@ export async function runQuickPrompt(
   const modelId = quickModelId(request);
   const runId = `quick-${crypto.randomUUID()}`;
   const cwd = quickCwd();
+  // generateStream reroutes an API model with a picture through OpenCode,
+  // which it can only do once it knows OpenCode's models.
+  await ensureOpencodeModels(cwd);
   const issue = await quickModelIssue(modelId, cwd);
   if (issue) {
     onEvent({ type: "error", message: issue, fix: "pick-model" });
