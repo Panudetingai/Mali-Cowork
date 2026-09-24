@@ -42,7 +42,10 @@ export type ChatSession = {
   };
 };
 
-type NewChat = Pick<ChatSession, "mode" | "view" | "cwd" | "continuedFrom" | "projectId">;
+type NewChat = Pick<ChatSession, "mode" | "view" | "cwd" | "continuedFrom" | "projectId"> & {
+  /** Chosen by the caller when another window already refers to the chat (Quick bar). */
+  id?: string;
+};
 
 /** In-flight state for a chat; never persisted. */
 export type ChatRun = {
@@ -133,12 +136,12 @@ export function sessionMode(session: ChatSession | undefined): WorkMode {
 export function createChat(firstPrompt: string, options: NewChat = {}): ChatSession {
   const now = Date.now();
   const session: ChatSession = {
-    id: crypto.randomUUID(),
     title: titleFrom(firstPrompt),
     createdAt: now,
     updatedAt: now,
     messages: [],
     ...options,
+    id: options.id ?? crypto.randomUUID(),
   };
   sessionStore.set((prev) => [session, ...prev]);
   return session;

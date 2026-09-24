@@ -130,16 +130,20 @@ fn quick_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WebviewWindow<R
     }
     // Same bundle as the main window; main.tsx renders the Quick bar root
     // for `?window=quick` instead of the full app.
-    WebviewWindowBuilder::new(app, QUICK_LABEL, WebviewUrl::App("index.html?window=quick".into()))
+    let builder = WebviewWindowBuilder::new(app, QUICK_LABEL, WebviewUrl::App("index.html?window=quick".into()))
         .title("Mali Quick")
-        .inner_size(680.0, 440.0)
+        .inner_size(720.0, 480.0)
         .decorations(false)
+        .shadow(true)
         .resizable(false)
         .always_on_top(true)
         .skip_taskbar(true)
         .visible(false)
-        .center()
-        .build()
+        .center();
+    // Rounded like the main window: #root draws the rounded background.
+    #[cfg(target_os = "macos")]
+    let builder = builder.transparent(true);
+    builder.build()
 }
 
 fn toggle_quick<R: Runtime>(app: &AppHandle<R>) {

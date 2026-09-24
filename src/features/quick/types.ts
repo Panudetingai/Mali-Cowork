@@ -55,8 +55,31 @@ export type QuickRequest = {
   modelId?: string;
 };
 
+/** One exchange in the Quick bar; follow-ups continue the same thread. */
+export type QuickTurn = {
+  id: string;
+  /** What the user sees they asked: typed text, else the action's label. */
+  display: string;
+  request: QuickRequest;
+  answer: string;
+  status: "streaming" | "done" | "error" | "stopped";
+  error?: string;
+  modelId: string;
+};
+
+/**
+ * Quick bar → main window: keep this thread as a chat. The main window is
+ * the only writer of chat history, so both windows never save over each other.
+ */
+export type QuickSavePayload = {
+  chatId: string;
+  turns: Pick<QuickTurn, "display" | "answer" | "modelId" | "request">[];
+  /** Also bring the main window up on it ("Open in Mali"). */
+  open: boolean;
+};
+
 /** Streamed back while the answer is written. */
 export type QuickEvent =
   | { type: "text"; delta: string }
-  | { type: "done"; text: string; chatId?: string }
+  | { type: "done"; text: string }
   | { type: "error"; message: string };

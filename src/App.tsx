@@ -3,8 +3,9 @@ import { AppLayout } from "@/layouts/app-layout";
 import { OnboardingDialog, openOnboarding, isOnboardingDone, FORCE_ONBOARDING } from "@/features/onboarding";
 import { useWeeklyRecapAutoOpen, WeeklyRecapDialog } from "@/features/work-receipt";
 import { watchSkills } from "@/features/skills";
-import { onOpenChatRequest } from "@/features/quick";
-import { useEffect } from "react";
+import { listenForQuickSaves, onOpenChatRequest, serveQuickTheme } from "@/features/quick";
+import { useTheme } from "next-themes";
+import { useEffect, useRef } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import ChatLayout from "./pages/chat/layout";
 import OutputsPage from "./pages/outputs";
@@ -31,6 +32,21 @@ function App() {
     const stop = onOpenChatRequest((chatId) => navigate(`/chat/${encodeURIComponent(chatId)}`));
     return () => void stop.then((unlisten) => unlisten());
   }, [navigate]);
+
+  // Keep Quick bar threads as chats (this window owns history).
+  useEffect(() => listenForQuickSaves(), []);
+
+  // The Quick bar follows this window's theme.
+  const { resolvedTheme } = useTheme();
+  const themeRef = useRef(resolvedTheme);
+  themeRef.current = resolvedTheme;
+  const pushTheme = useRef(() => {});
+  useEffect(() => {
+    const served = serveQuickTheme(() => themeRef.current);
+    pushTheme.current = served.push;
+    return served.stop;
+  }, []);
+  useEffect(() => pushTheme.current(), [resolvedTheme]);
 
   return (
     <>

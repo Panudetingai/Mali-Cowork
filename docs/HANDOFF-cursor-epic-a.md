@@ -1,11 +1,12 @@
 # Handoff → Cursor: Epic A — Mali Anywhere (UI)
 
 > PRD: [PRD-delight-v0.3.md §6.2](./PRD-delight-v0.3.md) · Contract: `src/features/quick/` · Backend: `src-tauri/src/commands/quick.rs`
-> Backend เสร็จแล้ว ยกเว้น `runQuickPrompt` ที่ยังเป็น **mock** (stream คำตอบตัวอย่าง) — ทำ UI ได้เลย ไม่ต้องรอ
+> **อัปเดต 25 ก.ย.:** Backend + Quick bar UI (A1) + `runQuickPrompt` ของจริง **เสร็จแล้ว (Claude Code)** — งานที่เหลือของ Cursor คือ **A2 Settings → Shortcuts** อย่างเดียว
 
 ## กติกา
 
-- ✅ แก้/สร้างได้: `src/features/quick/quick-bar-root.tsx` (placeholder — แทนที่ได้ทั้งไฟล์), component ใหม่ใน `src/features/quick/ui/`, หน้า Settings
+- ✅ แก้/สร้างได้: หน้า Settings (`src/pages/settings/`)
+- ❌ ห้ามแก้ `quick-bar-root.tsx`, `run.ts`, `bridge.ts` (Quick bar ใช้งานจริงแล้ว — แจ้งถ้าเจอบั๊ก)
 - ❌ **ห้ามแก้** `types.ts`, `actions.ts`, `api.ts`, `settings.ts` และฝั่ง Rust — ต้องการ field เพิ่ม ให้จดท้ายไฟล์นี้
 - ❌ **ห้ามวาง UI ของ Quick bar ในหน้าแชทหรือหน้าต่างหลัก** — Quick bar อยู่ในหน้าต่างแยกเท่านั้น
 - ❌ ห้ามอ่าน clipboard เองจาก JS (`navigator.clipboard.readText`) — ใช้ `takeQuickContext()` เท่านั้น (Rust อ่านให้ตอนกด shortcut ครั้งเดียว)
@@ -26,14 +27,14 @@
 | `hideQuick()` | Esc / หลัง Copy | ✅ จริง |
 | `captureScreen()` → `Attachment \| null` | ลากเลือกพื้นที่จอ (macOS) — `null` = ผู้ใช้กด Esc; Windows จะ throw ให้แสดงข้อความ | ✅ จริง |
 | `openInMali(chatId?)` | ปุ่ม "Open in Mali" | ✅ จริง |
-| `runQuickPrompt(request, onEvent, signal?)` | ส่งคำถาม + stream คำตอบ (`text` / `done` / `error`) | 🟡 **mock** |
+| `runQuickPrompt(request, onEvent, { signal, thread })` | ส่งคำถาม + stream คำตอบ (`text` / `done` / `error`) — ใน `run.ts` | ✅ จริง |
 | `DEFAULT_QUICK_ACTIONS` | สรุป · แปล TH⇄EN · เขียนใหม่ให้สุภาพ · อธิบายโค้ด | ✅ |
 | `useQuickConfig()` / `setQuickConfig(patch)` → `QuickStatus` | อ่าน/บันทึก Settings (บันทึกแล้ว apply ทันที) | ✅ จริง |
 | `useQuickStatus()` | shortcut ใช้งานได้ไหม + `error` (เช่นชนกับแอปอื่น) | ✅ จริง |
 
 ## งานของ Cursor
 
-### A1. Quick bar UI (`quick-bar-root.tsx`) — A-FR2, A-FR4, A-FR5
+### ~~A1. Quick bar UI~~ ✅ Claude Code ทำแล้ว (เก็บไว้เป็น spec อ้างอิง)
 - ช่องพิมพ์ (autofocus) + chip **Clipboard** (แสดง 1–2 บรรทัดแรก, ปุ่ม × เอาออก, ป้าย "ถูกตัด" ถ้า `clipboardTruncated`)
 - แถว Quick actions จาก `DEFAULT_QUICK_ACTIONS` (ปุ่มลัด ⌘1–⌘4)
 - ปุ่ม **Capture screen** → `captureScreen()` → แสดง thumbnail เป็น chip (ลบได้); จับ error แล้วแสดงข้อความ
@@ -53,7 +54,7 @@
 
 ## งานที่ Claude Code จะทำต่อ (ไม่ต้องทำ)
 
-- `runQuickPrompt` ของจริง: ส่งผ่าน `generateStream` โหมด Chat, บันทึกเป็นแชทกลุ่ม "Quick", คืน `chatId` ใน event `done`
+- ~~`runQuickPrompt` ของจริง~~ ✅ ส่งผ่าน `generateStream` โหมด Chat; หน้าต่างหลักเป็นผู้บันทึกแชท (`bridge.ts`)
 - Paste back (Accessibility) ถ้าตัดสินใจทำ
 - Screen capture บน Windows
 - `/code-review` หลัง A1–A2 เสร็จ
