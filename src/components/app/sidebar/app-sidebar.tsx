@@ -13,10 +13,12 @@ import { SidebarTokenFooter } from "./sidebar-token-footer";
 import { Input } from "@/components/ui/input";
 import { sessionMode, useChatRuns, useChatSessions, type ChatSession } from "@/features/chat-history";
 import { useProjects, type Project } from "@/features/projects";
+import { useInboxAttention } from "@/features/tasks";
 import type { LucideIcon } from "lucide-react";
 import {
   CodeXmlIcon,
   FilesIcon,
+  InboxIcon,
   FolderKanbanIcon,
   ImagesIcon,
   SearchIcon,
@@ -29,7 +31,7 @@ import { NavLink, useLocation, useMatch } from "react-router-dom";
 import { ChatHistoryItem } from "./chat-history-item";
 import { sidebarItemClass } from "./sidebar-styles";
 
-function NavItem({ title, url, icon: Icon }: { title: string; url: string; icon: LucideIcon }) {
+function NavItem({ title, url, icon: Icon, badge }: { title: string; url: string; icon: LucideIcon; badge?: number }) {
   const { pathname, search } = useLocation();
   const [path, query = ""] = url.split("?");
   const isActive =
@@ -42,6 +44,11 @@ function NavItem({ title, url, icon: Icon }: { title: string; url: string; icon:
       <NavLink to={url} title={title} data-active={isActive} className={sidebarItemClass}>
         <Icon strokeWidth={1.75} />
         <span className="truncate group-data-[collapsible=icon]:hidden">{title}</span>
+        {!!badge && (
+          <span className="ml-auto flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold tabular-nums text-white group-data-[collapsible=icon]:hidden">
+            {badge}
+          </span>
+        )}
       </NavLink>
     </SidebarMenuItem>
   );
@@ -113,6 +120,7 @@ function ProjectItem({ project }: { project: Project }) {
 }
 
 export function AppSidebar() {
+  const inboxAttention = useInboxAttention();
   const sessions = useChatSessions();
   const projects = useProjects();
   const [query, setQuery] = useState("");
@@ -154,6 +162,7 @@ export function AppSidebar() {
           <NavItem title="Cowork" url="/?mode=cowork" icon={SparklesIcon} />
           <NavItem title="Code" url="/?mode=code" icon={CodeXmlIcon} />
           <NavItem title="Visual" url="/visual" icon={ImagesIcon} />
+          <NavItem title="Inbox" url="/inbox" icon={InboxIcon} badge={inboxAttention} />
           <NavItem title="Outputs" url="/outputs" icon={FilesIcon} />
           <NavItem title="Projects" url="/projects" icon={FolderKanbanIcon} />
           <NavItem title="Settings" url="/settings" icon={Settings2Icon} />

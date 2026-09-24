@@ -38,6 +38,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   ArrowUpIcon,
+  InboxIcon,
   EyeIcon,
   FolderIcon,
   FolderLockIcon,
@@ -92,6 +93,8 @@ type Props = {
   onSummarize?: (model: AiModel, budget: ContextBudget) => void;
   onModeChange: (mode: WorkMode) => void;
   onSubmit: (payload: SendMessage) => Promise<boolean>;
+  /** Cowork: queue the prompt as a background task (Task Inbox) instead. */
+  onSubmitBackground?: (payload: SendMessage) => Promise<boolean>;
   /** Narrow column (Code mode): one toolbar row, folder shown elsewhere. */
   compact?: boolean;
 };
@@ -117,6 +120,7 @@ export default function PromptInput({
   onSummarize,
   onModeChange,
   onSubmit,
+  onSubmitBackground,
   compact = false,
 }: Props) {
   const [prompt, setPrompt] = useState("");
@@ -418,7 +422,7 @@ export default function PromptInput({
     }
   }
 
-  async function send(text: string, model: AiModel) {
+  async function send(text: string, model: AiModel, background = false) {
     const files = attachments;
     const picks = { skills: pickedSkills, connectors: pickedConnectors };
     setPrompt("");
@@ -432,7 +436,8 @@ export default function PromptInput({
     const fallback = skillNames.length ? `Use ${skillNames.join(", ")}.` : ATTACHMENTS_ONLY_PROMPT;
     const shown = text || fallback;
     const context = await mentionContext(shown);
-    const sent = await onSubmit({
+    const submit = background && onSubmitBackground ? onSubmitBackground : onSubmit;
+    const sent = await submit({
       prompt: shown,
       context,
       model,
@@ -464,6 +469,16 @@ export default function PromptInput({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [pickFilesRef]);
+
+  const canBackground = isCowork && !!onSubmitBackground && !compact;
+
+  /** ⌘⏎ / the Inbox button: queue it, even while this chat is still working. */
+  async function submitBackground() {
+    const trimmed = prompt.trim();
+    if (!canBackground || !canSend || attaching || opencodeMissing) return;
+    if (askForAccess(selected, () => void send(trimmed, selected, true))) return;
+    await send(trimmed, selected, true);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -637,6 +652,16 @@ export default function PromptInput({
               if (pickedConnectors.length) setPickedConnectors((prev) => prev.slice(0, -1));
               else if (pickedSkills.length) setPickedSkills((prev) => prev.slice(0, -1));
             }
+            if (
+              event.key === "Enter" &&
+              canBackground &&
+              (event.metaKey || event.ctrlKey) &&
+              !event.nativeEvent.isComposing
+            ) {
+              event.preventDefault();
+              void submitBackground();
+              return;
+            }
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
               event.currentTarget.form?.requestSubmit();
@@ -721,6 +746,20 @@ export default function PromptInput({
             onChange={(level) => setEffortFor(selected.id, level)}
             disabled={isLoading}
           />
+          {canBackground && (
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              className="rounded-full text-muted-foreground hover:text-foreground"
+              disabled={!canSend || attaching || opencodeMissing}
+              onClick={() => void submitBackground()}
+              aria-label="Run in background"
+              title={`Run in background — keeps going while you work (${/Mac/.test(navigator.platform) ? "⌘" : "Ctrl+"}Enter)`}
+            >
+              <InboxIcon />
+            </Button>
+          )}
           {canStop ? (
             <Button
               type="button"

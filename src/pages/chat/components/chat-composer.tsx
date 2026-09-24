@@ -35,6 +35,7 @@ type Props = {
   onSummarize?: (model: AiModel, budget: ContextBudget) => void;
   onModeChange: (mode: WorkMode) => void;
   onSubmit: (payload: SendMessage) => Promise<boolean>;
+  onSubmitBackground?: (payload: SendMessage) => Promise<boolean>;
   /** Narrow column (Code mode). */
   compact?: boolean;
 };
@@ -58,6 +59,7 @@ export function ChatComposer({
   onSummarize,
   onModeChange,
   onSubmit,
+  onSubmitBackground,
   compact,
 }: Props) {
   const permissionRequests = permissions;
@@ -109,6 +111,7 @@ export function ChatComposer({
           onSummarize={onSummarize}
           onModeChange={onModeChange}
           onSubmit={onSubmit}
+          onSubmitBackground={onSubmitBackground}
           compact={compact}
         />
       </motion.div>

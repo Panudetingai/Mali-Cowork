@@ -3,11 +3,13 @@ import { AppLayout } from "@/layouts/app-layout";
 import { OnboardingDialog, openOnboarding, isOnboardingDone, FORCE_ONBOARDING } from "@/features/onboarding";
 import { useWeeklyRecapAutoOpen, WeeklyRecapDialog } from "@/features/work-receipt";
 import { watchSkills } from "@/features/skills";
+import { startTaskQueue } from "@/features/tasks";
 import { listenForQuickSaves, onOpenChatRequest, onOpenQuickSettings, serveQuickTheme } from "@/features/quick";
 import { useTheme } from "next-themes";
 import { useEffect, useRef } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import ChatLayout from "./pages/chat/layout";
+import InboxPage from "./pages/inbox";
 import OutputsPage from "./pages/outputs";
 import ProjectsPage from "./pages/projects";
 import ProjectPage from "./pages/projects/project-page";
@@ -22,6 +24,9 @@ function App() {
 
   // Keep the skill folders the agent reads in step with the library.
   useEffect(() => watchSkills(), []);
+
+  // Background Cowork tasks (Inbox): recover after a restart and keep the queue moving.
+  useEffect(() => startTaskQueue(), []);
 
   // Auto-open weekly recap on the first visit each Monday.
   useWeeklyRecapAutoOpen();
@@ -56,6 +61,7 @@ function App() {
           <Route index element={<ChatLayout />} />
           <Route path="chat/:chatId" element={<ChatLayout />} />
           <Route path="visual" element={<VisualPage />} />
+          <Route path="inbox" element={<InboxPage />} />
           <Route path="outputs" element={<OutputsPage />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:projectId" element={<ProjectPage />} />

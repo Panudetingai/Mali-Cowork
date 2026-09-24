@@ -246,6 +246,26 @@ export type SendMessage = {
   connectors?: string[];
 };
 
+/** What the composer sends, as the send pipeline takes it (also used by the Task Inbox). */
+export function turnInputFor({ prompt, model, budget, attachments, context, skills, connectors }: SendMessage): TurnInput {
+  return {
+    prompt,
+    attachments,
+    context,
+    resend: {
+      modelId: model.id,
+      modelName: model.name,
+      maxTokens: budget.maxTokens,
+      autoNewChat: budget.autoNewChat,
+      // Only ever a level this model listed, so a retry on another model
+      // falls back to that model's own default instead of being refused.
+      effort: effortFor(model.id, model.efforts),
+      ...(skills?.length ? { skills } : {}),
+      ...(connectors?.length ? { connectors } : {}),
+    },
+  };
+}
+
 const NO_MESSAGES: ChatMessage[] = [];
 const NO_PERMISSIONS: PermissionRequest[] = [];
 
@@ -292,23 +312,7 @@ export function useChat(
 
   /** Resolves false when the message was not sent (e.g. folder access declined). */
   const sendMessage = useCallback(
-    async ({ prompt, model, budget, attachments, context, skills, connectors }: SendMessage): Promise<boolean> =>
-      executeSend({
-        prompt,
-        attachments,
-        context,
-        resend: {
-          modelId: model.id,
-          modelName: model.name,
-          maxTokens: budget.maxTokens,
-          autoNewChat: budget.autoNewChat,
-          // Only ever a level this model listed, so a retry on another model
-          // falls back to that model's own default instead of being refused.
-          effort: effortFor(model.id, model.efforts),
-          ...(skills?.length ? { skills } : {}),
-          ...(connectors?.length ? { connectors } : {}),
-        },
-      }),
+    async (payload: SendMessage): Promise<boolean> => executeSend(turnInputFor(payload)),
     [executeSend],
   );
 

@@ -120,6 +120,9 @@ function isChat(value: unknown): value is ChatSession {
 
 export const useChatSessions = sessionStore.use;
 export const useChatRuns = runStore.use;
+/** Every active run by chat id; for code outside React (the Task Inbox queue). */
+export const getRuns = runStore.get;
+export const subscribeToRuns = runStore.subscribe;
 
 export function getChat(id: string) {
   return sessionStore.get().find((s) => s.id === id);

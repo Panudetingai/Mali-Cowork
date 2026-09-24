@@ -6,12 +6,13 @@ import { GitBar, GitPanel, GitProvider } from "@/features/git";
 import { ProviderKeyDialog, saveOpencodeSettings, useDefaultCwd } from "@/features/opencode";
 import { FirstRunWizard } from "@/features/onboarding";
 import { getProject, useProjects } from "@/features/projects";
-import { folderName, normalizeFolder } from "@/features/workspace";
+import { enqueueTask } from "@/features/tasks";
+import { folderName, normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import { cn } from "@/lib/utils";
-import { useChat } from "@/pages/chat/hooks/use-chat";
+import { turnInputFor, useChat, type SendMessage } from "@/pages/chat/hooks/use-chat";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { startTransition, useRef, type ReactNode } from "react";
-import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { startTransition, useEffect, useRef, useState, type ReactNode } from "react";
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ChatComposer } from "./components/chat-composer";
 import { ChatMessagePanel } from "./components/chat-message-panel";
 import { ChatModeNav } from "./components/chat-mode-nav";
@@ -120,6 +121,21 @@ export default function ChatLayout() {
 
   // Cowork only: the Git panel works on the chat's folder.
   const coworkFolder = mode === "cowork" ? normalizeFolder(session?.cwd || defaultCwd || "") || undefined : undefined;
+
+  // Task Inbox: the prompt runs as its own background task in this folder,
+  // and this chat stays free.
+  const [queued, setQueued] = useState<string>();
+  useEffect(() => {
+    if (!queued) return;
+    const timer = setTimeout(() => setQueued(undefined), 5000);
+    return () => clearTimeout(timer);
+  }, [queued]);
+  const sendInBackground = async (payload: SendMessage) => {
+    if (!coworkFolder || !(await requestFolderAccess(coworkFolder))) return false;
+    const task = enqueueTask({ input: turnInputFor(payload), folder: coworkFolder, projectId: project?.id });
+    setQueued(task.title);
+    return true;
+  };
   const gitFolder = coworkFolder;
 
   // A deleted or unknown chat falls back to a new one.
@@ -222,6 +238,17 @@ export default function ChatLayout() {
             )}
 
             <div className="relative mt-4 shrink-0">
+              {queued && (
+                <div className="absolute -top-9 left-1/2 z-10 flex max-w-[90%] -translate-x-1/2 items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-xs shadow-sm">
+                  <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
+                  <span className="truncate text-muted-foreground">
+                    Queued in Inbox: <span className="text-foreground">{queued}</span>
+                  </span>
+                  <Link to="/inbox" className="shrink-0 font-medium text-amber-600 hover:underline dark:text-amber-400">
+                    Open Inbox
+                  </Link>
+                </div>
+              )}
               <ChatComposer
                 key={`${chatId ?? "new"}:${mode}:${project?.id ?? ""}`}
                 mode={mode}
@@ -242,6 +269,7 @@ export default function ChatLayout() {
                 onSummarize={summarizeAndContinue}
                 onModeChange={changeMode}
                 onSubmit={sendMessage}
+                onSubmitBackground={sendInBackground}
               />
             </div>
           </div>
