@@ -68,10 +68,12 @@ export async function startArena(
       throw new Error("The Arena applies the winner's changes, so it needs Read & write access to this folder.");
     }
     const prepared = await arenaPrepare(id, folder, picked.length);
-    // Each copy is the round's own scratch space; access ends with the round.
-    for (const root of prepared.roots) grantFolder(root, "write");
+    // Access to the same folder the user granted, inside each copy — not the
+    // whole copy: only changes there can be applied (arena.rs) and undone.
+    // It ends with the round.
+    for (const granted of prepared.folders) grantFolder(granted, "write");
     folders = prepared.folders;
-    roots = prepared.roots;
+    roots = prepared.folders;
   }
 
   const contenders: ArenaContender[] = picked.map((model, i) => {
@@ -108,6 +110,9 @@ async function releaseCopies(round: ArenaRound) {
   await arenaCleanup(round.id).catch((error) => console.warn("[arena] cleanup failed", error));
 }
 
+/** Rounds a pick is running for: a second Keep must not apply another patch. */
+const picking = new Set<string>();
+
 /**
  * Keep one contender: its chat joins the history as a normal chat, the
  * others are stopped and deleted. In Cowork, its changes are applied to the
@@ -117,8 +122,19 @@ async function releaseCopies(round: ArenaRound) {
 export async function pickWinner(roundId: string, chatId: string) {
   const round = rounds.get().find((r) => r.id === roundId);
   const index = round?.contenders.findIndex((c) => c.chatId === chatId) ?? -1;
-  if (!round || index < 0) return undefined;
+  if (!round || index < 0 || round.winnerChatId || picking.has(roundId)) return undefined;
+  picking.add(roundId);
+  try {
+    return await pick(round, index);
+  } finally {
+    picking.delete(roundId);
+  }
+}
+
+async function pick(round: ArenaRound, index: number) {
+  const roundId = round.id;
   const winner = round.contenders[index];
+  const chatId = winner.chatId;
   await stopAll(round);
 
   let appliedFiles: number | undefined;

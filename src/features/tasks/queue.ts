@@ -138,19 +138,27 @@ export function dismissTask(id: string) {
   store.set((prev) => prev.filter((t) => t.id !== id));
 }
 
-let started = false;
+/** Never reset: React StrictMode (and hot reload) run the startup effect twice. */
+let recovered = false;
 
 /**
- * Main window, once at startup. A task that was running when the app closed
- * can't finish (its agent is gone): it's marked interrupted, and its chat
- * keeps whatever it did, with Undo. Queued tasks simply start.
+ * Main window, at startup. A task that was running when the app closed can't
+ * finish (its agent is gone): it's marked interrupted, and its chat keeps
+ * whatever it did, with Undo. Only a task whose chat has no run going counts,
+ * so running this again never interrupts live work. Queued tasks simply start.
  */
 export function startTaskQueue() {
-  if (started) return () => {};
-  started = true;
-  store.set((prev) =>
-    prev.map((t) => (t.phase === "running" ? { ...t, phase: "interrupted", finishedAt: Date.now() } : t)),
-  );
+  if (!recovered) {
+    recovered = true;
+    const runs = getRuns();
+    store.set((prev) =>
+      prev.map((t) =>
+        t.phase === "running" && !(t.chatId && runs[t.chatId])
+          ? { ...t, phase: "interrupted", finishedAt: Date.now() }
+          : t,
+      ),
+    );
+  }
   pumpTasks();
 
   // A background task waiting on the user gets a notification (with the
@@ -176,6 +184,5 @@ export function startTaskQueue() {
   });
   return () => {
     unsubscribe();
-    started = false;
   };
 }

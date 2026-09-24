@@ -299,6 +299,7 @@ function RoundCard({ round }: { round: ArenaRound }) {
               winner={round.winnerChatId === contender.chatId}
               decided={decided}
               picking={picking === contender.chatId}
+              busy={!!picking}
               onKeep={() => void keep(contender.chatId)}
               othersRunning={anyRunning}
               cowork={round.mode === "cowork"}
@@ -322,6 +323,7 @@ function ContenderColumn({
   picking,
   othersRunning,
   cowork,
+  busy,
   onKeep,
 }: {
   contender: ArenaContender;
@@ -332,6 +334,8 @@ function ContenderColumn({
   picking: boolean;
   othersRunning: boolean;
   cowork: boolean;
+  /** A pick is under way in this round: every Keep waits. */
+  busy: boolean;
   onKeep: () => void;
 }) {
   const turnMessage = [...messages].reverse().find((m) => m.turn);
@@ -403,7 +407,7 @@ function ContenderColumn({
           <Button
             size="sm"
             className="h-8 gap-1.5 text-xs"
-            disabled={running || failed || picking}
+            disabled={running || failed || busy}
             onClick={onKeep}
             title={othersRunning && !running ? "The others will be stopped and removed" : undefined}
           >

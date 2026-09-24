@@ -18,7 +18,7 @@ export type ArenaRound = {
   mode: "chat" | "cowork";
   /** Cowork: the user's folder, which only the winner's changes reach. */
   folder?: string;
-  /** Cowork: worktree roots granted for the round (revoked on cleanup). */
+  /** Cowork: folders granted for the round, inside each copy (revoked on cleanup). */
   roots?: string[];
   createdAt: number;
   contenders: ArenaContender[];

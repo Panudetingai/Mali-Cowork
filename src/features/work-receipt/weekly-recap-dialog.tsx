@@ -27,7 +27,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { buildWeeklyRecap, startOfWeek } from "./recap";
 import { useTimeSavedRates } from "./settings-store";
-import { closeWeeklyRecap, useWeeklyRecapOpen } from "./weekly-recap-store";
+import { closeWeeklyRecap, useWeeklyRecapOpen, useWeeklyRecapStartOffset } from "./weekly-recap-store";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -96,14 +96,20 @@ export function WeeklyRecapDialog() {
   const open = useWeeklyRecapOpen();
   const rates = useTimeSavedRates();
   const sessions = useChatSessions();
-  const [weekOffset, setWeekOffset] = useState(0);
+  const startOffset = useWeeklyRecapStartOffset();
+  const [weekOffset, setWeekOffset] = useState(startOffset);
 
-  const currentStart = useMemo(() => startOfWeek(Date.now()), []);
-  const viewStart = useMemo(() => currentStart - weekOffset * 7 * DAY, [currentStart, weekOffset]);
+  const currentStart = useMemo(() => startOfWeek(Date.now()), [open]);
+  // Half a day into the target week, then back to its Monday: stays on
+  // Monday 00:00 across a daylight-saving change.
+  const viewStart = useMemo(
+    () => startOfWeek(currentStart - weekOffset * 7 * DAY + DAY / 2),
+    [currentStart, weekOffset],
+  );
 
   useEffect(() => {
-    if (open) setWeekOffset(0);
-  }, [open]);
+    if (open) setWeekOffset(startOffset);
+  }, [open, startOffset]);
 
   const recap = useMemo(
     () => buildWeeklyRecap(sessions, viewStart, rates),
@@ -111,7 +117,7 @@ export function WeeklyRecapDialog() {
   );
 
   const handleClose = () => {
-    closeWeeklyRecap(viewStart);
+    closeWeeklyRecap();
   };
 
   return (

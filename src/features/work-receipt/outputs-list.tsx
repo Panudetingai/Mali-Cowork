@@ -19,7 +19,7 @@ import {
   Table2Icon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { listOutputs } from "./outputs";
 import { statOutputs } from "./api";
@@ -67,13 +67,21 @@ export function OutputsList({ query = {}, empty, className }: Props) {
   const [stats, setStats] = useState<Map<string, OutputStat>>(new Map());
   const [visibleRange, setVisibleRange] = useState({ start: 0, end: 20 });
 
+  // Callers pass `query` inline (or not at all), so it's a new object every
+  // render; keyed by its values instead, or the list and the file checks
+  // below would rerun on every render.
+  const { projectId, since, includeUndone } = query;
+  const baseQuery: OutputsQuery = useMemo(
+    () => ({ projectId, since, includeUndone }),
+    [projectId, since, includeUndone],
+  );
   const mergedQuery: OutputsQuery = useMemo(
     () => ({
-      ...query,
+      ...baseQuery,
       kinds: kinds.length ? kinds : undefined,
       search: search.trim() || undefined,
     }),
-    [query, kinds, search],
+    [baseQuery, kinds, search],
   );
 
   const outputs = useMemo(() => listOutputs(sessions, mergedQuery), [sessions, mergedQuery]);
@@ -82,24 +90,33 @@ export function OutputsList({ query = {}, empty, className }: Props) {
     const counts = new Map<OutputKind, number>();
     for (const kind of ALL_KINDS) counts.set(kind, 0);
     // Count without search/kind filters, but keep project filter.
-    const base = { ...query, kinds: undefined, search: undefined };
-    for (const output of listOutputs(sessions, base)) {
+    for (const output of listOutputs(sessions, baseQuery)) {
       counts.set(output.kind, (counts.get(output.kind) ?? 0) + 1);
     }
     return counts;
-  }, [sessions, query]);
+  }, [sessions, baseQuery]);
+
+  // Each file is checked once per visit; scrolling back doesn't ask again.
+  const checked = useRef(new Set<string>());
 
   useEffect(() => {
-    const visible = outputs.slice(visibleRange.start, visibleRange.end);
+    const visible = outputs
+      .slice(visibleRange.start, visibleRange.end)
+      .filter((o) => !checked.current.has(o.path));
     if (!visible.length) return;
     const timer = setTimeout(() => {
+      for (const o of visible) checked.current.add(o.path);
       statOutputs(visible).then((results: OutputStat[]) => {
         setStats((prev) => {
           const next = new Map(prev);
           for (const result of results) next.set(result.path, result);
           return next;
         });
-      }).catch((error) => console.warn("[outputs] couldn't check files:", error));
+      }).catch((error) => {
+        // Try these again on the next scroll.
+        for (const o of visible) checked.current.delete(o.path);
+        console.warn("[outputs] couldn't check files:", error);
+      });
     }, 100);
     return () => clearTimeout(timer);
   }, [outputs, visibleRange]);

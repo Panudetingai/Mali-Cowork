@@ -38,6 +38,11 @@ struct Meta {
     /// The commit every worktree starts from.
     base: String,
     count: usize,
+    /// The folder the user picked, relative to `repo` ("" = the whole repo).
+    /// Only changes inside it may be applied: that's what access was given
+    /// for, and what the checkpoint covers for Undo.
+    #[serde(default)]
+    sub: String,
 }
 
 fn read_meta(dir: &Path) -> Result<Meta, String> {
@@ -51,7 +56,7 @@ pub struct ArenaPrepared {
     /// Where each contender works: its worktree, at the same subfolder as the
     /// folder the user picked.
     pub folders: Vec<String>,
-    /// Worktree roots, to grant and later revoke folder access for.
+    /// Worktree roots.
     pub roots: Vec<String>,
 }
 
@@ -90,15 +95,21 @@ pub async fn arena_prepare(id: String, folder: String, count: usize) -> Result<A
         stash
     };
 
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create the Arena folder: {e}"))?;
-    let meta = Meta { repo: repo.to_string_lossy().into_owned(), base: base.clone(), count };
-    std::fs::write(dir.join("meta.json"), serde_json::to_string(&meta).unwrap_or_default()).map_err(|e| e.to_string())?;
-
     let canonical_repo = std::fs::canonicalize(&repo).unwrap_or(repo.clone());
     let sub = std::fs::canonicalize(&folder_path)
         .ok()
         .and_then(|f| f.strip_prefix(&canonical_repo).ok().map(Path::to_path_buf))
         .unwrap_or_default();
+
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create the Arena folder: {e}"))?;
+    let meta = Meta {
+        repo: repo.to_string_lossy().into_owned(),
+        base: base.clone(),
+        count,
+        // Git prints paths with `/` on every platform.
+        sub: sub.to_string_lossy().replace('\\', "/"),
+    };
+    std::fs::write(dir.join("meta.json"), serde_json::to_string(&meta).unwrap_or_default()).map_err(|e| e.to_string())?;
     let hooks = no_hooks_dir()?;
     let hooks_arg = format!("core.hooksPath={}", hooks.to_string_lossy());
 
@@ -137,10 +148,21 @@ pub async fn arena_apply(id: String, index: usize) -> Result<ArenaApplied, Strin
     // Stage in the worktree's own index, so new files are part of the diff.
     tree.write(&["add", "-A"]).await?;
     let names = tree.read(&["diff", "--cached", "--name-only", &meta.base]).await?;
-    let files = names.stdout.lines().filter(|l| !l.trim().is_empty()).count();
-    if files == 0 {
+    let changed: Vec<&str> = names.stdout.lines().filter(|l| !l.trim().is_empty()).collect();
+    if changed.is_empty() {
         return Ok(ArenaApplied { files: 0 });
     }
+    let outside = outside_folder(&changed, &meta.sub);
+    if !outside.is_empty() {
+        let shown: Vec<&str> = outside.iter().take(5).copied().collect();
+        let more = outside.len().saturating_sub(shown.len());
+        return Err(format!(
+            "This agent also changed files outside the folder you picked, so nothing was applied: {}{}. Pick another contender, or open its chat to copy what you need.",
+            shown.join(", "),
+            if more > 0 { format!(" and {more} more") } else { String::new() }
+        ));
+    }
+    let files = changed.len();
     let patch = tree
         .read(&["diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", &meta.base])
         .await?;
@@ -153,6 +175,16 @@ pub async fn arena_apply(id: String, index: usize) -> Result<ArenaApplied, Strin
         .map_err(|e| format!("The folder changed in the same places since the round started, so the winner's changes don't fit anymore ({e})"))?;
     repo.write_with_input(&["apply", "--binary", "-"], &patch.stdout).await?;
     Ok(ArenaApplied { files })
+}
+
+/// Changed paths (repo-relative, `/`-separated) that aren't inside `sub`.
+fn outside_folder<'a>(changed: &[&'a str], sub: &str) -> Vec<&'a str> {
+    let sub = sub.trim_matches('/');
+    if sub.is_empty() {
+        return Vec::new();
+    }
+    let prefix = format!("{sub}/");
+    changed.iter().copied().filter(|path| !path.starts_with(&prefix)).collect()
 }
 
 async fn cleanup(id: &str) -> Result<(), String> {
@@ -240,6 +272,38 @@ mod tests {
 
         arena_cleanup(id.clone()).await.unwrap();
         assert!(!round_dir(&id).unwrap().exists());
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn only_changes_inside_the_picked_folder_may_be_applied() {
+        let changed = ["app/a.txt", "app/sub/b.txt", "package.json", "apple/c.txt"];
+        assert_eq!(outside_folder(&changed, "app"), vec!["package.json", "apple/c.txt"]);
+        assert!(outside_folder(&changed, "").is_empty(), "the whole repo was picked");
+    }
+
+    #[tokio::test]
+    async fn a_change_outside_the_picked_folder_blocks_the_apply() {
+        let repo = std::env::temp_dir().join(format!("mali-arena-outside-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(repo.join("app")).unwrap();
+        git_in(&repo, &["init", "-q"]);
+        std::fs::write(repo.join("app/a.txt"), "one\n").unwrap();
+        std::fs::write(repo.join("package.json"), "{}\n").unwrap();
+        git_in(&repo, &["add", "-A"]);
+        git_in(&repo, &["commit", "-q", "-m", "init"]);
+
+        let id = format!("test-outside-{}", std::process::id());
+        let prepared = arena_prepare(id.clone(), repo.join("app").to_string_lossy().into_owned(), 2).await.unwrap();
+        let root = PathBuf::from(&prepared.roots[0]);
+        std::fs::write(root.join("app/a.txt"), "changed\n").unwrap();
+        std::fs::write(root.join("package.json"), "{\"x\":1}\n").unwrap();
+
+        let error = arena_apply(id.clone(), 0).await.unwrap_err();
+        assert!(error.contains("package.json"), "{error}");
+        assert_eq!(std::fs::read_to_string(repo.join("app/a.txt")).unwrap(), "one\n", "nothing applied");
+
+        arena_cleanup(id).await.unwrap();
         let _ = std::fs::remove_dir_all(&repo);
     }
 

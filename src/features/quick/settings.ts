@@ -9,11 +9,35 @@ export const DEFAULT_QUICK_CONFIG: QuickConfig = {
   saveToHistory: true,
 };
 
+const CONFIG_KEY = "mali.quick.config";
+
 // localStorage is shared by the main window and the Quick bar (same origin).
 const configStore = createStore<QuickConfig>(DEFAULT_QUICK_CONFIG, {
-  key: "mali.quick.config",
+  key: CONFIG_KEY,
   revive: (saved) => ({ ...DEFAULT_QUICK_CONFIG, ...saved }),
 });
+
+/**
+ * Pick up changes made in the other window. The store reads storage only at
+ * load, and the Quick bar stays loaded (it's hidden, not closed), so without
+ * this a model picked in Settings never reached it. Only a real change is
+ * applied, so the two windows don't write back and forth.
+ */
+export function reloadQuickConfig() {
+  try {
+    const raw = localStorage.getItem(CONFIG_KEY);
+    const next: QuickConfig = { ...DEFAULT_QUICK_CONFIG, ...(raw ? JSON.parse(raw) : {}) };
+    if (JSON.stringify(next) !== JSON.stringify(configStore.get())) configStore.set(next);
+  } catch {
+    // Unreadable: keep what we have.
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key === CONFIG_KEY) reloadQuickConfig();
+  });
+}
 const statusStore = createStore<QuickStatus | undefined>(undefined);
 
 export const useQuickConfig = configStore.use;

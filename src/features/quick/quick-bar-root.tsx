@@ -50,7 +50,7 @@ import {
   type QuickModelInfo,
   type QuickThread,
 } from "./run";
-import { getQuickConfig } from "./settings";
+import { getQuickConfig, reloadQuickConfig, useQuickConfig } from "./settings";
 import type {
   QuickAction,
   QuickContext,
@@ -85,10 +85,13 @@ export function QuickBarRoot() {
 
   const streaming = turns.at(-1)?.status === "streaming";
   const last = turns.at(-1);
+  useQuickConfig(); // re-render when Settings change the model
   const modelId = quickModelId();
 
   // Each shortcut press starts fresh, unless an answer is still coming.
   const reset = useCallback((next: QuickContext) => {
+    // Settings may have changed in the main window since the bar last opened.
+    reloadQuickConfig();
     void describeQuickModel()
       .then(setModelInfo)
       .catch(() => undefined);
