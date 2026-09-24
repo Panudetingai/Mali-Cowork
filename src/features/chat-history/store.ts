@@ -31,7 +31,9 @@ export type ChatSession = {
   codexSessionId?: string;
   /** Antigravity conversation id, so `agy --conversation <id>` keeps the thread. */
   antigravitySessionId?: string;
-  /** A background task (Inbox) started from this chat. */
+  /** A background task's chat (Inbox): listed there, not in the sidebar. */
+  inboxTask?: boolean;
+  /** For a background task: the chat it was started from. */
   taskFrom?: { id: string; title: string };
   /** A contender in an Arena round; kept out of the history list until picked. */
   arenaId?: string;
@@ -46,7 +48,7 @@ export type ChatSession = {
   };
 };
 
-type NewChat = Pick<ChatSession, "mode" | "view" | "cwd" | "continuedFrom" | "projectId" | "taskFrom"> & {
+type NewChat = Pick<ChatSession, "mode" | "view" | "cwd" | "continuedFrom" | "projectId" | "taskFrom" | "inboxTask"> & {
   /** Chosen by the caller when another window already refers to the chat (Quick bar). */
   id?: string;
 };

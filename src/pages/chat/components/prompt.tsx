@@ -755,7 +755,7 @@ export default function PromptInput({
               disabled={!canSend || attaching || opencodeMissing}
               onClick={() => void submitBackground()}
               aria-label="Run in background"
-              title={`Run in background — keeps going while you work (${/Mac/.test(navigator.platform) ? "⌘" : "Ctrl+"}Enter)`}
+              title={`Run in background (${/Mac/.test(navigator.platform) ? "⌘" : "Ctrl+"}Enter) — the agent works on it in the Inbox, with this chat as context, while you keep chatting here`}
             >
               <InboxIcon />
             </Button>

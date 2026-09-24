@@ -139,8 +139,9 @@ export function AppSidebar() {
   const { pinned, chats, cowork, code } = useMemo(() => {
     const q = query.trim().toLowerCase();
     const sorted = sessions
-      // Arena contenders live on the Arena page until one is picked.
-      .filter((s) => !s.arenaId && matches(s, q))
+      // Arena contenders live on the Arena page until one is picked, and
+      // background tasks in the Inbox (and on the chat they came from).
+      .filter((s) => !s.arenaId && !s.inboxTask && !s.taskFrom && matches(s, q))
       .sort((a, b) => b.updatedAt - a.updatedAt);
     const unpinned = sorted.filter((s) => !s.pinned);
     return {

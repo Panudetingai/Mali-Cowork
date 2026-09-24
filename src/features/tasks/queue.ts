@@ -86,6 +86,7 @@ async function start(task: TaskRecord) {
     cwd: task.folder,
     projectId: task.projectId,
     taskFrom: task.from,
+    inboxTask: true,
   });
   // Marked running before anything awaits, so the next pump sees the folder taken.
   patch(task.id, (t) => ({ ...t, phase: "running", chatId: chat.id, startedAt: Date.now() }));
