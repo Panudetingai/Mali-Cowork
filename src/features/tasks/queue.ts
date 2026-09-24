@@ -51,15 +51,17 @@ export type NewTask = {
   /** The Cowork folder; must already be granted (the composer asks first). */
   folder: string;
   projectId?: string;
+  from?: { id: string; title: string };
 };
 
 /** Add a task; it starts right away when a slot and its folder are free. */
-export function enqueueTask({ input, folder, projectId }: NewTask): TaskRecord {
+export function enqueueTask({ input, folder, projectId, from }: NewTask): TaskRecord {
   const task: TaskRecord = {
     id: crypto.randomUUID(),
     title: input.prompt.replace(/\s+/g, " ").trim().slice(0, 80) || "Background task",
     folder,
     projectId,
+    from,
     modelId: input.resend.modelId,
     modelName: input.resend.modelName,
     createdAt: Date.now(),
@@ -79,7 +81,12 @@ export function pumpTasks() {
 }
 
 async function start(task: TaskRecord) {
-  const chat = createChat(task.input.prompt, { mode: "cowork", cwd: task.folder, projectId: task.projectId });
+  const chat = createChat(task.input.prompt, {
+    mode: "cowork",
+    cwd: task.folder,
+    projectId: task.projectId,
+    taskFrom: task.from,
+  });
   // Marked running before anything awaits, so the next pump sees the folder taken.
   patch(task.id, (t) => ({ ...t, phase: "running", chatId: chat.id, startedAt: Date.now() }));
 
@@ -122,7 +129,7 @@ export function retryTask(id: string) {
   const task = store.get().find((t) => t.id === id);
   if (!task) return;
   store.set((prev) => prev.filter((t) => t.id !== id));
-  enqueueTask({ input: task.input, folder: task.folder, projectId: task.projectId });
+  enqueueTask({ input: task.input, folder: task.folder, projectId: task.projectId, from: task.from });
 }
 
 /** Take a finished task off the Inbox; its chat stays in history. */

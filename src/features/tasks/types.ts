@@ -13,6 +13,8 @@ export type TaskRecord = {
   /** The folder the agent works in; one writing task per folder at a time. */
   folder: string;
   projectId?: string;
+  /** The chat the task was started from; its conversation travels in `input.context`. */
+  from?: { id: string; title: string };
   modelId: string;
   modelName: string;
   createdAt: number;

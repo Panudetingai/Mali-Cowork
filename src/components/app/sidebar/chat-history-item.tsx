@@ -35,6 +35,7 @@ import {
   FolderInputIcon,
   FolderKanbanIcon,
   FolderMinusIcon,
+  InboxIcon,
   LoaderCircleIcon,
   MessageCircleIcon,
   MoreHorizontalIcon,
@@ -117,12 +118,17 @@ export function ChatHistoryItem({ session, running }: { session: ChatSession; ru
       ) : (
         <NavLink
           to={url}
-          title={session.title}
+          title={session.taskFrom ? `${session.title} — background task from “${session.taskFrom.title}”` : session.title}
           data-active={isActive}
           className={cn(sidebarItemClass, "pr-8")}
         >
           <StatusIcon session={session} running={running} />
           <span className="truncate">{session.title}</span>
+          {session.taskFrom && (
+            <span title={`Background task from “${session.taskFrom.title}”`} className="ml-auto flex shrink-0">
+              <InboxIcon strokeWidth={1.75} className="size-3.5 text-muted-foreground" />
+            </span>
+          )}
         </NavLink>
       )}
 

@@ -146,6 +146,11 @@ function TaskCard({ view, all }: { view: View; all: View[] }) {
             </span>
             <span className="text-xs text-muted-foreground">· {task.modelName}</span>
             <span className="text-xs text-muted-foreground">· {timeLabel(task, status)}</span>
+            {task.from && (
+              <Link to={`/chat/${task.from.id}`} className="max-w-48 truncate text-xs text-muted-foreground hover:text-foreground hover:underline">
+                · from “{task.from.title}”
+              </Link>
+            )}
           </div>
           <p className="line-clamp-2 text-sm font-medium">{task.title}</p>
         </div>

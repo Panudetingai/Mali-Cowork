@@ -31,6 +31,8 @@ export type ChatSession = {
   codexSessionId?: string;
   /** Antigravity conversation id, so `agy --conversation <id>` keeps the thread. */
   antigravitySessionId?: string;
+  /** A background task (Inbox) started from this chat. */
+  taskFrom?: { id: string; title: string };
   /** A contender in an Arena round; kept out of the history list until picked. */
   arenaId?: string;
   /** Chat this one continues after the context limit was reached. */
@@ -44,7 +46,7 @@ export type ChatSession = {
   };
 };
 
-type NewChat = Pick<ChatSession, "mode" | "view" | "cwd" | "continuedFrom" | "projectId"> & {
+type NewChat = Pick<ChatSession, "mode" | "view" | "cwd" | "continuedFrom" | "projectId" | "taskFrom"> & {
   /** Chosen by the caller when another window already refers to the chat (Quick bar). */
   id?: string;
 };

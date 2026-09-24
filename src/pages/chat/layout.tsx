@@ -6,7 +6,7 @@ import { GitBar, GitPanel, GitProvider } from "@/features/git";
 import { ProviderKeyDialog, saveOpencodeSettings, useDefaultCwd } from "@/features/opencode";
 import { FirstRunWizard } from "@/features/onboarding";
 import { getProject, useProjects } from "@/features/projects";
-import { enqueueTask } from "@/features/tasks";
+import { carriedConversation, enqueueTask } from "@/features/tasks";
 import { folderName, normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import { cn } from "@/lib/utils";
 import { turnInputFor, useChat, type SendMessage } from "@/pages/chat/hooks/use-chat";
@@ -132,7 +132,19 @@ export default function ChatLayout() {
   }, [queued]);
   const sendInBackground = async (payload: SendMessage) => {
     if (!coworkFolder || !(await requestFolderAccess(coworkFolder))) return false;
-    const task = enqueueTask({ input: turnInputFor(payload), folder: coworkFolder, projectId: project?.id });
+    const input = turnInputFor(payload);
+    // The task starts in a new chat: bring this conversation so "the content
+    // above" still means something to the agent.
+    const earlier = session?.messages.length
+      ? carriedConversation(session.messages, session.title, payload.budget.maxTokens)
+      : "";
+    if (earlier) input.context = (input.context ?? "") + earlier;
+    const task = enqueueTask({
+      input,
+      folder: coworkFolder,
+      projectId: project?.id,
+      from: session ? { id: session.id, title: session.title } : undefined,
+    });
     setQueued(task.title);
     return true;
   };
