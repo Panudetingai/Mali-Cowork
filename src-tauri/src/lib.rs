@@ -31,6 +31,7 @@ use commands::mcp_oauth::{mcp_auth_cancel, mcp_oauth_prepare};
 use commands::mcp_registry::{mcp_fetch_icon, mcp_registry_get, mcp_registry_icon, mcp_registry_search};
 use commands::native_alert::native_alert;
 use commands::outputs::outputs_stat;
+use commands::arena::{arena_apply, arena_cleanup, arena_cleanup_stale, arena_prepare};
 use commands::quick::{
     quick_capture_screen, quick_configure, quick_hide, quick_open_main, quick_take_context, QuickState,
 };
@@ -170,6 +171,10 @@ pub fn run() {
             checkpoint_preview,
             checkpoint_open,
             outputs_stat,
+            arena_prepare,
+            arena_apply,
+            arena_cleanup,
+            arena_cleanup_stale,
             quick_configure,
             quick_take_context,
             quick_hide,

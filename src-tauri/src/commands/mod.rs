@@ -1,3 +1,4 @@
+pub mod arena;
 pub mod attachments;
 pub mod bin_cache;
 pub mod chat;

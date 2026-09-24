@@ -4,6 +4,7 @@ import { OnboardingDialog, openOnboarding, isOnboardingDone, FORCE_ONBOARDING } 
 import { useWeeklyRecapAutoOpen, WeeklyRecapDialog } from "@/features/work-receipt";
 import { watchSkills } from "@/features/skills";
 import { startTaskQueue } from "@/features/tasks";
+import { startArenaHousekeeping } from "@/features/arena";
 import { listenForQuickSaves, onOpenChatRequest, onOpenQuickSettings, serveQuickTheme } from "@/features/quick";
 import { useTheme } from "next-themes";
 import { useEffect, useRef } from "react";
@@ -28,6 +29,9 @@ function App() {
 
   // Background Cowork tasks (Inbox): recover after a restart and keep the queue moving.
   useEffect(() => startTaskQueue(), []);
+
+  // Arena: remove worktree copies left by rounds that ended or crashed.
+  useEffect(() => startArenaHousekeeping(), []);
 
   // Auto-open weekly recap on the first visit each Monday.
   useWeeklyRecapAutoOpen();
