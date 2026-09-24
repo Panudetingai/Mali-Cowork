@@ -82,7 +82,7 @@ export function useSync() {
  * The main commit button, split like a merge button: the primary action,
  * and a menu with the others. Every commit opens a small form first.
  */
-export function CommitMenu({ variant }: { variant: "panel" | "bar" }) {
+export function CommitMenu({ variant, block = false }: { variant: "panel" | "bar"; block?: boolean }) {
   const { status, changes, busy } = useGit();
   const sync = useSync();
   const [mode, setMode] = useState<Mode>();
@@ -94,30 +94,39 @@ export function CommitMenu({ variant }: { variant: "panel" | "bar" }) {
   const bar = variant === "bar";
   const shape = bar
     ? "h-8 text-foreground hover:bg-muted"
-    : "h-8 bg-emerald-600 text-white hover:bg-emerald-500 dark:bg-emerald-500/90 dark:text-emerald-950 dark:hover:bg-emerald-400";
+    : "h-8 border-emerald-600 bg-emerald-600 text-white hover:border-emerald-500 hover:bg-emerald-500 dark:border-emerald-500/90 dark:bg-emerald-500/90 dark:text-emerald-950 dark:hover:border-emerald-400 dark:hover:bg-emerald-400";
 
   return (
     <Popover open={!!mode} onOpenChange={(open) => !open && setMode(undefined)}>
       <PopoverAnchor asChild>
-        <div className={cn("flex shrink-0 items-stretch overflow-hidden rounded-full")}>
+        <div className={cn("flex items-stretch overflow-hidden rounded-full", block ? "w-full" : "shrink-0")}>
           <Button
             variant="outline"
+            size="sm"
             disabled={nothing || !!busy}
             onClick={() => setMode(primary)}
-            className={cn("flex items-center gap-1.5 pr-2.5 pl-3.5 text-[13px] font-medium transition-colors disabled:opacity-50", shape, bar && "rounded-l-full border-r-0")}
+            className={cn(
+              "flex items-center gap-1.5 rounded-l-full rounded-r-none border-r-0 pr-2.5 pl-3.5 text-[13px] font-medium shadow-none transition-colors disabled:opacity-50",
+              shape,
+              block && "min-w-0 flex-1 justify-center",
+            )}
           >
-            {LABEL[primary]}
+            {block && <GitCommitHorizontalIcon className="size-4 shrink-0" />}
+            <span className="truncate">{nothing && block ? "Nothing to commit" : LABEL[primary]}</span>
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="outline"
+                size="sm"
                 aria-label="More git actions"
                 disabled={!!busy}
                 className={cn(
-                  "flex items-center border-l px-2 transition-colors disabled:opacity-50",
+                  "flex items-center rounded-l-none rounded-r-full px-2 shadow-none transition-colors disabled:opacity-50",
                   shape,
-                  bar ? "rounded-r-full" : "border-emerald-700/40 dark:border-emerald-950/30",
+                  bar
+                    ? "border-l-0"
+                    : "border-l border-emerald-700/50 dark:border-emerald-950/40",
                 )}
               >
                 <ChevronDownIcon className="size-3.5" />

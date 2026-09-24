@@ -3,6 +3,7 @@ pub mod bin_cache;
 pub mod chat;
 pub mod checkpoint;
 pub mod cli;
+pub mod code;
 pub mod codex;
 pub mod cursor;
 pub mod file_diff;

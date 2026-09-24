@@ -17,6 +17,8 @@ import type { ContextBudget } from "../models";
 export const CONTEXT_WARN_RATIO = 0.8;
 
 type Props = {
+  /** Ring only; the percentage is in the tooltip. For narrow composers. */
+  ringOnly?: boolean;
   usage: ContextUsage;
   budget: ContextBudget;
   /** Folders this chat can read; their files count toward the context. */
@@ -29,7 +31,7 @@ type Props = {
 const compact = new Intl.NumberFormat("en-US", { notation: "compact" });
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 4 });
 
-export function ContextMeter({ usage, budget, folders, onNewChat, onSummarize }: Props) {
+export function ContextMeter({ usage, budget, folders, onNewChat, onSummarize, ringOnly }: Props) {
   const used = Math.min(usage.usedTokens, budget.maxTokens);
   const ratio = used / budget.maxTokens;
   const tone =
@@ -47,10 +49,11 @@ export function ContextMeter({ usage, budget, folders, onNewChat, onSummarize }:
           type="button"
           variant="ghost"
           size="sm"
-          aria-label="Context usage"
+          aria-label={`Context usage ${Math.round(ratio * 100)}%`}
+          title={ringOnly ? `${Math.round(ratio * 100)}% of context used` : undefined}
           className={cn("gap-1 px-1.5 text-xs tabular-nums", tone)}
         >
-          {Math.round(ratio * 100)}%
+          {!ringOnly && `${Math.round(ratio * 100)}%`}
           <RingIcon ratio={ratio} />
         </Button>
       </ContextTrigger>

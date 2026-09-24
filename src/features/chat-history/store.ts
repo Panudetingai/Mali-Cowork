@@ -17,6 +17,8 @@ export type ChatSession = {
   projectId?: string;
   /** Plain conversation or agent work; older chats are inferred. */
   mode?: WorkMode;
+  /** Code mode: a Cowork chat shown beside an editor for its folder. */
+  view?: "code";
   /** Cowork: the folder the agent session was opened in. */
   cwd?: string;
   /** Cowork: other granted folders attached to this chat. */
@@ -40,7 +42,7 @@ export type ChatSession = {
   };
 };
 
-type NewChat = Pick<ChatSession, "mode" | "cwd" | "continuedFrom" | "projectId">;
+type NewChat = Pick<ChatSession, "mode" | "view" | "cwd" | "continuedFrom" | "projectId">;
 
 /** In-flight state for a chat; never persisted. */
 export type ChatRun = {

@@ -52,3 +52,13 @@ export function checkpointPreview(id: string, path: string) {
 export function openCheckpointFile(id: string, path: string, reveal = false) {
   return invoke<void>("checkpoint_open", { id, path, reveal });
 }
+
+/** Undo (`before`) or redo (`after`) a single file of a turn. */
+export function restoreCheckpointFile(id: string, path: string, to: "before" | "after", force = false) {
+  return invoke<RestoreResult>("checkpoint_restore_file", { id, path, to, force });
+}
+
+/** The file's text before the turn ("" if the turn created it); null when not available as text. */
+export function checkpointBeforeText(id: string, path: string) {
+  return invoke<string | null>("checkpoint_before_text", { id, path });
+}

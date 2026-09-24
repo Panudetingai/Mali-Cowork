@@ -259,6 +259,17 @@
   overflow-wrap: anywhere;
   white-space: break-spaces;
 }
+/* Inside a code block, code is not "inline code": no per-line boxes. */
+.chat-markdown pre [data-streamdown="inline-code"],
+.chat-markdown pre code {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-size: inherit;
+  font-weight: inherit;
+  white-space: pre;
+}
 /* Code inside a heading shouldn't balloon with it. */
 .chat-markdown [data-streamdown^="heading-"] [data-streamdown="inline-code"] {
   font-size: 0.78em;

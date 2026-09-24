@@ -93,7 +93,7 @@ export function ChatHistoryItem({ session, running }: { session: ChatSession; ru
   const handleDelete = () => {
     deleteChat(session.id);
     setConfirmDelete(false);
-    if (isActive) navigate(`/?mode=${sessionMode(session)}`, { replace: true });
+    if (isActive) navigate(`/?mode=${session.view ?? sessionMode(session)}`, { replace: true });
   };
 
   return (

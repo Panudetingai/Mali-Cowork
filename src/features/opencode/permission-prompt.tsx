@@ -100,7 +100,8 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
           exit={{ opacity: 0, y: stacked ? 24 : 8, scale: 0.98 }}
           transition={{ type: "spring", stiffness: 380, damping: 30, mass: 0.85 }}
           className={cn(
-            "w-full overflow-hidden border",
+            // Sized by its own width, not the window's: it also sits in Code mode's narrow chat pane.
+            "@container w-full min-w-0 overflow-hidden border",
             stacked ? "rounded-t-xl" : "rounded-t-xl",
             className,
           )}
@@ -117,7 +118,7 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
                 <CoworkBot state="permission" size={46} />
               </span>
               <div className="flex min-w-0 flex-1 items-baseline gap-1.5 text-sm">
-                <span className="shrink-0 font-medium text-foreground">{action}</span>
+                <span className="min-w-0 shrink-0 truncate font-medium text-foreground @max-sm:shrink">{action}</span>
                 {target && (
                   <code
                     title={target}
@@ -150,7 +151,7 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
               )}
             </AnimatePresence>
 
-            <div className="mt-2 flex items-center gap-1.5">
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {request.detail ? (
                 <Button
                   size="xs"
@@ -164,7 +165,7 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
               ) : folder ? (
                 <span className="truncate text-xs text-muted-foreground">Folder not allowed yet</span>
               ) : null}
-              <div className="ml-auto flex shrink-0 items-center gap-1.5">
+              <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5">
                 <Button
                   type="button"
                   size="sm"
@@ -175,7 +176,7 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
                   className="gap-1.5"
                 >
                   Deny
-                  <Kbd className="hidden bg-transparent sm:inline-flex">esc</Kbd>
+                  <Kbd className="hidden bg-transparent @md:inline-flex">esc</Kbd>
                 </Button>
                 {folder && onAllowFolder ? (
                   <Button
@@ -198,7 +199,7 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
                     className="gap-1.5"
                   >
                     Always
-                    <Kbd className="hidden sm:inline-flex">⇧⌘↵</Kbd>
+                    <Kbd className="hidden @md:inline-flex">⇧⌘↵</Kbd>
                   </Button>
                 )}
                 <Button
@@ -211,7 +212,7 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
                   autoFocus
                 >
                   Allow once
-                  <Kbd className="hidden bg-primary-foreground/20 text-primary-foreground sm:inline-flex">
+                  <Kbd className="hidden bg-primary-foreground/20 text-primary-foreground @md:inline-flex">
                     ⌘↵
                   </Kbd>
                 </Button>

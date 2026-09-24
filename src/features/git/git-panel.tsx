@@ -19,6 +19,8 @@ import {
     PanelRightCloseIcon,
     RefreshCwIcon,
 } from "lucide-react";
+import { DiffWrapContext } from "@/components/diff/code-diff";
+import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { gitApi } from "./api";
 import { BranchesView } from "./branches-view";
@@ -28,8 +30,12 @@ import { CommitsView } from "./commits-view";
 import { useGitRepo, type GitTab } from "./git-context";
 import type { ChangedFile, GitCommit, GitStatus } from "./types";
 
-/** The Git side panel, shown only for folders inside a repository. */
-export function GitPanel() {
+/**
+ * The Git side panel, shown only for folders inside a repository.
+ * `embedded` fills a column someone else lays out (Code mode's right pane),
+ * without its own width, border or window strip.
+ */
+export function GitPanel({ embedded = false }: { embedded?: boolean } = {}) {
   const git = useGitRepo();
   const [head, setHead] = useState<GitCommit>();
   const [copied, setCopied] = useState(false);
@@ -63,12 +69,17 @@ export function GitPanel() {
   return (
     <aside
       className={cn(
-        "relative z-10 flex h-full shrink-0 flex-col overflow-hidden border-l bg-background transition-[width] duration-200",
-        panel.wide ? "w-[clamp(320px,62%,1000px)]" : "w-[clamp(320px,44%,480px)]",
+        "relative z-10 flex h-full flex-col overflow-hidden bg-background",
+        embedded
+          ? "min-h-0 w-full flex-1"
+          : cn(
+              "shrink-0 border-l transition-[width] duration-200",
+              panel.wide ? "w-[clamp(320px,62%,1000px)]" : "w-[clamp(320px,44%,480px)]",
+            ),
       )}
     >
       {/* Top strip: the panel's tab and window controls. */}
-      <div className="flex h-11 shrink-0 items-center gap-1 border-b px-2">
+      <div className={cn("flex h-11 shrink-0 items-center gap-1 border-b px-2", embedded && "hidden")}>
         <span className="flex items-center gap-2 rounded-lg bg-muted px-2.5 py-1 text-sm">
           <GitBranchIcon className="size-4 text-emerald-500" />
           Git
@@ -89,6 +100,9 @@ export function GitPanel() {
         </div>
       </div>
 
+      {embedded ? (
+        <CompactHeader status={status} changes={changes} head={head} copied={copied} onCopy={() => void copyHash()} />
+      ) : (
       <header className="flex shrink-0 flex-col gap-3 border-b px-4 pt-3 pb-2">
         <div className="flex min-w-0 items-center gap-2.5">
           <StatePill status={status} changes={changes} />
@@ -130,20 +144,118 @@ export function GitPanel() {
           <SyncState status={status} />
         </nav>
       </header>
+      )}
 
       {/* One scroll area, so file headers stick to its top. */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {panel.tab === "changes" && <ChangesTab />}
-        {panel.tab === "commits" && <CommitsView />}
-        {panel.tab === "branches" && <BranchesView />}
-      </div>
+      <DiffWrapContext.Provider value={embedded}>
+        <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+          {panel.tab === "changes" && <ChangesTab />}
+          {panel.tab === "commits" && <CommitsView />}
+          {panel.tab === "branches" && <BranchesView />}
+        </div>
+      </DiffWrapContext.Provider>
     </aside>
   );
 }
 
 
+/**
+ * The header for a narrow column (Code mode): status and branch on one line,
+ * the last commit under it, a full-width commit button, then the tabs as a
+ * segmented control.
+ */
+function CompactHeader({
+  status,
+  changes,
+  head,
+  copied,
+  onCopy,
+}: {
+  status: GitStatus;
+  changes: ChangedFile[];
+  head?: GitCommit;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  const git = useGitRepo();
+  if (!git) return null;
+  const { panel, setTab } = git;
+  const branch = status.branch;
+  const tabs: { tab: GitTab; label: string; count?: number }[] = [
+    { tab: "changes", label: "Changes", count: changes.length },
+    { tab: "commits", label: "Commits" },
+    { tab: "branches", label: "Branches" },
+  ];
+  return (
+    <header className="flex shrink-0 flex-col gap-3 border-b px-3 pt-3 pb-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <StatePill status={status} changes={changes} small />
+        <span
+          className="flex min-w-0 items-center gap-1 rounded-md bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] text-foreground/80"
+          title={branch.upstream ? `${branch.head} → ${branch.upstream}` : branch.head}
+        >
+          <GitBranchIcon className="size-3 shrink-0 text-emerald-500" />
+          <span className="truncate">{branch.head ?? `detached ${branch.commit ?? ""}`}</span>
+        </span>
+        <SyncState status={status} />
+        <div className={cn("flex shrink-0 items-center", !(branch.upstream && (branch.ahead || branch.behind)) && "ml-auto")}>
+          <MoreMenu />
+        </div>
+      </div>
+
+      {head && (
+        <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="shrink-0">Last commit</span>
+          <span className="min-w-0 truncate text-foreground/85" title={head.subject}>
+            {head.subject}
+          </span>
+          <button
+            type="button"
+            onClick={onCopy}
+            title="Copy commit id"
+            className="flex shrink-0 items-center gap-1 rounded px-1 font-mono text-[11px] hover:bg-muted hover:text-foreground"
+          >
+            {head.short}
+            {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
+          </button>
+        </div>
+      )}
+
+      <CommitMenu variant="panel" block />
+
+      <nav className="relative grid grid-cols-3 rounded-lg bg-muted/60 p-0.5" aria-label="Git views">
+        {tabs.map(({ tab, label, count }) => {
+          const active = panel.tab === tab;
+          return (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setTab(tab)}
+              aria-pressed={active}
+              className={cn(
+                "relative flex h-7 items-center justify-center gap-1.5 rounded-md text-xs transition-colors",
+                active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {active && (
+                <motion.span
+                  layoutId="git-compact-tab"
+                  className="absolute inset-0 rounded-md bg-background shadow-sm ring-1 ring-border/60"
+                  transition={{ type: "spring", stiffness: 500, damping: 38 }}
+                />
+              )}
+              <span className="relative">{label}</span>
+              {!!count && <span className="relative tabular-nums text-muted-foreground">{count}</span>}
+            </button>
+          );
+        })}
+      </nav>
+    </header>
+  );
+}
+
 /** Like a PR's Open/Merged badge: where the working folder stands. */
-function StatePill({ status, changes }: { status: GitStatus; changes: ChangedFile[] }) {
+function StatePill({ status, changes, small }: { status: GitStatus; changes: ChangedFile[]; small?: boolean }) {
   const { branch } = status;
   const [label, tone] = changes.some((c) => c.kind === "conflicted")
     ? ["Conflicts", "red"]
@@ -166,7 +278,17 @@ function StatePill({ status, changes }: { status: GitStatus; changes: ChangedFil
     green: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
     muted: "bg-muted text-muted-foreground",
   };
-  return <span className={cn("shrink-0 rounded-full px-3 py-1 text-[13px] font-medium", tones[tone])}>{label}</span>;
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded-full font-medium",
+        small ? "px-2 py-0.5 text-[11px]" : "px-3 py-1 text-[13px]",
+        tones[tone],
+      )}
+    >
+      {label}
+    </span>
+  );
 }
 
 /** ↑2 ↓1 against the upstream, at the end of the tab row. */

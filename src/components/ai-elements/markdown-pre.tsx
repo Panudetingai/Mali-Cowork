@@ -30,6 +30,32 @@ function languageOf(codeEl: ReactElement<{ className?: string }>): string {
 }
 
 /**
+ * Models often leave the language off a fence. Plain text then renders with
+ * no colors, so make a cheap guess from the code itself.
+ */
+export function guessLanguage(code: string): string {
+  const text = code.trim();
+  if (!text) return "text";
+  if (/^[[{]/.test(text)) {
+    try {
+      JSON.parse(text);
+      return "json";
+    } catch {
+      // Not JSON; keep looking.
+    }
+  }
+  if (/^(\$ |npm |npx |bun |pnpm |yarn |cargo |git |cd |brew |pip |curl )/m.test(text)) return "bash";
+  if (/^\s*(fn |use |impl |pub (fn|struct|enum)|let mut )/m.test(text)) return "rust";
+  if (/^\s*(def |class \w+(\(.*\))?:|from \w+ import |import \w+$)/m.test(text)) return "python";
+  if (/^\s*(package \w+|func \w+\()/m.test(text)) return "go";
+  if (/<\/?[A-Za-z][\w.]*[\s/>]/.test(text) && /(import |export |return|const |=>|className=)/.test(text)) return "tsx";
+  if (/^\s*<(!doctype|html|div|body|head)/i.test(text)) return "html";
+  if (/(^|\n)\s*(import |export |const |let |function |interface |type \w+ =)/.test(text)) return "typescript";
+  if (/^[.#@]?[\w-]+[^{]*\{[^}]*:[^}]*;/m.test(text)) return "css";
+  return "text";
+}
+
+/**
  * Renders fenced code blocks with the app's own clean chrome: a slim header
  * with the language name, a copy button, scrollable body and line numbers on
  * long snippets.
@@ -46,10 +72,11 @@ type MarkdownPreProps = {
 
 export function MarkdownPre({ children, className }: MarkdownPreProps) {
   const items = Children.toArray(children);
-  const codeEl =
-    items.length === 1 && isValidElement<{ className?: string; children?: ReactNode }>(items[0]) && items[0].type === "code"
-      ? (items[0] as ReactElement<{ className?: string; children?: ReactNode }>)
-      : null;
+  type CodeProps = { className?: string; children?: ReactNode; node?: { tagName?: string } };
+  // Streamdown hands over its own `code` component, not a bare `<code>`;
+  // either way the single child is the fenced code.
+  const only = items.length === 1 && isValidElement<CodeProps>(items[0]) ? (items[0] as ReactElement<CodeProps>) : null;
+  const codeEl = only && (only.type === "code" || only.props.node?.tagName === "code") ? only : null;
 
   if (!codeEl) {
     return (
@@ -64,8 +91,9 @@ export function MarkdownPre({ children, className }: MarkdownPreProps) {
     );
   }
 
-  const language = languageOf(codeEl);
   const code = codeText(codeEl.props.children).replace(/\n$/, "");
+  const tagged = languageOf(codeEl);
+  const language = tagged === "text" ? guessLanguage(code) : tagged;
   const lines = code.split("\n").length;
 
   // Fenced markdown / plain text: avoid heavy chrome so nested blocks stay readable.

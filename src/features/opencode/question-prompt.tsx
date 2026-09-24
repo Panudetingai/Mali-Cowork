@@ -147,7 +147,7 @@ export function QuestionPrompt({ requests, onAnswer, stacked, className }: Props
           <ScrollMore show={fade.more} />
         </div>
 
-        <div className={cn("flex items-center gap-2 px-3 pt-2", stacked ? "pb-3.5" : "pb-2.5")}>
+        <div className={cn("flex flex-wrap items-center gap-2 px-3 pt-2", stacked ? "pb-3.5" : "pb-2.5")}>
           <Button
             size="sm"
             variant="ghost"
@@ -158,7 +158,7 @@ export function QuestionPrompt({ requests, onAnswer, stacked, className }: Props
           >
             Skip
           </Button>
-          <div className="ml-auto flex shrink-0 items-center gap-2">
+          <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
             {!ready && questions.length > 1 && (
               <span className="text-[11px] text-muted-foreground tabular-nums">
                 {questions.length - answered} left

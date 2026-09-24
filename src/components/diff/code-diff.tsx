@@ -1,6 +1,6 @@
 import { highlightCode } from "@/components/ai-elements/code-block";
 import { cn } from "@/lib/utils";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { bundledLanguages, type BundledLanguage, type ThemedToken } from "shiki";
 import type { DiffLine, FileDiff } from "./types";
 
@@ -36,6 +36,12 @@ export function languageFor(path: string): BundledLanguage | "text" {
   return lang in bundledLanguages ? (lang as BundledLanguage) : "text";
 }
 
+/**
+ * Wrap long lines instead of scrolling sideways. Set by narrow hosts (the
+ * Git tab in Code mode), where a horizontal scroll hides the line starts.
+ */
+export const DiffWrapContext = createContext(false);
+
 type Row = { kind: "hunk"; header: string } | { kind: "line"; line: DiffLine; index: number };
 
 /** Highlighted tokens per line, once the highlighter has loaded. */
@@ -59,6 +65,7 @@ function useTokens(code: string, language: BundledLanguage | "text") {
  * green and removed lines red, with a bar down their left edge.
  */
 export function CodeDiff({ diff, path }: { diff: FileDiff; path: string }) {
+  const wrap = useContext(DiffWrapContext);
   const [showAll, setShowAll] = useState(false);
   const lines = useMemo(() => diff.hunks.flatMap((h) => h.lines), [diff]);
   const code = useMemo(() => lines.map((l) => l.text).join("\n"), [lines]);
@@ -90,8 +97,8 @@ export function CodeDiff({ diff, path }: { diff: FileDiff; path: string }) {
 
   const visible = showAll ? rows : rows.slice(0, INITIAL_LINES);
   return (
-    <div className="overflow-x-auto font-mono text-[12.5px] leading-[1.65]">
-      <div className="w-max min-w-full">
+    <div className={cn("font-mono text-[12.5px] leading-[1.65]", wrap ? "overflow-x-hidden text-[12px]" : "overflow-x-auto")}>
+      <div className={wrap ? "min-w-0" : "w-max min-w-full"}>
         {visible.map((row, i) =>
           row.kind === "hunk" ? (
             <div
@@ -102,7 +109,7 @@ export function CodeDiff({ diff, path }: { diff: FileDiff; path: string }) {
               <span>{row.header}</span>
             </div>
           ) : (
-            <LineRow key={`l${i}`} line={row.line} tokens={tokens?.[row.index]} />
+            <LineRow key={`l${i}`} line={row.line} tokens={tokens?.[row.index]} wrap={wrap} />
           ),
         )}
         {!showAll && rows.length > INITIAL_LINES && (
@@ -119,7 +126,7 @@ export function CodeDiff({ diff, path }: { diff: FileDiff; path: string }) {
   );
 }
 
-function LineRow({ line, tokens }: { line: DiffLine; tokens?: ThemedToken[] }) {
+function LineRow({ line, tokens, wrap }: { line: DiffLine; tokens?: ThemedToken[]; wrap?: boolean }) {
   const number = line.tag === "del" ? line.oldLine : line.newLine;
   return (
     <div
@@ -132,7 +139,8 @@ function LineRow({ line, tokens }: { line: DiffLine; tokens?: ThemedToken[] }) {
     >
       <span
         className={cn(
-          "w-12 shrink-0 select-none pr-3 text-right tabular-nums",
+          "shrink-0 select-none pr-3 text-right tabular-nums",
+          wrap ? "w-10" : "w-12",
           line.tag === "add"
             ? "text-emerald-700/70 dark:text-emerald-400/70"
             : line.tag === "del"
@@ -142,7 +150,7 @@ function LineRow({ line, tokens }: { line: DiffLine; tokens?: ThemedToken[] }) {
       >
         {number}
       </span>
-      <span className="flex-1 whitespace-pre pr-6">
+      <span className={cn("flex-1", wrap ? "min-w-0 pr-3 break-all whitespace-pre-wrap" : "whitespace-pre pr-6")}>
         {tokens && tokens.length > 0
           ? tokens.map((token, i) => (
               <span

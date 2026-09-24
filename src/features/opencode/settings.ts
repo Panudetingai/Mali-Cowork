@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { OpencodeSettings } from "./types";
 
 const KEYS = {
@@ -26,4 +27,19 @@ export function saveOpencodeSettings(patch: Partial<OpencodeSettings>) {
   } catch {
     // Storage can be unavailable; settings then last for this session only.
   }
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(SETTINGS_EVENT));
+}
+
+/** Fired after the settings change, e.g. the Cowork folder picked in the composer. */
+export const SETTINGS_EVENT = "opencode-settings";
+
+/** The default Cowork folder, kept current. */
+export function useDefaultCwd() {
+  const [cwd, setCwd] = useState(() => loadOpencodeSettings().cwd);
+  useEffect(() => {
+    const sync = () => setCwd(loadOpencodeSettings().cwd);
+    window.addEventListener(SETTINGS_EVENT, sync);
+    return () => window.removeEventListener(SETTINGS_EVENT, sync);
+  }, []);
+  return cwd;
 }

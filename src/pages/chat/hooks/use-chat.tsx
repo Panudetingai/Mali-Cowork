@@ -149,6 +149,8 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
   const scrollToBottom = useCallback(() => {
     followRef.current = true;
     updateAtBottom(true);
+    const el = containerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
     glide();
   }, [glide, updateAtBottom]);
 
@@ -160,17 +162,20 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
     let lastTop = el.scrollTop;
     const onScroll = () => {
       const distance = distanceToBottom(el);
+      const scrollingUp = el.scrollTop < lastTop - 1;
+      const scrollingDown = el.scrollTop > lastTop + 1;
+
+      if (scrollingUp) stopFollowing();
+
       if (distance < STICK_DISTANCE) {
-        if (!followRef.current) {
+        // Re-attach only when the user scrolls back down to the bottom, not while leaving it.
+        if (!followRef.current && scrollingDown) {
           followRef.current = true;
           glide();
         }
-        updateAtBottom(true);
-      } else {
-        // Our glide only moves down, and content shrinking at the bottom stays
-        // near it; moving up away from the bottom is the user (e.g. the scrollbar).
-        if (el.scrollTop < lastTop - 1) stopFollowing();
-        if (!followRef.current) updateAtBottom(false);
+        updateAtBottom(!scrollingUp && followRef.current);
+      } else if (!followRef.current) {
+        updateAtBottom(false);
       }
       lastTop = el.scrollTop;
     };
@@ -214,7 +219,7 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = 0;
     };
-  }, [glide, stopFollowing, updateAtBottom]);
+  }, [glide, stopFollowing, updateAtBottom, messages?.length]);
 
   // While a reply streams, keep gliding with it (markdown and steps grow in bursts).
   useEffect(() => {
@@ -280,7 +285,12 @@ const NO_MESSAGES: ChatMessage[] = [];
 const NO_PERMISSIONS: PermissionRequest[] = [];
 
 /** A chat backed by the history store, so replies keep streaming while you browse other chats. */
-export function useChat(chatId: string | undefined, newChatMode: WorkMode, newChatProjectId?: string) {
+export function useChat(
+  chatId: string | undefined,
+  newChatMode: WorkMode,
+  newChatProjectId?: string,
+  newChatView?: ChatSession["view"],
+) {
   const navigate = useNavigate();
   const sessions = useChatSessions();
   const runs = useChatRuns();
@@ -343,8 +353,15 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
       }
 
       if (!chat) {
-        chat = createChat(prompt, { mode: chatMode, cwd: folders[0], continuedFrom, projectId: project?.id });
-        navigate(`/chat/${chat.id}`);
+        chat = createChat(prompt, {
+          mode: chatMode,
+          view: previous ? previous.view : newChatView,
+          cwd: folders[0],
+          continuedFrom,
+          projectId: project?.id,
+        });
+        const modeQuery = chatMode === "cowork" ? "cowork" : "chat";
+        navigate(`/chat/${chat.id}?mode=${modeQuery}${project?.id ? `&project=${project.id}` : ""}`);
       } else if (chatMode === "cowork" && !chat.cwd) {
         updateChat(chat.id, (s) => ({ ...s, cwd: folders[0] }));
       }
@@ -553,7 +570,7 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
       }
       return true;
     },
-    [chatId, newChatMode, newChatProjectId, navigate],
+    [chatId, newChatMode, newChatProjectId, newChatView, navigate],
   );
 
   /** Resolves false when the message was not sent (e.g. folder access declined). */
@@ -576,6 +593,23 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
         },
       }),
     [executeSend],
+  );
+
+  /**
+   * Send a prompt the app wrote (Code mode: "fix these build errors") on the
+   * model picked for this mode, or the one the chat last used.
+   */
+  const sendText = useCallback(
+    async (prompt: string, context = ""): Promise<boolean> => {
+      if (chatId && getRun(chatId)) return false;
+      const chat = chatId ? getChat(chatId) : undefined;
+      const chatMode = chat ? sessionMode(chat) : newChatMode;
+      const last = [...(chat?.messages ?? [])].reverse().find((m) => m.role === "user" && m.resend)?.resend;
+      const resend = resendSettingsFor(loadSelectedModelId(chatMode), getOpencodeModels(), chatMode) ?? last;
+      if (!resend) return false;
+      return executeSend({ prompt, context, resend: { ...resend, skills: undefined, connectors: undefined } });
+    },
+    [chatId, newChatMode, executeSend],
   );
 
   /**
@@ -622,6 +656,7 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
       if (!chat || chat.messages.length === 0) return;
       const next = createChat(chat.title, {
         mode: sessionMode(chat),
+        view: chat.view,
         cwd: chat.cwd,
         projectId: chat.projectId,
         continuedFrom: { id: chat.id, title: chat.title, summarizing: true },
@@ -821,6 +856,7 @@ export function useChat(chatId: string | undefined, newChatMode: WorkMode, newCh
     scrollToBottom,
     promptInputRef,
     sendMessage,
+    sendText,
     retryMessage,
     rateMessage,
     summarizeAndContinue,

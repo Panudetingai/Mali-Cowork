@@ -128,7 +128,7 @@ export function ModelPicker({ models, selected, loading, onSelect }: Props) {
           type="button"
           variant="ghost"
           size="sm"
-          className="max-w-56 min-w-0 gap-1.5 text-muted-foreground hover:text-foreground"
+          className="max-w-56 min-w-0 shrink gap-1.5 text-muted-foreground hover:text-foreground"
           aria-label="Select AI model"
         >
           {modelIsConnected(selected) && <ConnectedDot />}

@@ -8,6 +8,9 @@ import { MessageSquareIcon, SparklesIcon } from "lucide-react";
 
 export type { WorkMode };
 
+/** What the page shows: a work mode, or Code (a Cowork chat beside an editor). */
+export type ViewMode = WorkMode | "code";
+
 const MODES: { value: WorkMode; label: string; hint: string; icon: typeof MessageSquareIcon }[] = [
   {
     value: "chat",
@@ -27,15 +30,16 @@ const MODES: { value: WorkMode; label: string; hint: string; icon: typeof Messag
 
 const LAST_MODE_KEY = "chat_work_mode";
 
-export function loadWorkMode(): WorkMode {
+export function loadViewMode(): ViewMode {
   try {
-    return localStorage.getItem(LAST_MODE_KEY) === "cowork" ? "cowork" : "chat";
+    const saved = localStorage.getItem(LAST_MODE_KEY);
+    return saved === "cowork" || saved === "code" ? saved : "chat";
   } catch {
     return "chat";
   }
 }
 
-export function saveWorkMode(mode: WorkMode) {
+export function saveWorkMode(mode: ViewMode) {
   try {
     localStorage.setItem(LAST_MODE_KEY, mode);
   } catch {

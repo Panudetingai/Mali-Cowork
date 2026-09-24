@@ -14,7 +14,15 @@ import { Input } from "@/components/ui/input";
 import { sessionMode, useChatRuns, useChatSessions, type ChatSession } from "@/features/chat-history";
 import { useProjects, type Project } from "@/features/projects";
 import type { LucideIcon } from "lucide-react";
-import { FolderKanbanIcon, ImagesIcon, SearchIcon, Settings2Icon, SparklesIcon, SquarePenIcon } from "lucide-react";
+import {
+  CodeXmlIcon,
+  FolderKanbanIcon,
+  ImagesIcon,
+  SearchIcon,
+  Settings2Icon,
+  SparklesIcon,
+  SquarePenIcon,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { NavLink, useLocation, useMatch } from "react-router-dom";
 import { ChatHistoryItem } from "./chat-history-item";
@@ -118,7 +126,7 @@ export function AppSidebar() {
     return [...projects].sort((a, b) => (lastUsed.get(b.id) ?? 0) - (lastUsed.get(a.id) ?? 0));
   }, [projects, sessions]);
 
-  const { pinned, chats, cowork } = useMemo(() => {
+  const { pinned, chats, cowork, code } = useMemo(() => {
     const q = query.trim().toLowerCase();
     const sorted = sessions
       .filter((s) => matches(s, q))
@@ -127,11 +135,12 @@ export function AppSidebar() {
     return {
       pinned: sorted.filter((s) => s.pinned),
       chats: unpinned.filter((s) => sessionMode(s) === "chat"),
-      cowork: unpinned.filter((s) => sessionMode(s) === "cowork"),
+      cowork: unpinned.filter((s) => sessionMode(s) === "cowork" && s.view !== "code"),
+      code: unpinned.filter((s) => s.view === "code"),
     };
   }, [sessions, query]);
 
-  const nothingFound = sessions.length > 0 && pinned.length + chats.length + cowork.length === 0;
+  const nothingFound = sessions.length > 0 && pinned.length + chats.length + cowork.length + code.length === 0;
 
   return (
     <Sidebar
@@ -142,6 +151,7 @@ export function AppSidebar() {
         <SidebarMenu className="gap-0.5">
           <NavItem title="New chat" url="/?mode=chat" icon={SquarePenIcon} />
           <NavItem title="Cowork" url="/?mode=cowork" icon={SparklesIcon} />
+          <NavItem title="Code" url="/?mode=code" icon={CodeXmlIcon} />
           <NavItem title="Visual" url="/visual" icon={ImagesIcon} />
           <NavItem title="Projects" url="/projects" icon={FolderKanbanIcon} />
           <NavItem title="Settings" url="/settings" icon={Settings2Icon} />
@@ -164,6 +174,7 @@ export function AppSidebar() {
         <HistoryGroup label="Pinned" sessions={pinned} />
         <HistoryGroup label="Chats" sessions={chats} />
         <HistoryGroup label="Cowork" sessions={cowork} />
+        <HistoryGroup label="Code" sessions={code} />
 
         {sessions.length === 0 && (
           <p className="px-4 py-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">

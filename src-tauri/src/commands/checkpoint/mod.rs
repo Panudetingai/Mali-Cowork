@@ -263,6 +263,43 @@ pub async fn checkpoint_restore(id: String, to: String, force: bool) -> Result<R
     .await
 }
 
+/// Undo (`before`) or redo (`after`) one file of a turn, leaving the rest.
+/// Same rules as [`checkpoint_restore`]: a file changed since is a conflict
+/// and stays unless `force`.
+#[tauri::command]
+pub async fn checkpoint_restore_file(id: String, path: String, to: String, force: bool) -> Result<RestoreResult, String> {
+    let undo = match to.as_str() {
+        "before" => true,
+        "after" => false,
+        other => return Err(format!("Unknown restore target: {other}")),
+    };
+    blocking(move || {
+        let _lock = STORE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let record = load_record(&id)?;
+        let change = find(&record, &path)?.clone();
+        let single = Record {
+            roots: record.roots.clone(),
+            created_at: record.created_at,
+            partial: record.partial,
+            changes: vec![change],
+        };
+        Ok(restore(&single, undo, force))
+    })
+    .await
+}
+
+/// A file's text from before the turn, for an inline diff: empty when the
+/// turn created it, `None` when it wasn't saved or isn't text.
+#[tauri::command]
+pub async fn checkpoint_before_text(id: String, path: String) -> Result<Option<String>, String> {
+    blocking(move || {
+        let record = load_record(&id)?;
+        let change = find(&record, &path)?;
+        Ok(text_of(change.before.as_ref()).map(Option::unwrap_or_default))
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn checkpoint_diff(id: String, path: String) -> Result<FileDiff, String> {
     blocking(move || {

@@ -559,3 +559,19 @@ OpenAI · Anthropic · Google · xAI · DeepSeek · Mistral · Alibaba (Qwen) ·
 - [x] **บริการที่จำกัด OAuth เฉพาะแอปที่อนุมัติ** (เช่น Figma: remote server รับเฉพาะ client ใน Figma MCP Catalog → หน้า login ขึ้น `OAuth app with client id … doesn't exist`): แอปรู้ล่วงหน้าจาก `features/mcp/oauth-limits.ts`, ปิดตัวเลือก remote พร้อมเหตุผล และเสนอ **Figma desktop app (local)** `http://127.0.0.1:3845/mcp` แทน (ไม่ต้อง OAuth; เปิดใน Figma desktop → Dev Mode → Enable desktop MCP server); connector Figma เดิมกด "Can’t sign in" → ปุ่มสลับไป desktop server ได้ และล้าง token เก่าให้
 - [x] Sign in: กด **Cancel** ได้ระหว่างรอเบราว์เซอร์ และ **Start over** (ลบ client registration เก่าของ OpenCode แล้ว login ใหม่) เมื่อหน้า login ขึ้น error
 
+
+---
+
+## Code mode — แชท + แก้โค้ดในหน้าเดียว
+
+เปิดจากแถบซ้าย → **Code** หรือแท็บ **Code** ด้านบน (ใช้ agent ตัวเดียวกับ Cowork)
+
+- **Explorer + Editor (CodeMirror)**: เปิดหลายแท็บ, syntax highlight, `⌘S` บันทึก
+- **Real-time**: agent แก้ไฟล์ไหน ไฟล์นั้นขึ้นจุดเขียวใน tree และบรรทัดที่เปลี่ยนจะกระพริบในตัวแก้ไข
+- **Follow agent**: เปิดไฟล์ที่ agent กำลังแก้ให้อัตโนมัติ
+- **Run / Check**: ตรวจหาคำสั่ง build / type check / test ของโปรเจกต์ให้เอง (npm/bun/pnpm, cargo, go, python, make) หรือเพิ่มคำสั่งเองได้
+- **Problems**: ดึง error จาก output (tsc, rustc, go, eslint, python) — คลิกแล้วกระโดดไปที่บรรทัด, แสดงเส้นใต้สีแดงในตัวแก้ไข
+- **Fix with AI**: ส่ง error ให้ agent แก้ในคลิกเดียว
+- **Auto-check / Auto-fix** (ปิดไว้เป็นค่าเริ่มต้น): หลัง agent แก้ไฟล์ รันเช็คให้อัตโนมัติ ถ้าไม่ผ่านก็ส่ง error กลับไปให้แก้ (สูงสุด 3 รอบ) — จะไม่รันเองถ้า agent แก้ไฟล์ config ของ build (เช่น `package.json`) เพื่อไม่ให้ข้ามการขออนุญาตรันคำสั่ง
+- **Ask about lines**: เลือกโค้ด → แนบไปกับข้อความถัดไป
+- **ป้องกันการเขียนทับ**: ถ้า agent แก้ไฟล์ที่เรากำลังแก้ค้างไว้ จะให้เลือกว่าจะใช้เวอร์ชันไหน; ก่อนส่งข้อความแอปบันทึกไฟล์ที่แก้ไว้ให้ก่อน เพื่อให้ agent เห็นโค้ดล่าสุด

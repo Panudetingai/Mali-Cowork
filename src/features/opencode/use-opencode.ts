@@ -7,7 +7,7 @@ import {
 } from "./api";
 import { hasEnabledMcp, syncMcpServers } from "@/features/mcp";
 import { syncCliProviders } from "@/features/providers";
-import { loadOpencodeSettings, saveOpencodeSettings } from "./settings";
+import { loadOpencodeSettings, saveOpencodeSettings, SETTINGS_EVENT } from "./settings";
 import type {
   OpencodeCheckResult,
   OpencodeModelsResult,
@@ -78,6 +78,13 @@ export function useOpencode(): OpencodeState {
 
   useEffect(() => {
     void refreshOpencode(false).then(() => setSettings(loadOpencodeSettings()));
+  }, []);
+
+  // Stay in step when the settings change elsewhere (e.g. Code mode picks a folder).
+  useEffect(() => {
+    const sync = () => setSettings(loadOpencodeSettings());
+    window.addEventListener(SETTINGS_EVENT, sync);
+    return () => window.removeEventListener(SETTINGS_EVENT, sync);
   }, []);
 
   const update = useCallback((patch: Partial<OpencodeSettings>) => {

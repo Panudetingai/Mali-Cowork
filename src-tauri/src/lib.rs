@@ -12,9 +12,10 @@ use commands::chat::{chat_generate, ollama_list_models, provider_check_key, prov
 use commands::media::media_generate;
 use commands::checkpoint::{
     checkpoint_add_folder, checkpoint_begin, checkpoint_diff, checkpoint_finish, checkpoint_open,
-    checkpoint_preview, checkpoint_restore,
+    checkpoint_before_text, checkpoint_preview, checkpoint_restore, checkpoint_restore_file,
 };
 use commands::cli::{check_cli, cli_generate};
+use commands::code::{code_detect, code_kill, code_read, code_run, code_scan, code_write};
 use commands::codex::{codex_abort, codex_check, codex_generate, codex_list_models};
 use commands::cursor::{
     cursor_abort, cursor_check, cursor_generate, cursor_list_models, cursor_login,
@@ -156,10 +157,18 @@ pub fn run() {
             checkpoint_finish,
             checkpoint_restore,
             checkpoint_diff,
+            checkpoint_restore_file,
+            checkpoint_before_text,
             checkpoint_preview,
             checkpoint_open,
             cli_generate,
             check_cli,
+            code_scan,
+            code_read,
+            code_write,
+            code_detect,
+            code_run,
+            code_kill,
             opencode_generate,
             opencode_check,
             opencode_list_models,

@@ -28,6 +28,8 @@
 | 05 | [Local Port / Socket](./05-local-port-socket-integration.md) | รัน Local Agent Server (TCP / Unix Socket / WebSocket / HTTP) |
 | 06 | [Frontend Integration](./06-frontend-integration.md) | React เรียก Rust ผ่าน Tauri IPC + Streaming Channel |
 | — | [Features](./FEATURES.md) | สรุป features ปัจจุบัน + แนวทาง feature ถัดไป |
+| — | [PRD Growth v0.2](./PRD-growth-v0.2.md) | PRD: Usage dashboard, Scheduled Cowork, Playbooks, Memory UI |
+| — | [PRD Delight v0.3](./PRD-delight-v0.3.md) | PRD: ⌘K, Mali Anywhere (global hotkey), Task Inbox, Work Receipt, Agent Arena, Thai-first |
 
 ## เริ่มตรงไหนดี?
 

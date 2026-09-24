@@ -191,7 +191,14 @@ function FileSection({
         >
           <ChevronRightIcon className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
           <FileKindIcon path={file.path} />
-          <span className="min-w-0 truncate text-[13px]">{file.path}</span>
+          <span className="flex min-w-0 items-baseline gap-1.5 text-[13px]">
+            <span className="shrink-0 font-medium">{file.path.split("/").pop()}</span>
+            {file.path.includes("/") && (
+              <span className="min-w-0 truncate text-xs text-muted-foreground [direction:rtl] text-left">
+                {file.path.split("/").slice(0, -1).join("/")}
+              </span>
+            )}
+          </span>
           <DiffStat additions={file.additions} deletions={file.deletions} className="text-[12px]" />
         </button>
         {label && <span className={cn("shrink-0 text-xs", label.className)}>{label.text}</span>}

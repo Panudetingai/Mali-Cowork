@@ -70,10 +70,11 @@ export function ChatMessagePanel({
           )}
         </div>
       )}
-      <div className="relative flex min-h-0 flex-1 flex-col">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         <div
           ref={containerRef}
-          className="flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain scroll-hidden"
+          tabIndex={0}
+          className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain scroll-hidden outline-none"
         >
           {/* Measured by useScroll to follow the reply as it grows. */}
           <div className="flex flex-col gap-4">
@@ -83,7 +84,7 @@ export function ChatMessagePanel({
         </div>
 
         {/* Centered by the wrapper: motion owns the button's transform. */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center">
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center">
           <AnimatePresence>
             {!atBottom && messages.length > 0 && onScrollToBottom && (
               <motion.button

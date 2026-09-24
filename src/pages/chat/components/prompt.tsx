@@ -92,6 +92,8 @@ type Props = {
   onSummarize?: (model: AiModel, budget: ContextBudget) => void;
   onModeChange: (mode: WorkMode) => void;
   onSubmit: (payload: SendMessage) => Promise<boolean>;
+  /** Narrow column (Code mode): one toolbar row, folder shown elsewhere. */
+  compact?: boolean;
 };
 
 const NO_FOLDERS: string[] = [];
@@ -115,6 +117,7 @@ export default function PromptInput({
   onSummarize,
   onModeChange,
   onSubmit,
+  compact = false,
 }: Props) {
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -665,8 +668,8 @@ export default function PromptInput({
         </p>
       )}
 
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <div className="flex min-w-0 items-center gap-2">
+      <div className={cn("mt-2 flex items-center gap-2", compact ? "flex-nowrap" : "flex-wrap")}>
+        <div className={cn("flex items-center gap-2", compact ? "shrink-0" : "min-w-0")}>
           <PromptOptionsMenu
             opencode={usesOpencode ? opencode : undefined}
             mode={mode}
@@ -679,7 +682,7 @@ export default function PromptInput({
             pickedConnectors={pickedConnectors}
             onToggleConnector={toggleConnector}
           />
-          {isCowork ? (
+          {compact ? null : isCowork ? (
             <FolderChip
               opencode={opencode}
               cwd={cwd}
@@ -694,6 +697,7 @@ export default function PromptInput({
         <div className="ml-auto flex min-w-0 items-center gap-1">
           {(messages.length > 0 || isLoading) && (
             <ContextMeter
+              ringOnly={compact}
               usage={usage}
               budget={budget}
               folders={folders}

@@ -5,6 +5,7 @@ import type { ChatMessage } from "@/pages/chat/types";
 import { memo } from "react";
 import { useParams } from "react-router-dom";
 import { AssistantMessage } from "./assistant-message";
+import { TurnFilesLine, useCodeChat } from "./code-chat-context";
 import { ErrorMessage } from "./error-message";
 import { UserMessage } from "./user-message";
 
@@ -19,12 +20,17 @@ type Props = {
 
 export const ChatMessageItem = memo(function ChatMessageItem({ message, streaming, onRetry, onRate }: Props) {
   const { chatId } = useParams<{ chatId: string }>();
+  const code = useCodeChat();
   const reply = <Reply message={message} streaming={streaming} onRetry={onRetry} onRate={onRate} />;
   if (!message.turn || !chatId) return reply;
   return (
     <>
       {reply}
-      <FilesChanged chatId={chatId} messageId={message.id} turn={message.turn} />
+      {code ? (
+        <TurnFilesLine turn={message.turn} onOpen={code.openFile} />
+      ) : (
+        <FilesChanged chatId={chatId} messageId={message.id} turn={message.turn} />
+      )}
     </>
   );
 });
