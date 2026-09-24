@@ -15,6 +15,7 @@ import {
   type ProjectDraft,
 } from "@/features/projects";
 import { folderName } from "@/features/workspace";
+import { OutputsList } from "@/features/work-receipt";
 import { SkillsManager } from "@/pages/settings/skills/skills-manager";
 import { GroupLabel, SettingsSection } from "@/pages/settings/ui";
 import {
@@ -198,6 +199,18 @@ export default function ProjectPage() {
               onSave={(skill) => saveProjectSkill(project.id, skill)}
               onToggle={(id, enabled) => toggleProjectSkill(project.id, id, enabled)}
               onDelete={(id) => deleteProjectSkill(project.id, id)}
+            />
+          </SettingsSection>
+
+          <SettingsSection className="min-h-[16rem]">
+            <GroupLabel>Outputs</GroupLabel>
+            <OutputsList
+              query={{ projectId: project.id }}
+              empty={
+                <p className="rounded-2xl border border-dashed border-border/80 bg-muted/15 p-6 text-center text-sm text-muted-foreground">
+                  No files created by Cowork in this project yet.
+                </p>
+              }
             />
           </SettingsSection>
         </div>

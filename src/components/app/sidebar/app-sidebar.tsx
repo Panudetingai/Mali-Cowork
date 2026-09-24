@@ -16,6 +16,7 @@ import { useProjects, type Project } from "@/features/projects";
 import type { LucideIcon } from "lucide-react";
 import {
   CodeXmlIcon,
+  FilesIcon,
   FolderKanbanIcon,
   ImagesIcon,
   SearchIcon,
@@ -153,6 +154,7 @@ export function AppSidebar() {
           <NavItem title="Cowork" url="/?mode=cowork" icon={SparklesIcon} />
           <NavItem title="Code" url="/?mode=code" icon={CodeXmlIcon} />
           <NavItem title="Visual" url="/visual" icon={ImagesIcon} />
+          <NavItem title="Outputs" url="/outputs" icon={FilesIcon} />
           <NavItem title="Projects" url="/projects" icon={FolderKanbanIcon} />
           <NavItem title="Settings" url="/settings" icon={Settings2Icon} />
         </SidebarMenu>

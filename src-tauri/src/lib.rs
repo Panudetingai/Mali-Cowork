@@ -30,6 +30,7 @@ use commands::mcp::{mcp_auth, mcp_auth_remove, mcp_diagnose, mcp_status, mcp_syn
 use commands::mcp_oauth::{mcp_auth_cancel, mcp_oauth_prepare};
 use commands::mcp_registry::{mcp_fetch_icon, mcp_registry_get, mcp_registry_icon, mcp_registry_search};
 use commands::native_alert::native_alert;
+use commands::outputs::outputs_stat;
 use commands::setup::{setup_cancel, setup_codex_login, setup_install, setup_plan, setup_scan};
 use commands::opencode::{
     opencode_abort, opencode_check, opencode_configure_providers, opencode_default_cwd,
@@ -161,6 +162,7 @@ pub fn run() {
             checkpoint_before_text,
             checkpoint_preview,
             checkpoint_open,
+            outputs_stat,
             cli_generate,
             check_cli,
             code_scan,

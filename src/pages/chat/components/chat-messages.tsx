@@ -1,3 +1,4 @@
+import type { ChatSession } from "@/features/chat-history";
 import type { ChatMessage } from "@/pages/chat/types";
 import { AnimatePresence, motion } from "motion/react";
 import { ChatMessageItem } from "./message/chat-message-item";
@@ -8,9 +9,10 @@ type Props = {
   /** Resend the user prompt with the given id. */
   onRetry?: (userMessageId: string) => void;
   onRate?: (messageId: string, value: "up" | "down") => void;
+  session?: ChatSession;
 };
 
-export function ChatMessages({ messages, isLoading, onRetry, onRate }: Props) {
+export function ChatMessages({ messages, isLoading, onRetry, onRate, session }: Props) {
   const isEmpty = messages.length === 0 && !isLoading;
   // The prompt the latest exchange came from. A reply that failed part-way
   // leaves its own bubble plus an error bubble, so "the message before this
@@ -48,6 +50,7 @@ export function ChatMessages({ messages, isLoading, onRetry, onRate }: Props) {
                 streaming={!!msg.isStreaming && !!isLoading}
                 onRetry={retryTarget && onRetry ? () => onRetry(retryTarget) : undefined}
                 onRate={rate ? (v) => rate(msg.id, v) : undefined}
+                session={session}
               />
             </motion.div>
           );

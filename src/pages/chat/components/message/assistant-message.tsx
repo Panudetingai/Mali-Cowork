@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import {
     CheckIcon,
     CopyIcon,
+    ReceiptIcon,
     RotateCcwIcon,
     ThumbsDownIcon,
     ThumbsUpIcon,
@@ -65,6 +66,8 @@ type Props = {
   /** Resend the prompt that produced this reply. Undefined hides the button. */
   onRetry?: () => void;
   onRate?: (value: "up" | "down") => void;
+  /** Cowork turns: open the work receipt. Undefined hides the button. */
+  onOpenReceipt?: () => void;
 };
 
 export function AssistantMessage({
@@ -80,6 +83,7 @@ export function AssistantMessage({
   feedback,
   onRetry,
   onRate,
+  onOpenReceipt,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const id = modelId ?? "";
@@ -229,6 +233,11 @@ export function AssistantMessage({
           {onRetry && (
             <MessageAction tooltip="Retry" onClick={onRetry}>
               <RotateCcwIcon className="size-3.5" />
+            </MessageAction>
+          )}
+          {onOpenReceipt && (
+            <MessageAction tooltip="Work receipt" onClick={onOpenReceipt}>
+              <ReceiptIcon className="size-3.5" />
             </MessageAction>
           )}
           {(usage || sessionId || durationMs) && (

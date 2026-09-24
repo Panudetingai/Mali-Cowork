@@ -18,6 +18,7 @@ pub mod mcp_registry;
 pub mod native_alert;
 pub mod smithery;
 pub mod opencode;
+pub mod outputs;
 pub mod process;
 pub mod secure_fs;
 pub mod setup;

@@ -1,8 +1,10 @@
 "use client";
 
 import { FilesChanged } from "@/features/checkpoints";
+import type { ChatSession } from "@/features/chat-history";
+import { buildWorkReceipt, WorkReceiptDialog } from "@/features/work-receipt";
 import type { ChatMessage } from "@/pages/chat/types";
-import { memo } from "react";
+import { memo, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { AssistantMessage } from "./assistant-message";
 import { TurnFilesLine, useCodeChat } from "./code-chat-context";
@@ -16,12 +18,34 @@ type Props = {
   /** Resend the prompt that produced this reply. Undefined hides the button. */
   onRetry?: () => void;
   onRate?: (value: "up" | "down") => void;
+  /** Needed to build the work receipt of a Cowork turn. */
+  session?: ChatSession;
+  onOpenReceipt?: () => void;
 };
 
-export const ChatMessageItem = memo(function ChatMessageItem({ message, streaming, onRetry, onRate }: Props) {
+export const ChatMessageItem = memo(function ChatMessageItem({
+  message,
+  streaming,
+  onRetry,
+  onRate,
+  session,
+}: Props) {
   const { chatId } = useParams<{ chatId: string }>();
   const code = useCodeChat();
-  const reply = <Reply message={message} streaming={streaming} onRetry={onRetry} onRate={onRate} />;
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const receipt = useMemo(
+    () => (session && message.turn ? buildWorkReceipt(session, message) : undefined),
+    [session, message],
+  );
+  const reply = (
+    <Reply
+      message={message}
+      streaming={streaming}
+      onRetry={onRetry}
+      onRate={onRate}
+      onOpenReceipt={receipt ? () => setReceiptOpen(true) : undefined}
+    />
+  );
   if (!message.turn || !chatId) return reply;
   return (
     <>
@@ -31,11 +55,14 @@ export const ChatMessageItem = memo(function ChatMessageItem({ message, streamin
       ) : (
         <FilesChanged chatId={chatId} messageId={message.id} turn={message.turn} />
       )}
+      {receipt && session && (
+        <WorkReceiptDialog receipt={receipt} session={session} open={receiptOpen} onOpenChange={setReceiptOpen} />
+      )}
     </>
   );
 });
 
-function Reply({ message, streaming, onRetry, onRate }: Props) {
+function Reply({ message, streaming, onRetry, onRate, onOpenReceipt }: Props) {
   switch (message.role) {
     case "user":
       return <UserMessage content={message.content} attachments={message.attachments} />;
@@ -54,6 +81,7 @@ function Reply({ message, streaming, onRetry, onRate }: Props) {
           feedback={message.feedback}
           onRetry={onRetry}
           onRate={onRate}
+          onOpenReceipt={onOpenReceipt}
         />
       );
     case "error":
