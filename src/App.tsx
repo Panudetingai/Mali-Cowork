@@ -3,8 +3,9 @@ import { AppLayout } from "@/layouts/app-layout";
 import { OnboardingDialog, openOnboarding, isOnboardingDone, FORCE_ONBOARDING } from "@/features/onboarding";
 import { useWeeklyRecapAutoOpen, WeeklyRecapDialog } from "@/features/work-receipt";
 import { watchSkills } from "@/features/skills";
+import { onOpenChatRequest } from "@/features/quick";
 import { useEffect } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import ChatLayout from "./pages/chat/layout";
 import OutputsPage from "./pages/outputs";
 import ProjectsPage from "./pages/projects";
@@ -23,6 +24,13 @@ function App() {
 
   // Auto-open weekly recap on the first visit each Monday.
   useWeeklyRecapAutoOpen();
+
+  // "Open in Mali" from the Quick bar.
+  const navigate = useNavigate();
+  useEffect(() => {
+    const stop = onOpenChatRequest((chatId) => navigate(`/chat/${encodeURIComponent(chatId)}`));
+    return () => void stop.then((unlisten) => unlisten());
+  }, [navigate]);
 
   return (
     <>
