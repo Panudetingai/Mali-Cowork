@@ -9,6 +9,7 @@ import { useTheme } from "next-themes";
 import { useEffect, useRef } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import ChatLayout from "./pages/chat/layout";
+import ArenaPage from "./pages/arena";
 import InboxPage from "./pages/inbox";
 import OutputsPage from "./pages/outputs";
 import ProjectsPage from "./pages/projects";
@@ -62,6 +63,7 @@ function App() {
           <Route path="chat/:chatId" element={<ChatLayout />} />
           <Route path="visual" element={<VisualPage />} />
           <Route path="inbox" element={<InboxPage />} />
+          <Route path="arena" element={<ArenaPage />} />
           <Route path="outputs" element={<OutputsPage />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:projectId" element={<ProjectPage />} />

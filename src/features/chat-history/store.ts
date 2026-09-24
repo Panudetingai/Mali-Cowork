@@ -31,6 +31,8 @@ export type ChatSession = {
   codexSessionId?: string;
   /** Antigravity conversation id, so `agy --conversation <id>` keeps the thread. */
   antigravitySessionId?: string;
+  /** A contender in an Arena round; kept out of the history list until picked. */
+  arenaId?: string;
   /** Chat this one continues after the context limit was reached. */
   continuedFrom?: {
     id: string;

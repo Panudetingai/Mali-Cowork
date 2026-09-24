@@ -19,6 +19,7 @@ import {
   CodeXmlIcon,
   FilesIcon,
   InboxIcon,
+  SwordsIcon,
   FolderKanbanIcon,
   ImagesIcon,
   SearchIcon,
@@ -138,7 +139,8 @@ export function AppSidebar() {
   const { pinned, chats, cowork, code } = useMemo(() => {
     const q = query.trim().toLowerCase();
     const sorted = sessions
-      .filter((s) => matches(s, q))
+      // Arena contenders live on the Arena page until one is picked.
+      .filter((s) => !s.arenaId && matches(s, q))
       .sort((a, b) => b.updatedAt - a.updatedAt);
     const unpinned = sorted.filter((s) => !s.pinned);
     return {
@@ -163,6 +165,7 @@ export function AppSidebar() {
           <NavItem title="Code" url="/?mode=code" icon={CodeXmlIcon} />
           <NavItem title="Visual" url="/visual" icon={ImagesIcon} />
           <NavItem title="Inbox" url="/inbox" icon={InboxIcon} badge={inboxAttention} />
+          <NavItem title="Arena" url="/arena" icon={SwordsIcon} />
           <NavItem title="Outputs" url="/outputs" icon={FilesIcon} />
           <NavItem title="Projects" url="/projects" icon={FolderKanbanIcon} />
           <NavItem title="Settings" url="/settings" icon={Settings2Icon} />
