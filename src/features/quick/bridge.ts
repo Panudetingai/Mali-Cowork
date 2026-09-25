@@ -15,6 +15,7 @@ const THEME = "quick:theme";
 const THEME_REQUEST = "quick:theme-request";
 const OPEN_SETTINGS = "quick:open-settings";
 const CAPTURE_DONE = "quick:capture-done";
+const CAPTURE_FAILED = "quick:capture-failed";
 
 /** Quick bar: keep the thread as a chat, and with `open`, show it in Mali. */
 export async function saveQuickThread(payload: QuickSavePayload) {
@@ -91,5 +92,12 @@ export function onOpenQuickSettings(handler: () => void) {
 export function onQuickCaptureDone(handler: (attachment: Attachment) => void) {
   if (!isTauri()) return () => {};
   const stop = listen<Attachment>(CAPTURE_DONE, (event) => handler(event.payload));
+  return () => void stop.then((unlisten) => unlisten());
+}
+
+/** Quick bar: the overlay capture failed; `message` says why. */
+export function onQuickCaptureFailed(handler: (message: string) => void) {
+  if (!isTauri()) return () => {};
+  const stop = listen<string>(CAPTURE_FAILED, (event) => handler(event.payload));
   return () => void stop.then((unlisten) => unlisten());
 }

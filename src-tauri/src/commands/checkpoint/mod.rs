@@ -405,6 +405,17 @@ pub(crate) fn changed_paths(id: &str) -> Result<std::collections::HashSet<String
     Ok(load_record(id)?.changes.into_iter().map(|c| c.path).collect())
 }
 
+/// Paths the turn created (nothing there before it), the only files the
+/// Outputs gallery may move to the Trash: an edited file is the user's own.
+pub(crate) fn created_paths(id: &str) -> Result<std::collections::HashSet<String>, String> {
+    Ok(load_record(id)?
+        .changes
+        .into_iter()
+        .filter(|c| c.before.is_none() && c.after.is_some())
+        .map(|c| c.path)
+        .collect())
+}
+
 fn find<'a>(record: &'a Record, path: &str) -> Result<&'a Change, String> {
     record
         .changes

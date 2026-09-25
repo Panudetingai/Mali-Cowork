@@ -36,20 +36,23 @@ export function QuickCaptureOverlay() {
     return () => window.removeEventListener("keydown", handle);
   }, []);
 
-  const onMouseDown = useCallback((event: React.MouseEvent) => {
+  const onPointerDown = useCallback((event: React.PointerEvent) => {
+    if (event.button !== 0) return;
+    // Keep receiving moves/up even if the pointer leaves the page mid-drag.
+    event.currentTarget.setPointerCapture(event.pointerId);
     const point = { x: event.clientX, y: event.clientY };
     setDrag({ start: point, current: point });
   }, []);
 
-  const onMouseMove = useCallback(
-    (event: React.MouseEvent) => {
+  const onPointerMove = useCallback(
+    (event: React.PointerEvent) => {
       if (!drag) return;
       setDrag({ ...drag, current: { x: event.clientX, y: event.clientY } });
     },
     [drag],
   );
 
-  const onMouseUp = useCallback(async () => {
+  const onPointerUp = useCallback(async () => {
     if (!drag) return;
     const rect = normalize(drag.start, drag.current);
     setDrag(null);
@@ -59,16 +62,19 @@ export function QuickCaptureOverlay() {
       return;
     }
 
+    // The monitor origin is in physical pixels; the drag is in CSS pixels.
+    const scale = window.devicePixelRatio || 1;
     try {
+      // Rust hides this window, captures, then destroys it.
       await invoke("quick_capture_region", {
         rect: {
-          x: Math.round(monitorX + rect.x),
-          y: Math.round(monitorY + rect.y),
-          width: Math.round(rect.w),
-          height: Math.round(rect.h),
+          x: Math.round(monitorX + rect.x * scale),
+          y: Math.round(monitorY + rect.y * scale),
+          width: Math.round(rect.w * scale),
+          height: Math.round(rect.h * scale),
         },
       });
-    } finally {
+    } catch {
       void getCurrentWebviewWindow().close();
     }
   }, [drag, monitorX, monitorY]);
@@ -84,9 +90,9 @@ export function QuickCaptureOverlay() {
     <div
       ref={containerRef}
       className="fixed inset-0 cursor-crosshair bg-black/20"
-      onMouseDown={onMouseDown}
-      onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
       onContextMenu={onContextMenu}
     >
       {rect && rect.w > 0 && rect.h > 0 && (
@@ -128,7 +134,8 @@ export function QuickCaptureOverlay() {
             )}
             style={{ top: rect.y + rect.h + 6, left: rect.x }}
           >
-            {rect.w} × {rect.h}
+            {Math.round(rect.w * (window.devicePixelRatio || 1))} ×{" "}
+            {Math.round(rect.h * (window.devicePixelRatio || 1))}
           </span>
         </>
       )}

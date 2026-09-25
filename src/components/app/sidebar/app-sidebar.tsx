@@ -38,9 +38,9 @@ import {
   ChevronRightIcon,
   CodeXmlIcon,
   FilesIcon,
+  ChartColumnIcon,
   InboxIcon,
   LayoutGridIcon,
-  SwordsIcon,
   FolderKanbanIcon,
   ImagesIcon,
   SearchIcon,
@@ -226,9 +226,8 @@ export function AppSidebar() {
   const { pinned, chats, cowork, code } = useMemo(() => {
     const q = query.trim().toLowerCase();
     const sorted = sessions
-      // Arena contenders live on the Arena page until one is picked, and
-      // background tasks in the Inbox (and on the chat they came from).
-      .filter((s) => !s.arenaId && !s.inboxTask && !s.taskFrom && matches(s, q))
+      // Background tasks live in the Inbox (and on the chat they came from).
+      .filter((s) => !s.inboxTask && !s.taskFrom && matches(s, q))
       .sort((a, b) => b.updatedAt - a.updatedAt);
     const unpinned = sorted.filter((s) => !s.pinned);
     return {
@@ -317,8 +316,8 @@ export function AppSidebar() {
               items={[
                 { title: t("visual"), url: "/visual", icon: ImagesIcon },
                 { title: t("inbox"), url: "/inbox", icon: InboxIcon, badge: inboxAttention },
-                { title: t("arena"), url: "/arena", icon: SwordsIcon },
                 { title: t("outputs"), url: "/outputs", icon: FilesIcon },
+                { title: t("usage"), url: "/usage", icon: ChartColumnIcon },
                 { title: t("projects"), url: "/projects", icon: FolderKanbanIcon },
                 { title: t("settings"), url: "/settings", icon: Settings2Icon },
               ]}

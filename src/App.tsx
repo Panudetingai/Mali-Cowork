@@ -4,15 +4,14 @@ import { OnboardingDialog, openOnboarding, isOnboardingDone, FORCE_ONBOARDING } 
 import { useWeeklyRecapAutoOpen, WeeklyRecapDialog } from "@/features/work-receipt";
 import { watchSkills } from "@/features/skills";
 import { startTaskQueue } from "@/features/tasks";
-import { startArenaHousekeeping } from "@/features/arena";
 import { listenForQuickSaves, onOpenChatRequest, onOpenQuickSettings, serveQuickTheme } from "@/features/quick";
 import { useTheme } from "next-themes";
 import { useEffect, useRef } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import ChatLayout from "./pages/chat/layout";
-import ArenaPage from "./pages/arena";
 import InboxPage from "./pages/inbox";
 import OutputsPage from "./pages/outputs";
+import UsagePage from "./pages/usage";
 import ProjectsPage from "./pages/projects";
 import ProjectPage from "./pages/projects/project-page";
 import SettingsPage from "./pages/settings";
@@ -30,8 +29,6 @@ function App() {
   // Background Cowork tasks (Inbox): recover after a restart and keep the queue moving.
   useEffect(() => startTaskQueue(), []);
 
-  // Arena: remove worktree copies left by rounds that ended or crashed.
-  useEffect(() => startArenaHousekeeping(), []);
 
   // Auto-open weekly recap on the first visit each Monday.
   useWeeklyRecapAutoOpen();
@@ -67,8 +64,8 @@ function App() {
           <Route path="chat/:chatId" element={<ChatLayout />} />
           <Route path="visual" element={<VisualPage />} />
           <Route path="inbox" element={<InboxPage />} />
-          <Route path="arena" element={<ArenaPage />} />
           <Route path="outputs" element={<OutputsPage />} />
+          <Route path="usage" element={<UsagePage />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:projectId" element={<ProjectPage />} />
           <Route path="settings" element={<SettingsPage />} />

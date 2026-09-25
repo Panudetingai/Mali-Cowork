@@ -1,7 +1,7 @@
 /**
  * Running a chat turn, outside React: sending, stopping, and answering what
- * the agent asks. `useChat` wraps these for the chat page; the Task Inbox and
- * Arena call them for chats that aren't on screen.
+ * the agent asks. `useChat` wraps these for the chat page; the Task Inbox runs
+ * them for chats that aren't on screen.
  */
 import {
   attachFolder,
@@ -41,6 +41,7 @@ import { findGrant, grantsFor, isWithin, normalizeFolder, requestFolderAccess } 
 import type { HistoryMessage, PermissionRequest, QuestionRequest, StreamMetadata, TodoItem } from "@/pages/chat/api/chat";
 import { generateStream, runModelIdFor } from "@/pages/chat/api/router";
 import { contextUsage } from "./context-usage";
+import { coworkInstructionsFor } from "./cowork-handoff";
 import { summarizeConversation, transcript } from "./summary";
 import {
   apiModelOf,
@@ -72,7 +73,7 @@ export type TurnTarget = {
 };
 
 /**
- * The shared send pipeline. New prompts, retries, the Task Inbox and Arena
+ * The shared send pipeline. New prompts, retries and the Task Inbox runs
  * all run through here, so a retry reproduces the original model and context
  * budget exactly. It only touches the history and run stores, so a turn keeps
  * going whether or not its chat is on screen.
@@ -250,6 +251,7 @@ export async function sendTurn(
         instructions: [
           buildInstructions(undefined, projectContext(project), chatMode === "chat" ? "chat" : "cowork"),
           connectorInstructionsFor(prompt),
+          chatMode === "chat" ? coworkInstructionsFor(prompt) : "",
           pickedConnectorInstructions(resend.connectors),
         ]
           .filter(Boolean)
@@ -512,6 +514,7 @@ function createUserMessage(
     id: crypto.randomUUID(),
     role: "user",
     content: prompt,
+    createdAt: Date.now(),
     resend,
     ...(attachments.length ? { attachments } : {}),
     ...(context ? { context } : {}),
@@ -550,6 +553,8 @@ function createAssistantPlaceholder(
     role: "assistant",
     content: "",
     modelId,
+    // The Weekly recap and Outputs place a reply in time by this.
+    createdAt: Date.now(),
     isStreaming: true,
   };
 }

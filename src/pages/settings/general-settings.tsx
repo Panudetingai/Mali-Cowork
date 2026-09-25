@@ -1,5 +1,3 @@
-"use client";
-
 import { useTranslation, type LanguageMode } from "@/features/i18n";
 import {
   GroupLabel,
@@ -8,23 +6,23 @@ import {
   SettingsSection,
 } from "@/pages/settings/ui";
 import { cn } from "@/lib/utils";
-import { CheckIcon, MoonIcon, SunIcon, LaptopIcon, TypeIcon } from "lucide-react";
+import { CheckIcon, MoonIcon, SunIcon, TypeIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 
 export function GeneralSettings() {
   const { lang, mode, setLanguageMode, t } = useTranslation();
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
 
   const languageOptions: { id: LanguageMode; title: string; desc: string }[] = [
     {
       id: "auto",
       title: t("languageAuto"),
-      desc: lang === "th" ? "ตรวจพบภาษาไทยจากอุปกรณ์ → ใช้ฟอนต์ TH Sarabun" : "Device language detected → Inter font",
+      desc: lang === "th" ? "ตรวจพบภาษาไทยจากอุปกรณ์ → ใช้ฟอนต์ Sarabun" : "Device language detected → Inter font",
     },
     {
       id: "th",
       title: t("languageThai"),
-      desc: "แสดงผลภาษาไทยทั้งหมด พร้อมฟอนต์ TH Sarabun",
+      desc: "แสดงผลภาษาไทยทั้งหมด พร้อมฟอนต์ Sarabun",
     },
     {
       id: "en",
@@ -36,7 +34,6 @@ export function GeneralSettings() {
   const themeOptions = [
     { id: "light", label: t("themeLight"), icon: SunIcon },
     { id: "dark", label: t("themeDark"), icon: MoonIcon },
-    { id: "system", label: t("themeSystem"), icon: LaptopIcon },
   ];
 
   return (
@@ -88,12 +85,12 @@ export function GeneralSettings() {
           <div className="flex items-center gap-2 mb-2">
             <TypeIcon className="size-4 text-primary" />
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {t("currentFontLabel")}: {lang === "th" ? "TH Sarabun New / Sarabun" : "Inter Variable"}
+              {t("currentFontLabel")}: {lang === "th" ? "Sarabun" : "Inter Variable"}
             </span>
           </div>
           <p className="text-base text-foreground leading-relaxed font-normal">
             {lang === "th"
-              ? "ยินดีต้อนรับสู่ Mali Cowork — ระบบการทำงานร่วมกับ AI อัจฉริยะ (ตัวอย่างแบบอักษร TH Sarabun กขคง ๑๒๓๔๕)"
+              ? "ยินดีต้อนรับสู่ Mali Cowork — ระบบการทำงานร่วมกับ AI อัจฉริยะ (ตัวอย่างแบบอักษร Sarabun กขคง ๑๒๓๔๕)"
               : "Welcome to Mali Cowork — Intelligent AI desktop coworking with local and cloud models."}
           </p>
         </div>
@@ -104,10 +101,10 @@ export function GeneralSettings() {
         <p className="text-xs text-muted-foreground mb-3">
           {t("themeSectionDesc")}
         </p>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           {themeOptions.map((opt) => {
             const Icon = opt.icon;
-            const isSelected = theme === opt.id;
+            const isSelected = resolvedTheme === opt.id;
             return (
               <button
                 key={opt.id}

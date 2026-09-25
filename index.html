@@ -17,12 +17,6 @@
     />
     <meta property="og:image" content="/icon-512.png" />
     <meta property="og:type" content="website" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Sarabun:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap"
-      rel="stylesheet"
-    />
     <title>Mali Cowork</title>
     <script>
       try {
@@ -34,7 +28,7 @@
         if (langSettingsRaw) {
           try {
             var parsed = JSON.parse(langSettingsRaw);
-            if (parsed && parsed.mode) langMode = parsed.mode;
+            if (parsed && (parsed.mode === "th" || parsed.mode === "en")) langMode = parsed.mode;
           } catch (e) {}
         }
         var activeLang = "en";

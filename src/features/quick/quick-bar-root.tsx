@@ -41,6 +41,7 @@ import {
 } from "./api";
 import {
   onQuickCaptureDone,
+  onQuickCaptureFailed,
   openQuickSettings,
   requestQuickTheme,
   saveQuickThread,
@@ -133,11 +134,15 @@ export function QuickBarRoot() {
   }, [turns]);
 
   useEffect(() => {
-    const stop = onQuickCaptureDone((attachment) => {
+    const stopDone = onQuickCaptureDone((attachment) => {
       setShots((prev) => [...prev, attachment]);
       setNote(undefined);
     });
-    return () => stop();
+    const stopFailed = onQuickCaptureFailed((message) => setNote(message));
+    return () => {
+      stopDone();
+      stopFailed();
+    };
   }, []);
 
   const updateLast = (fn: (turn: QuickTurn) => QuickTurn) =>

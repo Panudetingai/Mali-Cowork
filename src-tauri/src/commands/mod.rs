@@ -26,6 +26,7 @@ pub mod secure_fs;
 pub mod setup;
 pub mod storage;
 pub mod supervisor;
+pub mod usage_remote;
 
 
 /// ตัดสตริงให้ยาวไม่เกิน `max` ไบต์ โดยไม่ตัดกลางตัวอักษร

@@ -26,6 +26,7 @@ import type { TodoItem } from "../../api/chat";
 import type { ActivityItem } from "../../types";
 import { AgentSteps, segmentReply } from "./agent-steps";
 import { AgentTaskPlan } from "./agent-task-plan";
+import { extractCoworkBlock } from "../../cowork-handoff";
 import { ConnectorSuggestions } from "./connector-suggestions";
 import { extractConnectorBlocks } from "@/features/mcp/agent-install";
 import { ExpandableClamp } from "./expandable-clamp";
@@ -96,8 +97,9 @@ export function AssistantMessage({
     [content],
   );
   // ```connector blocks become install cards instead of code.
+  // ```cowork is shown as a "Continue in Cowork" card under the thread.
   const { text: visibleContent, suggestions } = useMemo(
-    () => extractConnectorBlocks(afterRichBlocks),
+    () => extractConnectorBlocks(extractCoworkBlock(afterRichBlocks).text),
     [afterRichBlocks],
   );
   const hasContent = Boolean(content.trim());

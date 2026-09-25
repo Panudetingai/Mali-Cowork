@@ -35,8 +35,13 @@ export type ChatSession = {
   inboxTask?: boolean;
   /** For a background task: the chat it was started from. */
   taskFrom?: { id: string; title: string };
-  /** A contender in an Arena round; kept out of the history list until picked. */
-  arenaId?: string;
+  /**
+   * This chat began in Chat mode and moved to Cowork; the conversation came
+   * along. The thread shows a divider after `afterMessageId`.
+   */
+  movedToCowork?: { at: number; afterMessageId?: string; folder: string };
+  /** A reply whose "continue in Cowork" hint the user closed. */
+  coworkHintDismissed?: string;
   /** Chat this one continues after the context limit was reached. */
   continuedFrom?: {
     id: string;

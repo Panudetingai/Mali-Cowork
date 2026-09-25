@@ -6,7 +6,7 @@ mod media;
 pub mod panic_log;
 mod sandbox;
 
-use commands::attachments::{attachment_import, attachment_save};
+use commands::attachments::{attachment_from_url, attachment_import, attachment_save};
 use commands::link_preview::link_preview;
 use commands::chat::{chat_generate, ollama_list_models, provider_check_key, provider_env_keys};
 use commands::media::media_generate;
@@ -30,8 +30,7 @@ use commands::mcp::{mcp_auth, mcp_auth_remove, mcp_diagnose, mcp_status, mcp_syn
 use commands::mcp_oauth::{mcp_auth_cancel, mcp_oauth_prepare};
 use commands::mcp_registry::{mcp_fetch_icon, mcp_registry_get, mcp_registry_icon, mcp_registry_search};
 use commands::native_alert::native_alert;
-use commands::outputs::outputs_stat;
-use commands::arena::{arena_apply, arena_cleanup, arena_cleanup_stale, arena_prepare};
+use commands::outputs::{outputs_stat, outputs_trash};
 use commands::quick::{
     quick_capture_region, quick_capture_screen, quick_configure, quick_hide, quick_open_main,
     quick_start_capture_overlay, quick_take_context, QuickState,
@@ -45,10 +44,11 @@ use commands::opencode::{
     opencode_warm, warm_up_server,
 };
 use commands::storage::{
-    history_import_legacy, history_load, history_save, secrets_load, secrets_save,
+    history_import_legacy, history_load, history_save, secrets_load, secrets_save, usage_load, usage_record,
     skills_dir, skills_export_folder, skills_fetch_url, skills_install, skills_installed,
     skills_read_asset, skills_scan_folder, skills_search_repos, skills_sync, skills_uninstall,
 };
+use commands::usage_remote::{usage_model_prices, usage_provider_account};
 use commands::smithery::{
     smithery_check_key, smithery_search_servers, smithery_search_skills, smithery_server,
 };
@@ -143,6 +143,8 @@ pub fn run() {
             supervisor::exit_on_signals();
             // So a system notification carries the app's name and icon.
             commands::native_alert::init(&app.config().identifier);
+            // Agent Arena was removed; its worktree copies go with it.
+            tauri::async_runtime::spawn(commands::arena::remove_leftovers());
             // Start opencode in the background so the first prompt is fast.
             tauri::async_runtime::spawn(async {
                 if let Err(e) = warm_up_server().await {
@@ -159,6 +161,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             attachment_import,
             attachment_save,
+            attachment_from_url,
             link_preview,
             chat_generate,
             media_generate,
@@ -172,10 +175,7 @@ pub fn run() {
             checkpoint_preview,
             checkpoint_open,
             outputs_stat,
-            arena_prepare,
-            arena_apply,
-            arena_cleanup,
-            arena_cleanup_stale,
+            outputs_trash,
             quick_configure,
             quick_take_context,
             quick_hide,
@@ -257,6 +257,10 @@ pub fn run() {
             provider_check_key,
             ollama_list_models,
             history_load,
+            usage_record,
+            usage_load,
+            usage_provider_account,
+            usage_model_prices,
             history_save,
             history_import_legacy,
             secrets_load,

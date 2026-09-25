@@ -20,22 +20,25 @@ import { ModelsSettings } from "./models-settings";
 import { QuickSettings } from "./quick-settings";
 import { ReceiptSettings } from "./receipt-settings";
 import { SkillsSettings } from "./skills/skills-settings";
-import { useTranslation } from "@/features/i18n";
+import { useTranslation, type TranslationKey } from "@/features/i18n";
 
 function AppIcon(props: ComponentProps<"img">) {
   return <img {...props} src="/icon-transparent.png" alt="" />;
 }
 
 const TABS = [
-  { id: "general", label: "General", description: "Language, fonts & theme", icon: GlobeIcon },
-  { id: "models", label: "Models", description: "Providers, keys & CLI agents", icon: SparklesIcon },
-  { id: "instructions", label: "Instructions", description: "Tone & context", icon: NotebookPenIcon },
-  { id: "skills", label: "Skills", description: "How-tos the AI follows", icon: BookOpenIcon },
-  { id: "receipt", label: "Work receipt", description: "Time-saved formula", icon: ReceiptIcon },
-  { id: "quick", label: "Quick bar", description: "Global shortcut & model", icon: AppIcon },
-  { id: "mcp", label: "Connectors", description: "Apps & MCP tools", lobeMcp: true as const },
-  { id: "folders", label: "Folders", description: "Disk access", icon: FolderIcon },
-] as const;
+  { id: "general", label: "tabGeneral", description: "tabGeneralDesc", icon: GlobeIcon },
+  // Providers and CLI agents are one page: both answer "where do the models
+  // in the chat box come from", and split across two tabs the same key had
+  // two homes.
+  { id: "models", label: "tabModels", description: "tabModelsDesc", icon: SparklesIcon },
+  { id: "instructions", label: "tabInstructions", description: "tabInstructionsDesc", icon: NotebookPenIcon },
+  { id: "skills", label: "tabSkills", description: "tabSkillsDesc", icon: BookOpenIcon },
+  { id: "receipt", label: "tabReceipt", description: "tabReceiptDesc", icon: ReceiptIcon },
+  { id: "quick", label: "tabQuick", description: "tabQuickDesc", icon: AppIcon },
+  { id: "mcp", label: "tabMcp", description: "tabMcpDesc", lobeMcp: true as const },
+  { id: "folders", label: "tabFolders", description: "tabFoldersDesc", icon: FolderIcon },
+] as const satisfies readonly { id: string; label: TranslationKey; description: TranslationKey; [extra: string]: unknown }[];
 
 type TabId = (typeof TABS)[number]["id"];
 
@@ -68,7 +71,7 @@ export default function SettingsPage() {
             </p>
           </header>
 
-          <nav aria-label="Settings sections" className="scroll-hidden -mx-1 overflow-x-auto px-1 lg:mx-0 lg:overflow-visible lg:px-0">
+          <nav aria-label={t("settingsSections")} className="scroll-hidden -mx-1 overflow-x-auto px-1 lg:mx-0 lg:overflow-visible lg:px-0">
             <TabHighlight className="rounded-xl bg-primary/60 p-1 lg:bg-primary/60">
               <TabList className="relative flex min-w-min flex-row gap-0.5 lg:min-w-0 lg:flex-col">
                 {TABS.map((item, index) => {
@@ -82,9 +85,9 @@ export default function SettingsPage() {
                           Icon && <Icon className="size-4 shrink-0" />
                         )}
                         <span className="flex min-w-0 flex-col items-start leading-tight">
-                          <span className="truncate">{item.label}</span>
+                          <span className="truncate">{t(item.label)}</span>
                           <span className="hidden text-[11px] font-normal text-muted-foreground lg:block">
-                            {item.description}
+                            {t(item.description)}
                           </span>
                         </span>
                       </Tab>
@@ -98,8 +101,8 @@ export default function SettingsPage() {
 
         <div className="min-w-0 flex-1">
           <div className="mb-6 flex flex-col gap-0.5 border-b border-border/60 pb-6 lg:hidden">
-            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{active.label}</p>
-            <p className="text-sm text-muted-foreground">{active.description}</p>
+            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{t(active.label)}</p>
+            <p className="text-sm text-muted-foreground">{t(active.description)}</p>
           </div>
 
           <TabPanels mode="layout">

@@ -5,6 +5,8 @@ import type { Language, LanguageMode, LanguageSettings } from "./types";
 
 const STORAGE_KEY = "mali-cowork-lang-settings";
 
+export type TranslationParams = Record<string, string | number>;
+
 export function applyLanguageToDOM(lang: Language) {
   if (typeof document === "undefined") return;
   document.documentElement.lang = lang;
@@ -12,40 +14,46 @@ export function applyLanguageToDOM(lang: Language) {
 }
 
 function resolveLanguage(mode: LanguageMode): Language {
-  if (mode === "th") return "th";
-  if (mode === "en") return "en";
+  if (mode === "th" || mode === "en") return mode;
   return detectDeviceLanguage();
 }
 
-function getInitialSettings(): LanguageSettings {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && (parsed.mode === "auto" || parsed.mode === "th" || parsed.mode === "en")) {
-        const current = resolveLanguage(parsed.mode);
-        applyLanguageToDOM(current);
-        return { mode: parsed.mode, current };
-      }
-    }
-  } catch {}
-
-  const current = detectDeviceLanguage();
-  applyLanguageToDOM(current);
-  return { mode: "auto", current };
+function isMode(value: unknown): value is LanguageMode {
+  return value === "auto" || value === "th" || value === "en";
 }
 
-const store = createStore<LanguageSettings>(getInitialSettings(), {
+function settingsFor(mode: LanguageMode): LanguageSettings {
+  return { mode, current: resolveLanguage(mode) };
+}
+
+// Only `mode` is persisted; `current` is always re-derived so "auto" follows
+// the device and a stale or hand-edited value can't leave `current` undefined.
+const store = createStore<LanguageSettings>(settingsFor("auto"), {
   key: STORAGE_KEY,
   persist: (s) => ({ mode: s.mode }),
+  revive: (saved) => settingsFor(isMode(saved?.mode) ? saved.mode : "auto"),
 });
+
+applyLanguageToDOM(store.get().current);
+
+if (typeof window !== "undefined") {
+  // Follow the OS language live while in auto mode.
+  window.addEventListener("languagechange", () => {
+    const { mode, current } = store.get();
+    if (mode !== "auto") return;
+    const next = detectDeviceLanguage();
+    if (next === current) return;
+    applyLanguageToDOM(next);
+    store.set({ mode, current: next });
+  });
+}
 
 export const useLanguageSettings = store.use;
 
 export function setLanguageMode(mode: LanguageMode) {
-  const current = resolveLanguage(mode);
-  applyLanguageToDOM(current);
-  store.set({ mode, current });
+  const next = settingsFor(mode);
+  applyLanguageToDOM(next.current);
+  store.set(next);
 }
 
 export function setLanguage(lang: Language) {
@@ -53,30 +61,31 @@ export function setLanguage(lang: Language) {
 }
 
 export function toggleLanguage() {
-  const state = store.get();
-  const next: Language = state.current === "th" ? "en" : "th";
-  setLanguageMode(next);
+  setLanguageMode(store.get().current === "th" ? "en" : "th");
 }
 
 export function getLanguage(): Language {
   return store.get().current;
 }
 
-export function t(key: TranslationKey): string {
-  const lang = getLanguage();
-  return translations[lang]?.[key] ?? translations.en[key] ?? key;
+function translate(lang: Language, key: TranslationKey, params?: TranslationParams): string {
+  const text: string = translations[lang]?.[key] ?? translations.en[key] ?? key;
+  if (!params) return text;
+  return text.replace(/\{(\w+)\}/g, (match, name: string) =>
+    name in params ? String(params[name]) : match,
+  );
+}
+
+export function t(key: TranslationKey, params?: TranslationParams): string {
+  return translate(getLanguage(), key, params);
 }
 
 export function useTranslation() {
   const settings = useLanguageSettings();
   const lang = settings.current;
 
-  const translate = (key: TranslationKey): string => {
-    return translations[lang]?.[key] ?? translations.en[key] ?? key;
-  };
-
   return {
-    t: translate,
+    t: (key: TranslationKey, params?: TranslationParams) => translate(lang, key, params),
     lang,
     mode: settings.mode,
     setLanguageMode,

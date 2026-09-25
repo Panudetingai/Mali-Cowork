@@ -14,6 +14,11 @@ export async function saveAttachment(file: File) {
   return invoke<Attachment>("attachment_save", { name, data });
 }
 
+/** Download a picture from an https link, as if it had been pasted. */
+export function attachmentFromUrl(url: string) {
+  return invoke<Attachment>("attachment_from_url", { url });
+}
+
 export function readAttachmentBytes(attachment: Attachment) {
   return readFile(attachment.path);
 }

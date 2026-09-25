@@ -15,6 +15,8 @@ import { startTransition, useRef, type ReactNode } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ChatComposer } from "./components/chat-composer";
 import { ChatMessagePanel } from "./components/chat-message-panel";
+import { MoveToCoworkDialog } from "./components/cowork-handoff-ui";
+import { requestMoveToCowork } from "./move-to-cowork";
 import { ChatModeNav } from "./components/chat-mode-nav";
 import ChatTitle from "./components/chat-title";
 import { CodeView } from "./components/code-view";
@@ -97,12 +99,20 @@ export default function ChatLayout() {
   const reduceMotion = useReducedMotion();
   const viewSlide = useRef(0);
 
-  // A chat keeps its type; switching starts a new chat of the other type.
-  const changeMode = (next: ViewMode) => {
-    if (next === view) return;
+  const openNewChatIn = (next: ViewMode) => {
     viewSlide.current = Math.sign(VIEW_ORDER[next] - VIEW_ORDER[view]);
     saveWorkMode(next);
     startTransition(() => navigate(`/?mode=${next}${projectQuery}`, { replace: !chatId }));
+  };
+  // Switching starts a new chat of the other type — except Chat → Cowork in
+  // a chat that has started: that one can move over with its conversation.
+  const changeMode = (next: ViewMode) => {
+    if (next === view) return;
+    if (session && view === "chat" && next === "cowork" && session.messages.length > 0 && !isLoading) {
+      requestMoveToCowork({ chatId: session.id, fromSwitch: true });
+      return;
+    }
+    openNewChatIn(next);
   };
   const startNewChat = (options?: { cwd?: string }) => {
     if (options?.cwd && mode === "cowork") {
@@ -163,6 +173,7 @@ export default function ChatLayout() {
     <>
       <ProviderKeyDialog />
       <CursorLoginDialog />
+      <MoveToCoworkDialog onNewCoworkChat={() => openNewChatIn("cowork")} />
     </>
   );
 

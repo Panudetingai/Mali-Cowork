@@ -1,6 +1,7 @@
 export * from "./types";
 export * from "./receipt";
 export * from "./outputs";
+export * from "./outputs-hidden";
 export * from "./recap";
 export * from "./api";
 export * from "./settings-store";

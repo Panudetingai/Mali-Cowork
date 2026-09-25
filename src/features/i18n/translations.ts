@@ -21,8 +21,8 @@ export const translations = {
     all: "All",
     allProjects: "All projects",
     yourChatsWillShowUpHere: "Your chats will show up here.",
-    noChatsMatch: "No chats match",
-    selected: "selected",
+    noChatsMatch: "No chats match “{query}”.",
+    selected: "{count} selected",
     delete: "Delete",
     cancel: "Cancel",
     confirm: "Confirm",
@@ -36,7 +36,8 @@ export const translations = {
     more: "More",
 
     // Dialogs
-    deleteChatsTitle: "Delete chats?",
+    deleteChatsTitle: "Delete {count} chats?",
+    deleteChatTitle: "Delete 1 chat?",
     deleteChatsDescription: "The selected chats and their messages will be removed from this device. Agent sessions will also be stopped where applicable.",
 
     // Titlebar
@@ -49,7 +50,8 @@ export const translations = {
     settingsTitle: "Settings",
     settingsSubtitle: "Configure models, agents, language, and workspace preferences.",
     tabGeneral: "General",
-    tabGeneralDesc: "Language, appearance & fonts",
+    tabGeneralDesc: "Language, fonts & theme",
+    settingsSections: "Settings sections",
     tabModels: "Models",
     tabModelsDesc: "Providers, keys & CLI agents",
     tabInstructions: "Instructions",
@@ -67,19 +69,18 @@ export const translations = {
 
     // General Settings
     languageSectionTitle: "Language & Font",
-    languageSectionDesc: "Choose your interface language. Thai automatically activates TH Sarabun font.",
+    languageSectionDesc: "Choose your interface language. Thai automatically activates Sarabun font.",
     languageLabel: "App Language",
     languageAuto: "Device Default (Auto)",
-    languageThai: "Thai (ภาษาไทย) - TH Sarabun",
+    languageThai: "Thai (ภาษาไทย) - Sarabun",
     languageEnglish: "English (Inter)",
     currentFontLabel: "Active Font",
-    fontThaiNotice: "TH Sarabun font is active for Thai language rendering.",
+    fontThaiNotice: "Sarabun font is active for Thai language rendering.",
     fontEnglishNotice: "Inter font is active for English language rendering.",
     themeSectionTitle: "Appearance",
     themeSectionDesc: "Customize the color theme for Mali Cowork.",
     themeLight: "Light",
     themeDark: "Dark",
-    themeSystem: "System",
   },
   th: {
     // Navigation & Sidebar
@@ -103,8 +104,8 @@ export const translations = {
     all: "ทั้งหมด",
     allProjects: "โปรเจกต์ทั้งหมด",
     yourChatsWillShowUpHere: "แชทของคุณจะปรากฏที่นี่",
-    noChatsMatch: "ไม่พบแชทที่ตรงกับ",
-    selected: "รายการที่เลือก",
+    noChatsMatch: "ไม่พบแชทที่ตรงกับ “{query}”",
+    selected: "เลือกแล้ว {count} รายการ",
     delete: "ลบ",
     cancel: "ยกเลิก",
     confirm: "ยืนยัน",
@@ -118,7 +119,8 @@ export const translations = {
     more: "เพิ่มเติม",
 
     // Dialogs
-    deleteChatsTitle: "ต้องการลบแชทหรือไม่?",
+    deleteChatsTitle: "ลบ {count} แชทใช่ไหม?",
+    deleteChatTitle: "ลบ 1 แชทใช่ไหม?",
     deleteChatsDescription: "แชทที่เลือกและข้อความทั้งหมดจะถูกลบออกจากเครื่องนี้ รวมถึงเซสชันของ Agent จะถูกหยุดการทำงานด้วย",
 
     // Titlebar
@@ -131,7 +133,8 @@ export const translations = {
     settingsTitle: "การตั้งค่า",
     settingsSubtitle: "กำหนดค่าโมเดล, ตัวช่วย Agent, ภาษา และพื้นที่ทำงานของคุณ",
     tabGeneral: "ทั่วไป",
-    tabGeneralDesc: "ภาษา, หน้าตา และแบบอักษร",
+    tabGeneralDesc: "ภาษา แบบอักษร และธีม",
+    settingsSections: "หมวดการตั้งค่า",
     tabModels: "โมเดล",
     tabModelsDesc: "ผู้ให้บริการ, API Keys & Agent",
     tabInstructions: "คำแนะนำ",
@@ -149,20 +152,24 @@ export const translations = {
 
     // General Settings
     languageSectionTitle: "ภาษาและแบบอักษร",
-    languageSectionDesc: "เลือกภาษาของแอปพลิเคชัน เมื่อเลือกภาษาไทยระบบจะใช้ฟอนต์ TH Sarabun โดยอัตโนมัติ",
+    languageSectionDesc: "เลือกภาษาของแอปพลิเคชัน เมื่อเลือกภาษาไทยระบบจะใช้ฟอนต์ Sarabun โดยอัตโนมัติ",
     languageLabel: "ภาษาของแอป (App Language)",
     languageAuto: "ตามภาษาของอุปกรณ์ (อัตโนมัติ)",
-    languageThai: "ภาษาไทย (TH Sarabun)",
+    languageThai: "ภาษาไทย (Sarabun)",
     languageEnglish: "English (Inter)",
     currentFontLabel: "ฟอนต์ที่ใช้งานอยู่",
-    fontThaiNotice: "ระบบกำลังใช้งานฟอนต์ TH Sarabun สำหรับการแสดงผลภาษาไทย",
+    fontThaiNotice: "ระบบกำลังใช้งานฟอนต์ Sarabun สำหรับการแสดงผลภาษาไทย",
     fontEnglishNotice: "ระบบกำลังใช้งานฟอนต์ Inter สำหรับการแสดงผลภาษาอังกฤษ",
     themeSectionTitle: "ธีมการแสดงผล",
     themeSectionDesc: "ปรับแต่งโทนสีหน้าต่างของ Mali Cowork",
     themeLight: "สว่าง",
     themeDark: "มืด",
-    themeSystem: "ตามระบบ",
   },
-} as const;
+} as const satisfies Record<string, Record<string, string>>;
 
 export type TranslationKey = keyof typeof translations.en;
+
+// Compile-time check: every English key must also exist in Thai (and vice versa).
+type Missing<A, B> = Exclude<keyof A, keyof B>;
+const _keysMatch: [Missing<typeof translations.en, typeof translations.th>, Missing<typeof translations.th, typeof translations.en>] extends [never, never] ? true : never = true;
+void _keysMatch;

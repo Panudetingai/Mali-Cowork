@@ -44,7 +44,7 @@ export function LanguageToggle({ className }: { className?: string }) {
         >
           <div className="flex flex-col">
             <span className="font-medium">ภาษาไทย</span>
-            <span className="text-[10px] text-muted-foreground">ฟอนต์ TH Sarabun</span>
+            <span className="text-[10px] text-muted-foreground">ฟอนต์ Sarabun</span>
           </div>
           {lang === "th" && mode === "th" && <CheckIcon className="size-3.5 text-primary" />}
         </DropdownMenuItem>

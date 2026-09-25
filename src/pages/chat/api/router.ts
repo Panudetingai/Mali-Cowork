@@ -13,6 +13,8 @@ import {
 } from "@/features/opencode";
 import { mediaGenerateStream } from "@/features/media";
 import { requestConfigFor } from "@/features/providers";
+import { recordUsage } from "@/features/usage/ledger";
+import type { AgentUsage } from "../types";
 import {
     apiModelOf,
     codexModelOf,
@@ -114,7 +116,66 @@ export function runModelIdFor(modelId: string): string {
   return `${OPENCODE_PREFIX}${agentId}`;
 }
 
+/**
+ * Run a prompt on whichever backend its model lives on. Every reply — chats,
+ * the Quick bar, the Inbox — passes through here, so this is where its
+ * tokens go into the usage ledger, which outlives the chat.
+ */
 export async function generateStream(
+  request: GenerateRequest,
+  handlers: ChatStreamHandlers,
+): Promise<void> {
+  const started = performance.now();
+  let firstTokenMs: number | undefined;
+  let usage: AgentUsage | undefined;
+  let recorded = false;
+  const record = () => {
+    if (recorded || !usage) return;
+    recorded = true;
+    recordUsage({
+      modelId: request.modelId,
+      chatId: request.runId,
+      prompt: request.prompt,
+      usage,
+      durationMs: performance.now() - started,
+      firstTokenMs,
+    });
+  };
+  const firstToken = () => {
+    firstTokenMs ??= performance.now() - started;
+  };
+  try {
+    await routeStream(request, {
+      ...handlers,
+      onChunk: (text) => {
+        firstToken();
+        handlers.onChunk(text);
+      },
+      onReasoning: (reasoning) => {
+        firstToken();
+        handlers.onReasoning?.(reasoning);
+      },
+      onMetadata: (data) => {
+        // Later reports refine earlier ones, as on the message (`withMetadata`).
+        if (data.usage) usage = { ...usage, ...data.usage };
+        handlers.onMetadata?.(data);
+      },
+      onDone: (doneModelId) => {
+        record();
+        handlers.onDone(doneModelId);
+      },
+      // A failed or stopped reply still spent what it reported.
+      onError: (message) => {
+        record();
+        handlers.onError(message);
+      },
+    });
+  } finally {
+    record();
+  }
+}
+
+async function routeStream(
   request: GenerateRequest,
   handlers: ChatStreamHandlers,
 ): Promise<void> {
@@ -134,6 +195,8 @@ export async function generateStream(
         model: api.model,
         kind: media,
         ...requestConfigFor(api.provider),
+        // Pictures attached in the chat are what to draw from.
+        references: (request.attachments ?? []).filter((a) => a.kind === "image").map((a) => a.path),
         // Cowork works in a folder, so the file belongs there; Chat has none.
         outputDir: request.mode === "cowork" ? request.cwd ?? null : null,
       },
