@@ -24,7 +24,7 @@ path = "src/bin/mcp_runner.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
@@ -49,6 +49,8 @@ zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 rusqlite = { version = "0.39", features = ["bundled"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-clipboard-manager = "2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

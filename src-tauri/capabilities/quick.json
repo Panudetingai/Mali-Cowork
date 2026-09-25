@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "quick",
+  "description": "Quick bar (Epic A): no file system, dialog or clipboard access — Rust hands it the clipboard captured at the shortcut press.",
+  "windows": [
+    "quick"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-hide",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-focus",
+    "opener:default"
+  ]
+}

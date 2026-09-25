@@ -21,7 +21,7 @@ mod branches;
 mod diff;
 mod history;
 mod remote;
-mod runner;
+pub(crate) mod runner;
 mod status;
 
 use actions::CommitResult;

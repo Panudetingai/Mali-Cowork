@@ -73,6 +73,8 @@ type Props = {
   selected: AiModel;
   loading?: boolean;
   onSelect: (model: AiModel) => void;
+  /** `field`: a full-width select for Settings, instead of the chat box's ghost button. */
+  appearance?: "composer" | "field";
 };
 
 /**
@@ -87,7 +89,7 @@ function agentLabel(model: AiModel) {
 }
 
 /** The single place to choose a model, OpenCode models included. */
-export function ModelPicker({ models, selected, loading, onSelect }: Props) {
+export function ModelPicker({ models, selected, loading, onSelect, appearance = "composer" }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
@@ -124,20 +126,34 @@ export function ModelPicker({ models, selected, loading, onSelect }: Props) {
   return (
     <ModelSelector open={open} onOpenChange={setOpen}>
       <ModelSelectorTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="max-w-56 min-w-0 shrink gap-1.5 text-muted-foreground hover:text-foreground"
-          aria-label="Select AI model"
-        >
-          {modelIsConnected(selected) && <ConnectedDot />}
-          <Logo provider={selected.provider} />
-          <ModelSelectorName className="text-sm font-normal">
-            {agentLabel(selected)}
-          </ModelSelectorName>
-          <ChevronDownIcon className="size-3.5 shrink-0 opacity-60" />
-        </Button>
+        {appearance === "field" ? (
+          <button
+            type="button"
+            className="flex h-11 w-full min-w-0 items-center gap-2.5 rounded-xl border border-border/70 bg-background px-3 text-left text-sm shadow-xs transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+            aria-label="Select AI model"
+          >
+            <Logo provider={selected.provider} />
+            <span className="min-w-0 flex-1 truncate font-medium">{agentLabel(selected)}</span>
+            <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">{selected.group}</span>
+            {modelIsConnected(selected) && <ConnectedDot />}
+            <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />
+          </button>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="max-w-56 min-w-0 shrink gap-1.5 text-muted-foreground hover:text-foreground"
+            aria-label="Select AI model"
+          >
+            {modelIsConnected(selected) && <ConnectedDot />}
+            <Logo provider={selected.provider} />
+            <ModelSelectorName className="text-sm font-normal">
+              {agentLabel(selected)}
+            </ModelSelectorName>
+            <ChevronDownIcon className="size-3.5 shrink-0 opacity-60" />
+          </Button>
+        )}
       </ModelSelectorTrigger>
       <ModelSelectorContent
         title="Select model"

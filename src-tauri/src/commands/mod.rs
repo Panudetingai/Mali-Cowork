@@ -1,3 +1,4 @@
+pub mod arena;
 pub mod attachments;
 pub mod bin_cache;
 pub mod chat;
@@ -18,7 +19,9 @@ pub mod mcp_registry;
 pub mod native_alert;
 pub mod smithery;
 pub mod opencode;
+pub mod outputs;
 pub mod process;
+pub mod quick;
 pub mod secure_fs;
 pub mod setup;
 pub mod storage;

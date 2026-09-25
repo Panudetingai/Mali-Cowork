@@ -154,7 +154,7 @@ v0.1.x ทำให้ Mali **ทำงานได้** (Chat / Cowork / Code, 
 
 #### A.1 User stories
 
-- ในฐานะ Kai ฉันเลือกข้อความใน Chrome แล้วกด `⌥Space` เพื่อให้ Mali สรุป/แปล/เขียนใหม่ โดยไม่ต้องสลับหน้าต่าง
+- ในฐานะ Kai ฉันเลือกข้อความใน Chrome แล้วกด `⌥⌘M` เพื่อให้ Mali สรุป/แปล/เขียนใหม่ โดยไม่ต้องสลับหน้าต่าง
 - ในฐานะ Dan ฉันกด hotkey แล้วลากกรอบ screenshot error บนจอเพื่อถามว่าแก้อย่างไร
 - ในฐานะ Som ฉันกด hotkey แล้วพูดภาษาไทย (ต่อกับ Epic E) แล้วได้อีเมลตอบลูกค้า
 
@@ -162,7 +162,7 @@ v0.1.x ทำให้ Mali **ทำงานได้** (Chat / Cowork / Code, 
 
 | ID | Requirement | Owner |
 | --- | --- | --- |
-| A-FR1 | Global shortcut (ค่าเริ่มต้น `⌥Space` / `Alt+Space`, เปลี่ยนได้, ตรวจชนกับ shortcut ของระบบ) เปิด **Quick bar** หน้าต่างลอยขนาดเล็ก always-on-top | 🟣 Claude Code |
+| A-FR1 | Global shortcut (ค่าเริ่มต้น `⌥⌘M` / `Ctrl+Alt+M`, เปลี่ยนได้, ตรวจชนกับ shortcut ของระบบ) เปิด **Quick bar** หน้าต่างลอยขนาดเล็ก always-on-top | 🟣 Claude Code |
 | A-FR2 | Quick bar แนบ **clipboard ปัจจุบัน** ให้อัตโนมัติ (แสดงเป็น chip ลบได้) — **ไม่อ่าน clipboard จนกว่าผู้ใช้จะเปิด Quick bar** | 🟣 Claude Code |
 | A-FR3 | ปุ่ม **Capture screen**: เลือกพื้นที่ (macOS ใช้ `screencapture -i`, Windows ใช้ Snipping API) แนบเป็นรูป | 🟣 Claude Code |
 | A-FR4 | Quick actions ตั้งได้: สรุป · แปล TH⇄EN · เขียนใหม่ให้สุภาพ · อธิบายโค้ด · เพิ่มเองจาก skill | 🟢 Cursor |
@@ -242,7 +242,7 @@ v0.1.x ทำให้ Mali **ทำงานได้** (Chat / Cowork / Code, 
 
 #### C.3 Technical notes
 
-- ข้อมูลส่วนใหญ่มีอยู่แล้วใน checkpoint + message.usage + agent steps — เพิ่มตาราง `outputs(path, chat_id, project_id, kind, created_at, checkpoint_id)` ตอนจบรอบ
+- ~~เพิ่มตาราง `outputs` ใน SQLite~~ **ตัดสินใจแล้ว (24 ก.ย. 2026):** ไม่เพิ่มตาราง — Receipt, Outputs และ Recap คำนวณจาก `turn.changes` + `usage` + `activities` ของแชทที่โหลดอยู่ในหน่วยความจำแล้ว (`src/features/work-receipt/`); backend เหลือแค่ `outputs_stat` สำหรับเช็คว่าไฟล์ยังอยู่ · Handoff: [HANDOFF-cursor-epic-c.md](./HANDOFF-cursor-epic-c.md)
 - ไฟล์ที่ถูกลบ/ย้ายภายหลัง แสดงสถานะ "ไม่พบไฟล์" ไม่ลบ record อัตโนมัติ
 
 #### C.4 Acceptance criteria
@@ -341,7 +341,7 @@ Sidebar
 
 Global
 ├── ⌘K  Command palette                   (Q)
-└── ⌥Space  Quick bar (นอกแอป)             (A)
+└── ⌥⌘M    Quick bar (นอกแอป)             (A)
 ```
 
 ---
@@ -385,7 +385,7 @@ Global
 
 | # | คำถาม | เจ้าของ | ตัดสินใจก่อน |
 | --- | --- | --- | --- |
-| 1 | Hotkey ค่าเริ่มต้น `⌥Space` ชน Raycast/ChatGPT บ่อย — ใช้ `⌥⌘M` แทนไหม? | Product | 0.3.2 |
+| 1 | ~~Hotkey ค่าเริ่มต้น `⌥Space` ชน Raycast/ChatGPT บ่อย — ใช้ `⌥⌘M` แทนไหม?~~ **ตัดสินใจแล้ว (25 ก.ย.): `⌥⌘M` / `Ctrl+Alt+M`** เปลี่ยนได้ใน Settings | Product | ✅ |
 | 2 | Paste back ต้องขอ Accessibility — คุ้มกับ friction ไหม หรือทำแค่ Copy ใน v0.3? | Product | 0.3.2 |
 | 3 | Voice engine แรก: provider STT หรือ macOS Speech (ไทยแม่นพอไหม)? | Eng | 0.3.3 |
 | 4 | Arena ใน Cowork สำหรับโฟลเดอร์ที่ไม่ใช่ git — copy ทั้งโฟลเดอร์ปลอดภัย/เร็วพอไหม? | Eng | 0.3.5 |

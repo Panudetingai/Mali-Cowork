@@ -31,6 +31,12 @@ export type ChatSession = {
   codexSessionId?: string;
   /** Antigravity conversation id, so `agy --conversation <id>` keeps the thread. */
   antigravitySessionId?: string;
+  /** A background task's chat (Inbox): listed there, not in the sidebar. */
+  inboxTask?: boolean;
+  /** For a background task: the chat it was started from. */
+  taskFrom?: { id: string; title: string };
+  /** A contender in an Arena round; kept out of the history list until picked. */
+  arenaId?: string;
   /** Chat this one continues after the context limit was reached. */
   continuedFrom?: {
     id: string;
@@ -42,7 +48,10 @@ export type ChatSession = {
   };
 };
 
-type NewChat = Pick<ChatSession, "mode" | "view" | "cwd" | "continuedFrom" | "projectId">;
+type NewChat = Pick<ChatSession, "mode" | "view" | "cwd" | "continuedFrom" | "projectId" | "taskFrom" | "inboxTask"> & {
+  /** Chosen by the caller when another window already refers to the chat (Quick bar). */
+  id?: string;
+};
 
 /** In-flight state for a chat; never persisted. */
 export type ChatRun = {
@@ -117,6 +126,9 @@ function isChat(value: unknown): value is ChatSession {
 
 export const useChatSessions = sessionStore.use;
 export const useChatRuns = runStore.use;
+/** Every active run by chat id; for code outside React (the Task Inbox queue). */
+export const getRuns = runStore.get;
+export const subscribeToRuns = runStore.subscribe;
 
 export function getChat(id: string) {
   return sessionStore.get().find((s) => s.id === id);
@@ -133,12 +145,12 @@ export function sessionMode(session: ChatSession | undefined): WorkMode {
 export function createChat(firstPrompt: string, options: NewChat = {}): ChatSession {
   const now = Date.now();
   const session: ChatSession = {
-    id: crypto.randomUUID(),
     title: titleFrom(firstPrompt),
     createdAt: now,
     updatedAt: now,
     messages: [],
     ...options,
+    id: options.id ?? crypto.randomUUID(),
   };
   sessionStore.set((prev) => [session, ...prev]);
   return session;
@@ -219,6 +231,11 @@ export function deleteChat(id: string) {
       console.warn("[chat-history] could not delete OpenCode session", error),
     ),
   );
+}
+
+/** Remove many chats at once. */
+export function deleteChats(ids: string[]) {
+  for (const id of ids) deleteChat(id);
 }
 
 /** Returns the run's token for `endRun`. */

@@ -79,7 +79,13 @@ export function ChatMessagePanel({
           {/* Measured by useScroll to follow the reply as it grows. */}
           <div className="flex flex-col gap-4">
             {continuedFrom && <ContinuedFrom from={continuedFrom} isLoading={isLoading} />}
-            <ChatMessages messages={messages} isLoading={isLoading} onRetry={onRetry} onRate={onRate} />
+            <ChatMessages
+              messages={messages}
+              isLoading={isLoading}
+              onRetry={onRetry}
+              onRate={onRate}
+              session={session}
+            />
           </div>
         </div>
 

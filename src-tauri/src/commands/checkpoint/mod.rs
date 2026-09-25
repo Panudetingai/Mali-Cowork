@@ -399,6 +399,12 @@ fn scan_roots(roots: &[PathBuf]) -> Result<snapshot::Scan, String> {
     })
 }
 
+/// Every path a turn changed, so other commands can answer only for files
+/// the app itself listed (the Outputs gallery's `outputs_stat`).
+pub(crate) fn changed_paths(id: &str) -> Result<std::collections::HashSet<String>, String> {
+    Ok(load_record(id)?.changes.into_iter().map(|c| c.path).collect())
+}
+
 fn find<'a>(record: &'a Record, path: &str) -> Result<&'a Change, String> {
     record
         .changes

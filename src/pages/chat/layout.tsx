@@ -6,9 +6,10 @@ import { GitBar, GitPanel, GitProvider } from "@/features/git";
 import { ProviderKeyDialog, saveOpencodeSettings, useDefaultCwd } from "@/features/opencode";
 import { FirstRunWizard } from "@/features/onboarding";
 import { getProject, useProjects } from "@/features/projects";
-import { folderName, normalizeFolder } from "@/features/workspace";
+import { carriedConversation, ChatTasksStrip, enqueueTask, TaskChatNote } from "@/features/tasks";
+import { folderName, normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import { cn } from "@/lib/utils";
-import { useChat } from "@/pages/chat/hooks/use-chat";
+import { turnInputFor, useChat, type SendMessage } from "@/pages/chat/hooks/use-chat";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { startTransition, useRef, type ReactNode } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -120,6 +121,26 @@ export default function ChatLayout() {
 
   // Cowork only: the Git panel works on the chat's folder.
   const coworkFolder = mode === "cowork" ? normalizeFolder(session?.cwd || defaultCwd || "") || undefined : undefined;
+
+  // Task Inbox: the prompt runs as its own background task in this folder,
+  // and this chat stays free; the strip above the composer tracks it.
+  const sendInBackground = async (payload: SendMessage) => {
+    if (!coworkFolder || !(await requestFolderAccess(coworkFolder))) return false;
+    const input = turnInputFor(payload);
+    // The task starts in a new chat: bring this conversation so "the content
+    // above" still means something to the agent.
+    const earlier = session?.messages.length
+      ? carriedConversation(session.messages, session.title, payload.budget.maxTokens)
+      : "";
+    if (earlier) input.context = (input.context ?? "") + earlier;
+    enqueueTask({
+      input,
+      folder: coworkFolder,
+      projectId: project?.id,
+      from: session ? { id: session.id, title: session.title } : undefined,
+    });
+    return true;
+  };
   const gitFolder = coworkFolder;
 
   // A deleted or unknown chat falls back to a new one.
@@ -222,6 +243,11 @@ export default function ChatLayout() {
             )}
 
             <div className="relative mt-4 shrink-0">
+              {session?.inboxTask || session?.taskFrom ? (
+                <TaskChatNote from={session.taskFrom} />
+              ) : (
+                mode === "cowork" && <ChatTasksStrip chatId={session?.id} />
+              )}
               <ChatComposer
                 key={`${chatId ?? "new"}:${mode}:${project?.id ?? ""}`}
                 mode={mode}
@@ -242,6 +268,7 @@ export default function ChatLayout() {
                 onSummarize={summarizeAndContinue}
                 onModeChange={changeMode}
                 onSubmit={sendMessage}
+                onSubmitBackground={sendInBackground}
               />
             </div>
           </div>

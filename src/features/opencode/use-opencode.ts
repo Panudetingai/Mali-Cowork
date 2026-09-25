@@ -66,6 +66,29 @@ export function getOpencodeModels() {
   return statusStore.get().models;
 }
 
+let listOnly: Promise<OpencodeModelsResult | null> | null = null;
+
+/**
+ * The model list alone, read-only — for a window that skips `refreshOpencode`
+ * (the Quick bar opens instantly and doesn't sync providers or MCP servers).
+ * Fills the shared store, so routing that reads `getOpencodeModels()` (e.g. a
+ * picture sent to an API model going through OpenCode) works the same there.
+ */
+export function ensureOpencodeModels(cwd?: string): Promise<OpencodeModelsResult | null> {
+  const known = statusStore.get().models;
+  if (known) return Promise.resolve(known);
+  listOnly ??= opencodeListModels(cwd)
+    .then((models) => {
+      if (models && !statusStore.get().models) statusStore.set((prev) => ({ ...prev, models }));
+      return models;
+    })
+    .catch(() => {
+      listOnly = null;
+      return null;
+    });
+  return listOnly;
+}
+
 export type OpencodeState = OpencodeSettings &
   Status & {
     update: (patch: Partial<OpencodeSettings>) => void;

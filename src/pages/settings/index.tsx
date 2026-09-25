@@ -8,14 +8,21 @@ import {
   TabPanels,
 } from "@/components/animate-ui/primitives/headless/tabs";
 import { cn } from "@/lib/utils";
-import { BookOpenIcon, FolderIcon, NotebookPenIcon, SparklesIcon } from "lucide-react";
+import { BookOpenIcon, FolderIcon, NotebookPenIcon, ReceiptIcon, SparklesIcon } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
+import type { ComponentProps } from "react";
 import { FoldersSettings } from "./folders-settings";
 import { InstructionsSettings } from "./instructions-settings";
 import { McpTabIcon } from "./mcp/mcp-icon";
 import { McpSettings } from "./mcp/mcp-settings";
 import { ModelsSettings } from "./models-settings";
+import { QuickSettings } from "./quick-settings";
+import { ReceiptSettings } from "./receipt-settings";
 import { SkillsSettings } from "./skills/skills-settings";
+
+function AppIcon(props: ComponentProps<"img">) {
+  return <img {...props} src="/icon-transparent.png" alt="" />;
+}
 
 const TABS = [
   // Providers and CLI agents are one page: both answer "where do the models
@@ -24,6 +31,8 @@ const TABS = [
   { id: "models", label: "Models", description: "Providers, keys & CLI agents", icon: SparklesIcon },
   { id: "instructions", label: "Instructions", description: "Tone & context", icon: NotebookPenIcon },
   { id: "skills", label: "Skills", description: "How-tos the AI follows", icon: BookOpenIcon },
+  { id: "receipt", label: "Work receipt", description: "Time-saved formula", icon: ReceiptIcon },
+  { id: "quick", label: "Quick bar", description: "Global shortcut & model", icon: AppIcon },
   { id: "mcp", label: "Connectors", description: "Apps & MCP tools", lobeMcp: true as const },
   { id: "folders", label: "Folders", description: "Disk access", icon: FolderIcon },
 ] as const;
@@ -101,6 +110,12 @@ export default function SettingsPage() {
             </TabPanel>
             <TabPanel>
               <SkillsSettings />
+            </TabPanel>
+            <TabPanel>
+              <ReceiptSettings />
+            </TabPanel>
+            <TabPanel>
+              <QuickSettings />
             </TabPanel>
             <TabPanel>
               <McpSettings />

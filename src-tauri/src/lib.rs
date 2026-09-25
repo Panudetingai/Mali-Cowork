@@ -30,6 +30,11 @@ use commands::mcp::{mcp_auth, mcp_auth_remove, mcp_diagnose, mcp_status, mcp_syn
 use commands::mcp_oauth::{mcp_auth_cancel, mcp_oauth_prepare};
 use commands::mcp_registry::{mcp_fetch_icon, mcp_registry_get, mcp_registry_icon, mcp_registry_search};
 use commands::native_alert::native_alert;
+use commands::outputs::outputs_stat;
+use commands::arena::{arena_apply, arena_cleanup, arena_cleanup_stale, arena_prepare};
+use commands::quick::{
+    quick_capture_screen, quick_configure, quick_hide, quick_open_main, quick_take_context, QuickState,
+};
 use commands::setup::{setup_cancel, setup_codex_login, setup_install, setup_plan, setup_scan};
 use commands::opencode::{
     opencode_abort, opencode_check, opencode_configure_providers, opencode_default_cwd,
@@ -128,6 +133,10 @@ pub fn run() {
         // Updates come from the public releases repo; see `plugins.updater`.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(commands::quick::shortcut_plugin())
+        .manage(QuickState::default())
+        .on_window_event(commands::quick::on_window_event)
         .menu(app_menu)
         .setup(|app| {
             supervisor::exit_on_signals();
@@ -161,6 +170,16 @@ pub fn run() {
             checkpoint_before_text,
             checkpoint_preview,
             checkpoint_open,
+            outputs_stat,
+            arena_prepare,
+            arena_apply,
+            arena_cleanup,
+            arena_cleanup_stale,
+            quick_configure,
+            quick_take_context,
+            quick_hide,
+            quick_open_main,
+            quick_capture_screen,
             cli_generate,
             check_cli,
             code_scan,
@@ -258,10 +277,12 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_, event| {
+        .run(|app, event| match event {
             // Stop opencode, running agents and the MCP servers they started.
-            if let tauri::RunEvent::Exit = event {
-                supervisor::shutdown_all();
-            }
+            tauri::RunEvent::Exit => supervisor::shutdown_all(),
+            // Dock click after tray mode hid the main window.
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => commands::quick::show_main(app),
+            _ => {}
         });
 }
