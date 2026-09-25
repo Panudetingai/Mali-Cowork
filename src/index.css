@@ -174,6 +174,20 @@ html[lang="th"] {
     background-color: transparent;
     border-radius: 0;
   }
+  /* Capture overlay (Windows): the screen under it must stay visible. */
+  html[data-window="quick-capture-overlay"] #root {
+    background-color: transparent;
+    border-radius: 0;
+  }
+
+  /* No scrollbars anywhere (WebView2 draws thick ones on Windows); scroll
+     containers show an edge fade instead (components/ui/scroll-fade). */
+  * {
+    scrollbar-width: none;
+  }
+  *::-webkit-scrollbar {
+    display: none;
+  }
 
   iframe[data-cowork-bot] {
     background: transparent !important;

@@ -124,8 +124,8 @@ export default function UsagePage() {
 
   return (
     <MotionConfig reducedMotion="user">
-      {/* The scroll lives out here, so the cards keep their natural height. */}
-      <div className="h-full overflow-y-auto">
+      {/* The app layout scrolls this page, so the cards keep their natural height. */}
+      <div>
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-8 sm:px-6 lg:py-10">
           <header className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">

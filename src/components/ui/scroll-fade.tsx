@@ -38,7 +38,12 @@ export function useScrollFade<T extends HTMLElement>(watch?: unknown) {
     if (!el || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(sync);
     observer.observe(el);
-    for (const child of el.children) observer.observe(child);
+    // Grandchildren too: a wrapper held to the container's height doesn't
+    // resize when the content inside it grows.
+    for (const child of el.children) {
+      observer.observe(child);
+      for (const inner of child.children) observer.observe(inner);
+    }
     return () => observer.disconnect();
   }, [sync, watch]);
 

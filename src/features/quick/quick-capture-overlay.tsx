@@ -89,7 +89,9 @@ export function QuickCaptureOverlay() {
   return (
     <div
       ref={containerRef}
-      className="fixed inset-0 cursor-crosshair bg-black/20"
+      // A light tint before the drag; once dragging, only the outside is
+      // dimmed so the picked region shows exactly what will be captured.
+      className={cn("fixed inset-0 cursor-crosshair", !rect && "bg-black/10")}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -99,22 +101,22 @@ export function QuickCaptureOverlay() {
         <>
           {/* Top */}
           <div
-            className="absolute bg-black/50"
+            className="absolute bg-black/35"
             style={{ top: 0, left: 0, right: 0, height: rect.y }}
           />
           {/* Bottom */}
           <div
-            className="absolute bg-black/50"
+            className="absolute bg-black/35"
             style={{ left: 0, right: 0, bottom: 0, height: `calc(100% - ${rect.y + rect.h}px)` }}
           />
           {/* Left */}
           <div
-            className="absolute bg-black/50"
+            className="absolute bg-black/35"
             style={{ top: rect.y, left: 0, width: rect.x, height: rect.h }}
           />
           {/* Right */}
           <div
-            className="absolute bg-black/50"
+            className="absolute bg-black/35"
             style={{
               top: rect.y,
               right: 0,
@@ -124,7 +126,7 @@ export function QuickCaptureOverlay() {
           />
           {/* Selection border */}
           <div
-            className="pointer-events-none absolute border border-sky-400 bg-sky-400/10 shadow-[0_0_0_1px_rgba(56,189,248,0.5)]"
+            className="pointer-events-none absolute border border-sky-400 shadow-[0_0_0_1px_rgba(56,189,248,0.5)]"
             style={{ top: rect.y, left: rect.x, width: rect.w, height: rect.h }}
           />
           {/* Size label */}

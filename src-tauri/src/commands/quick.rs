@@ -412,6 +412,7 @@ pub async fn quick_start_capture_overlay<R: Runtime>(app: AppHandle<R>) -> Resul
         .title("Capture region")
         .decorations(false)
         .transparent(true)
+        .background_color(tauri::window::Color(0, 0, 0, 0))
         .shadow(false)
         .always_on_top(true)
         .skip_taskbar(true)

@@ -9,18 +9,32 @@
 
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tauri::{AppHandle, Manager, Runtime};
 
 const REGISTRY: &str = "https://registry.modelcontextprotocol.io/v0.1";
 const MAX_PAGE: u32 = 100;
 const MAX_ICON_BYTES: usize = 512 * 1024;
 const MAX_CACHED_ICONS: usize = 400;
 const MAX_NAMES: usize = 40;
+/// The registry is often slow (a cold request can take ~20s) or drops
+/// requests. The first try is short so saved results can show quickly; each
+/// retry waits longer, since a slow request warms the registry up.
+const TRY_TIMEOUTS: [Duration; 3] = [Duration::from_secs(8), Duration::from_secs(25), Duration::from_secs(25)];
+const RETRIES: u32 = 2;
+/// A repeated search within this window is answered from memory.
+const FRESH_FOR: Duration = Duration::from_secs(10 * 60);
+const MAX_CACHED_PAGES: usize = 200;
+/// Every server the registry has returned is kept (in memory and on disk) so
+/// search still works when the registry doesn't answer.
+const MAX_CATALOG: usize = 5000;
+const CATALOG_FILE: &str = "mcp-registry-catalog.json";
 /// Registry types the app can launch: `npx`, `uvx` and `docker`.
 const LOCAL_TYPES: &[&str] = &["npm", "pypi", "oci"];
 const REMOTE_TYPES: &[&str] = &["streamable-http", "sse"];
@@ -81,7 +95,7 @@ struct Icon {
 }
 
 /// What the Connectors page gets for one server.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegistryServer {
     /// Reverse-DNS id, e.g. `com.notion/mcp`; its namespace is the publisher.
@@ -99,11 +113,13 @@ pub struct RegistryServer {
     pub remotes: Vec<Value>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegistryPage {
     pub servers: Vec<RegistryServer>,
     pub next_cursor: Option<String>,
+    /// The registry didn't answer; these come from servers seen earlier.
+    pub stale: bool,
 }
 
 fn https_url(raw: &str) -> Option<reqwest::Url> {
@@ -253,7 +269,6 @@ fn pretty_name(name: &str) -> String {
 fn client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .user_agent("mali-cowork")
-        .timeout(Duration::from_secs(15))
         .build()
         .map_err(|e| e.to_string())
 }
@@ -267,51 +282,227 @@ fn valid_name(name: &str) -> bool {
         && name.chars().all(|c| c.is_ascii_alphanumeric() || "./-_".contains(c))
 }
 
-async fn get_json<T: for<'de> Deserialize<'de>>(client: &reqwest::Client, url: reqwest::Url) -> Result<T, String> {
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| format!("Can't reach the MCP Registry: {e}"))?;
+const UNREACHABLE: &str = "The MCP Registry isn't responding right now. Try again in a moment.";
+
+enum Failure {
+    /// Not there: asking again won't help.
+    NotFound,
+    /// Timeout, dropped connection, 5xx, 429 or a garbled reply: worth a retry.
+    Unreachable,
+}
+
+async fn get_json_once<T: for<'de> Deserialize<'de>>(
+    client: &reqwest::Client,
+    url: &reqwest::Url,
+    timeout: Duration,
+) -> Result<T, Failure> {
+    let response = client.get(url.clone()).timeout(timeout).send().await.map_err(|_| Failure::Unreachable)?;
     let status = response.status();
     if status == reqwest::StatusCode::NOT_FOUND {
-        return Err("Not found in the MCP Registry".into());
+        return Err(Failure::NotFound);
     }
     if !status.is_success() {
-        return Err(format!("The MCP Registry returned {status}"));
+        return Err(Failure::Unreachable);
     }
-    response.json().await.map_err(|e| format!("Unexpected reply from the MCP Registry: {e}"))
+    response.json().await.map_err(|_| Failure::Unreachable)
+}
+
+async fn get_json<T: for<'de> Deserialize<'de>>(
+    client: &reqwest::Client,
+    url: reqwest::Url,
+    attempts: std::ops::RangeInclusive<u32>,
+) -> Result<T, Failure> {
+    let (mut attempt, last) = attempts.into_inner();
+    loop {
+        let timeout = TRY_TIMEOUTS[(attempt as usize).min(TRY_TIMEOUTS.len() - 1)];
+        match get_json_once(client, &url, timeout).await {
+            Err(Failure::Unreachable) if attempt < last => {
+                attempt += 1;
+                tokio::time::sleep(Duration::from_millis(400 * 3u64.pow(attempt - 1))).await;
+            }
+            result => return result,
+        }
+    }
+}
+
+// ---------------------------------------------------------------- Caches
+
+fn page_cache() -> &'static Mutex<HashMap<String, (Instant, RegistryPage)>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, (Instant, RegistryPage)>>> = OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
+fn catalog() -> &'static Mutex<Option<HashMap<String, RegistryServer>>> {
+    static CATALOG: OnceLock<Mutex<Option<HashMap<String, RegistryServer>>>> = OnceLock::new();
+    CATALOG.get_or_init(Default::default)
+}
+
+/// Where the catalog is kept on disk; `None` keeps it in memory only.
+fn catalog_path<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
+    app.path().app_cache_dir().ok().map(|dir| dir.join(CATALOG_FILE))
+}
+
+/// The catalog, read from disk on first use.
+fn with_catalog<T>(path: Option<&PathBuf>, f: impl FnOnce(&mut HashMap<String, RegistryServer>) -> T) -> T {
+    let mut guard = catalog().lock().unwrap_or_else(|e| e.into_inner());
+    let map = guard.get_or_insert_with(|| {
+        path.and_then(|path| std::fs::read(path).ok())
+            .and_then(|bytes| serde_json::from_slice::<Vec<RegistryServer>>(&bytes).ok())
+            .map(|servers| servers.into_iter().map(|s| (s.name.clone(), s)).collect())
+            .unwrap_or_default()
+    });
+    f(map)
+}
+
+fn remember(path: Option<&PathBuf>, servers: &[RegistryServer]) {
+    if servers.is_empty() {
+        return;
+    }
+    let snapshot = with_catalog(path, |map| {
+        for server in servers {
+            if map.len() < MAX_CATALOG || map.contains_key(&server.name) {
+                map.insert(server.name.clone(), server.clone());
+            }
+        }
+        map.values().cloned().collect::<Vec<_>>()
+    });
+    let Some(path) = path.cloned() else { return };
+    // Best effort: the catalog only makes a registry outage less visible.
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Ok(bytes) = serde_json::to_vec(&snapshot) {
+            let tmp = path.with_extension("json.tmp");
+            if std::fs::write(&tmp, bytes).is_ok() {
+                let _ = std::fs::rename(&tmp, &path);
+            }
+        }
+    });
+}
+
+/// Search the saved catalog the way the registry would: every word of the
+/// query must appear in the name, title or description.
+fn search_catalog(path: Option<&PathBuf>, query: &str, limit: usize) -> Vec<RegistryServer> {
+    let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    with_catalog(path, |map| {
+        let mut hits: Vec<&RegistryServer> = map
+            .values()
+            .filter(|s| {
+                let haystack = format!("{} {} {}", s.name, s.title, s.description).to_lowercase();
+                words.iter().all(|w| haystack.contains(w.as_str()))
+            })
+            .collect();
+        // Name/title matches first, then alphabetical so the order is stable.
+        hits.sort_by_key(|s| {
+            let head = format!("{} {}", s.name, s.title).to_lowercase();
+            (!words.iter().all(|w| head.contains(w.as_str())), s.title.to_lowercase())
+        });
+        hits.into_iter().take(limit).cloned().collect()
+    })
 }
 
 /// Search the registry (latest version of each server). Empty `query` lists all.
+/// When the registry doesn't answer, servers seen earlier are searched instead
+/// (`stale`), so a registry outage reads as "older results", not an error.
 #[tauri::command]
-pub async fn mcp_registry_search(
+pub async fn mcp_registry_search<R: Runtime>(
+    app: AppHandle<R>,
     query: Option<String>,
     cursor: Option<String>,
     limit: Option<u32>,
 ) -> Result<RegistryPage, String> {
+    search(catalog_path(&app).as_ref(), query, cursor, limit).await
+}
+
+async fn search(
+    saved_at: Option<&PathBuf>,
+    query: Option<String>,
+    cursor: Option<String>,
+    limit: Option<u32>,
+) -> Result<RegistryPage, String> {
+    let limit = limit.unwrap_or(30).clamp(1, MAX_PAGE);
+    let query = query.as_deref().map(str::trim).filter(|q| !q.is_empty()).map(|q| clip(q, 100));
+    let cursor = cursor.as_deref().filter(|c| !c.is_empty()).map(|c| clip(c, 300));
+
+    let key = format!("{limit}\n{}\n{}", query.as_deref().unwrap_or(""), cursor.as_deref().unwrap_or(""));
+    let cached = page_cache().lock().unwrap_or_else(|e| e.into_inner()).get(&key).cloned();
+    if let Some((at, page)) = &cached {
+        if at.elapsed() < FRESH_FOR {
+            return Ok(page.clone());
+        }
+    }
+
     let mut url = reqwest::Url::parse(&format!("{REGISTRY}/servers")).expect("static URL");
     {
         let mut params = url.query_pairs_mut();
         params.append_pair("version", "latest");
-        params.append_pair("limit", &limit.unwrap_or(30).clamp(1, MAX_PAGE).to_string());
-        if let Some(q) = query.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
-            params.append_pair("search", &clip(q, 100));
+        params.append_pair("limit", &limit.to_string());
+        if let Some(q) = &query {
+            params.append_pair("search", q);
         }
-        if let Some(c) = cursor.as_deref().filter(|c| !c.is_empty()) {
-            params.append_pair("cursor", &clip(c, 300));
+        if let Some(c) = &cursor {
+            params.append_pair("cursor", c);
         }
     }
-    let page: Page = get_json(&client()?, url).await?;
-    Ok(RegistryPage {
-        servers: page.servers.into_iter().map(|e| to_server(e.server)).collect(),
-        next_cursor: page.metadata.next_cursor,
-    })
+
+    let client = client()?;
+    // One quick try first: if it fails and there is something saved to show,
+    // show it rather than keep the user waiting on retries.
+    let saved = || {
+        if cursor.is_some() {
+            return Vec::new();
+        }
+        search_catalog(saved_at, query.as_deref().unwrap_or(""), limit as usize)
+    };
+    let mut result = get_json::<Page>(&client, url.clone(), 0..=0).await;
+    if matches!(result, Err(Failure::Unreachable)) && cached.is_none() && saved().is_empty() {
+        result = get_json::<Page>(&client, url, 1..=RETRIES).await;
+    }
+
+    match result {
+        Ok(page) => {
+            let page = RegistryPage {
+                servers: page.servers.into_iter().map(|e| to_server(e.server)).collect(),
+                next_cursor: page.metadata.next_cursor,
+                stale: false,
+            };
+            remember(saved_at, &page.servers);
+            let mut pages = page_cache().lock().unwrap_or_else(|e| e.into_inner());
+            if pages.len() >= MAX_CACHED_PAGES {
+                pages.retain(|_, (at, _)| at.elapsed() < FRESH_FOR);
+                if pages.len() >= MAX_CACHED_PAGES {
+                    pages.clear();
+                }
+            }
+            pages.insert(key, (Instant::now(), page.clone()));
+            Ok(page)
+        }
+        Err(_) => {
+            if let Some((_, page)) = cached {
+                return Ok(RegistryPage { stale: true, ..page });
+            }
+            if cursor.is_some() {
+                return Err(UNREACHABLE.into());
+            }
+            let servers = saved();
+            // Nothing saved matches: "no results" would be a lie, so say why.
+            if servers.is_empty() && with_catalog(saved_at, |map| map.is_empty()) {
+                return Err(UNREACHABLE.into());
+            }
+            Ok(RegistryPage { servers, next_cursor: None, stale: true })
+        }
+    }
 }
 
-/// The latest version of each named server; unknown names are skipped.
+/// The latest version of each named server; unknown names are skipped, and a
+/// server the registry doesn't return right now comes from the saved catalog.
 #[tauri::command]
-pub async fn mcp_registry_get(names: Vec<String>) -> Result<Vec<RegistryServer>, String> {
+pub async fn mcp_registry_get<R: Runtime>(app: AppHandle<R>, names: Vec<String>) -> Result<Vec<RegistryServer>, String> {
+    get_servers(catalog_path(&app).as_ref(), names).await
+}
+
+async fn get_servers(saved_at: Option<&PathBuf>, names: Vec<String>) -> Result<Vec<RegistryServer>, String> {
     let client = client()?;
     let fetches = names.iter().filter(|n| valid_name(n)).take(MAX_NAMES).map(|name| {
         let client = &client;
@@ -320,10 +511,20 @@ pub async fn mcp_registry_get(names: Vec<String>) -> Result<Vec<RegistryServer>,
             url.path_segments_mut()
                 .expect("https URL")
                 .extend(["servers", name.as_str(), "versions", "latest"]);
-            get_json::<Entry>(client, url).await.map(|e| to_server(e.server))
+            (name, get_json::<Entry>(client, url, 0..=RETRIES).await.map(|e| to_server(e.server)))
         }
     });
-    Ok(futures::future::join_all(fetches).await.into_iter().filter_map(Result::ok).collect())
+    let results = futures::future::join_all(fetches).await;
+    let fetched: Vec<RegistryServer> = results.iter().filter_map(|(_, r)| r.as_ref().ok().cloned()).collect();
+    remember(saved_at, &fetched);
+    Ok(results
+        .into_iter()
+        .filter_map(|(name, result)| match result {
+            Ok(server) => Some(server),
+            Err(Failure::NotFound) => None,
+            Err(Failure::Unreachable) => with_catalog(saved_at, |map| map.get(name.as_str()).cloned()),
+        })
+        .collect())
 }
 
 fn icon_cache() -> &'static Mutex<HashMap<String, Option<String>>> {
@@ -557,9 +758,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn registry_live() {
-        let page = mcp_registry_search(Some("notion".into()), None, Some(10)).await.unwrap();
+        let page = search(None, Some("notion".into()), None, Some(10)).await.unwrap();
         assert!(page.servers.iter().any(|s| s.name == "com.notion/mcp"));
-        let featured = mcp_registry_get(vec![
+        let featured = get_servers(None, vec![
             "com.notion/mcp".into(),
             "io.github.github/github-mcp-server".into(),
             "app.linear/linear".into(),
