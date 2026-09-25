@@ -17,11 +17,42 @@
     />
     <meta property="og:image" content="/icon-512.png" />
     <meta property="og:type" content="website" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Sarabun:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap"
+      rel="stylesheet"
+    />
     <title>Mali Cowork</title>
     <script>
       try {
         var theme = localStorage.getItem("mali-cowork-theme");
         if (theme === "dark") document.documentElement.classList.add("dark");
+
+        var langSettingsRaw = localStorage.getItem("mali-cowork-lang-settings");
+        var langMode = "auto";
+        if (langSettingsRaw) {
+          try {
+            var parsed = JSON.parse(langSettingsRaw);
+            if (parsed && parsed.mode) langMode = parsed.mode;
+          } catch (e) {}
+        }
+        var activeLang = "en";
+        if (langMode === "th") {
+          activeLang = "th";
+        } else if (langMode === "en") {
+          activeLang = "en";
+        } else {
+          var userLangs = navigator.languages || [navigator.language || ""];
+          for (var i = 0; i < userLangs.length; i++) {
+            if (userLangs[i] && userLangs[i].toLowerCase().indexOf("th") === 0) {
+              activeLang = "th";
+              break;
+            }
+          }
+        }
+        document.documentElement.lang = activeLang;
+        document.documentElement.dataset.lang = activeLang;
       } catch (e) {}
     </script>
   </head>

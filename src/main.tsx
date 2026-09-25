@@ -8,10 +8,12 @@ import { loadVault } from "@/features/secrets";
 import { applyProductionHardening } from "@/lib/production-hardening";
 import { applyWindowChrome } from "@/lib/window-chrome";
 import { ThemeProvider } from "@/components/theme-provider";
+import { applyLanguageToDOM, getLanguage } from "@/features/i18n";
 import "./index.css";
 import App from "./App";
 
 applyProductionHardening();
+applyLanguageToDOM(getLanguage());
 
 const root = () =>
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement);

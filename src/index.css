@@ -52,6 +52,44 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* Language-specific typography & fonts */
+@font-face {
+  font-family: 'TH Sarabun New';
+  src: local('TH Sarabun New'), local('THSarabunNew'), local('Sarabun');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'TH Sarabun New';
+  src: local('TH Sarabun New Bold'), local('THSarabunNew-Bold'), local('Sarabun-Bold');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --font-sarabun: 'TH Sarabun New', 'THSarabunNew', 'Sarabun', 'Inter Variable', sans-serif;
+  --font-inter: 'Inter Variable', sans-serif;
+}
+
+html[lang="th"],
+[data-lang="th"],
+html[data-lang="th"] body {
+  --font-sans: var(--font-sarabun);
+  --font-heading: var(--font-sarabun);
+  font-family: var(--font-sarabun);
+}
+
+html[lang="en"],
+[data-lang="en"],
+html[data-lang="en"] body {
+  --font-sans: var(--font-inter);
+  --font-heading: var(--font-inter);
+  font-family: var(--font-inter);
+}
+
 :root {
   --titlebar-height: 3rem;
   --window-radius: 12px;

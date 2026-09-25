@@ -8,10 +8,11 @@ import {
   TabPanels,
 } from "@/components/animate-ui/primitives/headless/tabs";
 import { cn } from "@/lib/utils";
-import { BookOpenIcon, FolderIcon, NotebookPenIcon, ReceiptIcon, SparklesIcon } from "lucide-react";
+import { BookOpenIcon, FolderIcon, GlobeIcon, NotebookPenIcon, ReceiptIcon, SparklesIcon } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import type { ComponentProps } from "react";
 import { FoldersSettings } from "./folders-settings";
+import { GeneralSettings } from "./general-settings";
 import { InstructionsSettings } from "./instructions-settings";
 import { McpTabIcon } from "./mcp/mcp-icon";
 import { McpSettings } from "./mcp/mcp-settings";
@@ -19,15 +20,14 @@ import { ModelsSettings } from "./models-settings";
 import { QuickSettings } from "./quick-settings";
 import { ReceiptSettings } from "./receipt-settings";
 import { SkillsSettings } from "./skills/skills-settings";
+import { useTranslation } from "@/features/i18n";
 
 function AppIcon(props: ComponentProps<"img">) {
   return <img {...props} src="/icon-transparent.png" alt="" />;
 }
 
 const TABS = [
-  // Providers and CLI agents are one page: both answer "where do the models
-  // in the chat box come from", and split across two tabs the same key had
-  // two homes.
+  { id: "general", label: "General", description: "Language, fonts & theme", icon: GlobeIcon },
   { id: "models", label: "Models", description: "Providers, keys & CLI agents", icon: SparklesIcon },
   { id: "instructions", label: "Instructions", description: "Tone & context", icon: NotebookPenIcon },
   { id: "skills", label: "Skills", description: "How-tos the AI follows", icon: BookOpenIcon },
@@ -46,14 +46,15 @@ const TAB = cn(
 );
 
 export default function SettingsPage() {
+  const { t } = useTranslation();
   const [params, setParams] = useSearchParams();
-  const tab: TabId = TABS.find((t) => t.id === params.get("tab"))?.id ?? "models";
+  const tab: TabId = TABS.find((t) => t.id === params.get("tab"))?.id ?? "general";
   const selectedIndex = Math.max(0, TABS.findIndex((t) => t.id === tab));
   const active = TABS[selectedIndex];
 
   const goTo = (index: number) => {
-    const id = TABS[index]?.id ?? "models";
-    setParams(id === "models" ? {} : { tab: id }, { replace: true });
+    const id = TABS[index]?.id ?? "general";
+    setParams(id === "general" ? {} : { tab: id }, { replace: true });
   };
 
   return (
@@ -61,9 +62,9 @@ export default function SettingsPage() {
       <TabGroup selectedIndex={selectedIndex} onChange={goTo} className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-12">
         <aside className="flex w-full shrink-0 flex-col gap-6 lg:w-56 xl:w-60">
           <header className="flex flex-col gap-1">
-            <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">{t("settingsTitle")}</h1>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              Configure models, agents, and what Cowork can access on your Mac.
+              {t("settingsSubtitle")}
             </p>
           </header>
 
@@ -102,6 +103,9 @@ export default function SettingsPage() {
           </div>
 
           <TabPanels mode="layout">
+            <TabPanel>
+              <GeneralSettings />
+            </TabPanel>
             <TabPanel>
               <ModelsSettings />
             </TabPanel>

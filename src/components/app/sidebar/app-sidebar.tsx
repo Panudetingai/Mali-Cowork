@@ -52,6 +52,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useTranslation } from "@/features/i18n";
 import { ChatHistoryItem } from "./chat-history-item";
 import { sidebarItemClass } from "./sidebar-styles";
 
@@ -211,6 +212,7 @@ function HistoryGroup({
 }
 
 export function AppSidebar() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const inboxAttention = useInboxAttention();
@@ -306,19 +308,19 @@ export function AppSidebar() {
       >
         <SidebarHeader className="gap-1 pb-1">
           <SidebarMenu className="gap-0.5">
-            <NavItem title="New chat" url="/?mode=chat" icon={SquarePenIcon} />
-            <NavItem title="Cowork" url="/?mode=cowork" icon={SparklesIcon} />
-            <NavItem title="Code" url="/?mode=code" icon={CodeXmlIcon} />
+            <NavItem title={t("newChat")} url="/?mode=chat" icon={SquarePenIcon} />
+            <NavItem title={t("cowork")} url="/?mode=cowork" icon={SparklesIcon} />
+            <NavItem title={t("code")} url="/?mode=code" icon={CodeXmlIcon} />
             <NavItemWithSub
-              title="Workspace"
+              title={t("workspace")}
               icon={LayoutGridIcon}
               items={[
-                { title: "Visual", url: "/visual", icon: ImagesIcon },
-                { title: "Inbox", url: "/inbox", icon: InboxIcon, badge: inboxAttention },
-                { title: "Arena", url: "/arena", icon: SwordsIcon },
-                { title: "Outputs", url: "/outputs", icon: FilesIcon },
-                { title: "Projects", url: "/projects", icon: FolderKanbanIcon },
-                { title: "Settings", url: "/settings", icon: Settings2Icon },
+                { title: t("visual"), url: "/visual", icon: ImagesIcon },
+                { title: t("inbox"), url: "/inbox", icon: InboxIcon, badge: inboxAttention },
+                { title: t("arena"), url: "/arena", icon: SwordsIcon },
+                { title: t("outputs"), url: "/outputs", icon: FilesIcon },
+                { title: t("projects"), url: "/projects", icon: FolderKanbanIcon },
+                { title: t("settings"), url: "/settings", icon: Settings2Icon },
               ]}
             />
           </SidebarMenu>
@@ -328,8 +330,8 @@ export function AppSidebar() {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => event.key === "Escape" && setQuery("")}
-              placeholder="Search chats"
-              aria-label="Search chat history"
+              placeholder={t("searchChats")}
+              aria-label={t("searchChats")}
               className="h-8 rounded-lg border-transparent bg-sidebar-accent/70 pl-8 pr-8 text-[13px] shadow-none focus-visible:bg-background"
             />
             <button
@@ -338,7 +340,7 @@ export function AppSidebar() {
                 setSelecting((v) => !v);
                 setSelected(new Set());
               }}
-              title={selecting ? "Done selecting" : "Select chats"}
+              title={selecting ? t("doneSelecting") : t("selectChats")}
               className={cn(
                 "absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-md",
                 selecting
@@ -353,7 +355,7 @@ export function AppSidebar() {
 
         <SidebarContent className="relative gap-0 pb-3">
           <HistoryGroup
-            label="Pinned"
+            label={t("pinned")}
             sessions={pinned}
             selecting={selecting}
             selected={selected}
@@ -361,7 +363,7 @@ export function AppSidebar() {
             onToggleGroup={toggleGroup}
           />
           <HistoryGroup
-            label="Chats"
+            label={t("chats")}
             sessions={chats}
             selecting={selecting}
             selected={selected}
@@ -369,7 +371,7 @@ export function AppSidebar() {
             onToggleGroup={toggleGroup}
           />
           <HistoryGroup
-            label="Cowork"
+            label={t("cowork")}
             sessions={cowork}
             selecting={selecting}
             selected={selected}
@@ -377,7 +379,7 @@ export function AppSidebar() {
             onToggleGroup={toggleGroup}
           />
           <HistoryGroup
-            label="Code"
+            label={t("code")}
             sessions={code}
             selecting={selecting}
             selected={selected}
@@ -387,12 +389,12 @@ export function AppSidebar() {
 
           {sessions.length === 0 && (
             <p className="px-4 py-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
-              Your chats will show up here.
+              {t("yourChatsWillShowUpHere")}
             </p>
           )}
           {nothingFound && (
             <p className="px-4 py-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
-              No chats match “{query.trim()}”.
+              {t("noChatsMatch")} “{query.trim()}”.
             </p>
           )}
 
@@ -404,11 +406,11 @@ export function AppSidebar() {
                     <CheckboxIndicator className="size-3.5" />
                   </Checkbox>
                   <span className="text-xs font-medium">
-                    {selectedCount} selected
+                    {selectedCount} {t("selected")}
                   </span>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="icon" className="size-7" onClick={exitSelection} title="Cancel">
+                  <Button variant="ghost" size="icon" className="size-7" onClick={exitSelection} title={t("cancel")}>
                     <XIcon className="size-3.5" />
                   </Button>
                   <Button
@@ -418,7 +420,7 @@ export function AppSidebar() {
                     onClick={() => setConfirmDelete(true)}
                   >
                     <Trash2Icon className="size-3.5" />
-                    Delete
+                    {t("delete")}
                   </Button>
                 </div>
               </div>
@@ -434,19 +436,18 @@ export function AppSidebar() {
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>
-              Delete {selectedCount} {selectedCount === 1 ? "chat" : "chats"}?
+              {t("deleteChatsTitle")}
             </DialogTitle>
             <DialogDescription>
-              The selected chats and their messages will be removed from this device. Agent sessions will also be
-              stopped where applicable.
+              {t("deleteChatsDescription")}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
-              Cancel
+              {t("cancel")}
             </Button>
             <Button variant="destructive" onClick={handleDelete}>
-              Delete
+              {t("delete")}
             </Button>
           </DialogFooter>
         </DialogContent>
