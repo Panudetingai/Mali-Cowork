@@ -6,3 +6,4 @@ export * from "./run";
 export * from "./bridge";
 export * from "./shortcut";
 export { QuickBarRoot } from "./quick-bar-root";
+export { QuickCaptureOverlay } from "./quick-capture-overlay";

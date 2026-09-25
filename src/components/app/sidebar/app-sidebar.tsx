@@ -6,9 +6,17 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/animate-ui/components/radix/sidebar";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/animate-ui/primitives/radix/collapsible";
 import { SidebarTokenFooter } from "./sidebar-token-footer";
 import { Button } from "@/components/ui/button";
 import { Checkbox, CheckboxIndicator } from "@/components/animate-ui/primitives/radix/checkbox";
@@ -22,15 +30,16 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { deleteChats, getRuns, sessionMode, useChatRuns, useChatSessions, type ChatSession } from "@/features/chat-history";
-import { useProjects, type Project } from "@/features/projects";
 import { useInboxAttention } from "@/features/tasks";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import {
   CheckSquareIcon,
+  ChevronRightIcon,
   CodeXmlIcon,
   FilesIcon,
   InboxIcon,
+  LayoutGridIcon,
   SwordsIcon,
   FolderKanbanIcon,
   ImagesIcon,
@@ -42,7 +51,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { NavLink, useLocation, useMatch, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { ChatHistoryItem } from "./chat-history-item";
 import { sidebarItemClass } from "./sidebar-styles";
 
@@ -65,6 +74,78 @@ function NavItem({ title, url, icon: Icon, badge }: { title: string; url: string
           </span>
         )}
       </NavLink>
+    </SidebarMenuItem>
+  );
+}
+
+type SubItem = { title: string; url: string; icon: LucideIcon; badge?: number };
+
+function NavItemWithSub({
+  title,
+  icon: Icon,
+  items,
+}: {
+  title: string;
+  icon: LucideIcon;
+  items: SubItem[];
+}) {
+  const { pathname } = useLocation();
+  const childActive = items.some((item) => pathname.startsWith(item.url.split("?")[0]));
+  const [open, setOpen] = useState(childActive);
+
+  return (
+    <SidebarMenuItem>
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton
+            data-active={childActive}
+            className={cn(
+              "w-full text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+              "data-[active=true]:bg-background data-[active=true]:font-medium data-[active=true]:text-foreground data-[active=true]:shadow-xs dark:data-[active=true]:bg-sidebar-accent",
+            )}
+          >
+            <Icon strokeWidth={1.75} />
+            <span className="truncate group-data-[collapsible=icon]:hidden">{title}</span>
+            <ChevronRightIcon
+              strokeWidth={1.75}
+              className={cn(
+                "ml-auto size-4 shrink-0 transition-transform duration-200 group-data-[collapsible=icon]:hidden",
+                open && "rotate-90",
+              )}
+            />
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            {items.map((item) => {
+              const SubIcon = item.icon;
+              const active = pathname.startsWith(item.url.split("?")[0]);
+              return (
+                <SidebarMenuSubItem key={item.title}>
+                  <NavLink
+                    to={item.url}
+                    title={item.title}
+                    data-active={active}
+                    className={cn(
+                      "flex h-7 w-full items-center gap-2 overflow-hidden rounded-md px-2 text-[13px] text-sidebar-foreground/80 outline-hidden ring-sidebar-ring transition-colors",
+                      "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2",
+                      "data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground",
+                    )}
+                  >
+                    <SubIcon strokeWidth={1.75} className="size-4 shrink-0" />
+                    <span className="truncate">{item.title}</span>
+                    {!!item.badge && (
+                      <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-semibold tabular-nums text-white">
+                        {item.badge}
+                      </span>
+                    )}
+                  </NavLink>
+                </SidebarMenuSubItem>
+              );
+            })}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </Collapsible>
     </SidebarMenuItem>
   );
 }
@@ -129,67 +210,16 @@ function HistoryGroup({
   );
 }
 
-/** Most recently used projects; the rest are on the Projects page. */
-const SIDEBAR_PROJECTS = 5;
-
-function ProjectsGroup({ projects }: { projects: Project[] }) {
-  if (projects.length === 0) return null;
-  return (
-    <SidebarGroup className="py-1 group-data-[collapsible=icon]:hidden">
-      <SidebarGroupLabel className="h-7 text-xs font-normal text-sidebar-foreground/55">Projects</SidebarGroupLabel>
-      <SidebarGroupContent>
-        <SidebarMenu className="gap-0.5">
-          {projects.slice(0, SIDEBAR_PROJECTS).map((project) => (
-            <ProjectItem key={project.id} project={project} />
-          ))}
-          {projects.length > SIDEBAR_PROJECTS && (
-            <SidebarMenuItem>
-              <NavLink to="/projects" className={sidebarItemClass}>
-                <span className="truncate pl-6 text-muted-foreground">All projects ({projects.length})</span>
-              </NavLink>
-            </SidebarMenuItem>
-          )}
-        </SidebarMenu>
-      </SidebarGroupContent>
-    </SidebarGroup>
-  );
-}
-
-function ProjectItem({ project }: { project: Project }) {
-  const url = `/projects/${project.id}`;
-  const isActive = !!useMatch(url);
-  return (
-    <SidebarMenuItem>
-      <NavLink to={url} title={project.name} data-active={isActive} className={sidebarItemClass}>
-        <FolderKanbanIcon strokeWidth={1.75} className="text-muted-foreground" />
-        <span className="truncate">{project.name}</span>
-      </NavLink>
-    </SidebarMenuItem>
-  );
-}
-
 export function AppSidebar() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const inboxAttention = useInboxAttention();
   const sessions = useChatSessions();
-  const projects = useProjects();
   const runs = useChatRuns();
   const [query, setQuery] = useState("");
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
-
-  const recentProjects = useMemo(() => {
-    // A project counts as used when it or one of its chats changed.
-    const lastUsed = new Map(projects.map((p) => [p.id, p.updatedAt]));
-    for (const s of sessions) {
-      if (s.projectId && lastUsed.has(s.projectId)) {
-        lastUsed.set(s.projectId, Math.max(lastUsed.get(s.projectId) ?? 0, s.updatedAt));
-      }
-    }
-    return [...projects].sort((a, b) => (lastUsed.get(b.id) ?? 0) - (lastUsed.get(a.id) ?? 0));
-  }, [projects, sessions]);
 
   const { pinned, chats, cowork, code } = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -279,12 +309,18 @@ export function AppSidebar() {
             <NavItem title="New chat" url="/?mode=chat" icon={SquarePenIcon} />
             <NavItem title="Cowork" url="/?mode=cowork" icon={SparklesIcon} />
             <NavItem title="Code" url="/?mode=code" icon={CodeXmlIcon} />
-            <NavItem title="Visual" url="/visual" icon={ImagesIcon} />
-            <NavItem title="Inbox" url="/inbox" icon={InboxIcon} badge={inboxAttention} />
-            <NavItem title="Arena" url="/arena" icon={SwordsIcon} />
-            <NavItem title="Outputs" url="/outputs" icon={FilesIcon} />
-            <NavItem title="Projects" url="/projects" icon={FolderKanbanIcon} />
-            <NavItem title="Settings" url="/settings" icon={Settings2Icon} />
+            <NavItemWithSub
+              title="Workspace"
+              icon={LayoutGridIcon}
+              items={[
+                { title: "Visual", url: "/visual", icon: ImagesIcon },
+                { title: "Inbox", url: "/inbox", icon: InboxIcon, badge: inboxAttention },
+                { title: "Arena", url: "/arena", icon: SwordsIcon },
+                { title: "Outputs", url: "/outputs", icon: FilesIcon },
+                { title: "Projects", url: "/projects", icon: FolderKanbanIcon },
+                { title: "Settings", url: "/settings", icon: Settings2Icon },
+              ]}
+            />
           </SidebarMenu>
           <div className="relative mt-1 group-data-[collapsible=icon]:hidden">
             <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -316,7 +352,6 @@ export function AppSidebar() {
         </SidebarHeader>
 
         <SidebarContent className="relative gap-0 pb-3">
-          {!query.trim() && <ProjectsGroup projects={recentProjects} />}
           <HistoryGroup
             label="Pinned"
             sessions={pinned}

@@ -3,6 +3,7 @@
  * bar hands a finished thread over instead of writing it itself.
  */
 import { createChat, getChat, updateChatMessages } from "@/features/chat-history";
+import type { Attachment } from "@/features/attachments";
 import type { ChatMessage } from "@/pages/chat/types";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
@@ -13,6 +14,7 @@ const SAVE = "quick:save";
 const THEME = "quick:theme";
 const THEME_REQUEST = "quick:theme-request";
 const OPEN_SETTINGS = "quick:open-settings";
+const CAPTURE_DONE = "quick:capture-done";
 
 /** Quick bar: keep the thread as a chat, and with `open`, show it in Mali. */
 export async function saveQuickThread(payload: QuickSavePayload) {
@@ -82,5 +84,12 @@ export async function openQuickSettings() {
 export function onOpenQuickSettings(handler: () => void) {
   if (!isTauri()) return () => {};
   const stop = listen(OPEN_SETTINGS, handler);
+  return () => void stop.then((unlisten) => unlisten());
+}
+
+/** Quick bar: a region screenshot was captured from the overlay. */
+export function onQuickCaptureDone(handler: (attachment: Attachment) => void) {
+  if (!isTauri()) return () => {};
+  const stop = listen<Attachment>(CAPTURE_DONE, (event) => handler(event.payload));
   return () => void stop.then((unlisten) => unlisten());
 }

@@ -36,9 +36,11 @@ import {
   captureScreen,
   hideQuick,
   onQuickOpened,
+  startCaptureOverlay,
   takeQuickContext,
 } from "./api";
 import {
+  onQuickCaptureDone,
   openQuickSettings,
   requestQuickTheme,
   saveQuickThread,
@@ -60,6 +62,8 @@ import type {
 
 const isMac =
   typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+const isWindows =
+  typeof navigator !== "undefined" && /Win/i.test(navigator.platform);
 const MOD = isMac ? "⌘" : "Ctrl+";
 
 /** Until the real name loads: `opencode:anthropic/claude-sonnet-5` → `claude-sonnet-5`. */
@@ -127,6 +131,14 @@ export function QuickBarRoot() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [turns]);
+
+  useEffect(() => {
+    const stop = onQuickCaptureDone((attachment) => {
+      setShots((prev) => [...prev, attachment]);
+      setNote(undefined);
+    });
+    return () => stop();
+  }, []);
 
   const updateLast = (fn: (turn: QuickTurn) => QuickTurn) =>
     setTurns((prev) =>
@@ -228,8 +240,12 @@ export function QuickBarRoot() {
     setCapturing(true);
     setNote(undefined);
     try {
-      const shot = await captureScreen();
-      if (shot) setShots((prev) => [...prev, shot]);
+      if (isMac) {
+        const shot = await captureScreen();
+        if (shot) setShots((prev) => [...prev, shot]);
+      } else if (isWindows) {
+        await startCaptureOverlay();
+      }
     } catch (error) {
       setNote(error instanceof Error ? error.message : String(error));
     } finally {
@@ -480,7 +496,7 @@ export function QuickBarRoot() {
             )}
 
             <div className="ml-auto flex items-center gap-1">
-              {isMac && (
+              {(isMac || isWindows) && (
                 <button
                   type="button"
                   onClick={() => void capture()}

@@ -17,7 +17,7 @@ const MAX_TEXT_BYTES: u64 = 256 * 1024;
 /// Attachments older than this are removed on the next import.
 const KEEP_FOR: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Attachment {
     pub id: String,

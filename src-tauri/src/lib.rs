@@ -33,7 +33,8 @@ use commands::native_alert::native_alert;
 use commands::outputs::outputs_stat;
 use commands::arena::{arena_apply, arena_cleanup, arena_cleanup_stale, arena_prepare};
 use commands::quick::{
-    quick_capture_screen, quick_configure, quick_hide, quick_open_main, quick_take_context, QuickState,
+    quick_capture_region, quick_capture_screen, quick_configure, quick_hide, quick_open_main,
+    quick_start_capture_overlay, quick_take_context, QuickState,
 };
 use commands::setup::{setup_cancel, setup_codex_login, setup_install, setup_plan, setup_scan};
 use commands::opencode::{
@@ -180,6 +181,8 @@ pub fn run() {
             quick_hide,
             quick_open_main,
             quick_capture_screen,
+            quick_start_capture_overlay,
+            quick_capture_region,
             cli_generate,
             check_cli,
             code_scan,

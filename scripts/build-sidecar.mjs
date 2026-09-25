@@ -17,6 +17,39 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, rmSync, symlinkSync } f
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+function sleepSync(ms) {
+  const start = Date.now();
+  while (Date.now() - start < ms) {
+    // Busy-wait to keep the build script synchronous.
+  }
+}
+
+/** Windows locks a running executable, so cargo cannot overwrite it. Kill any
+ *  stale runner (and the parent Mali dev app that spawned it) and remove the
+ *  old binary before rebuilding. */
+function cleanStaleBinaryOnWindows(binaryPath) {
+  if (process.platform !== "win32") return;
+  let killed = false;
+  for (const exe of ["Mali.exe", "mali-mcp-runner.exe"]) {
+    try {
+      execFileSync("taskkill", ["/F", "/IM", exe, "/T"], { stdio: "ignore" });
+      killed = true;
+      console.log(`[sidecar] terminated stale ${exe}`);
+    } catch {
+      // No matching process or taskkill unavailable — safe to ignore.
+    }
+  }
+  if (killed) {
+    // Give Windows a moment to release file handles before we delete.
+    sleepSync(1000);
+  }
+  try {
+    if (existsSync(binaryPath)) rmSync(binaryPath, { force: true });
+  } catch {
+    // If still locked, the build will fall back to the existing binary below.
+  }
+}
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const tauriDir = join(root, "src-tauri");
 const binaries = join(tauriDir, "binaries");
@@ -53,13 +86,31 @@ function installedTargets() {
 
 /** Build for one triple and return the binary's path. */
 function build(triple) {
+  const binaryPath = triple
+    ? join(tauriDir, "target", triple, profile, `mali-mcp-runner${exe}`)
+    : join(tauriDir, "target", profile, `mali-mcp-runner${exe}`);
+  cleanStaleBinaryOnWindows(binaryPath);
   const args = ["build", "--bin", "mali-mcp-runner"];
   if (release) args.push("--release");
   if (triple) args.push("--target", triple);
-  run("cargo", args);
-  return triple
-    ? join(tauriDir, "target", triple, profile, `mali-mcp-runner${exe}`)
-    : join(tauriDir, "target", profile, `mali-mcp-runner${exe}`);
+  try {
+    run("cargo", args);
+  } catch (err) {
+    const isWindowsLockError =
+      process.platform === "win32" &&
+      !release &&
+      existsSync(binaryPath) &&
+      /access is denied|os error 5/i.test(String(err?.message ?? err));
+    if (isWindowsLockError) {
+      console.warn(
+        `[sidecar] ${binaryPath} is locked by a running process; reusing existing binary. ` +
+          `Kill any stale Mali.exe / mali-mcp-runner.exe processes to force a fresh build.`,
+      );
+      return binaryPath;
+    }
+    throw err;
+  }
+  return binaryPath;
 }
 
 function stage(triple, from) {

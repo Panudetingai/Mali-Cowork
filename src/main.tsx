@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { loadChatHistory } from "@/features/chat-history";
 import { loadProjects } from "@/features/projects";
-import { applyQuickConfig, QuickBarRoot } from "@/features/quick";
+import { applyQuickConfig, QuickBarRoot, QuickCaptureOverlay } from "@/features/quick";
 import { loadVault } from "@/features/secrets";
 import { applyProductionHardening } from "@/lib/production-hardening";
 import { applyWindowChrome } from "@/lib/window-chrome";
@@ -18,7 +18,9 @@ const root = () =>
 
 // The Quick bar (Epic A) is its own small window on the same bundle. It
 // skips the history/projects load: it opens on a shortcut and must be instant.
-if (new URLSearchParams(window.location.search).get("window") === "quick") {
+const windowParam = new URLSearchParams(window.location.search).get("window");
+
+if (windowParam === "quick") {
   // No main-window chrome here: its vibrancy and system shadow drew a dark
   // edge around the Quick bar, which draws its own frame (index.css).
   document.documentElement.dataset.window = "quick";
@@ -26,6 +28,15 @@ if (new URLSearchParams(window.location.search).get("window") === "quick") {
     <React.StrictMode>
       <ThemeProvider>
         <QuickBarRoot />
+      </ThemeProvider>
+    </React.StrictMode>,
+  );
+} else if (windowParam === "quick-capture-overlay") {
+  document.documentElement.dataset.window = "quick-capture-overlay";
+  root().render(
+    <React.StrictMode>
+      <ThemeProvider>
+        <QuickCaptureOverlay />
       </ThemeProvider>
     </React.StrictMode>,
   );

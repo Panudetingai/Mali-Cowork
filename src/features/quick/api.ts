@@ -43,3 +43,8 @@ export function onOpenChatRequest(handler: (chatId: string) => void): Promise<Un
 export function captureScreen() {
   return invoke<Attachment | null>("quick_capture_screen");
 }
+
+/** Open the region-selection overlay (Windows). */
+export function startCaptureOverlay() {
+  return invoke<void>("quick_start_capture_overlay");
+}

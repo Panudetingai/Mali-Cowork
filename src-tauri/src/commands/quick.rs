@@ -11,15 +11,20 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Runtime, Size, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, WindowEvent,
+};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutEvent, ShortcutState};
 
 use super::attachments::{attachment_import, Attachment};
 
 pub const QUICK_LABEL: &str = "quick";
+const OVERLAY_LABEL: &str = "quick-capture-overlay";
 const MAIN_LABEL: &str = "main";
 const TRAY_ID: &str = "mali-tray";
+const CAPTURE_DONE: &str = "quick:capture-done";
 /// ⌥⌘M on macOS, Ctrl+Alt+M elsewhere. ⌥Space clashes with Raycast/ChatGPT.
 pub const DEFAULT_SHORTCUT: &str = "CommandOrControl+Alt+M";
 /// Enough for a long email or a page of code; more is almost always a mistake.
@@ -52,6 +57,15 @@ pub struct QuickStatus {
 }
 
 /// What the Quick bar starts with; taken once per shortcut press.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QuickContext {
@@ -88,6 +102,10 @@ pub fn shortcut_plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
 
 /// Main: closing hides to the tray in tray mode. Quick: hides when it loses
 /// focus, like Spotlight, so it never lingers over the user's work.
+///
+/// The exception is when the cursor is still inside the window: dragging the
+/// title bar can briefly fire `Focused(false)`, so hiding then would make the
+/// bar vanish while the user is repositioning it.
 pub fn on_window_event<R: Runtime>(window: &tauri::Window<R>, event: &WindowEvent) {
     match (window.label(), event) {
         (MAIN_LABEL, WindowEvent::CloseRequested { api, .. }) => {
@@ -98,7 +116,19 @@ pub fn on_window_event<R: Runtime>(window: &tauri::Window<R>, event: &WindowEven
             }
         }
         (QUICK_LABEL, WindowEvent::Focused(false)) => {
-            let _ = window.hide();
+            let should_hide = match (window.cursor_position(), window.outer_position(), window.inner_size()) {
+                (Ok(cursor), Ok(pos), Ok(size)) => {
+                    let x = pos.x as f64;
+                    let y = pos.y as f64;
+                    let w = size.width as f64;
+                    let h = size.height as f64;
+                    !(cursor.x >= x && cursor.x <= x + w && cursor.y >= y && cursor.y <= y + h)
+                }
+                _ => true,
+            };
+            if should_hide {
+                let _ = window.hide();
+            }
         }
         _ => {}
     }
@@ -170,6 +200,7 @@ fn open_quick<R: Runtime>(app: &AppHandle<R>) {
     *lock(&app.state::<QuickState>().pending) = Some(context);
     match quick_window(app) {
         Ok(window) => {
+            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: 720.0, height: 480.0 }));
             let _ = window.center();
             let _ = window.show();
             let _ = window.set_focus();
@@ -288,7 +319,8 @@ pub async fn quick_capture_screen<R: Runtime>(app: AppHandle<R>) -> Result<Optio
     if let Some(window) = &quick {
         let _ = window.hide();
     }
-    let result = capture_region().await;
+    let cursor = quick.as_ref().and_then(|w| w.cursor_position().ok()).map(|p| (p.x, p.y));
+    let result = capture_region(cursor).await;
     if let Some(window) = &quick {
         let _ = window.show();
         let _ = window.set_focus();
@@ -296,8 +328,144 @@ pub async fn quick_capture_screen<R: Runtime>(app: AppHandle<R>) -> Result<Optio
     result
 }
 
+async fn screen_infos() -> Result<Vec<(i32, i32, u32, u32)>, String> {
+    tokio::task::spawn_blocking(|| {
+        screenshots::Screen::all()
+            .map(|screens| {
+                screens
+                    .into_iter()
+                    .map(|s| {
+                        let info = s.display_info;
+                        (info.x, info.y, info.width, info.height)
+                    })
+                    .collect()
+            })
+            .map_err(|e| format!("Cannot access screens: {e}"))
+    })
+    .await
+    .map_err(|e| format!("Screen listing failed: {e}"))?
+}
+
+fn find_screen_by_cursor<'a>(
+    screens: &'a [screenshots::Screen],
+    cursor: Option<(f64, f64)>,
+) -> Option<&'a screenshots::Screen> {
+    if let Some((cx, cy)) = cursor {
+        screens.iter().find(|s| {
+            let info = s.display_info;
+            cx >= info.x as f64
+                && cx <= (info.x as f64 + info.width as f64)
+                && cy >= info.y as f64
+                && cy <= (info.y as f64 + info.height as f64)
+        })
+    } else {
+        None
+    }
+    .or_else(|| screens.first())
+}
+
+/// Windows: open a transparent overlay that covers one monitor so the user can
+/// drag to pick a region. The overlay calls `quick_capture_region` on mouse up.
+#[tauri::command]
+pub async fn quick_start_capture_overlay<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(QUICK_LABEL) {
+        let _ = window.hide();
+    }
+
+    let cursor = app
+        .get_webview_window(QUICK_LABEL)
+        .and_then(|w| w.cursor_position().ok())
+        .map(|p| (p.x, p.y));
+
+    let infos = screen_infos().await?;
+    let target = infos
+        .iter()
+        .find(|(x, y, w, h)| {
+            if let Some((cx, cy)) = cursor {
+                cx >= *x as f64
+                    && cx <= (*x as f64 + *w as f64)
+                    && cy >= *y as f64
+                    && cy <= (*y as f64 + *h as f64)
+            } else {
+                false
+            }
+        })
+        .or_else(|| infos.first())
+        .ok_or("No screen found")?;
+
+    let (x, y, w, h) = *target;
+    let url = format!("index.html?window=quick-capture-overlay&x={}&y={}", x, y);
+    let builder = WebviewWindowBuilder::new(&app, OVERLAY_LABEL, WebviewUrl::App(url.into()))
+        .title("Capture region")
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .visible(false);
+    #[cfg(target_os = "macos")]
+    let builder = builder.transparent(true);
+    let window = builder
+        .build()
+        .map_err(|e| format!("Cannot open capture overlay: {e}"))?;
+    let _ = window.set_position(Position::Physical(PhysicalPosition { x, y }));
+    let _ = window.set_size(Size::Physical(PhysicalSize {
+        width: w,
+        height: h,
+    }));
+    let _ = window.show();
+    let _ = window.set_focus();
+    Ok(())
+}
+
+/// Crop the selected screen region, import it as an attachment, and hand it
+/// back to the Quick bar.
+#[tauri::command]
+pub async fn quick_capture_region<R: Runtime>(app: AppHandle<R>, rect: CaptureRect) -> Result<(), String> {
+    let attachment = tokio::task::spawn_blocking(move || -> Result<Attachment, String> {
+        let screens = screenshots::Screen::all().map_err(|e| format!("Cannot access screens: {e}"))?;
+        let screen = find_screen_by_cursor(&screens, Some((rect.x as f64, rect.y as f64)))
+            .ok_or("No screen found")?;
+
+        let info = screen.display_info;
+        let image = screen.capture().map_err(|e| format!("Cannot capture screen: {e}"))?;
+
+        let local_x = (rect.x - info.x).max(0);
+        let local_y = (rect.y - info.y).max(0);
+        let max_w = (info.width as i32 - local_x).max(0) as u32;
+        let max_h = (info.height as i32 - local_y).max(0) as u32;
+        let width = rect.width.min(max_w);
+        let height = rect.height.min(max_h);
+        if width == 0 || height == 0 {
+            return Err("Selected region has no size".into());
+        }
+
+        let mut full = image.clone();
+        let cropped =
+            image::imageops::crop(&mut full, local_x as u32, local_y as u32, width, height).to_image();
+        let path = std::env::temp_dir().join(format!("mali-capture-{}.png", uuid::Uuid::new_v4().simple()));
+        cropped.save(&path).map_err(|e| format!("Cannot save screenshot: {e}"))?;
+
+        let attachment = attachment_import(path.to_string_lossy().into_owned())?;
+        let _ = std::fs::remove_file(&path);
+        Ok(attachment)
+    })
+    .await
+    .map_err(|e| format!("Capture task failed: {e}"))??;
+
+    let _ = app.emit_to(QUICK_LABEL, CAPTURE_DONE, attachment);
+    if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
+        let _ = overlay.close();
+    }
+    if let Some(quick) = app.get_webview_window(QUICK_LABEL) {
+        let _ = quick.show();
+        let _ = quick.set_focus();
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
-async fn capture_region() -> Result<Option<Attachment>, String> {
+async fn capture_region(_cursor: Option<(f64, f64)>) -> Result<Option<Attachment>, String> {
     let path = std::env::temp_dir().join(format!("mali-capture-{}.png", uuid::Uuid::new_v4().simple()));
     // -i: the user drags a region (Esc cancels) · -x: no shutter sound.
     // The first capture asks for Screen Recording permission.
@@ -317,8 +485,24 @@ async fn capture_region() -> Result<Option<Attachment>, String> {
 }
 
 #[cfg(not(target_os = "macos"))]
-async fn capture_region() -> Result<Option<Attachment>, String> {
-    Err("Screen capture from the Quick bar is macOS-only for now.".into())
+async fn capture_region(cursor: Option<(f64, f64)>) -> Result<Option<Attachment>, String> {
+    // Wait briefly so the Quick bar is fully hidden before the screenshot.
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+
+    tokio::task::spawn_blocking(move || -> Result<Option<Attachment>, String> {
+        let screens = screenshots::Screen::all().map_err(|e| format!("Cannot access screens: {e}"))?;
+        let screen = find_screen_by_cursor(&screens, cursor).ok_or("No screen found")?;
+
+        let image = screen.capture().map_err(|e| format!("Cannot capture screen: {e}"))?;
+        let path = std::env::temp_dir().join(format!("mali-capture-{}.png", uuid::Uuid::new_v4().simple()));
+        image.save(&path).map_err(|e| format!("Cannot save screenshot: {e}"))?;
+
+        let attachment = attachment_import(path.to_string_lossy().into_owned());
+        let _ = std::fs::remove_file(&path);
+        attachment.map(Some)
+    })
+    .await
+    .map_err(|e| format!("Capture task failed: {e}"))?
 }
 
 #[cfg(test)]
