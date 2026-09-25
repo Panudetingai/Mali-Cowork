@@ -143,9 +143,9 @@ function TabPanel<TTag extends React.ElementType = typeof motion.div>(
     <TabPanelPrimitive
       data-slot="tab-panel"
       layout
-      initial={{ opacity: 0, filter: 'blur(4px)' }}
-      animate={{ opacity: 1, filter: 'blur(0px)' }}
-      exit={{ opacity: 0, filter: 'blur(4px)' }}
+      initial={{ opacity: 0, scale: 0.96, filter: 'blur(8px)' }}
+      animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+      exit={{ opacity: 0, scale: 1.02, filter: 'blur(8px)' }}
       transition={transition}
       as={as as React.ElementType}
       {...rest}

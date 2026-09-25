@@ -33,12 +33,12 @@ import { useProjects } from "@/features/projects";
 import { cn } from "@/lib/utils";
 import { CoworkBot } from "@/components/anim/cowork-bot";
 import { McpToolIcon, useInstalledConnectors, useMcpConnections } from "@/features/mcp";
+import { InboxDropdownButton } from "@/features/tasks";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   ArrowUpIcon,
-  InboxIcon,
   EyeIcon,
   FolderIcon,
   FolderLockIcon,
@@ -747,18 +747,11 @@ export default function PromptInput({
             disabled={isLoading}
           />
           {canBackground && (
-            <Button
-              type="button"
-              size="icon-sm"
-              variant="ghost"
-              className="rounded-full text-muted-foreground hover:text-foreground"
-              disabled={!canSend || attaching || opencodeMissing}
-              onClick={() => void submitBackground()}
-              aria-label="Run in background"
+            <InboxDropdownButton
+              onRunBackground={() => void submitBackground()}
+              canRunBackground={canSend && !attaching && !opencodeMissing}
               title={`Run in background (${/Mac/.test(navigator.platform) ? "⌘" : "Ctrl+"}Enter) — the agent works on it in the Inbox, with this chat as context, while you keep chatting here`}
-            >
-              <InboxIcon />
-            </Button>
+            />
           )}
           {canStop ? (
             <Button

@@ -169,6 +169,12 @@ export function updateChatMessages(id: string, fn: (messages: ChatMessage[]) => 
   updateChat(id, (s) => ({ ...s, messages: fn(s.messages), updatedAt: Date.now() }));
 }
 
+export function editMessage(chatId: string, messageId: string, content: string) {
+  updateChatMessages(chatId, (messages) =>
+    messages.map((m) => (m.id === messageId ? { ...m, content: content.trim() } : m)),
+  );
+}
+
 export function renameChat(id: string, title: string) {
   const trimmed = title.trim();
   if (trimmed) updateChat(id, (s) => ({ ...s, title: trimmed }));

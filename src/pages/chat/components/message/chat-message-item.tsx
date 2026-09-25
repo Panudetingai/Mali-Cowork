@@ -43,6 +43,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
       streaming={streaming}
       onRetry={onRetry}
       onRate={onRate}
+      session={session}
       onOpenReceipt={receipt ? () => setReceiptOpen(true) : undefined}
     />
   );
@@ -62,10 +63,17 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   );
 });
 
-function Reply({ message, streaming, onRetry, onRate, onOpenReceipt }: Props) {
+function Reply({ message, streaming, onRetry, onRate, onOpenReceipt, session }: Props) {
   switch (message.role) {
     case "user":
-      return <UserMessage content={message.content} attachments={message.attachments} />;
+      return (
+        <UserMessage
+          chatId={session?.id}
+          messageId={message.id}
+          content={message.content}
+          attachments={message.attachments}
+        />
+      );
     case "assistant":
       return (
         <AssistantMessage

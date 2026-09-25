@@ -36,3 +36,38 @@ export function useInboxAttention() {
   return useTaskViews().filter((v) => v.status === "needs-you" || v.status === "ready").length;
 }
 
+/** Sidebar badge: every task still in the Inbox. */
+export function useInboxCount() {
+  return useTasks().length;
+}
+
+/** Pending permission/question requests across all running inbox tasks. */
+export function useInboxPendingPermissions() {
+  const views = useTaskViews();
+  const runs = useChatRuns();
+  return useMemo(() => {
+    let permissions = 0;
+    let questions = 0;
+    for (const view of views) {
+      if (view.status !== "needs-you" || !view.task.chatId) continue;
+      const run = runs[view.task.chatId];
+      permissions += run?.permissions.length ?? 0;
+      questions += run?.questions.length ?? 0;
+    }
+    return { permissions, questions };
+  }, [views, runs]);
+}
+
+/** Recent tasks for the sidebar dropdown, latest first. */
+export function useRecentTaskViews(limit = 6) {
+  const views = useTaskViews();
+  return useMemo(
+    () =>
+      views
+        .slice()
+        .sort((a, b) => (b.task.createdAt - a.task.createdAt))
+        .slice(0, limit),
+    [views, limit],
+  );
+}
+

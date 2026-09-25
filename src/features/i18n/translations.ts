@@ -41,6 +41,12 @@ export const translations = {
     deleteChatTitle: "Delete 1 chat?",
     deleteChatsDescription: "The selected chats and their messages will be removed from this device. Agent sessions will also be stopped where applicable.",
 
+    // Inbox
+    item: "item",
+    items: "items",
+    viewAllInbox: "View all Inbox",
+    runInBackground: "Run in background",
+
     // Titlebar
     toggleSidebar: "Toggle Sidebar",
     chooseCoworkBot: "Cowork bot — click to choose",
@@ -124,6 +130,12 @@ export const translations = {
     deleteChatsTitle: "ลบ {count} แชทใช่ไหม?",
     deleteChatTitle: "ลบ 1 แชทใช่ไหม?",
     deleteChatsDescription: "แชทที่เลือกและข้อความทั้งหมดจะถูกลบออกจากเครื่องนี้ รวมถึงเซสชันของ Agent จะถูกหยุดการทำงานด้วย",
+
+    // Inbox
+    item: "รายการ",
+    items: "รายการ",
+    viewAllInbox: "ดู Inbox ทั้งหมด",
+    runInBackground: "รันในแบ็คกราวด์",
 
     // Titlebar
     toggleSidebar: "เปิด/ปิด แถบด้านข้าง",
