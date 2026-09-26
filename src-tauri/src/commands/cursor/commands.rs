@@ -200,6 +200,13 @@ async fn run_prompt(
     let bin = cursor_bin().ok_or_else(not_found_message)?;
 
     let mut args = build_args(request);
+    // Connectors come from Mali's gateway (see `mcp_bridge`); approved up
+    // front, since a headless run can't ask.
+    args.push("--approve-mcps".into());
+    match crate::commands::mcp_bridge::cursor_plugin().await {
+        Ok(dir) => args.extend(["--plugin-dir".into(), dir.to_string_lossy().into_owned()]),
+        Err(e) => eprintln!("[cursor] connectors unavailable this run: {e}"),
+    }
     args.push(prompt_with_notes(request));
 
     // Registered for the whole turn, including the pauses between tries, so

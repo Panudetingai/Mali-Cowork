@@ -1,3 +1,4 @@
+import { agentAbort } from "@/features/agent";
 import { opencodeAbort, opencodeDeleteSession, type WorkMode } from "@/features/opencode";
 import { syncToDatabase } from "@/lib/db-sync";
 import { loadHistorySnapshot, type HistorySnapshot } from "@/lib/history-db";
@@ -31,6 +32,8 @@ export type ChatSession = {
   codexSessionId?: string;
   /** Antigravity conversation id, so `agy --conversation <id>` keeps the thread. */
   antigravitySessionId?: string;
+  /** Mali's own agent (Cowork on an API key): its saved conversation. */
+  maliSessionId?: string;
   /** A background task's chat (Inbox): listed there, not in the sidebar. */
   inboxTask?: boolean;
   /** For a background task: the chat it was started from. */
@@ -214,6 +217,7 @@ export function clearAgentSessions(chatId?: string) {
     cursorSessionId: undefined,
     codexSessionId: undefined,
     antigravitySessionId: undefined,
+    maliSessionId: undefined,
   });
   if (chatId) {
     updateChat(chatId, strip);
@@ -233,6 +237,11 @@ export function deleteChat(id: string) {
   sessionStore.set((prev) => prev.filter((s) => s.id !== id));
   endRun(id);
 
+  // Mali's own agent: stop it; its saved conversation is only a file.
+  if (run?.agentSessionId?.startsWith("mali_")) {
+    void agentAbort(id).catch(() => undefined);
+    return;
+  }
   const sessionId = session?.opencodeSessionId ?? run?.agentSessionId;
   if (!sessionId) return;
   const target = { sessionId, cwd: session?.cwd, mode: sessionMode(session) };

@@ -5,6 +5,7 @@ import {
   type PermissionReply,
   type WorkMode,
 } from "@/features/opencode";
+import { ChildTaskAlerts, useChildTaskRequests } from "@/features/tasks";
 import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
 import type { RefObject } from "react";
@@ -67,7 +68,10 @@ export function ChatComposer({
   // A question and a permission never wait at the same time, but if they did,
   // the permission blocks the tool that would ask, so it comes first.
   const hasQuestion = !hasPermission && questions.length > 0;
-  const waiting = hasPermission || hasQuestion;
+  // A background task this chat started is waiting: its card comes up here,
+  // but never over this chat's own (both answer to ⌘↵ / Esc).
+  const childWaiting = useChildTaskRequests(session?.id).length > 0 && !hasPermission && !hasQuestion;
+  const waiting = hasPermission || hasQuestion || childWaiting;
 
   const replyPermission = async (request: PermissionRequest, reply: PermissionReply) => {
     await onReplyPermission(request, reply);
@@ -89,12 +93,14 @@ export function ChatComposer({
           <QuestionPrompt stacked requests={questions} onAnswer={onAnswerQuestion} />
         </div>
       )}
+      {childWaiting && <ChildTaskAlerts chatId={session?.id} />}
       <motion.div
         layout
         transition={{ type: "spring", stiffness: 420, damping: 34 }}
         className={cn(
           "relative z-10",
           waiting && "rounded-2xl ring-1 ring-border/80 shadow-md",
+          childWaiting && "ring-amber-500/40",
         )}
       >
         <PromptInput

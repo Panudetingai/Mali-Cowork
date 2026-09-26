@@ -8,6 +8,7 @@ import { memo, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { AssistantMessage } from "./assistant-message";
 import { TurnFilesLine, useCodeChat } from "./code-chat-context";
+import { CompletionMoment } from "./completion-moment";
 import { ErrorMessage } from "./error-message";
 import { UserMessage } from "./user-message";
 
@@ -18,6 +19,8 @@ type Props = {
   /** Resend the prompt that produced this reply. Undefined hides the button. */
   onRetry?: () => void;
   onRate?: (value: "up" | "down") => void;
+  /** User prompts: send the edited text again. Undefined hides the edit button. */
+  onEdit?: (content: string) => void;
   /** Needed to build the work receipt of a Cowork turn. */
   session?: ChatSession;
   onOpenReceipt?: () => void;
@@ -28,6 +31,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   streaming,
   onRetry,
   onRate,
+  onEdit,
   session,
 }: Props) {
   const { chatId } = useParams<{ chatId: string }>();
@@ -43,6 +47,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
       streaming={streaming}
       onRetry={onRetry}
       onRate={onRate}
+      onEdit={onEdit}
       session={session}
       onOpenReceipt={receipt ? () => setReceiptOpen(true) : undefined}
     />
@@ -51,6 +56,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   return (
     <>
       {reply}
+      <CompletionMoment receipt={receipt} onOpen={() => setReceiptOpen(true)} />
       {code ? (
         <TurnFilesLine turn={message.turn} onOpen={code.openFile} />
       ) : (
@@ -63,15 +69,17 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   );
 });
 
-function Reply({ message, streaming, onRetry, onRate, onOpenReceipt, session }: Props) {
+function Reply({ message, streaming, onRetry, onRate, onEdit, onOpenReceipt, session }: Props) {
   switch (message.role) {
     case "user":
       return (
         <UserMessage
-          chatId={session?.id}
-          messageId={message.id}
           content={message.content}
           attachments={message.attachments}
+          skills={message.resend?.skills}
+          connectors={message.resend?.connectors}
+          projectId={session?.projectId}
+          onEdit={onEdit}
         />
       );
     case "assistant":

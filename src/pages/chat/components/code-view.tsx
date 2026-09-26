@@ -178,6 +178,7 @@ export function CodeView({ chat, chatId, project, root, withGit, onModeChange, o
     sendMessage,
     sendText,
     retryMessage,
+    editAndResend,
     rateMessage,
     summarizeAndContinue,
     permissions,
@@ -1046,6 +1047,7 @@ export function CodeView({ chat, chatId, project, root, withGit, onModeChange, o
                   project={project}
                   continuedFrom={session?.continuedFrom}
                   onRetry={(id) => void retryMessage(id)}
+                  onEdit={(id, text) => void editAndResend(id, text)}
                   onRate={rateMessage}
                   className={cn(
                     hasMessages

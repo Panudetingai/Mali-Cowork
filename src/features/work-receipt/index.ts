@@ -11,3 +11,4 @@ export * from "./work-receipt-dialog";
 export * from "./outputs-list";
 export * from "./weekly-recap-dialog";
 export * from "./weekly-recap-store";
+export * from "./completion";

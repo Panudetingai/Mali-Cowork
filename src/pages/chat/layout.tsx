@@ -5,6 +5,7 @@ import { CursorLoginDialog } from "@/features/cursor";
 import { GitBar, GitPanel, GitProvider } from "@/features/git";
 import { ProviderKeyDialog, saveOpencodeSettings, useDefaultCwd } from "@/features/opencode";
 import { FirstRunWizard } from "@/features/onboarding";
+import { SmartSuggestions } from "@/features/smart-start";
 import { getProject, useProjects } from "@/features/projects";
 import { carriedConversation, ChatTasksStrip, enqueueTask, TaskChatNote } from "@/features/tasks";
 import { folderName, normalizeFolder, requestFolderAccess } from "@/features/workspace";
@@ -82,6 +83,7 @@ export default function ChatLayout() {
     promptInputRef,
     sendMessage,
     retryMessage,
+    editAndResend,
     rateMessage,
     summarizeAndContinue,
     permissions,
@@ -225,6 +227,7 @@ export default function ChatLayout() {
                   >
                     <ChatTitle mode={mode} project={project} />
                     <FirstRunWizard />
+                    {mode === "cowork" ? <SmartSuggestions folder={coworkFolder} className="mt-2" /> : null}
                   </motion.div>
                 ) : null}
               </AnimatePresence>
@@ -240,6 +243,7 @@ export default function ChatLayout() {
                 project={project}
                 continuedFrom={session?.continuedFrom}
                 onRetry={(id) => void retryMessage(id)}
+                  onEdit={(id, text) => void editAndResend(id, text)}
                 onRate={rateMessage}
                 className={cn(
                   hasMessages ? "min-h-0 flex-1" : "pointer-events-none absolute inset-0 overflow-hidden opacity-0",

@@ -3,6 +3,7 @@
  * the agent asks. `useChat` wraps these for the chat page; the Task Inbox runs
  * them for chats that aren't on screen.
  */
+import { invoke } from "@tauri-apps/api/core";
 import {
   attachFolder,
   clearAgentSessions,
@@ -17,6 +18,7 @@ import {
   updateRun,
   type ChatSession,
 } from "@/features/chat-history";
+import { agentAbort, agentAnswerQuestion, agentReplyPermission } from "@/features/agent";
 import type { Attachment } from "@/features/attachments";
 import { addCheckpointFolder, beginCheckpoint, finishCheckpoint, type TurnFiles } from "@/features/checkpoints";
 import { codexAbort } from "@/features/codex";
@@ -39,7 +41,7 @@ import { getProject, projectContext } from "@/features/projects";
 import { skillsGrant } from "@/features/skills";
 import { findGrant, grantsFor, isWithin, normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import type { HistoryMessage, PermissionRequest, QuestionRequest, StreamMetadata, TodoItem } from "@/pages/chat/api/chat";
-import { generateStream, runModelIdFor } from "@/pages/chat/api/router";
+import { generateStream, runModelIdFor, runsOnMaliAgent } from "@/pages/chat/api/router";
 import { contextUsage } from "./context-usage";
 import { coworkInstructionsFor } from "./cowork-handoff";
 import { summarizeConversation, transcript } from "./summary";
@@ -136,8 +138,10 @@ export async function sendTurn(
   const assistantId = crypto.randomUUID();
   // The backend that actually runs: an API model moves onto OpenCode while
   // MCP is on, and then keeps an OpenCode session like any OpenCode model.
-  const runModelId = runModelIdFor(modelId);
+  const runModelId = runModelIdFor(modelId, chatMode);
   const isOpencode = isOpencodeModel(runModelId);
+  // An API key in Cowork, or in Chat with connectors on, runs on Mali's own agent.
+  const isMali = runsOnMaliAgent(runModelId, chatMode);
   const isCursor = isCursorModel(runModelId);
   const isCodex = isCodexModel(runModelId);
   const isAntigravity = isAntigravityModel(runModelId);
@@ -150,7 +154,7 @@ export async function sendTurn(
     userMessage,
     createAssistantPlaceholder(modelId, assistantId),
   ]);
-  const runToken = startRun(chatKey, runModelIdFor(modelId));
+  const runToken = startRun(chatKey, runModelId);
   if (previous) {
     await summarizeInto(chatKey, previous, runModelIdFor(modelId), budget.maxTokens);
   }
@@ -202,26 +206,20 @@ export async function sendTurn(
     if (isCursor) return current.cursorSessionId;
     if (isCodex) return current.codexSessionId;
     if (isAntigravity) return current.antigravitySessionId;
+    if (isMali) return current.maliSessionId;
     return undefined;
   };
   try {
     // Live-connecting MCP servers can take seconds; the reply placeholder
     // already shows the run as started meanwhile.
-    if (hasEnabledMcp() && (isOpencode || isCodex)) {
-      const cwd =
-        chatMode === "chat"
-          ? normalizeFolder(loadOpencodeSettings().cwd)
-          : folders[0];
-      const mcpSync = cwd
-        ? syncMcpServers({
-            cwd,
-            mode: chatMode === "chat" ? "chat" : undefined,
-            liveConnect: isOpencode,
-          })
-        : isCodex
-          ? syncMcpServers({ liveConnect: false })
-          : undefined;
-      await mcpSync?.catch(() => undefined);
+    // CLI agents get the connectors and Mali's document tools from its
+    // `mali` gateway: hand it the connector list and this chat's folders.
+    if (isOpencode || isCodex || isCursor || isAntigravity) {
+      await invoke("mcp_hub_set_workspace", {
+        cwd: chatMode === "cowork" ? (folders[0] ?? null) : null,
+        folders: chatMode === "cowork" ? grantsFor(folders) : [],
+      }).catch(() => undefined);
+      if (hasEnabledMcp()) await syncMcpServers().catch(() => undefined);
     }
 
     // Cowork: the agent opens a skill's SKILL.md itself, so the library
@@ -250,7 +248,7 @@ export async function sendTurn(
         attachments,
         instructions: [
           buildInstructions(undefined, projectContext(project), chatMode === "chat" ? "chat" : "cowork"),
-          connectorInstructionsFor(prompt),
+          connectorInstructionsFor(),
           chatMode === "chat" ? coworkInstructionsFor(prompt) : "",
           pickedConnectorInstructions(resend.connectors),
         ]
@@ -258,6 +256,7 @@ export async function sendTurn(
           .join("\n\n"),
         skills: calledSkills(prompt, resend.skills, [...(project?.skills ?? []), ...getInstructions().skills]),
         effort: resend.effort,
+        maxTokens: budget.maxTokens,
         summary: getChat(chatKey)?.continuedFrom?.summary,
       },
       {
@@ -269,7 +268,7 @@ export async function sendTurn(
         onTodos: (items) =>
           update((m) => withTodos(m, items)),
         onMetadata: (data) => {
-          if ((isOpencode || isCursor || isCodex || isAntigravity) && data.sessionId) {
+          if ((isOpencode || isCursor || isCodex || isAntigravity || isMali) && data.sessionId) {
             const sessionId = data.sessionId;
             updateChat(chatKey, (s) =>
               isCursor
@@ -278,7 +277,9 @@ export async function sendTurn(
                   ? { ...s, codexSessionId: sessionId }
                   : isAntigravity
                     ? { ...s, antigravitySessionId: sessionId }
-                    : { ...s, opencodeSessionId: sessionId },
+                    : isMali
+                      ? { ...s, maliSessionId: sessionId }
+                      : { ...s, opencodeSessionId: sessionId },
             );
             updateRun(chatKey, (r) => ({ ...r, agentSessionId: sessionId }));
           }
@@ -345,6 +346,11 @@ export async function stopRun(chatId: string) {
   if (isCursorModel(activeRun.modelId)) return cursorAbort(chatId);
   if (isCodexModel(activeRun.modelId)) return codexAbort(chatId);
   if (isAntigravityModel(activeRun.modelId)) return antigravityAbort(chatId);
+  // Mali's own agent; a plain API reply has nothing to stop and says so.
+  if (apiModelOf(activeRun.modelId)) {
+    await agentAbort(chatId);
+    return;
+  }
   if (!activeRun.agentSessionId) return;
   // Withdraw whatever the agent is still waiting on, or the stopped turn
   // leaves a question pending on the server.
@@ -361,11 +367,25 @@ export async function stopRun(chatId: string) {
 
 /** Whether `stopRun` can stop a run on this model. */
 export function canStopRun(modelId: string) {
-  return isOpencodeModel(modelId) || isCursorModel(modelId) || isCodexModel(modelId) || isAntigravityModel(modelId);
+  return (
+    isOpencodeModel(modelId) ||
+    isCursorModel(modelId) ||
+    isCodexModel(modelId) ||
+    isAntigravityModel(modelId) ||
+    // Mali's agent (Cowork on an API key); a plain chat reply is too short to need it.
+    !!apiModelOf(modelId)
+  );
+}
+
+/** A permission card from Mali's own agent, rather than OpenCode. */
+function isMaliRun(chatId: string) {
+  const run = getRun(chatId);
+  return !!run && !!apiModelOf(run.modelId);
 }
 
 export async function replyToPermission(chatId: string, request: PermissionRequest, reply: PermissionReply) {
-  await opencodeReplyPermission(request.id, request.directory, reply);
+  if (isMaliRun(chatId)) await agentReplyPermission(request.id, reply);
+  else await opencodeReplyPermission(request.id, request.directory, reply);
   updateRun(chatId, (r) => ({
     ...r,
     permissions: r.permissions.filter((p) => p.id !== request.id),
@@ -381,7 +401,8 @@ export async function answerAgentQuestion(chatId: string, request: QuestionReque
   // lingers over the reply looks like the answer didn't register.
   updateRun(chatId, (r) => ({ ...r, questions: r.questions.filter((q) => q.id !== request.id) }));
   try {
-    await opencodeReplyQuestion(request.id, request.directory, answers);
+    if (isMaliRun(chatId)) await agentAnswerQuestion(request.id, answers);
+    else await opencodeReplyQuestion(request.id, request.directory, answers);
   } catch (error) {
     updateRun(chatId, (r) => ({ ...r, questions: [...r.questions, request] }));
     throw error;
@@ -570,6 +591,9 @@ export function createErrorMessage(content: string, fix?: ErrorFix): ChatMessage
 
 export function formatChatError(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);
+  if (/error decoding response body|returned an empty reply|isn't json/i.test(raw)) {
+    return `${raw}\n\nMali อ่านคำตอบจากเซิร์ฟเวอร์ไม่ได้ — มักเกิดจาก API key หรือ Base URL ใน Settings → Models ไม่ถูกต้อง, OpenCode ค้าง, หรือ connector ตอบกลับผิดรูปแบบ ลองปิด–เปิดแอป, ตรวจ key/URL, หรือปิด connector ทีละตัวแล้วส่งข้อความใหม่`;
+  }
   if (/user not found/i.test(raw)) {
     return 'ผู้ให้บริการไม่รู้จัก API key ที่บันทึกไว้ (ตอบกลับว่า "User not found") — ใส่ key ใหม่จากปุ่มด้านล่าง แล้วแอปจะส่งข้อความเดิมให้อีกครั้ง';
   }

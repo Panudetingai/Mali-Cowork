@@ -4,9 +4,9 @@
 //! Run with `WORD_MCP_BIN=/path/to/word_mcp_server cargo test -- --ignored live_`
 //! (`pip install office-word-mcp-server` provides the binary).
 
-use serde_json::{json, Value};
+use serde_json::json;
 
-use super::mcp::{mcp_sync, McpServerEntry, McpSyncOptions};
+use super::mcp::{validate, McpServerEntry};
 use super::opencode::{opencode_configure_providers, opencode_list_models};
 use super::supervisor::shutdown_all as shutdown_server;
 
@@ -88,49 +88,26 @@ async fn live_providers_and_mcp() {
         timeout_ms: Some(60_000),
         trust_level: crate::sandbox::McpTrustLevel::Unknown,
     };
+    // Mali's own hub connects it (nothing is written into OpenCode's config).
     let started = std::time::Instant::now();
-    let result = mcp_sync(vec![word()], None, Some(McpSyncOptions::default()))
-        .await
-        .expect("sync");
-    eprintln!("word: {:?} in {:?}", result.servers, started.elapsed());
-    assert_eq!(
-        result.servers[0].status, "connected",
-        "{:?}",
-        result.servers[0].error
-    );
-
-    let saved: Value =
-        serde_json::from_str(&std::fs::read_to_string(config_dir.join("opencode.json")).unwrap())
-            .unwrap();
-    assert!(saved["mcp"]["mine"].is_object(), "user entry kept");
-    assert!(
-        saved["mcp"].get("custom-old").is_none(),
-        "stale custom entry removed"
-    );
-    assert_eq!(saved["mcp"]["word"]["type"], "local");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(config_dir.join("opencode.json"))
-            .unwrap()
-            .permissions()
-            .mode();
-        assert_eq!(mode & 0o077, 0, "config is private to the owner");
-    }
+    let result = crate::mcp_hub::sync(&[word()], None).await;
+    eprintln!("word: {:?} in {:?}", result, started.elapsed());
+    assert_eq!(result[0].status, "connected", "{:?}", result[0].error);
 
     // Syncing again reuses the live connection.
     let started = std::time::Instant::now();
-    let again = mcp_sync(vec![word()], None, None).await.unwrap();
-    assert_eq!(again.servers[0].status, "connected");
+    let again = crate::mcp_hub::sync(&[word()], None).await;
+    assert_eq!(again[0].status, "connected");
     assert!(
         started.elapsed() < std::time::Duration::from_secs(3),
         "cached sync is quick"
     );
 
-    // A bad id never reaches the server.
+    // A bad id never gets as far as a connection.
     let mut bad = word();
     bad.id = "../x".into();
-    assert!(mcp_sync(vec![bad], None, None).await.is_err());
+    assert!(validate(&bad).is_err());
+    crate::mcp_hub::disconnect("word").await;
 
     let _ = std::fs::remove_dir_all(home);
 }

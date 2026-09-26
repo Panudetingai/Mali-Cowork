@@ -14,6 +14,8 @@ type Props = {
   onAllowFolder?: (request: PermissionRequest, folder: string) => Promise<void>;
   /** Sits under the composer with only the top edge peeking out. */
   stacked?: boolean;
+  /** ⌘↵ / ⇧⌘↵ / Esc answer the card. Off when the prompt box stays usable underneath. */
+  shortcuts?: boolean;
   className?: string;
 };
 
@@ -31,7 +33,7 @@ function splitTitle(title: string) {
 }
 
 /** Approval card shown while the agent waits for the user. */
-export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, className }: Props) {
+export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, shortcuts = true, className }: Props) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const request = requests[0];
@@ -83,10 +85,10 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
   );
 
   useEffect(() => {
-    if (!request) return;
+    if (!request || !shortcuts) return;
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [request, onKey]);
+  }, [request, onKey, shortcuts]);
 
   return (
     <AnimatePresence initial={false}>
@@ -176,7 +178,7 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
                   className="gap-1.5"
                 >
                   Deny
-                  <Kbd className="hidden bg-transparent @md:inline-flex">esc</Kbd>
+                  {shortcuts && <Kbd className="hidden bg-transparent @md:inline-flex">esc</Kbd>}
                 </Button>
                 {folder && onAllowFolder ? (
                   <Button
@@ -199,7 +201,7 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
                     className="gap-1.5"
                   >
                     Always
-                    <Kbd className="hidden @md:inline-flex">⇧⌘↵</Kbd>
+                    {shortcuts && <Kbd className="hidden @md:inline-flex">⇧⌘↵</Kbd>}
                   </Button>
                 )}
                 <Button
@@ -209,12 +211,14 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
                   onClick={() => reply("once")}
                   title="Allow this once (⌘↵)"
                   className="gap-1.5"
-                  autoFocus
+                  autoFocus={shortcuts}
                 >
                   Allow once
-                  <Kbd className="hidden bg-primary-foreground/20 text-primary-foreground @md:inline-flex">
-                    ⌘↵
-                  </Kbd>
+                  {shortcuts && (
+                    <Kbd className="hidden bg-primary-foreground/20 text-primary-foreground @md:inline-flex">
+                      ⌘↵
+                    </Kbd>
+                  )}
                 </Button>
               </div>
             </div>

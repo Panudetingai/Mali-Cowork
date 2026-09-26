@@ -16,20 +16,26 @@ export type ConnectorSuggestion = {
   title?: string;
 };
 
-const INTENT = /\b(mcp|connectors?|connect|install|integrat\w*|plugin|tool server)\b|เชื่อม|ติดตั้ง|ต่อกับ|คอนเนค/i;
+const BASE = `# Connectors (MCP)
+This app can add tools ("connectors", MCP servers). Connected ones show up as tools named \`serverId_*\` (or \`mali_serverId_*\` in some agents).
 
-const INSTRUCTIONS = `# Connectors (MCP)
-This app can connect tools ("connectors", i.e. MCP servers). When the user asks to install, add or connect one (for example "connect Notion" or "install a GitHub MCP"), do not edit config files or run install commands yourself. Reply briefly and add one block per connector:
+When a connected connector already covers the task, call its tools — do not guess, write a stand-in script, or say you cannot do what its tools do.
+
+When the task needs an external app or API (Notion, GitHub, Google Calendar, Slack, databases, etc.) and no connected connector covers it — or you are unsure how to finish the user's request with what you have — do not pretend the work is done. In the user's language, say briefly what is missing, then help them add a connector safely (see below). If you can browse, search the official MCP Registry first: https://registry.modelcontextprotocol.io/v0.1/servers?search=<term>&version=latest. Prefer well-known publishers and entries that match the service; do not suggest random or unverified servers.
+
+Safety (always): never edit MCP config files or run install commands (\`npx\`, \`uvx\`, \`docker\`, etc.) yourself; never ask the user to paste API keys, tokens, or passwords into the chat. Keys are entered only in the app (system keychain) and OAuth sign-in happens in the browser. The user must confirm every install on a card the app shows.`;
+
+const SUGGEST_BLOCK = `To suggest a connector, add one block per connector at the end of your reply (the app hides the block and shows an install card):
 
 \`\`\`connector
 {"query": "notion"}
 \`\`\`
 
-Use "name" instead of "query" when you know the exact MCP Registry name (e.g. "com.notion/mcp"); if you can browse, look it up at https://registry.modelcontextprotocol.io/v0.1/servers?search=<term>&version=latest. Use {"url": "https://…", "title": "…"} only for an official https MCP endpoint the vendor documents that is not in the registry. The app shows an install card: the user checks it, enters any keys in the app (kept in the system keychain) and signs in with OAuth in the browser. Never ask the user to paste API keys, tokens or passwords into the chat.`;
+Use \`"name"\` instead of \`"query"\` when you know the exact MCP Registry name (e.g. \`"com.notion/mcp"\`). Use \`{"url": "https://…", "title": "…"}\` only for an official https MCP endpoint the vendor documents that is not in the registry.`;
 
-/** Extra instructions for a prompt that sounds like it wants a connector. */
-export function connectorInstructionsFor(prompt: string) {
-  return INTENT.test(prompt) ? INSTRUCTIONS : "";
+/** System instructions so the model knows when and how to suggest MCP connectors. */
+export function connectorInstructionsFor(_prompt?: string) {
+  return `${BASE}\n\n${SUGGEST_BLOCK}`;
 }
 
 const BLOCK = /```connector[^\S\n]*\n([\s\S]*?)```/g;

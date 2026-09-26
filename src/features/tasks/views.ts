@@ -71,3 +71,35 @@ export function useRecentTaskViews(limit = 6) {
   );
 }
 
+
+/** The tasks a chat started; `chatId` undefined means a new chat (tasks with no source chat). */
+export function useChatTaskViews(chatId: string | undefined): TaskView[] {
+  const views = useTaskViews();
+  return useMemo(
+    () => views.filter((v) => (chatId ? v.task.from?.id === chatId : !v.task.from)),
+    [views, chatId],
+  );
+}
+
+export type ChildRequest = { view: TaskView; chatId: string };
+
+/**
+ * What this chat's background tasks are waiting on, so the chat that started
+ * them can answer without opening each one.
+ */
+export function useChildTaskRequests(chatId: string | undefined) {
+  const views = useChatTaskViews(chatId);
+  const runs = useChatRuns();
+  return useMemo(() => {
+    const waiting: (ChildRequest & { permissions: number; questions: number })[] = [];
+    for (const view of views) {
+      const id = view.task.chatId;
+      if (view.status !== "needs-you" || !id) continue;
+      const run = runs[id];
+      const permissions = run?.permissions.length ?? 0;
+      const questions = run?.questions.length ?? 0;
+      if (permissions + questions > 0) waiting.push({ view, chatId: id, permissions, questions });
+    }
+    return waiting;
+  }, [views, runs]);
+}

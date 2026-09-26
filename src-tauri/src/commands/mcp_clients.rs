@@ -100,7 +100,7 @@ fn cursor_entry(server: &McpServerEntry, argv: &[String], path: Option<&str>) ->
 // ── Antigravity tool permissions ──
 
 /// Where the Antigravity CLI keeps `permissions.allow` (its only settings file).
-fn antigravity_settings_path() -> Option<PathBuf> {
+pub(crate) fn antigravity_settings_path() -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(".gemini").join("antigravity-cli").join("settings.json"))
 }
 
@@ -196,16 +196,16 @@ fn write_antigravity_permissions(
     }
 }
 
-fn manifest_path() -> PathBuf {
+pub(crate) fn manifest_path() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join("mali-cowork")
         .join("mcp-clients.json")
 }
 
-type Manifest = BTreeMap<String, Vec<String>>;
+pub(crate) type Manifest = BTreeMap<String, Vec<String>>;
 
-fn read_manifest() -> Manifest {
+pub(crate) fn read_manifest() -> Manifest {
     std::fs::read_to_string(manifest_path())
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())

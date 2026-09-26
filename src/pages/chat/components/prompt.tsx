@@ -17,6 +17,7 @@ import {
   type WorkMode,
 } from "@/features/opencode";
 import {
+  getProvider,
   listConfiguredProviders,
   useEnvKeys,
   useProviderConfigs,
@@ -34,6 +35,8 @@ import { cn } from "@/lib/utils";
 import { CoworkBot } from "@/components/anim/cowork-bot";
 import { McpToolIcon, useInstalledConnectors, useMcpConnections } from "@/features/mcp";
 import { InboxDropdownButton } from "@/features/tasks";
+import { useSpeechInput, VoiceButton } from "@/features/voice";
+import { onCompose } from "@/features/command-palette";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -54,6 +57,8 @@ import type { SendMessage } from "../hooks/use-chat";
 import {
   buildModelCatalog,
   agentNameOf,
+  apiModelId,
+  opencodeModelOf,
   agentOf,
   contextBudgetFor,
   findModel,
@@ -190,20 +195,51 @@ export default function PromptInput({
     ? "Describe what to build or change… (type @ to attach files)"
     : "How can I help you today?";
 
-  /** Ask for whatever the model still needs; true when something was asked. */
-  const askForAccess = (model: AiModel, onReady?: () => void) => {
+  /**
+   * Ask for whatever the model still needs; true when something was asked.
+   * A key for a provider Mali knows is kept as the user's own (Settings →
+   * Models): the model then runs on it directly — Chat over the API, Cowork on
+   * Mali's own agent — instead of through OpenCode. `onReady` gets the model
+   * to use from then on.
+   */
+  const askForAccess = (model: AiModel, onReady?: (ready: AiModel) => void) => {
     // Only Cursor has an in-app sign-in flow; other CLIs explain sign-in
     // through their own backend errors (e.g. run `agy` once).
     if (model.needsLogin && isCursorModel(model.id)) {
-      requestCursorLogin({ onSignedIn: onReady });
+      requestCursorLogin({ onSignedIn: () => onReady?.(model) });
       return true;
     }
     const providerId = model.needsKey ? opencodeProviderOf(model.id) : undefined;
+    const own = providerId ? getProvider(providerId) : undefined;
+    const name = opencodeModelOf(model.id)?.split("/").slice(1).join("/");
+    if (providerId && own && name) {
+      requestProviderKey({
+        providerId,
+        target: "api",
+        model: name,
+        modelName: model.name,
+        onSaved: () => {
+          const ready: AiModel = {
+            ...model,
+            id: apiModelId(providerId, name),
+            provider: own.logo,
+            source: own.group === "local" ? "local" : "api",
+            group: own.name,
+            needsKey: false,
+            free: undefined,
+          };
+          setModelId(ready.id);
+          saveSelectedModelId(mode, ready.id);
+          onReady?.(ready);
+        },
+      });
+      return true;
+    }
     if (providerId) {
       requestProviderKey({
         providerId,
         modelName: model.free ? undefined : model.name,
-        onSaved: onReady,
+        onSaved: () => onReady?.(model),
       });
       return true;
     }
@@ -422,7 +458,19 @@ export default function PromptInput({
     }
   }
 
+  // Voice: words land after whatever was typed when dictation started.
+  const promptNow = useLatest(prompt);
+  const voiceBase = useRef("");
+  const voice = useSpeechInput({
+    onStart: () => {
+      const typed = promptNow.current;
+      voiceBase.current = typed && !/\s$/.test(typed) ? `${typed} ` : typed;
+    },
+    onText: (text) => setPrompt(voiceBase.current + text),
+  });
+
   async function send(text: string, model: AiModel, background = false) {
+    voice.cancel();
     const files = attachments;
     const picks = { skills: pickedSkills, connectors: pickedConnectors };
     setPrompt("");
@@ -456,6 +504,22 @@ export default function PromptInput({
 
   const canSend = (!!prompt.trim() || attachments.length > 0 || pickedSkills.length > 0) && importing === 0;
 
+  // The ⌘K palette and the empty-state cards fill the box (never send).
+  useEffect(
+    () =>
+      onCompose(({ text, skill }) => {
+        if (skill) setPickedSkills((prev) => (prev.includes(skill) ? prev : [...prev, skill]));
+        if (text) setPrompt(text);
+        requestAnimationFrame(() => {
+          const box = ref.current;
+          if (!box) return;
+          box.focus();
+          box.setSelectionRange(box.value.length, box.value.length);
+        });
+      }),
+    [ref],
+  );
+
   // ⌘U / Ctrl+U: attach files, as the plus menu says.
   const pickFilesRef = useLatest(pickFiles);
   useEffect(() => {
@@ -476,7 +540,7 @@ export default function PromptInput({
   async function submitBackground() {
     const trimmed = prompt.trim();
     if (!canBackground || !canSend || attaching || opencodeMissing) return;
-    if (askForAccess(selected, () => void send(trimmed, selected, true))) return;
+    if (askForAccess(selected, (ready) => void send(trimmed, ready, true))) return;
     await send(trimmed, selected, true);
   }
 
@@ -484,7 +548,7 @@ export default function PromptInput({
     event.preventDefault();
     const trimmed = prompt.trim();
     if (!canSend || isLoading || attaching || opencodeMissing) return;
-    if (askForAccess(selected, () => void send(trimmed, selected))) return;
+    if (askForAccess(selected, (ready) => void send(trimmed, ready))) return;
     await send(trimmed, selected);
   }
 
@@ -592,6 +656,8 @@ export default function PromptInput({
           ref={ref}
           value={prompt}
           onChange={(event) => {
+            // Typing takes over from dictation; what was heard so far stays.
+            if (voice.listening) voice.cancel();
             setPrompt(event.target.value);
             updateMention(event.target.value, event.target.selectionStart ?? undefined);
           }}
@@ -669,6 +735,25 @@ export default function PromptInput({
           }}
         />
       </div>
+
+      {voice.listening && (
+        <p className="mt-1 flex items-center gap-1.5 px-1 text-xs text-red-600 dark:text-red-400" aria-live="polite">
+          <span className="relative flex size-2">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-400 opacity-75" />
+            <span className="relative inline-flex size-2 rounded-full bg-red-500" />
+          </span>
+          Listening… speak, then press Enter to send
+        </p>
+      )}
+
+      {voice.error && (
+        <p className="mt-1 flex items-start gap-1 px-1 text-xs text-red-600 dark:text-red-400">
+          <span className="min-w-0 flex-1">{voice.error}</span>
+          <button type="button" aria-label="Dismiss" onClick={voice.clearError}>
+            <XIcon className="size-3" />
+          </button>
+        </p>
+      )}
 
       {attachError && (
         <p className="mt-1 flex items-start gap-1 px-1 text-xs text-red-600 dark:text-red-400">
@@ -748,11 +833,13 @@ export default function PromptInput({
           />
           {canBackground && (
             <InboxDropdownButton
+              chatId={session?.id}
               onRunBackground={() => void submitBackground()}
               canRunBackground={canSend && !attaching && !opencodeMissing}
               title={`Run in background (${/Mac/.test(navigator.platform) ? "⌘" : "Ctrl+"}Enter) — the agent works on it in the Inbox, with this chat as context, while you keep chatting here`}
             />
           )}
+          <VoiceButton voice={voice} disabled={isLoading} />
           {canStop ? (
             <Button
               type="button"

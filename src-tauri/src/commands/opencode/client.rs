@@ -7,11 +7,14 @@ use serde_json::{json, Value};
 
 use super::instances;
 
+/// The health check answered, but not as OpenCode's API does: this version of
+/// OpenCode doesn't have the endpoints Mali uses. `opencode_check` names the
+/// version and how to update.
+pub const HEALTH_UNSUPPORTED: &str = "OpenCode is running, but this version doesn't answer Mali's health check";
+
 const USERNAME: &str = "opencode";
 const SHORT_TIMEOUT: Duration = Duration::from_secs(15);
 const MCP_TIMEOUT: Duration = Duration::from_secs(90);
-/// Time the user has to finish signing in to an MCP server in the browser.
-const MCP_AUTH_TIMEOUT: Duration = Duration::from_secs(300);
 /// A busy server (starting MCP servers, a hot CPU) can take a few seconds to
 /// answer; too short a limit makes a healthy server look dead.
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
@@ -81,13 +84,32 @@ impl OpencodeClient {
         Err(format!("opencode server returned {status}: {body}"))
     }
 
-    /// Returns the server version.
+    /// The server answers at all, whatever its version: how the app tells a
+    /// live server from a dead one.
+    pub async fn alive(&self) -> bool {
+        let req = self
+            .request(Method::GET, "/global/health", None)
+            .timeout(HEALTH_TIMEOUT);
+        Self::send(req).await.is_ok()
+    }
+
+    /// Returns the server version. An OpenCode without `/global/health`
+    /// answers it with its web app (HTML, status 200) — see [`HEALTH_UNSUPPORTED`].
     pub async fn health(&self) -> Result<String, String> {
         let req = self
             .request(Method::GET, "/global/health", None)
             .timeout(HEALTH_TIMEOUT);
-        let body: Value = Self::send(req).await?.json().await.map_err(|e| e.to_string())?;
-        Ok(body["version"].as_str().unwrap_or_default().to_string())
+        let response = Self::send(req).await?;
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| format!("Couldn't read OpenCode's health check ({e})."))?;
+        match serde_json::from_slice::<Value>(&bytes) {
+            Ok(body) if body.get("version").is_some() || body.get("healthy").is_some() => {
+                Ok(body["version"].as_str().unwrap_or_default().to_string())
+            }
+            _ => Err(HEALTH_UNSUPPORTED.into()),
+        }
     }
 
     /// `GET /provider` — every known provider plus the ids that have credentials.
@@ -95,7 +117,7 @@ impl OpencodeClient {
         let req = self
             .request(Method::GET, "/provider", Some(directory))
             .timeout(SHORT_TIMEOUT);
-        Self::send(req).await?.json().await.map_err(|e| e.to_string())
+        Self::json(req, "OpenCode (providers)").await
     }
 
     /// `GET /config/providers` — the providers this directory's instance can
@@ -104,7 +126,7 @@ impl OpencodeClient {
         let req = self
             .request(Method::GET, "/config/providers", Some(directory))
             .timeout(SHORT_TIMEOUT);
-        Self::send(req).await?.json().await.map_err(|e| e.to_string())
+        Self::json(req, "OpenCode (configured providers)").await
     }
 
     /// `PUT /auth/{provider}` — store an API key in opencode's auth file.
@@ -137,11 +159,11 @@ impl OpencodeClient {
             .request(Method::POST, "/session", Some(directory))
             .json(&json!({}))
             .timeout(SHORT_TIMEOUT);
-        let body: Value = Self::send(req).await?.json().await.map_err(|e| e.to_string())?;
+        let body = Self::json(req, "OpenCode (new chat session)").await?;
         body["id"]
             .as_str()
             .map(str::to_string)
-            .ok_or_else(|| "opencode server did not return a session id".into())
+            .ok_or_else(|| "OpenCode did not return a session id — try quitting and reopening Mali.".into())
     }
 
     /// Queues a prompt; progress arrives on the event stream.
@@ -242,7 +264,7 @@ impl OpencodeClient {
         let req = self
             .request(Method::GET, "/question", Some(directory))
             .timeout(SHORT_TIMEOUT);
-        let body: Value = Self::send(req).await?.json().await.map_err(|e| e.to_string())?;
+        let body = Self::json(req, "OpenCode (pending questions)").await?;
         Ok(body.as_array().cloned().unwrap_or_default())
     }
 
@@ -277,7 +299,7 @@ impl OpencodeClient {
             .request(Method::GET, "/experimental/tool", Some(directory))
             .query(&[("provider", provider_id), ("model", model_id)])
             .timeout(SHORT_TIMEOUT);
-        let body: Value = Self::send(req).await?.json().await.map_err(|e| e.to_string())?;
+        let body = Self::json(req, "OpenCode (tool list)").await?;
         Ok(body
             .as_array()
             .into_iter()
@@ -294,70 +316,7 @@ impl OpencodeClient {
         let req = self
             .request(Method::GET, "/mcp", directory)
             .timeout(MCP_TIMEOUT);
-        Self::send(req).await?.json().await.map_err(|e| e.to_string())
-    }
-
-    pub async fn mcp_add(
-        &self,
-        directory: Option<&str>,
-        name: &str,
-        config: &Value,
-    ) -> Result<Value, String> {
-        let req = self
-            .request(Method::POST, "/mcp", directory)
-            .json(&json!({ "name": name, "config": config }))
-            .timeout(MCP_TIMEOUT);
-        Self::send(req).await?.json().await.map_err(|e| e.to_string())
-    }
-
-    pub async fn mcp_connect(&self, directory: Option<&str>, name: &str) -> Result<(), String> {
-        let req = self
-            .request(Method::POST, &format!("/mcp/{name}/connect"), directory)
-            .timeout(MCP_TIMEOUT);
-        Self::send(req).await.map(|_| ())
-    }
-
-    /// `POST /mcp/{name}/auth/authenticate` — OpenCode opens the sign-in page
-    /// in the browser, waits for the OAuth callback on loopback and stores
-    /// the tokens in its own owner-only auth file. Returns the new status.
-    pub async fn mcp_authenticate(&self, directory: Option<&str>, name: &str) -> Result<Value, String> {
-        let req = self
-            .request(Method::POST, &format!("/mcp/{name}/auth/authenticate"), directory)
-            .timeout(MCP_AUTH_TIMEOUT);
-        Self::send(req).await?.json().await.map_err(|e| e.to_string())
-    }
-
-    /// `POST /mcp/{name}/auth` — start OAuth without opening a browser:
-    /// returns `authorizationUrl` (empty when already signed in) and `oauthState`.
-    pub async fn mcp_auth_start(&self, directory: Option<&str>, name: &str) -> Result<Value, String> {
-        let req = self
-            .request(Method::POST, &format!("/mcp/{name}/auth"), directory)
-            .timeout(MCP_TIMEOUT);
-        Self::send(req).await?.json().await.map_err(|e| e.to_string())
-    }
-
-    /// `POST /mcp/{name}/auth/callback` — finish OAuth with the code the browser brought back.
-    pub async fn mcp_auth_callback(&self, directory: Option<&str>, name: &str, code: &str) -> Result<Value, String> {
-        let req = self
-            .request(Method::POST, &format!("/mcp/{name}/auth/callback"), directory)
-            .json(&json!({ "code": code }))
-            .timeout(MCP_TIMEOUT);
-        Self::send(req).await?.json().await.map_err(|e| e.to_string())
-    }
-
-    /// `DELETE /mcp/{name}/auth` — forget the OAuth tokens (sign out).
-    pub async fn mcp_auth_remove(&self, directory: Option<&str>, name: &str) -> Result<(), String> {
-        let req = self
-            .request(Method::DELETE, &format!("/mcp/{name}/auth"), directory)
-            .timeout(SHORT_TIMEOUT);
-        Self::send(req).await.map(|_| ())
-    }
-
-    pub async fn mcp_disconnect(&self, directory: Option<&str>, name: &str) -> Result<(), String> {
-        let req = self
-            .request(Method::POST, &format!("/mcp/{name}/disconnect"), directory)
-            .timeout(MCP_TIMEOUT);
-        Self::send(req).await.map(|_| ())
+        Self::json(req, "OpenCode (connectors status)").await
     }
 
     /// Opens the server-sent event stream scoped to a directory.
@@ -366,5 +325,52 @@ impl OpencodeClient {
             .request(Method::GET, "/event", Some(directory))
             .header("accept", "text/event-stream");
         Self::send(req).await
+    }
+
+    async fn json(req: RequestBuilder, context: &str) -> Result<Value, String> {
+        let response = Self::send(req).await?;
+        crate::http_body::json_value(response, context).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// A server that answers every request with `body` (status 200).
+    async fn serve(body: &'static str, content_type: &'static str) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                let _ = sock.read(&mut buf).await;
+                let reply = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = sock.write_all(reply.as_bytes()).await;
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn reads_the_version_of_a_current_server() {
+        let client = OpencodeClient::new(serve(r#"{"healthy":true,"version":"1.18.30"}"#, "application/json").await, "p".into());
+        assert!(client.alive().await);
+        assert_eq!(client.health().await.unwrap(), "1.18.30");
+    }
+
+    /// An OpenCode without `/global/health` answers it with its web app. It's
+    /// alive (so it isn't restarted over and over), but not usable — and the
+    /// error says so instead of "error decoding response body".
+    #[tokio::test]
+    async fn a_server_that_answers_with_its_web_page_is_alive_but_unsupported() {
+        let client = OpencodeClient::new(serve("<!doctype html><html></html>", "text/html").await, "p".into());
+        assert!(client.alive().await);
+        let error = client.health().await.unwrap_err();
+        assert!(error.starts_with(HEALTH_UNSUPPORTED), "{error}");
     }
 }

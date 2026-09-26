@@ -394,7 +394,7 @@ fn runs() -> &'static Mutex<HashMap<String, u32>> {
 }
 
 /// `PATH` for a GUI app that started with a minimal one.
-fn run_path() -> Option<std::ffi::OsString> {
+pub(crate) fn run_path() -> Option<std::ffi::OsString> {
     let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default();
@@ -420,7 +420,7 @@ fn run_path() -> Option<std::ffi::OsString> {
     std::env::join_paths(dirs).ok()
 }
 
-fn shell_command(command: &str) -> tokio::process::Command {
+pub(crate) fn shell_command(command: &str) -> tokio::process::Command {
     #[cfg(windows)]
     {
         let mut cmd = tokio::process::Command::new("cmd");

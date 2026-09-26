@@ -55,15 +55,15 @@ mod imp {
         // `set_application` can only be answered once, and a failed attempt
         // still burns it — so only claim the identifier when the app really is
         // the bundle that owns it. Under `tauri dev` the binary is loose on
-        // disk, the identifier isn't registered with Launch Services, and the
-        // library's own default is used instead.
+        // disk and the identifier isn't registered with Launch Services, so
+        // Finder's is used — the library's own fallback. Set it here: left
+        // unset, the library first runs AppleScript `get id of application
+        // "use_default"`, and macOS pops a "Where is use_default?" picker.
         let bundled = std::env::current_exe()
             .ok()
             .is_some_and(|path| path.to_string_lossy().contains("/Contents/MacOS/"));
-        if !bundled {
-            return;
-        }
-        if let Err(e) = mac_notification_sys::set_application(bundle_id) {
+        let identity = if bundled { bundle_id } else { "com.apple.Finder" };
+        if let Err(e) = mac_notification_sys::set_application(identity) {
             eprintln!("[notify] keeping the default notification identity: {e}");
         }
     }

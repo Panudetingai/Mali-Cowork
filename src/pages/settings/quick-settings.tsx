@@ -202,7 +202,7 @@ function ShortcutHero({
       <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3">
           <IconTile className="bg-amber-500/10 text-amber-600 dark:text-amber-400">
-            <img src="/icon-transparent.png" alt="" className="size-5 shrink-0" />
+            <KeyboardIcon className="size-5 shrink-0" aria-hidden />
           </IconTile>
           <div className="flex min-w-0 flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2">

@@ -5,3 +5,4 @@ export * from "./views";
 export * from "./context";
 export { ChatTasksStrip, TaskChatNote } from "./chat-tasks-strip";
 export { InboxDropdownButton } from "./inbox-dropdown-button";
+export { ChildTaskAlerts } from "./child-task-alerts";

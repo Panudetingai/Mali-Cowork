@@ -1,3 +1,5 @@
+import { getInstructions, saveSkill, seedThaiTemplateSkills } from "@/features/instructions";
+import { syncMcpServers } from "@/features/mcp";
 import { UpdateDialog } from "@/features/updater/update-dialog";
 import { AppLayout } from "@/layouts/app-layout";
 import { OnboardingDialog, openOnboarding, isOnboardingDone, FORCE_ONBOARDING } from "@/features/onboarding";
@@ -28,6 +30,13 @@ function App() {
 
   // Background Cowork tasks (Inbox): recover after a restart and keep the queue moving.
   useEffect(() => startTaskQueue(), []);
+  // Thai work templates (quotation, invoice, official letter…) join the skills once.
+  useEffect(() => seedThaiTemplateSkills(getInstructions().skills, saveSkill), []);
+  // Connectors belong to Mali: hand them to its hub (the `mali` gateway serves
+  // them to CLI agents) and take back what older versions wrote into other apps.
+  useEffect(() => {
+    void syncMcpServers().catch((e) => console.warn("[mcp] startup sync failed", e));
+  }, []);
 
 
   // Auto-open weekly recap on the first visit each Monday.

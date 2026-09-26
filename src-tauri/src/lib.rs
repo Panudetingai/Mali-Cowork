@@ -1,12 +1,24 @@
+mod agent;
 mod ai;
+mod http_body;
+mod mcp_hub;
 mod chat_stream;
 mod commands;
 pub mod mcp_runner;
 mod media;
 pub mod panic_log;
 mod sandbox;
+mod templates;
 
-use commands::attachments::{attachment_from_url, attachment_import, attachment_save};
+use commands::agent::{agent_abort, agent_answer_question, agent_generate, agent_reply_permission};
+use commands::mcp_hub::{mcp_hub_set_servers, mcp_hub_set_workspace, mcp_hub_sign_in, mcp_hub_sign_out, mcp_hub_sync};
+use commands::mcp_bridge::mcp_release_other_apps;
+use commands::templates::{
+    templates_add, templates_export, templates_inspect, templates_list, templates_open, templates_refresh,
+    templates_remove, templates_update,
+};
+use commands::voice::voice_input_status;
+use commands::attachments::{attachment_from_url, attachment_import, attachment_read, attachment_save};
 use commands::link_preview::link_preview;
 use commands::chat::{chat_generate, ollama_list_models, provider_check_key, provider_env_keys};
 use commands::media::media_generate;
@@ -26,8 +38,8 @@ use commands::git::{
     git_create_branch, git_discard, git_fetch, git_file_diff, git_init, git_log, git_pull,
     git_push, git_stage, git_stage_all, git_stash, git_status, git_switch_branch, git_unstage,
 };
-use commands::mcp::{mcp_auth, mcp_auth_remove, mcp_diagnose, mcp_status, mcp_sync};
-use commands::mcp_oauth::{mcp_auth_cancel, mcp_oauth_prepare};
+use commands::mcp::mcp_diagnose;
+use commands::mcp_oauth::mcp_auth_cancel;
 use commands::mcp_registry::{mcp_fetch_icon, mcp_registry_get, mcp_registry_icon, mcp_registry_search};
 use commands::native_alert::native_alert;
 use commands::outputs::{outputs_stat, outputs_trash};
@@ -161,7 +173,27 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             attachment_import,
             attachment_save,
+            attachment_read,
             attachment_from_url,
+            voice_input_status,
+            templates_list,
+            templates_inspect,
+            templates_add,
+            templates_update,
+            templates_refresh,
+            templates_remove,
+            templates_export,
+            templates_open,
+            agent_generate,
+            agent_reply_permission,
+            agent_abort,
+            agent_answer_question,
+            mcp_hub_sync,
+            mcp_hub_set_servers,
+            mcp_hub_set_workspace,
+            mcp_release_other_apps,
+            mcp_hub_sign_in,
+            mcp_hub_sign_out,
             link_preview,
             chat_generate,
             media_generate,
@@ -202,13 +234,8 @@ pub fn run() {
             opencode_delete_session,
             opencode_warm,
             opencode_configure_providers,
-            mcp_sync,
-            mcp_status,
             mcp_diagnose,
-            mcp_auth,
-            mcp_auth_remove,
             mcp_auth_cancel,
-            mcp_oauth_prepare,
             native_alert,
             mcp_registry_search,
             mcp_registry_get,

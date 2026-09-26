@@ -43,6 +43,7 @@ tauri-plugin-notification = "2.4.0"
 sha2 = "0.10"
 walkdir = "2.5"
 similar = "2"
+regex = "1"
 quick-xml = "0.42"
 hex = "0.4"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }

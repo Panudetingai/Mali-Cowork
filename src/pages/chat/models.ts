@@ -312,8 +312,13 @@ export function buildModelCatalog(
         media,
         efforts: meta?.efforts,
         // Drawing models live on the Visual page; a chat request to one comes
-        // back as a validation error about the message shape.
-        issue: media ? `Makes ${media}s — use the Visual page` : undefined,
+        // back as a validation error about the message shape. In Cowork the
+        // model drives Mali's own agent, so it has to call tools.
+        issue: media
+          ? `Makes ${media}s — use the Visual page`
+          : mode === "cowork" && meta
+            ? coworkIssueOf(meta)
+            : undefined,
       };
     }),
   );
@@ -321,13 +326,12 @@ export function buildModelCatalog(
 
   // A provider configured in Settings → Models is synced into OpenCode, so the
   // same model was offered twice — once with the user's key, once "via
-  // OpenCode" — with nothing to tell the two apart. In Chat, where both are
-  // listed, the user's own key wins and the OpenCode copy is dropped. Cowork
-  // lists no API models, so there the OpenCode copy is the only way in.
-  const ownKeyModels =
-    mode === "cowork"
-      ? new Set<string>()
-      : new Set(providers.flatMap(({ provider, models }) => models.map((m) => `${provider.id}/${m}`)));
+  // OpenCode" — with nothing to tell the two apart. The user's own key wins
+  // and the OpenCode copy is dropped: in Chat it's a direct API call, in
+  // Cowork it runs on Mali's own agent.
+  const ownKeyModels = new Set(
+    providers.flatMap(({ provider, models }) => models.map((m) => `${provider.id}/${m}`)),
+  );
 
   const issueOf = (m: OpencodeModel) => {
     // OpenCode is a coding agent: handed a picture model it has nothing to
@@ -434,9 +438,7 @@ export function buildModelCatalog(
           },
         ];
 
-  return mode === "cowork"
-    ? [...cursorModels, ...codexModels, ...antigravityModels, ...opencodeModels]
-    : [...apiModels, ...cursorModels, ...codexModels, ...antigravityModels, ...opencodeModels];
+  return [...apiModels, ...cursorModels, ...codexModels, ...antigravityModels, ...opencodeModels];
 }
 
 /**

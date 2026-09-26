@@ -27,9 +27,11 @@ export function useScrollFade<T extends HTMLElement>(watch?: unknown) {
   const sync = useCallback(() => {
     const el = ref.current;
     if (!el) return;
-    const max = el.scrollHeight - el.clientHeight;
-    // A pixel or two of rounding is not "more content".
-    setEdges({ top: el.scrollTop > 4, bottom: max > 4 && el.scrollTop < max - 4 });
+    // Round to avoid showing the nudge for tiny sub-pixel overflows when the
+    // container is not actually scrollable.
+    const max = Math.round(el.scrollHeight - el.clientHeight);
+    // A few pixels of rounding is not "more content".
+    setEdges({ top: el.scrollTop > 4, bottom: max > 8 && el.scrollTop < max - 4 });
   }, []);
 
   useEffect(() => {

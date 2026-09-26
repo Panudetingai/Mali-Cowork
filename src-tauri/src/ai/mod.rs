@@ -84,22 +84,34 @@ fn non_empty(value: Option<&str>) -> Option<String> {
 }
 
 fn resolve_api_key(request: &ChatRequest, info: &ProviderInfo, base_url: &str) -> Result<String, String> {
-    if let Some(key) = non_empty(request.api_key.as_deref()) {
+    key_for(&request.provider, request.api_key.as_deref(), info, base_url)
+}
+
+/// Base URL and API key for a provider, as a chat request would use them:
+/// the user's settings first, then the provider's default host and `.env`.
+pub(crate) fn endpoint(provider: &str, api_key: Option<&str>, base_url: Option<&str>) -> Result<(String, String), String> {
+    let info = provider_info(provider)?;
+    let base_url = non_empty(base_url).unwrap_or_else(|| info.base_url.to_string());
+    let key = key_for(provider, api_key, &info, &base_url)?;
+    Ok((base_url, key))
+}
+
+fn key_for(provider: &str, api_key: Option<&str>, info: &ProviderInfo, base_url: &str) -> Result<String, String> {
+    if let Some(key) = non_empty(api_key) {
         return Ok(key);
     }
     let Some(var) = info.env_var else {
         // Local servers such as Ollama ignore the key, but the client requires one.
-        return Ok(request.provider.clone());
+        return Ok(provider.to_string());
     };
     // A key from the environment only ever goes to its own provider.
     if !same_host(base_url, info.base_url) {
         return Err(format!(
-            "{} uses a custom base URL, so the key in {var} isn't sent there. Enter the API key in Settings → Models.",
-            request.provider
+            "{provider} uses a custom base URL, so the key in {var} isn't sent there. Enter the API key in Settings → Models."
         ));
     }
     non_empty(std::env::var(var).ok().as_deref()).ok_or_else(|| {
-        format!("No API key for {}. Add it in Settings → Models, or set {var} in .env.", request.provider)
+        format!("No API key for {provider}. Add it in Settings → Models, or set {var} in .env.")
     })
 }
 
@@ -284,7 +296,9 @@ pub async fn stream_chat_response(
             })
             .map_err(|e| e.to_string()),
         Err(message) => {
-            let message = explain(&message, &request).unwrap_or(message);
+            let message = explain(&message, &request)
+                .or_else(|| crate::http_body::clarify_reqwest(&message))
+                .unwrap_or(message);
             // Report through the channel only; returning Err too would show the error twice.
             let _ = on_event.send(ChatStreamEvent::Error { message });
             Ok(())

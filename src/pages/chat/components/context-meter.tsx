@@ -57,7 +57,7 @@ export function ContextMeter({ usage, budget, folders, onNewChat, onSummarize, r
           <RingIcon ratio={ratio} />
         </Button>
       </ContextTrigger>
-      <ContextContent align="end" className="w-72">
+      <ContextContent align="end" className="w-80 max-w-[calc(100vw-2rem)]">
         <ContextContentHeader />
         <ContextContentBody className="space-y-1.5">
           <Row label="Input" value={totals.inputTokens} />
@@ -86,30 +86,40 @@ export function ContextMeter({ usage, budget, folders, onNewChat, onSummarize, r
             </div>
           )}
         </ContextContentBody>
-        <ContextContentFooter>
-          <span className="text-muted-foreground">Total cost</span>
-          <span className="flex items-center gap-2">
-            {usd.format(totals.cost)}
-            {onSummarize && ratio >= CONTEXT_WARN_RATIO / 2 && (
-              <Button
-                type="button"
-                size="xs"
-                variant="outline"
-                className="gap-1"
-                onClick={onSummarize}
-                title="Start a new chat that remembers this one through a summary"
-              >
-                <ListCollapseIcon className="size-3" />
-                Summarize & continue
-              </Button>
-            )}
-            {onNewChat && ratio >= CONTEXT_WARN_RATIO && (
-              <Button type="button" size="xs" variant="outline" className="gap-1" onClick={onNewChat}>
-                <SquarePenIcon className="size-3" />
-                New chat
-              </Button>
-            )}
-          </span>
+        <ContextContentFooter className="flex-col items-stretch gap-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <span className="shrink-0 text-muted-foreground">Total cost</span>
+            <span className="tabular-nums">{usd.format(totals.cost)}</span>
+          </div>
+          {(onSummarize && ratio >= CONTEXT_WARN_RATIO / 2) || (onNewChat && ratio >= CONTEXT_WARN_RATIO) ? (
+            <div className="flex flex-col gap-1.5">
+              {onSummarize && ratio >= CONTEXT_WARN_RATIO / 2 && (
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  className="h-8 w-full justify-center gap-1.5 px-2"
+                  onClick={onSummarize}
+                  title="Start a new chat that remembers this one through a summary"
+                >
+                  <ListCollapseIcon className="size-3 shrink-0" />
+                  <span className="truncate">Summarize & continue</span>
+                </Button>
+              )}
+              {onNewChat && ratio >= CONTEXT_WARN_RATIO && (
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  className="h-8 w-full justify-center gap-1.5 px-2"
+                  onClick={onNewChat}
+                >
+                  <SquarePenIcon className="size-3 shrink-0" />
+                  <span className="truncate">New chat</span>
+                </Button>
+              )}
+            </div>
+          ) : null}
         </ContextContentFooter>
       </ContextContent>
     </Context>

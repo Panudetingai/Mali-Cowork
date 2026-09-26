@@ -35,6 +35,9 @@ function shortTool(tool: string, serverId: string) {
  * (`bash`, `read`, …), so only real MCP calls get a brand icon.
  */
 export function mcpToolOf(title: string): McpToolRef | undefined {
+  // CLI agents reach the connectors through Mali's `mali` gateway, and name
+  // the tools after it: `mali_custom-notion_notion-search`.
+  if (title.startsWith("mali_")) title = title.slice("mali_".length);
   const at = title.indexOf("_");
   if (at <= 0 || at === title.length - 1) return undefined;
   const serverId = title.slice(0, at);

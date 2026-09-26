@@ -42,7 +42,7 @@ type SectionId = "cli" | "key" | "opencode" | "setup";
 
 const SECTIONS: { id: SectionId; label: string; hint: string }[] = [
   { id: "cli", label: "CLI agents", hint: "Runs on the subscription you signed in with" },
-  { id: "key", label: "Your API keys", hint: "Called straight over its API with your key" },
+  { id: "key", label: "Your API keys", hint: "Runs on Mali with your own key — no OpenCode in between" },
   { id: "opencode", label: "Via OpenCode", hint: "Routed through the OpenCode server" },
   {
     id: "setup",

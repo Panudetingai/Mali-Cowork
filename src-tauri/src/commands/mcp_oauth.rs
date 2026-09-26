@@ -56,6 +56,9 @@ pub struct Registration {
     #[serde(default)]
     pub client_secret: Option<String>,
     pub redirect_uri: String,
+    /// How the token endpoint wants the client to authenticate.
+    #[serde(default)]
+    pub auth_method: Option<String>,
 }
 
 fn store_path() -> PathBuf {
@@ -84,27 +87,6 @@ fn save_store(map: &HashMap<String, Registration>) -> Result<(), String> {
 
 fn same_url(a: &str, b: &str) -> bool {
     a.trim().trim_end_matches('/') == b.trim().trim_end_matches('/')
-}
-
-/// The `oauth` block for a remote server's OpenCode config, when Mali Cowork
-/// has a client registered for exactly this URL.
-pub fn oauth_config_for(id: &str, url: &str) -> Option<Value> {
-    let map = store().lock().unwrap_or_else(|p| p.into_inner());
-    let reg = map.get(id)?;
-    if !same_url(&reg.server_url, url) || reg.redirect_uri != redirect_uri() {
-        return None;
-    }
-    let mut oauth = json!({ "clientId": reg.client_id, "redirectUri": reg.redirect_uri });
-    if let Some(secret) = &reg.client_secret {
-        oauth["clientSecret"] = json!(secret);
-    }
-    Some(oauth)
-}
-
-/// The server URL Mali Cowork registered a client for, if any.
-pub fn registered_url(id: &str) -> Option<String> {
-    let map = store().lock().unwrap_or_else(|p| p.into_inner());
-    map.get(id).filter(|r| r.redirect_uri == redirect_uri()).map(|r| r.server_url.clone())
 }
 
 pub fn forget(id: &str) -> Result<(), String> {
@@ -146,6 +128,10 @@ struct ResourceMetadata {
 
 #[derive(Deserialize, Default)]
 struct ServerMetadata {
+    #[serde(default)]
+    authorization_endpoint: Option<String>,
+    #[serde(default)]
+    token_endpoint: Option<String>,
     #[serde(default)]
     registration_endpoint: Option<String>,
     #[serde(default)]
@@ -255,30 +241,8 @@ async fn register(client: &reqwest::Client, server_url: &str) -> Result<Registra
         client_id: registered.client_id,
         client_secret: registered.client_secret,
         redirect_uri: redirect_uri(),
+        auth_method: Some(auth_method.to_string()),
     })
-}
-
-/// Make sure Mali Cowork has its own client with this server. Returns false
-/// when the server doesn't support that (OpenCode's own flow is used then).
-#[tauri::command]
-pub async fn mcp_oauth_prepare(id: String, url: String, fresh: Option<bool>) -> Result<bool, String> {
-    if fresh.unwrap_or(false) {
-        forget(&id)?;
-    } else if oauth_config_for(&id, &url).is_some() {
-        return Ok(true);
-    }
-    match register(&client()?, &url).await {
-        Ok(reg) => {
-            let mut map = store().lock().unwrap_or_else(|p| p.into_inner());
-            map.insert(id, reg);
-            save_store(&map)?;
-            Ok(true)
-        }
-        Err(e) => {
-            eprintln!("[mcp-oauth] {url}: {e}; using OpenCode's sign-in");
-            Ok(false)
-        }
-    }
 }
 
 // ---------------------------------------------------------------- callback
@@ -571,3 +535,283 @@ mod tests {
     }
 }
 
+
+// ---------------------------------------------------------------- Mali's own tokens
+//
+// Mali signs in itself — PKCE with the client registered above — and keeps
+// the tokens in an owner-only file next to the registrations. They are used
+// by Mali's MCP hub only: never sent to the webview, the model, or another app.
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Tokens {
+    server_url: String,
+    access_token: String,
+    #[serde(default)]
+    refresh_token: Option<String>,
+    /// Unix seconds.
+    #[serde(default)]
+    expires_at: Option<u64>,
+    token_endpoint: String,
+    client_id: String,
+    #[serde(default)]
+    client_secret: Option<String>,
+    #[serde(default)]
+    auth_method: Option<String>,
+}
+
+fn tokens_path() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("mali-cowork")
+        .join("mcp-oauth-tokens.json")
+}
+
+fn tokens() -> &'static Mutex<HashMap<String, Tokens>> {
+    static TOKENS: OnceLock<Mutex<HashMap<String, Tokens>>> = OnceLock::new();
+    TOKENS.get_or_init(|| {
+        let saved = std::fs::read_to_string(tokens_path())
+            .ok()
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .unwrap_or_default();
+        Mutex::new(saved)
+    })
+}
+
+fn save_tokens(map: &HashMap<String, Tokens>) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(map).map_err(|e| e.to_string())?;
+    write_private(&tokens_path(), &json)
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn b64url(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn random_token() -> String {
+    let mut bytes = Vec::with_capacity(32);
+    bytes.extend_from_slice(uuid::Uuid::new_v4().as_bytes());
+    bytes.extend_from_slice(uuid::Uuid::new_v4().as_bytes());
+    b64url(&bytes)
+}
+
+/// PKCE (RFC 7636): the verifier we keep, and its S256 challenge we send.
+fn pkce() -> (String, String) {
+    use sha2::Digest;
+    let verifier = random_token();
+    let challenge = b64url(&sha2::Sha256::digest(verifier.as_bytes()));
+    (verifier, challenge)
+}
+
+/// Post to the token endpoint the way the client registered to authenticate.
+async fn token_request(
+    client: &reqwest::Client,
+    endpoint: &str,
+    client_id: &str,
+    client_secret: Option<&str>,
+    auth_method: Option<&str>,
+    mut form: Vec<(&str, String)>,
+) -> Result<Value, String> {
+    let mut request = client.post(endpoint).header("Accept", "application/json");
+    match (client_secret, auth_method) {
+        (Some(secret), Some("client_secret_basic")) => {
+            request = request.basic_auth(client_id, Some(secret));
+        }
+        (Some(secret), _) => {
+            form.push(("client_id", client_id.to_string()));
+            form.push(("client_secret", secret.to_string()));
+        }
+        (None, _) => form.push(("client_id", client_id.to_string())),
+    }
+    let response = request.form(&form).send().await.map_err(|e| format!("Couldn't reach the sign-in server: {e}"))?;
+    let status = response.status();
+    let body: Value = response.json().await.unwrap_or(Value::Null);
+    if !status.is_success() || body["access_token"].as_str().is_none() {
+        let why = body["error_description"].as_str().or_else(|| body["error"].as_str()).unwrap_or("no token in the answer");
+        return Err(format!("The server didn't hand out a token ({status}): {why}"));
+    }
+    Ok(body)
+}
+
+fn tokens_from(body: &Value, previous_refresh: Option<String>, base: Tokens) -> Tokens {
+    Tokens {
+        access_token: body["access_token"].as_str().unwrap_or_default().to_string(),
+        refresh_token: body["refresh_token"].as_str().map(str::to_string).or(previous_refresh),
+        expires_at: body["expires_in"].as_u64().map(|s| now_secs() + s),
+        ..base
+    }
+}
+
+/// A token for the hub to call a remote server with, refreshed when it's about to expire.
+pub async fn access_token(id: &str, url: &str) -> Option<String> {
+    let saved = tokens().lock().unwrap_or_else(|p| p.into_inner()).get(id).cloned()?;
+    if !same_url(&saved.server_url, url) {
+        return None;
+    }
+    let fresh = saved.expires_at.map(|at| at > now_secs() + 60).unwrap_or(true);
+    if fresh {
+        return Some(saved.access_token);
+    }
+    let refresh = saved.refresh_token.clone()?;
+    let client = client().ok()?;
+    let form = vec![
+        ("grant_type", "refresh_token".to_string()),
+        ("refresh_token", refresh.clone()),
+        ("resource", saved.server_url.clone()),
+    ];
+    match token_request(
+        &client,
+        &saved.token_endpoint,
+        &saved.client_id,
+        saved.client_secret.as_deref(),
+        saved.auth_method.as_deref(),
+        form,
+    )
+    .await
+    {
+        Ok(body) => {
+            let updated = tokens_from(&body, Some(refresh), saved);
+            let token = updated.access_token.clone();
+            let mut map = tokens().lock().unwrap_or_else(|p| p.into_inner());
+            map.insert(id.to_string(), updated);
+            let _ = save_tokens(&map);
+            Some(token)
+        }
+        Err(e) => {
+            eprintln!("[mcp-oauth] {id}: refresh failed: {e}");
+            None
+        }
+    }
+}
+
+/// Forget Mali's tokens for a server (sign out).
+pub fn sign_out(id: &str) -> Result<(), String> {
+    let mut map = tokens().lock().unwrap_or_else(|p| p.into_inner());
+    if map.remove(id).is_some() {
+        save_tokens(&map)?;
+    }
+    Ok(())
+}
+
+/// Sign in to a remote MCP server as Mali Cowork: the browser shows the
+/// provider's consent page, the callback lands on loopback, and the tokens stay
+/// with Mali.
+pub async fn sign_in(app: &tauri::AppHandle, id: &str, server_url: &str) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+
+    let client = client()?;
+    let existing = store().lock().unwrap_or_else(|p| p.into_inner()).get(id).cloned();
+    let reg = match existing.filter(|r| same_url(&r.server_url, server_url) && r.redirect_uri == redirect_uri()) {
+        Some(reg) => reg,
+        None => {
+            let reg = register(&client, server_url).await.map_err(|e| {
+                format!("{e}. Add the service's API token in the connector's headers instead.")
+            })?;
+            let mut map = store().lock().unwrap_or_else(|p| p.into_inner());
+            map.insert(id.to_string(), reg.clone());
+            save_store(&map)?;
+            reg
+        }
+    };
+    let meta = discover(&client, server_url).await?;
+    let authorize = meta.authorization_endpoint.ok_or("The server doesn't say where to sign in")?;
+    let token_endpoint = meta.token_endpoint.ok_or("The server doesn't say where to get a token")?;
+    let mut authorize = https(&authorize)?;
+    https(&token_endpoint)?;
+
+    let (verifier, challenge) = pkce();
+    let state = random_token();
+    // Bind before opening the browser, so the callback can't be missed.
+    let mut callback = listen(id).await?;
+    authorize
+        .query_pairs_mut()
+        .append_pair("response_type", "code")
+        .append_pair("client_id", &reg.client_id)
+        .append_pair("redirect_uri", &reg.redirect_uri)
+        .append_pair("code_challenge", &challenge)
+        .append_pair("code_challenge_method", "S256")
+        .append_pair("state", &state)
+        .append_pair("resource", server_url.trim());
+    app.opener()
+        .open_url(authorize.as_str(), None::<&str>)
+        .map_err(|e| format!("Couldn't open the browser: {e}"))?;
+    let service = reqwest::Url::parse(server_url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_string))
+        .unwrap_or_else(|| "the service".into());
+    let code = match callback.wait(&state, &service).await? {
+        Callback::Code(code) => code,
+        Callback::Denied(reason) => return Err(format!("Sign-in was declined: {reason}")),
+    };
+    let form = vec![
+        ("grant_type", "authorization_code".to_string()),
+        ("code", code),
+        ("redirect_uri", reg.redirect_uri.clone()),
+        ("code_verifier", verifier),
+        ("resource", server_url.trim().to_string()),
+    ];
+    let body = token_request(
+        &client,
+        &token_endpoint,
+        &reg.client_id,
+        reg.client_secret.as_deref(),
+        reg.auth_method.as_deref(),
+        form,
+    )
+    .await?;
+    let tokens_for_server = tokens_from(
+        &body,
+        None,
+        Tokens {
+            server_url: server_url.trim().to_string(),
+            access_token: String::new(),
+            refresh_token: None,
+            expires_at: None,
+            token_endpoint,
+            client_id: reg.client_id.clone(),
+            client_secret: reg.client_secret.clone(),
+            auth_method: reg.auth_method.clone(),
+        },
+    );
+    let mut map = tokens().lock().unwrap_or_else(|p| p.into_inner());
+    map.insert(id.to_string(), tokens_for_server);
+    save_tokens(&map)
+}
+
+#[cfg(test)]
+mod native_tests {
+    use super::*;
+
+    #[test]
+    fn pkce_challenge_is_s256_of_the_verifier() {
+        use sha2::Digest;
+        let (verifier, challenge) = pkce();
+        assert!(verifier.len() >= 43);
+        assert_eq!(challenge, b64url(&sha2::Sha256::digest(verifier.as_bytes())));
+        assert!(!challenge.contains('='));
+    }
+
+    #[test]
+    fn a_refresh_keeps_the_old_refresh_token_when_none_comes_back() {
+        let base = Tokens {
+            server_url: "https://x".into(),
+            access_token: "old".into(),
+            refresh_token: Some("r1".into()),
+            expires_at: None,
+            token_endpoint: "https://x/token".into(),
+            client_id: "c".into(),
+            client_secret: None,
+            auth_method: None,
+        };
+        let t = tokens_from(&json!({ "access_token": "new", "expires_in": 3600 }), Some("r1".into()), base);
+        assert_eq!(t.access_token, "new");
+        assert_eq!(t.refresh_token.as_deref(), Some("r1"));
+        assert!(t.expires_at.unwrap() > now_secs());
+    }
+}

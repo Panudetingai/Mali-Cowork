@@ -51,6 +51,8 @@ export type OpencodeModel = {
   toolCall?: boolean | null;
   /** What it produces: `text`, `image`, `video`. */
   output?: string[];
+  /** What it takes in: `text`, `image`, `pdf`… */
+  input?: string[];
   /** Reasoning effort levels it accepts, weakest first; empty for none. */
   efforts?: string[];
 };

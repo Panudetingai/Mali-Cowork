@@ -66,6 +66,15 @@ pub fn attachment_save(name: String, data: Vec<u8>) -> Result<Attachment, String
     describe(&target)
 }
 
+/// The bytes of a saved attachment, for a preview in a window without file
+/// system access (the Quick bar). Only files inside the attachments folder.
+#[tauri::command]
+pub fn attachment_read(path: String) -> Result<tauri::ipc::Response, String> {
+    let real = resolve(&path)?;
+    let bytes = std::fs::read(&real).map_err(|e| format!("Cannot read {path}: {e}"))?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 /// Download a picture from a link (Visual: "File/Link"), as if it had been
 /// pasted. https only, pictures only, and no larger than an attachment.
 #[tauri::command]

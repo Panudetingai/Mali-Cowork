@@ -115,6 +115,9 @@ fn usage(usage: &Value) -> Option<AgentUsage> {
 }
 
 /// `tool_call` events carry one `<name>ToolCall` object, e.g. `editToolCall`.
+/// Where Cursor puts the tools of Mali's `mali` gateway (see `mcp_bridge`).
+const MALI_NAMESPACE: &str = "plugin-mali-cowork-mali";
+
 fn tool_activity(event: &Value, subtype: &str) -> Option<ChatStreamEvent> {
     if !matches!(subtype, "started" | "completed" | "error") {
         return None;
@@ -128,15 +131,21 @@ fn tool_activity(event: &Value, subtype: &str) -> Option<ChatStreamEvent> {
     let tool = key.strip_suffix("ToolCall").unwrap_or(key);
     let args = &call["args"];
 
+    // MCP calls go through `CallDynamicTool`: show the tool, not the wrapper.
+    // Mali's connectors (`plugin-mali-cowork-mali`) read `<connector>_<tool>`,
+    // which the step list shows with the connector's name and icon.
+    let dynamic = args["namespace"].as_str().zip(args["toolName"].as_str());
     let subject = first_str(
         args,
         &["path", "command", "pattern", "query", "url", "filePath", "target_file"],
     )
     .unwrap_or_default();
-    let title = if subject.is_empty() {
-        tool.to_string()
-    } else {
-        format!("{tool}: {subject}")
+    let title = match dynamic {
+        Some((MALI_NAMESPACE, name)) => name.to_string(),
+        Some(("cursor", name)) => name.to_string(),
+        Some((namespace, name)) => format!("{}: {name}", namespace.trim_start_matches("plugin-")),
+        None if subject.is_empty() => tool.to_string(),
+        None => format!("{tool}: {subject}"),
     };
 
     let mut detail = Vec::new();
@@ -195,6 +204,24 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn a_mali_connector_call_reads_as_the_connector_tool() {
+        let call = |namespace: &str| {
+            json!({
+                "type": "tool_call", "subtype": "started", "call_id": "t9",
+                "tool_call": { "callDynamicToolToolCall": { "args": {
+                    "namespace": namespace, "toolName": "custom-notion_notion-search", "arguments": {}
+                } } }
+            })
+        };
+        let title = |event: Value| match tool_activity(&event, "started") {
+            Some(ChatStreamEvent::Activity { title, .. }) => title,
+            _ => panic!("no activity"),
+        };
+        assert_eq!(title(call(MALI_NAMESPACE)), "custom-notion_notion-search");
+        assert_eq!(title(call("plugin-github-github")), "github-github: custom-notion_notion-search");
     }
 
     fn assistant(text: &str) -> Value {

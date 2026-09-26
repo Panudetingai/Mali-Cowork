@@ -8,9 +8,9 @@ import {
   TabPanels,
 } from "@/components/animate-ui/primitives/headless/tabs";
 import { cn } from "@/lib/utils";
-import { BookOpenIcon, FolderIcon, GlobeIcon, NotebookPenIcon, ReceiptIcon, SparklesIcon } from "lucide-react";
+import { BookOpenIcon, FileTextIcon, FolderIcon, GlobeIcon, NotebookPenIcon, ReceiptIcon, SparklesIcon, ZapIcon } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
-import { Fragment, type ComponentProps } from "react";
+import { Fragment } from "react";
 import { FoldersSettings } from "./folders-settings";
 import { GeneralSettings } from "./general-settings";
 import { InstructionsSettings } from "./instructions-settings";
@@ -20,16 +20,13 @@ import { ModelsSettings } from "./models-settings";
 import { QuickSettings } from "./quick-settings";
 import { ReceiptSettings } from "./receipt-settings";
 import { SkillsSettings } from "./skills/skills-settings";
+import { TemplatesSettings } from "./templates-settings";
 import { useTranslation, type TranslationKey } from "@/features/i18n";
-
-function AppIcon(props: ComponentProps<"img">) {
-  return <img {...props} src="/icon-transparent.png" alt="" />;
-}
 
 // Nav order; `group` opens a labelled section in the sidebar.
 const TABS = [
   { id: "general", label: "tabGeneral", description: "tabGeneralDesc", icon: GlobeIcon, group: "settingsGroupApp" },
-  { id: "quick", label: "tabQuick", description: "tabQuickDesc", icon: AppIcon },
+  { id: "quick", label: "tabQuick", description: "tabQuickDesc", icon: ZapIcon },
   { id: "receipt", label: "tabReceipt", description: "tabReceiptDesc", icon: ReceiptIcon },
   // Providers and CLI agents are one page: both answer "where do the models
   // in the chat box come from", and split across two tabs the same key had
@@ -37,6 +34,7 @@ const TABS = [
   { id: "models", label: "tabModels", description: "tabModelsDesc", icon: SparklesIcon, group: "settingsGroupAi" },
   { id: "instructions", label: "tabInstructions", description: "tabInstructionsDesc", icon: NotebookPenIcon },
   { id: "skills", label: "tabSkills", description: "tabSkillsDesc", icon: BookOpenIcon },
+  { id: "templates", label: "tabTemplates", description: "tabTemplatesDesc", icon: FileTextIcon },
   { id: "mcp", label: "tabMcp", description: "tabMcpDesc", lobeMcp: true as const, group: "settingsGroupWorkspace" },
   { id: "folders", label: "tabFolders", description: "tabFoldersDesc", icon: FolderIcon },
 ] as const satisfies readonly {
@@ -145,6 +143,9 @@ export default function SettingsPage() {
             </TabPanel>
             <TabPanel>
               <SkillsSettings />
+            </TabPanel>
+            <TabPanel>
+              <TemplatesSettings />
             </TabPanel>
             <TabPanel>
               <McpSettings />
