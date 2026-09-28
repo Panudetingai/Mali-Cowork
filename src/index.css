@@ -2,6 +2,11 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/inter";
+/* Bundled so Thai renders offline; unicode-range means only used subsets load. */
+@import "@fontsource/sarabun/400.css";
+@import "@fontsource/sarabun/500.css";
+@import "@fontsource/sarabun/600.css";
+@import "@fontsource/sarabun/700.css";
 
 /* Streamdown ships its Tailwind classes in JS; without this lists lose bullets. */
 @source "../node_modules/streamdown/dist/*.js";
@@ -45,11 +50,22 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --font-heading: var(--font-sans);
-  --font-sans: 'Inter Variable', sans-serif;
+  /* Resolved at runtime (not inlined) so the <html lang> switch reaches every font-sans element. */
+  --font-heading: var(--font-app);
+  --font-sans: var(--font-app);
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Language-specific typography: Thai uses Sarabun, English uses Inter. */
+:root,
+html[lang="en"] {
+  --font-app: 'Inter Variable', sans-serif;
+}
+
+html[lang="th"] {
+  --font-app: 'Sarabun', 'TH Sarabun New', 'Inter Variable', sans-serif;
 }
 
 :root {
@@ -157,6 +173,20 @@
   html[data-window="quick"] #root {
     background-color: transparent;
     border-radius: 0;
+  }
+  /* Capture overlay (Windows): the screen under it must stay visible. */
+  html[data-window="quick-capture-overlay"] #root {
+    background-color: transparent;
+    border-radius: 0;
+  }
+
+  /* No scrollbars anywhere (WebView2 draws thick ones on Windows); scroll
+     containers show an edge fade instead (components/ui/scroll-fade). */
+  * {
+    scrollbar-width: none;
+  }
+  *::-webkit-scrollbar {
+    display: none;
   }
 
   iframe[data-cowork-bot] {
@@ -321,34 +351,85 @@
 .chat-markdown [data-streamdown="blockquote"] [data-streamdown="code-block"] {
   margin-block: 0.5em;
 }
+/*
+ * Tables (Streamdown): the library nests borders (wrapper → scroll box → table)
+ * and adds row dividers — we collapse that into one shell and horizontal rules only.
+ */
 .chat-markdown [data-streamdown="table-wrapper"] {
-  margin-block: 0.75em;
-  overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 0.625em;
-  font-size: 0.875em;
+  margin-block: 0.85em !important;
+  gap: 0.35rem;
+  padding: 0.45rem 0.5rem 0.55rem !important;
+  font-size: 0.8125em;
+  line-height: 1.5;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent) !important;
+  border-radius: 0.75em !important;
+  background: color-mix(in srgb, var(--muted) 22%, var(--background)) !important;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--foreground) 4%, transparent);
 }
-.chat-markdown table {
+.chat-markdown [data-streamdown="table-wrapper"] > div:has(> table) {
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+.chat-markdown [data-streamdown="table"] {
   width: 100%;
   border-collapse: collapse;
-  line-height: 1.55;
+  border: none !important;
+  line-height: 1.5;
 }
-.chat-markdown thead th {
-  background: var(--muted);
-  font-weight: 600;
-  text-align: left;
-  white-space: nowrap;
+.chat-markdown [data-streamdown="table-header"] {
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
 }
-.chat-markdown :is(th, td) {
-  padding: 0.5em 0.8em;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
+.chat-markdown [data-streamdown="table-body"] {
+  --tw-divide-y-reverse: 0;
+  border-style: none;
 }
-.chat-markdown tbody tr:last-child :is(th, td) {
+.chat-markdown [data-streamdown="table-body"] > [data-streamdown="table-row"] {
+  border-top: none !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+  background: transparent;
+}
+.chat-markdown [data-streamdown="table-body"] > [data-streamdown="table-row"]:last-child {
   border-bottom: none;
 }
-.chat-markdown tbody tr:nth-child(even) {
-  background: color-mix(in srgb, var(--muted) 45%, transparent);
+.chat-markdown [data-streamdown="table-body"] > [data-streamdown="table-row"]:nth-child(even) {
+  background: color-mix(in srgb, var(--muted) 28%, transparent);
+}
+.chat-markdown [data-streamdown="table-header"] [data-streamdown="table-row"] {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+.chat-markdown :is([data-streamdown="table-header-cell"], [data-streamdown="table-cell"]) {
+  padding: 0.55em 0.7em;
+  vertical-align: top;
+  border: none !important;
+}
+.chat-markdown [data-streamdown="table-header-cell"] {
+  font-weight: 600;
+  font-size: 0.92em;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--foreground) 88%, var(--muted-foreground));
+  white-space: nowrap;
+}
+.chat-markdown [data-streamdown="table-cell"] {
+  white-space: normal;
+  word-break: break-word;
+}
+.chat-markdown [data-streamdown="table-cell"] :is(a, [data-streamdown="link"]) {
+  font-weight: 500;
+  font-size: 0.95em;
+  color: color-mix(in srgb, var(--primary) 88%, var(--foreground));
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--primary) 35%, transparent);
+  text-underline-offset: 2px;
+}
+.chat-markdown [data-streamdown="table-cell"] :is(a, [data-streamdown="link"]):hover {
+  text-decoration-color: color-mix(in srgb, var(--primary) 70%, transparent);
+}
+.chat-markdown [data-streamdown="table-wrapper"] > div:first-child:not(:has(> table)) {
+  padding: 0 0.1rem 0.15rem;
 }
 .chat-markdown [data-streamdown="link"] {
   font-weight: 500;
@@ -384,5 +465,40 @@
   }
   100% {
     transform: translateX(350%);
+  }
+}
+
+/* A bell that needs you: a small ring now and then (Inbox button). */
+@keyframes wiggle {
+  0%,
+  60%,
+  100% {
+    transform: rotate(0);
+  }
+  10%,
+  30% {
+    transform: rotate(-12deg);
+  }
+  20%,
+  40% {
+    transform: rotate(12deg);
+  }
+}
+
+/* Voice input: level bars bounce while listening. */
+@keyframes voice-bar {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-\[wiggle_1\.2s_ease-in-out_infinite\],
+  .animate-\[voice-bar_0\.9s_ease-in-out_infinite\] {
+    animation: none;
   }
 }

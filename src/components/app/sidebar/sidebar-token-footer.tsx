@@ -14,12 +14,18 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/animate-ui/components/radix/sidebar";
-import { useChatSessions } from "@/features/chat-history";
 import { useOpencode } from "@/features/opencode";
-import { aggregateTokenUsage, type ModelUsageTotals, type UsageTotals } from "@/features/usage";
+import {
+  aggregateUsageEvents,
+  loadUsageLedger,
+  useUsageLedger,
+  type ModelUsageTotals,
+  type UsageTotals,
+} from "@/features/usage";
 import { cn } from "@/lib/utils";
 import { modelIsPaid, modelMetaFromId } from "@/pages/chat/models";
-import { CoinsIcon, Gauge } from "lucide-react";
+import { ArrowRightIcon, CoinsIcon, Gauge } from "lucide-react";
+import { Link } from "react-router-dom";
 import { motion, useMotionValueEvent, useSpring } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -40,9 +46,14 @@ const BREAKDOWN = [
 ] as const satisfies readonly { key: keyof UsageTotals; label: string; bar: string }[];
 
 export function SidebarTokenFooter() {
-  const sessions = useChatSessions();
+  // The ledger, not the chats: a deleted chat's tokens were still spent.
+  const { events } = useUsageLedger();
   const [open, setOpen] = useState(false);
-  const { totals, byModel } = useMemo(() => aggregateTokenUsage(sessions), [sessions]);
+  const { totals, byModel } = useMemo(() => aggregateUsageEvents(events), [events]);
+
+  useEffect(() => {
+    void loadUsageLedger();
+  }, []);
 
   if (totals.totalTokens <= 0 && totals.cost <= 0) return null;
 
@@ -101,7 +112,7 @@ export function SidebarTokenFooter() {
               "outline-hidden",
             )}
           >
-            <UsagePanel totals={totals} byModel={byModel} />
+            <UsagePanel totals={totals} byModel={byModel} onOpenDashboard={() => setOpen(false)} />
           </PopoverContent>
         </PopoverPortal>
       </Popover>
@@ -109,7 +120,15 @@ export function SidebarTokenFooter() {
   );
 }
 
-function UsagePanel({ totals, byModel }: { totals: UsageTotals; byModel: ModelUsageTotals[] }) {
+function UsagePanel({
+  totals,
+  byModel,
+  onOpenDashboard,
+}: {
+  totals: UsageTotals;
+  byModel: ModelUsageTotals[];
+  onOpenDashboard: () => void;
+}) {
   const opencode = useOpencode();
   const slices = BREAKDOWN.map((slice) => ({ ...slice, value: totals[slice.key] })).filter(
     (slice) => slice.value > 0,
@@ -124,7 +143,7 @@ function UsagePanel({ totals, byModel }: { totals: UsageTotals; byModel: ModelUs
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Total tokens — all chats
+            Total tokens — all time
           </p>
           <div className="flex items-baseline gap-2">
             <AnimatedCount value={totals.totalTokens} className="text-2xl font-semibold tabular-nums" />
@@ -219,6 +238,15 @@ function UsagePanel({ totals, byModel }: { totals: UsageTotals; byModel: ModelUs
           })}
         </ul>
       </section>
+
+      <Link
+        to="/usage"
+        onClick={onOpenDashboard}
+        className="flex items-center justify-between border-t px-4 py-2.5 text-xs font-medium transition-colors hover:bg-muted/60"
+      >
+        Open usage dashboard
+        <ArrowRightIcon className="size-3.5 text-muted-foreground" />
+      </Link>
     </div>
   );
 }

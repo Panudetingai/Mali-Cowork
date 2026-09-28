@@ -36,20 +36,23 @@ export function QuickCaptureOverlay() {
     return () => window.removeEventListener("keydown", handle);
   }, []);
 
-  const onMouseDown = useCallback((event: React.MouseEvent) => {
+  const onPointerDown = useCallback((event: React.PointerEvent) => {
+    if (event.button !== 0) return;
+    // Keep receiving moves/up even if the pointer leaves the page mid-drag.
+    event.currentTarget.setPointerCapture(event.pointerId);
     const point = { x: event.clientX, y: event.clientY };
     setDrag({ start: point, current: point });
   }, []);
 
-  const onMouseMove = useCallback(
-    (event: React.MouseEvent) => {
+  const onPointerMove = useCallback(
+    (event: React.PointerEvent) => {
       if (!drag) return;
       setDrag({ ...drag, current: { x: event.clientX, y: event.clientY } });
     },
     [drag],
   );
 
-  const onMouseUp = useCallback(async () => {
+  const onPointerUp = useCallback(async () => {
     if (!drag) return;
     const rect = normalize(drag.start, drag.current);
     setDrag(null);
@@ -59,16 +62,19 @@ export function QuickCaptureOverlay() {
       return;
     }
 
+    // The monitor origin is in physical pixels; the drag is in CSS pixels.
+    const scale = window.devicePixelRatio || 1;
     try {
+      // Rust hides this window, captures, then destroys it.
       await invoke("quick_capture_region", {
         rect: {
-          x: Math.round(monitorX + rect.x),
-          y: Math.round(monitorY + rect.y),
-          width: Math.round(rect.w),
-          height: Math.round(rect.h),
+          x: Math.round(monitorX + rect.x * scale),
+          y: Math.round(monitorY + rect.y * scale),
+          width: Math.round(rect.w * scale),
+          height: Math.round(rect.h * scale),
         },
       });
-    } finally {
+    } catch {
       void getCurrentWebviewWindow().close();
     }
   }, [drag, monitorX, monitorY]);
@@ -83,32 +89,34 @@ export function QuickCaptureOverlay() {
   return (
     <div
       ref={containerRef}
-      className="fixed inset-0 cursor-crosshair bg-black/20"
-      onMouseDown={onMouseDown}
-      onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
+      // A light tint before the drag; once dragging, only the outside is
+      // dimmed so the picked region shows exactly what will be captured.
+      className={cn("fixed inset-0 cursor-crosshair", !rect && "bg-black/10")}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
       onContextMenu={onContextMenu}
     >
       {rect && rect.w > 0 && rect.h > 0 && (
         <>
           {/* Top */}
           <div
-            className="absolute bg-black/50"
+            className="absolute bg-black/35"
             style={{ top: 0, left: 0, right: 0, height: rect.y }}
           />
           {/* Bottom */}
           <div
-            className="absolute bg-black/50"
+            className="absolute bg-black/35"
             style={{ left: 0, right: 0, bottom: 0, height: `calc(100% - ${rect.y + rect.h}px)` }}
           />
           {/* Left */}
           <div
-            className="absolute bg-black/50"
+            className="absolute bg-black/35"
             style={{ top: rect.y, left: 0, width: rect.x, height: rect.h }}
           />
           {/* Right */}
           <div
-            className="absolute bg-black/50"
+            className="absolute bg-black/35"
             style={{
               top: rect.y,
               right: 0,
@@ -118,7 +126,7 @@ export function QuickCaptureOverlay() {
           />
           {/* Selection border */}
           <div
-            className="pointer-events-none absolute border border-sky-400 bg-sky-400/10 shadow-[0_0_0_1px_rgba(56,189,248,0.5)]"
+            className="pointer-events-none absolute border border-sky-400 shadow-[0_0_0_1px_rgba(56,189,248,0.5)]"
             style={{ top: rect.y, left: rect.x, width: rect.w, height: rect.h }}
           />
           {/* Size label */}
@@ -128,7 +136,8 @@ export function QuickCaptureOverlay() {
             )}
             style={{ top: rect.y + rect.h + 6, left: rect.x }}
           >
-            {rect.w} × {rect.h}
+            {Math.round(rect.w * (window.devicePixelRatio || 1))} ×{" "}
+            {Math.round(rect.h * (window.devicePixelRatio || 1))}
           </span>
         </>
       )}

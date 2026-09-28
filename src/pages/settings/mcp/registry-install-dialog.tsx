@@ -89,7 +89,7 @@ function PickServer({ query, onPick, onClose }: { query: string; onPick: (s: Reg
         <DialogTitle>Choose a connector</DialogTitle>
         <DialogDescription>Results for “{query}” in the MCP Registry.</DialogDescription>
       </DialogHeader>
-      {error && <Notice tone="danger">{error}</Notice>}
+      {error && <Notice tone="warning">{error}</Notice>}
       {!results && !error && (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <LoaderIcon className="size-4 animate-spin" /> Searching…

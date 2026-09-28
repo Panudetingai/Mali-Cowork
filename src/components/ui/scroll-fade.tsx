@@ -27,9 +27,11 @@ export function useScrollFade<T extends HTMLElement>(watch?: unknown) {
   const sync = useCallback(() => {
     const el = ref.current;
     if (!el) return;
-    const max = el.scrollHeight - el.clientHeight;
-    // A pixel or two of rounding is not "more content".
-    setEdges({ top: el.scrollTop > 4, bottom: max > 4 && el.scrollTop < max - 4 });
+    // Round to avoid showing the nudge for tiny sub-pixel overflows when the
+    // container is not actually scrollable.
+    const max = Math.round(el.scrollHeight - el.clientHeight);
+    // A few pixels of rounding is not "more content".
+    setEdges({ top: el.scrollTop > 4, bottom: max > 8 && el.scrollTop < max - 4 });
   }, []);
 
   useEffect(() => {
@@ -38,7 +40,12 @@ export function useScrollFade<T extends HTMLElement>(watch?: unknown) {
     if (!el || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(sync);
     observer.observe(el);
-    for (const child of el.children) observer.observe(child);
+    // Grandchildren too: a wrapper held to the container's height doesn't
+    // resize when the content inside it grows.
+    for (const child of el.children) {
+      observer.observe(child);
+      for (const inner of child.children) observer.observe(inner);
+    }
     return () => observer.disconnect();
   }, [sync, watch]);
 

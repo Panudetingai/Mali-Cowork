@@ -7,6 +7,7 @@ import { antigravityAbort } from "@/features/antigravity";
 import { codexAbort } from "@/features/codex";
 import { cursorAbort } from "@/features/cursor";
 import { buildInstructions } from "@/features/instructions";
+import { connectorInstructionsFor } from "@/features/mcp";
 import { ensureOpencodeModels, loadOpencodeSettings, opencodeAbort } from "@/features/opencode";
 import { loadVault } from "@/features/secrets";
 import { normalizeFolder } from "@/features/workspace";
@@ -149,7 +150,9 @@ export async function runQuickPrompt(
         runId,
         cwd,
         attachments: request.attachments,
-        instructions: buildInstructions(undefined, undefined, "chat"),
+        instructions: [buildInstructions(undefined, undefined, "chat"), connectorInstructionsFor()]
+          .filter(Boolean)
+          .join("\n\n"),
       },
       {
         onChunk: (delta) => {

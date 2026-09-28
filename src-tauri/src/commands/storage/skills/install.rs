@@ -111,7 +111,13 @@ pub async fn skills_install(skills: Vec<InstallRequest>) -> Result<Vec<Installed
             if is_skill_file(&asset.path) || bytes.saturating_add(asset.bytes) > MAX_PACKAGE_BYTES {
                 continue;
             }
-            let Ok(data) = read_asset(&http, asset).await else { continue };
+            let data = match read_asset(&http, asset).await {
+                Ok(data) => data,
+                Err(why) => {
+                    eprintln!("[skills_install] skipped {}: {}", asset.path, why);
+                    continue;
+                }
+            };
             let target = dir.join(&relative);
             if !target.starts_with(&dir) {
                 return Err(format!("{}: that path leaves the skill folder", asset.path));

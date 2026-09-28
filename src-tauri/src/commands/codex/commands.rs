@@ -262,9 +262,10 @@ async fn run_prompt(
     } else {
         build_args(request)
     };
-    if request.is_chat() || request.read_only() {
-        // The sandbox doesn't reach MCP servers: leave out those that write or run commands.
-        args.extend(crate::commands::mcp::codex_workspace_mcp_overrides());
+    // The user's connectors, from Mali's gateway for this run only.
+    let mali_mcp = crate::commands::mcp_bridge::codex_overrides().await;
+    if let Some((overrides, _)) = &mali_mcp {
+        args.extend(overrides.iter().cloned());
     }
     for image in &request.images {
         let path = crate::commands::attachments::resolve(image)?;
@@ -277,6 +278,9 @@ async fn run_prompt(
     // always stop together.
     let mut cmd = supervisor::command(codex_command(bin, &arg_refs));
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    if let Some((_, token)) = &mali_mcp {
+        cmd.env(crate::commands::mcp_bridge::CODEX_TOKEN_ENV, token);
+    }
     if let Some(cwd) = request.workspace() {
         cmd.current_dir(cwd);
     }

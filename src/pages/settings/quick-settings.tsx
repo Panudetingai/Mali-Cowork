@@ -24,12 +24,14 @@ import {
   HistoryIcon,
   KeyboardIcon,
   MonitorIcon,
+  PowerIcon,
   RotateCcwIcon,
   ScanIcon,
   SparklesIcon,
+  ZapIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { GroupLabel, IconTile, Notice, SectionHeader, SettingsSection, StatusPill } from "./ui";
+import { Notice, SectionHeader, SettingRow, SettingsGroup, StatusPill, Steps } from "./ui";
 
 const mac = isMacPlatform();
 
@@ -69,93 +71,139 @@ export function QuickSettings() {
   };
 
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-8">
       <SectionHeader
         title="Quick bar"
-        description="A small window you can open over any app with a shortcut — ask, summarize or translate what you copied, then paste the answer back. It answers in Chat mode: no file access."
+        description="A small window you open over any app with a shortcut. It answers in Chat mode, with no access to your files."
       />
 
-      <ShortcutHero enabled={config.enabled} shortcut={config.shortcut} status={status} />
+      <Steps
+        steps={[
+          { title: "Copy text", description: "Select anything in any app and copy it (optional)." },
+          {
+            title: `Press ${shortcutKeys(config.shortcut, mac).join(mac ? "" : "+")}`,
+            description: "The Quick bar opens with what you copied.",
+          },
+          { title: "Ask, then paste", description: "Ask, summarize or translate, and paste the answer back." },
+        ]}
+      />
 
-      <SettingsSection>
-        <GroupLabel>Model</GroupLabel>
-        <div className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-card p-4">
-          <ModelPicker
-            appearance="field"
-            models={usable}
-            selected={shown}
-            loading={opencode.loading}
-            onSelect={(model) => void setQuickConfig({ modelId: model.id })}
-          />
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span>
-              {followsChat
-                ? "Following the model picked on the Chat page."
-                : "Quick bar has its own model — the Chat page's choice doesn't change it."}
-            </span>
-            {!followsChat && (
-              <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" onClick={() => void setQuickConfig({ modelId: undefined })}>
-                <RotateCcwIcon className="size-3.5" />
-                Use the Chat page's model
-              </Button>
-            )}
-          </div>
+      <ShortcutGroup enabled={config.enabled} shortcut={config.shortcut} status={status} />
+
+      <SettingsGroup
+        title="Model"
+        footer={
+          followsChat
+            ? "Following the model picked on the Chat page."
+            : "The Quick bar has its own model; changing the Chat page's model doesn't affect it."
+        }
+      >
+        <SettingRow
+          icon={<SparklesIcon />}
+          label="Answer with"
+          description="The model the Quick bar uses to reply."
+          control={
+            <>
+              {!followsChat && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  title="Use the Chat page's model"
+                  aria-label="Use the Chat page's model"
+                  onClick={() => void setQuickConfig({ modelId: undefined })}
+                >
+                  <RotateCcwIcon />
+                </Button>
+              )}
+              <div className="w-full sm:w-64">
+                <ModelPicker
+                  appearance="field"
+                  models={usable}
+                  selected={shown}
+                  loading={opencode.loading}
+                  onSelect={(model) => void setQuickConfig({ modelId: model.id })}
+                />
+              </div>
+            </>
+          }
+        >
           {effective?.issue && (
             <Notice tone="warning" title="This model can't answer in the Quick bar">
-              {effective.issue}. Pick a paid model or another provider above.
+              {effective.issue}. Pick a paid model or another provider.
             </Notice>
           )}
-        </div>
-      </SettingsSection>
+        </SettingRow>
+      </SettingsGroup>
 
-      <SettingsSection>
-        <GroupLabel>Behavior</GroupLabel>
-        <ul className="flex flex-col divide-y divide-border/60 overflow-hidden rounded-2xl border border-border/60 bg-card">
-          <ToggleRow
-            icon={<MonitorIcon />}
-            title={mac ? "Keep running in the menu bar" : "Keep running in the system tray"}
-            description="Closing the main window keeps Mali running, so the shortcut still works. Quit from the tray icon."
-            checked={config.trayMode}
-            onChange={(trayMode) => void setQuickConfig({ trayMode })}
-          />
-          <ToggleRow
-            icon={<HistoryIcon />}
-            title="Save Quick bar chats to history"
-            description="Each thread becomes a chat you can continue in the main window."
-            checked={config.saveToHistory ?? DEFAULT_QUICK_CONFIG.saveToHistory}
-            onChange={(saveToHistory) => void setQuickConfig({ saveToHistory })}
-          />
-        </ul>
-      </SettingsSection>
+      <SettingsGroup title="Behavior">
+        <SettingRow
+          icon={<MonitorIcon />}
+          htmlFor="quick-tray"
+          label={mac ? "Keep running in the menu bar" : "Keep running in the system tray"}
+          description="Closing the main window keeps Mali running, so the shortcut still works."
+          control={
+            <Switch
+              id="quick-tray"
+              checked={config.trayMode}
+              onCheckedChange={(trayMode) => void setQuickConfig({ trayMode })}
+            />
+          }
+        />
+        <SettingRow
+          icon={<HistoryIcon />}
+          htmlFor="quick-history"
+          label="Save chats to history"
+          description="Each Quick bar thread becomes a chat you can continue in the main window."
+          control={
+            <Switch
+              id="quick-history"
+              checked={config.saveToHistory ?? DEFAULT_QUICK_CONFIG.saveToHistory}
+              onCheckedChange={(saveToHistory) => void setQuickConfig({ saveToHistory })}
+            />
+          }
+        />
+      </SettingsGroup>
 
-      <SettingsSection>
-        <GroupLabel>In the Quick bar</GroupLabel>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <InfoTile icon={<ClipboardIcon />} title="Uses what you copied">
-            The clipboard is read once, when you press the shortcut — never in the background.
-          </InfoTile>
-          <InfoTile icon={<SparklesIcon />} title="One-tap actions">
-            <span className="flex flex-wrap gap-1 pt-0.5">
+      <SettingsGroup title="Good to know">
+        <SettingRow
+          icon={<ClipboardIcon />}
+          label="Uses what you copied"
+          description="The clipboard is read once, when you press the shortcut, never in the background."
+        />
+        <SettingRow
+          icon={<ZapIcon />}
+          label="One-tap actions"
+          description="Run a ready-made action on what you copied."
+          control={
+            <span className="flex flex-wrap gap-1">
               {DEFAULT_QUICK_ACTIONS.map((action, i) => (
-                <span key={action.id} className="rounded-full border border-border/70 px-2 py-0.5 text-[11px] text-foreground">
-                  {action.label} <span className="text-muted-foreground">{mac ? "⌘" : "Ctrl+"}{i + 1}</span>
+                <span key={action.id} className="rounded-md bg-muted px-2 py-0.5 text-[11px] text-foreground">
+                  {action.label}{" "}
+                  <span className="text-muted-foreground">
+                    {mac ? "⌘" : "Ctrl+"}
+                    {i + 1}
+                  </span>
                 </span>
               ))}
             </span>
-          </InfoTile>
-          <InfoTile icon={<ScanIcon />} title="Capture screen">
-            {mac
+          }
+        />
+        <SettingRow
+          icon={<ScanIcon />}
+          label="Capture screen"
+          description={
+            mac
               ? "Drag over part of the screen to ask about it. macOS asks for Screen Recording the first time."
-              : "Coming to Windows later."}
-          </InfoTile>
-        </div>
-      </SettingsSection>
+              : "Coming to Windows later."
+          }
+        />
+      </SettingsGroup>
     </div>
   );
 }
 
-/** The shortcut up front: what to press, whether it works, and how to change it. */
-function ShortcutHero({
+/** The shortcut up front: whether it's on, what to press, and how to change it. */
+function ShortcutGroup({
   enabled,
   shortcut,
   status,
@@ -192,144 +240,97 @@ function ShortcutHero({
   }, [recording]);
 
   return (
-    <div
-      className={cn(
-        "relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5",
-        !enabled && "opacity-80",
-      )}
-    >
-      <div className="pointer-events-none absolute -top-16 -right-10 size-48 rounded-full bg-amber-400/10 blur-3xl" aria-hidden />
-      <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-3">
-          <IconTile className="bg-amber-500/10 text-amber-600 dark:text-amber-400">
-            <img src="/icon-transparent.png" alt="" className="size-5 shrink-0" />
-          </IconTile>
-          <div className="flex min-w-0 flex-col gap-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-semibold">Global shortcut</span>
-              {!enabled ? (
-                <StatusPill tone="neutral">Off</StatusPill>
-              ) : live ? (
-                <StatusPill tone="success">Ready</StatusPill>
-              ) : status ? (
-                <StatusPill tone="danger">Not working</StatusPill>
-              ) : (
-                <StatusPill tone="pending">Starting…</StatusPill>
-              )}
-            </div>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {enabled ? "Press it from any app to open the Quick bar." : "Turn it on to open the Quick bar from any app."}
-            </p>
-          </div>
-        </div>
-        <Switch
-          checked={enabled}
-          onCheckedChange={(on) => void setQuickConfig({ enabled: on })}
-          aria-label="Enable the Quick bar shortcut"
-        />
-      </div>
-
-      <div className="relative mt-5 flex flex-col items-center gap-4 rounded-xl border border-dashed border-border/70 bg-muted/20 px-4 py-6">
-        {recording ? (
-          <div className="flex flex-col items-center gap-2">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <KeyboardIcon className="size-4 animate-pulse text-amber-500" />
-              Press the new shortcut…
-            </div>
-            <p className={cn("text-xs", hint ? "text-red-600 dark:text-red-400" : "text-muted-foreground")}>
-              {hint ?? "Esc to cancel"}
-            </p>
-          </div>
-        ) : (
-          <div className="flex items-center gap-1.5" aria-label={`Shortcut ${shortcut}`}>
-            {shortcutKeys(shortcut, mac).map((key, i) => (
-              <Keycap key={`${key}-${i}`}>{key}</Keycap>
-            ))}
-          </div>
-        )}
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <Button
-            variant={recording ? "secondary" : "outline"}
-            size="sm"
-            className="h-8 gap-1.5"
-            onClick={() => {
-              setHint(undefined);
-              setRecording((r) => !r);
-            }}
-          >
-            <KeyboardIcon className="size-3.5" />
-            {recording ? "Cancel" : "Change shortcut"}
-          </Button>
-          {shortcut !== DEFAULT_QUICK_CONFIG.shortcut && !recording && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 gap-1.5 text-muted-foreground"
-              onClick={() => void setQuickConfig({ shortcut: DEFAULT_QUICK_CONFIG.shortcut, enabled: true })}
-            >
-              <RotateCcwIcon className="size-3.5" />
-              Reset to {shortcutKeys(DEFAULT_QUICK_CONFIG.shortcut, mac).join(mac ? "" : "+")}
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {enabled && status && !status.registered && status.error && (
-        <div className="relative mt-4">
+    <SettingsGroup title="Shortcut">
+      <SettingRow
+        icon={<PowerIcon />}
+        htmlFor="quick-enabled"
+        label={
+          <span className="flex flex-wrap items-center gap-2">
+            Open the Quick bar with a shortcut
+            {!enabled ? (
+              <StatusPill tone="neutral">Off</StatusPill>
+            ) : live ? (
+              <StatusPill tone="success">Ready</StatusPill>
+            ) : status ? (
+              <StatusPill tone="danger">Not working</StatusPill>
+            ) : (
+              <StatusPill tone="pending">Starting…</StatusPill>
+            )}
+          </span>
+        }
+        description="Works from any app, even when Mali is in the background."
+        control={
+          <Switch
+            id="quick-enabled"
+            checked={enabled}
+            onCheckedChange={(on) => void setQuickConfig({ enabled: on })}
+          />
+        }
+      >
+        {enabled && status && !status.registered && status.error && (
           <Notice tone="danger" title="The shortcut isn't active">
             {status.error}. Try a different combination.
           </Notice>
-        </div>
-      )}
-    </div>
+        )}
+      </SettingRow>
+      <SettingRow
+        icon={<KeyboardIcon />}
+        label="Keyboard shortcut"
+        description={
+          recording ? (
+            <span className={cn(hint && "text-red-600 dark:text-red-400")}>
+              {hint ?? "Press the new key combination… (Esc to cancel)"}
+            </span>
+          ) : (
+            "Click Change, then press the keys you want."
+          )
+        }
+        className={cn(!enabled && "opacity-60")}
+        control={
+          <>
+            {recording ? (
+              <span className="flex h-8 items-center rounded-md border border-dashed border-primary/60 px-3 text-xs text-primary">
+                Recording…
+              </span>
+            ) : (
+              <span className="flex items-center gap-1" aria-label={`Shortcut ${shortcut}`}>
+                {shortcutKeys(shortcut, mac).map((key, i) => (
+                  <Keycap key={`${key}-${i}`}>{key}</Keycap>
+                ))}
+              </span>
+            )}
+            <Button
+              variant={recording ? "secondary" : "outline"}
+              size="sm"
+              onClick={() => {
+                setHint(undefined);
+                setRecording((r) => !r);
+              }}
+            >
+              {recording ? "Cancel" : "Change"}
+            </Button>
+            {shortcut !== DEFAULT_QUICK_CONFIG.shortcut && !recording && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title={`Reset to ${shortcutKeys(DEFAULT_QUICK_CONFIG.shortcut, mac).join(mac ? "" : "+")}`}
+                aria-label="Reset shortcut"
+                onClick={() => void setQuickConfig({ shortcut: DEFAULT_QUICK_CONFIG.shortcut, enabled: true })}
+              >
+                <RotateCcwIcon />
+              </Button>
+            )}
+          </>
+        }
+      />
+    </SettingsGroup>
   );
 }
 
 function Keycap({ children }: { children: ReactNode }) {
   return (
-    <kbd className="inline-flex h-11 min-w-11 items-center justify-center rounded-xl border border-border/80 border-b-[3px] bg-background px-3 font-sans text-lg font-medium text-foreground shadow-xs">
+    <kbd className="inline-flex h-7 min-w-7 items-center justify-center rounded-md border border-border/80 border-b-2 bg-background px-1.5 font-sans text-xs font-medium text-foreground">
       {children}
     </kbd>
-  );
-}
-
-function ToggleRow({
-  icon,
-  title,
-  description,
-  checked,
-  onChange,
-}: {
-  icon: ReactNode;
-  title: string;
-  description: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <li>
-      <label className="flex cursor-pointer items-center gap-3 p-4">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground [&_svg]:size-4">
-          {icon}
-        </span>
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="text-sm font-medium">{title}</span>
-          <span className="text-xs leading-relaxed text-muted-foreground">{description}</span>
-        </span>
-        <Switch checked={checked} onCheckedChange={onChange} />
-      </label>
-    </li>
-  );
-}
-
-function InfoTile({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-2 rounded-2xl border border-border/60 bg-card p-4">
-      <span className="flex size-8 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground [&_svg]:size-4">
-        {icon}
-      </span>
-      <span className="text-sm font-medium">{title}</span>
-      <div className="text-xs leading-relaxed text-muted-foreground">{children}</div>
-    </div>
   );
 }

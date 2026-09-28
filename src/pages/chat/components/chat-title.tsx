@@ -1,3 +1,4 @@
+import { useTranslation } from "@/features/i18n";
 import type { WorkMode } from "@/features/opencode";
 import type { Project } from "@/features/projects";
 import { cn } from "@/lib/utils";
@@ -5,18 +6,10 @@ import { FolderKanbanIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { Link } from "react-router-dom";
 
-const MODE_LABEL: Record<WorkMode, string> = {
-  chat: "Chat",
-  cowork: "Cowork",
-};
-
-const TAIL: Record<WorkMode, string> = {
-  chat: "what would you like to talk about today?",
-  cowork: "what would you like to create today?",
-};
-
 /** Empty chat headline — centered above the composer, like the visual gallery welcome. */
 export default function ChatTitle({ mode, project }: { mode: WorkMode; project?: Project }) {
+  const { t } = useTranslation();
+
   if (project) {
     return (
       <motion.div
@@ -37,6 +30,9 @@ export default function ChatTitle({ mode, project }: { mode: WorkMode; project?:
     );
   }
 
+  const modeLabel = mode === "chat" ? t("chatEmptyModeChat") : t("chatEmptyModeCowork");
+  const tail = mode === "chat" ? t("chatEmptyTailChat") : t("chatEmptyTailCowork");
+
   return (
     <motion.div
       key={mode}
@@ -46,8 +42,8 @@ export default function ChatTitle({ mode, project }: { mode: WorkMode; project?:
       transition={{ duration: 0.35, ease: "easeOut" }}
       className="max-w-xl px-4 text-center"
     >
-      <p className="text-2xl leading-relaxed text-muted-foreground sm:text-3xl">
-        Welcome to{" "}
+      <p className="mb-32 text-2xl leading-relaxed text-muted-foreground sm:text-3xl">
+        {t("chatEmptyWelcomePrefix")}{" "}
         <motion.span
           key={mode}
           initial={{ opacity: 0, y: 8 }}
@@ -55,10 +51,10 @@ export default function ChatTitle({ mode, project }: { mode: WorkMode; project?:
           transition={{ duration: 0.3, delay: 0.05 }}
           className="font-semibold text-foreground"
         >
-          {MODE_LABEL[mode]}
+          {modeLabel}
         </motion.span>
         {" — "}
-        {TAIL[mode]}
+        {tail}
       </p>
     </motion.div>
   );

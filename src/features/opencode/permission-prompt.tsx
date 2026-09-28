@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useState } from "react";
 import type { PermissionReply } from "./types";
 import { CoworkBot } from "@/components/anim/cowork-bot";
+import { ShieldAlertIcon } from "lucide-react";
 
 type Props = {
   requests: PermissionRequest[];
@@ -14,6 +15,8 @@ type Props = {
   onAllowFolder?: (request: PermissionRequest, folder: string) => Promise<void>;
   /** Sits under the composer with only the top edge peeking out. */
   stacked?: boolean;
+  /** ⌘↵ / ⇧⌘↵ / Esc answer the card. Off when the prompt box stays usable underneath. */
+  shortcuts?: boolean;
   className?: string;
 };
 
@@ -30,8 +33,18 @@ function splitTitle(title: string) {
   return match ? { action: match[1], target: match[2] } : { action: title, target: undefined };
 }
 
+/**
+ * A risky command's detail starts with "⚠ why"; the reason is shown up front
+ * and the card offers no "Always" for it.
+ */
+function splitRisk(detail: string | undefined) {
+  if (!detail?.startsWith("⚠")) return { warning: undefined, detail };
+  const [first, ...rest] = detail.split("\n");
+  return { warning: first.replace(/^⚠\s*/, ""), detail: rest.join("\n").trim() || undefined };
+}
+
 /** Approval card shown while the agent waits for the user. */
-export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, className }: Props) {
+export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, shortcuts = true, className }: Props) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const request = requests[0];
@@ -50,6 +63,7 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
   const busy = request != null && busyId === request.id;
   const folder = request ? requestedFolder(request) : undefined;
   const { action, target } = splitTitle(request?.title ?? "");
+  const { warning, detail } = splitRisk(request?.detail ?? undefined);
 
   const allowFolder = async (path: string) => {
     if (!request) return;
@@ -69,7 +83,7 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
       const meta = event.metaKey || event.ctrlKey;
       if (event.key === "Enter" && meta) {
         event.preventDefault();
-        void reply(event.shiftKey ? "always" : "once");
+        void reply(event.shiftKey && !warning ? "always" : "once");
         return;
       }
       if (event.key === "Escape") {
@@ -79,14 +93,14 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
     },
     // `reply` is recreated each render; the ids it closes over are what matter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [request?.id, busy],
+    [request?.id, busy, warning],
   );
 
   useEffect(() => {
-    if (!request) return;
+    if (!request || !shortcuts) return;
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [request, onKey]);
+  }, [request, onKey, shortcuts]);
 
   return (
     <AnimatePresence initial={false}>
@@ -135,8 +149,17 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
               )}
             </div>
 
+            {warning && (
+              <div className="mt-2 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-xs text-red-700 dark:text-red-300">
+                <ShieldAlertIcon className="mt-px size-3.5 shrink-0" />
+                <span>
+                  <span className="font-medium">Risky command.</span> {warning} Check it before you allow it.
+                </span>
+              </div>
+            )}
+
             <AnimatePresence initial={false}>
-              {expanded && request.detail && (
+              {(expanded || !!warning) && detail && (
                 <motion.div
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: "auto", opacity: 1 }}
@@ -145,14 +168,14 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
                   className="overflow-hidden"
                 >
                   <pre className="mt-2 max-h-40 overflow-auto rounded-lg border-border/60 bg-background/90 px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all text-foreground/85">
-                    {request.detail}
+                    {detail}
                   </pre>
                 </motion.div>
               )}
             </AnimatePresence>
 
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              {request.detail ? (
+              {detail && !warning ? (
                 <Button
                   size="xs"
                   variant="ghost"
@@ -176,9 +199,9 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
                   className="gap-1.5"
                 >
                   Deny
-                  <Kbd className="hidden bg-transparent @md:inline-flex">esc</Kbd>
+                  {shortcuts && <Kbd className="hidden bg-transparent @md:inline-flex">esc</Kbd>}
                 </Button>
-                {folder && onAllowFolder ? (
+                {warning ? null : folder && onAllowFolder ? (
                   <Button
                     type="button"
                     size="sm"
@@ -199,7 +222,7 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
                     className="gap-1.5"
                   >
                     Always
-                    <Kbd className="hidden @md:inline-flex">⇧⌘↵</Kbd>
+                    {shortcuts && <Kbd className="hidden @md:inline-flex">⇧⌘↵</Kbd>}
                   </Button>
                 )}
                 <Button
@@ -209,12 +232,14 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, cl
                   onClick={() => reply("once")}
                   title="Allow this once (⌘↵)"
                   className="gap-1.5"
-                  autoFocus
+                  autoFocus={shortcuts}
                 >
                   Allow once
-                  <Kbd className="hidden bg-primary-foreground/20 text-primary-foreground @md:inline-flex">
-                    ⌘↵
-                  </Kbd>
+                  {shortcuts && (
+                    <Kbd className="hidden bg-primary-foreground/20 text-primary-foreground @md:inline-flex">
+                      ⌘↵
+                    </Kbd>
+                  )}
                 </Button>
               </div>
             </div>

@@ -1,7 +1,6 @@
-import { skillSlug, toSkillFile, type Skill, type SkillCandidate } from "@/features/instructions";
+import { skillSlug, toSkillFile, type Skill, type SkillCandidate, type SkillDraft } from "@/features/instructions";
 import { installSkills, takenSlugs, toInstallRecord, uniqueSlug } from "@/features/skills";
 import { useState } from "react";
-import type { SkillDraft } from "./skill-dialog";
 import type { InstallChoice } from "./install-skill-dialog";
 
 export type InstallResult = { added: number; updated: number; files: number };

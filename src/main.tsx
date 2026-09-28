@@ -1,6 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
+import { ErrorBoundary } from "@/components/app/error-boundary";
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { loadChatHistory } from "@/features/chat-history";
 import { loadProjects } from "@/features/projects";
 import { applyQuickConfig, QuickBarRoot, QuickCaptureOverlay } from "@/features/quick";
@@ -8,6 +11,7 @@ import { loadVault } from "@/features/secrets";
 import { applyProductionHardening } from "@/lib/production-hardening";
 import { applyWindowChrome } from "@/lib/window-chrome";
 import { ThemeProvider } from "@/components/theme-provider";
+import "@/features/i18n";
 import "./index.css";
 import App from "./App";
 
@@ -59,11 +63,17 @@ function startMainWindow() {
       void applyQuickConfig();
       root().render(
         <React.StrictMode>
-          <ThemeProvider>
-            <BrowserRouter>
-              <App />
-            </BrowserRouter>
-          </ThemeProvider>
+          <ErrorBoundary scope="app">
+            <ThemeProvider>
+              {/* One provider for every tooltip: Radix's Tooltip throws without it. */}
+              <TooltipProvider delayDuration={300}>
+                <BrowserRouter>
+                  <App />
+                </BrowserRouter>
+                <Toaster />
+              </TooltipProvider>
+            </ThemeProvider>
+          </ErrorBoundary>
         </React.StrictMode>,
       );
     },

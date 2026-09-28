@@ -25,6 +25,7 @@ const OVERLAY_LABEL: &str = "quick-capture-overlay";
 const MAIN_LABEL: &str = "main";
 const TRAY_ID: &str = "mali-tray";
 const CAPTURE_DONE: &str = "quick:capture-done";
+const CAPTURE_FAILED: &str = "quick:capture-failed";
 /// ⌥⌘M on macOS, Ctrl+Alt+M elsewhere. ⌥Space clashes with Raycast/ChatGPT.
 pub const DEFAULT_SHORTCUT: &str = "CommandOrControl+Alt+M";
 /// Enough for a long email or a page of code; more is almost always a mistake.
@@ -128,6 +129,14 @@ pub fn on_window_event<R: Runtime>(window: &tauri::Window<R>, event: &WindowEven
             };
             if should_hide {
                 let _ = window.hide();
+            }
+        }
+        // However the overlay ends (captured, Esc, right click, error), the
+        // Quick bar comes back: it was hidden when the overlay opened.
+        (OVERLAY_LABEL, WindowEvent::Destroyed) => {
+            if let Some(quick) = window.app_handle().get_webview_window(QUICK_LABEL) {
+                let _ = quick.show();
+                let _ = quick.set_focus();
             }
         }
         _ => {}
@@ -394,18 +403,21 @@ pub async fn quick_start_capture_overlay<R: Runtime>(app: AppHandle<R>) -> Resul
         .ok_or("No screen found")?;
 
     let (x, y, w, h) = *target;
+    // A second click while an overlay is open would fail on the duplicate label.
+    if let Some(stale) = app.get_webview_window(OVERLAY_LABEL) {
+        let _ = stale.destroy();
+    }
     let url = format!("index.html?window=quick-capture-overlay&x={}&y={}", x, y);
-    let builder = WebviewWindowBuilder::new(&app, OVERLAY_LABEL, WebviewUrl::App(url.into()))
+    let window = WebviewWindowBuilder::new(&app, OVERLAY_LABEL, WebviewUrl::App(url.into()))
         .title("Capture region")
         .decorations(false)
         .transparent(true)
+        .background_color(tauri::window::Color(0, 0, 0, 0))
+        .shadow(false)
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
-        .visible(false);
-    #[cfg(target_os = "macos")]
-    let builder = builder.transparent(true);
-    let window = builder
+        .visible(false)
         .build()
         .map_err(|e| format!("Cannot open capture overlay: {e}"))?;
     let _ = window.set_position(Position::Physical(PhysicalPosition { x, y }));
@@ -422,46 +434,56 @@ pub async fn quick_start_capture_overlay<R: Runtime>(app: AppHandle<R>) -> Resul
 /// back to the Quick bar.
 #[tauri::command]
 pub async fn quick_capture_region<R: Runtime>(app: AppHandle<R>, rect: CaptureRect) -> Result<(), String> {
-    let attachment = tokio::task::spawn_blocking(move || -> Result<Attachment, String> {
-        let screens = screenshots::Screen::all().map_err(|e| format!("Cannot access screens: {e}"))?;
-        let screen = find_screen_by_cursor(&screens, Some((rect.x as f64, rect.y as f64)))
-            .ok_or("No screen found")?;
-
-        let info = screen.display_info;
-        let image = screen.capture().map_err(|e| format!("Cannot capture screen: {e}"))?;
-
-        let local_x = (rect.x - info.x).max(0);
-        let local_y = (rect.y - info.y).max(0);
-        let max_w = (info.width as i32 - local_x).max(0) as u32;
-        let max_h = (info.height as i32 - local_y).max(0) as u32;
-        let width = rect.width.min(max_w);
-        let height = rect.height.min(max_h);
-        if width == 0 || height == 0 {
-            return Err("Selected region has no size".into());
-        }
-
-        let mut full = image.clone();
-        let cropped =
-            image::imageops::crop(&mut full, local_x as u32, local_y as u32, width, height).to_image();
-        let path = std::env::temp_dir().join(format!("mali-capture-{}.png", uuid::Uuid::new_v4().simple()));
-        cropped.save(&path).map_err(|e| format!("Cannot save screenshot: {e}"))?;
-
-        let attachment = attachment_import(path.to_string_lossy().into_owned())?;
-        let _ = std::fs::remove_file(&path);
-        Ok(attachment)
-    })
-    .await
-    .map_err(|e| format!("Capture task failed: {e}"))??;
-
-    let _ = app.emit_to(QUICK_LABEL, CAPTURE_DONE, attachment);
+    // The overlay dims the screen; hide it and let the compositor repaint, or
+    // the screenshot is of the overlay rather than what is under it.
     if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
-        let _ = overlay.close();
+        let _ = overlay.hide();
     }
-    if let Some(quick) = app.get_webview_window(QUICK_LABEL) {
-        let _ = quick.show();
-        let _ = quick.set_focus();
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let result = tokio::task::spawn_blocking(move || crop_region(rect))
+        .await
+        .map_err(|e| format!("Capture task failed: {e}"))
+        .and_then(|r| r);
+
+    match &result {
+        Ok(attachment) => {
+            let _ = app.emit_to(QUICK_LABEL, CAPTURE_DONE, attachment.clone());
+        }
+        Err(message) => {
+            let _ = app.emit_to(QUICK_LABEL, CAPTURE_FAILED, message.clone());
+        }
     }
-    Ok(())
+    // Destroying it brings the Quick bar back (see `on_window_event`).
+    if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
+        let _ = overlay.destroy();
+    }
+    result.map(|_| ())
+}
+
+/// `rect` is in physical desktop pixels, the same space as `display_info`.
+fn crop_region(rect: CaptureRect) -> Result<Attachment, String> {
+    let screens = screenshots::Screen::all().map_err(|e| format!("Cannot access screens: {e}"))?;
+    let screen = find_screen_by_cursor(&screens, Some((rect.x as f64, rect.y as f64))).ok_or("No screen found")?;
+
+    let info = screen.display_info;
+    let mut image = screen.capture().map_err(|e| format!("Cannot capture screen: {e}"))?;
+
+    let local_x = (rect.x - info.x).max(0) as u32;
+    let local_y = (rect.y - info.y).max(0) as u32;
+    let width = rect.width.min(image.width().saturating_sub(local_x));
+    let height = rect.height.min(image.height().saturating_sub(local_y));
+    if width == 0 || height == 0 {
+        return Err("Selected region has no size".into());
+    }
+
+    let cropped = image::imageops::crop(&mut image, local_x, local_y, width, height).to_image();
+    let path = std::env::temp_dir().join(format!("mali-capture-{}.png", uuid::Uuid::new_v4().simple()));
+    cropped.save(&path).map_err(|e| format!("Cannot save screenshot: {e}"))?;
+
+    let attachment = attachment_import(path.to_string_lossy().into_owned());
+    let _ = std::fs::remove_file(&path);
+    attachment
 }
 
 #[cfg(target_os = "macos")]

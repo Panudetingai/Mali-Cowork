@@ -27,6 +27,8 @@ type Props = {
   continuedFrom?: ChatSession["continuedFrom"];
   onRetry?: (userMessageId: string) => void;
   onRate?: (messageId: string, value: "up" | "down") => void;
+  /** Send an edited prompt again as a new message. */
+  onEdit?: (userMessageId: string, content: string) => void;
   className?: string;
 };
 
@@ -41,6 +43,7 @@ export function ChatMessagePanel({
   continuedFrom,
   onRetry,
   onRate,
+  onEdit,
   className,
 }: Props) {
   const canExport = !!session && messages.length > 0 && !isLoading;
@@ -84,6 +87,7 @@ export function ChatMessagePanel({
               isLoading={isLoading}
               onRetry={onRetry}
               onRate={onRate}
+              onEdit={onEdit}
               session={session}
             />
           </div>

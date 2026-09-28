@@ -22,6 +22,31 @@
       try {
         var theme = localStorage.getItem("mali-cowork-theme");
         if (theme === "dark") document.documentElement.classList.add("dark");
+
+        var langSettingsRaw = localStorage.getItem("mali-cowork-lang-settings");
+        var langMode = "auto";
+        if (langSettingsRaw) {
+          try {
+            var parsed = JSON.parse(langSettingsRaw);
+            if (parsed && (parsed.mode === "th" || parsed.mode === "en")) langMode = parsed.mode;
+          } catch (e) {}
+        }
+        var activeLang = "en";
+        if (langMode === "th") {
+          activeLang = "th";
+        } else if (langMode === "en") {
+          activeLang = "en";
+        } else {
+          var userLangs = navigator.languages || [navigator.language || ""];
+          for (var i = 0; i < userLangs.length; i++) {
+            if (userLangs[i] && userLangs[i].toLowerCase().indexOf("th") === 0) {
+              activeLang = "th";
+              break;
+            }
+          }
+        }
+        document.documentElement.lang = activeLang;
+        document.documentElement.dataset.lang = activeLang;
       } catch (e) {}
     </script>
   </head>

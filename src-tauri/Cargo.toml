@@ -24,7 +24,7 @@ path = "src/bin/mcp_runner.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [ "tray-icon"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
@@ -34,7 +34,7 @@ aisdk = { version = "0.5.2", features = ["anthropic", "openai", "openaicompatibl
 dotenvy = "0.15"
 futures = "0.3"
 tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.12", features = ["json", "stream", "multipart"] }
 dirs = "6"
 base64 = "0.22"
 toml_edit = "0.22"
@@ -43,11 +43,13 @@ tauri-plugin-notification = "2.4.0"
 sha2 = "0.10"
 walkdir = "2.5"
 similar = "2"
+regex = "1"
 quick-xml = "0.42"
 hex = "0.4"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 rusqlite = { version = "0.39", features = ["bundled"] }
 screenshots = "0.8.10"
+trash = "5"
 image = "0.24"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"

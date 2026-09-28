@@ -1,9 +1,10 @@
+import { agentGenerateStream, loadCommandSandbox } from "@/features/agent";
 import { buildAttachmentAppendix, type Attachment } from "@/features/attachments";
 import type { Skill } from "@/features/instructions";
 import { codexGenerateStream } from "@/features/codex";
 import { cursorGenerateStream } from "@/features/cursor";
 import { antigravityGenerateStream } from "@/features/antigravity";
-import { hasEnabledMcp } from "@/features/mcp";
+import { hasHubMcp, hubMcpServers } from "@/features/mcp";
 import {
     getOpencodeModels,
     loadOpencodeSettings,
@@ -13,6 +14,8 @@ import {
 } from "@/features/opencode";
 import { mediaGenerateStream } from "@/features/media";
 import { requestConfigFor } from "@/features/providers";
+import { recordUsage } from "@/features/usage/ledger";
+import type { AgentUsage } from "../types";
 import {
     apiModelOf,
     codexModelOf,
@@ -23,7 +26,6 @@ import {
     isAntigravityModel,
     isOpencodeModel,
     mediaKindForId,
-    OPENCODE_PREFIX,
     opencodeModelOf,
 } from "../models";
 import { withSummary } from "../summary";
@@ -58,6 +60,8 @@ export type GenerateRequest = {
   summary?: string;
   /** Skills the user called with `/name` in this prompt. */
   skills?: Skill[];
+  /** The context budget the chat runs with, in tokens. */
+  maxTokens?: number;
   /**
    * How hard the model should think, as one of its own levels. Derived from
    * the picked model rather than passed in, so a resend on a different model
@@ -97,28 +101,89 @@ const NO_IMAGES = (name: string) =>
   `${name} can't look at pictures here. Remove the picture, or pick an OpenCode or Codex model.`;
 
 /**
- * The model id a prompt actually runs on. Provider API models only stream
- * text, so while MCP servers are on they run through OpenCode instead, which
- * holds the same provider key (see `syncCliProviders`) and the MCP tools.
- * Falls back to the direct API when OpenCode can't serve the model.
+ * The model id a prompt actually runs on. An API model stays on the user's
+ * own key: connectors reach it through Mali's own agent (see
+ * `runsOnMaliAgent`), never by moving it onto OpenCode.
  */
-export function runModelIdFor(modelId: string): string {
-  const api = apiModelOf(modelId);
-  if (!api || !hasEnabledMcp()) return modelId;
-  // A picture model is called over its own API; OpenCode has no use for it
-  // and would turn a drawing request into an empty reply.
-  if (mediaKindForId(modelId, getOpencodeModels())) return modelId;
-  const agentId = `${api.provider}/${api.model}`;
-  const agentModel = getOpencodeModels()?.models.find((m) => m.id === agentId);
-  if (!agentModel?.connected || agentModel.toolCall === false) return modelId;
-  return `${OPENCODE_PREFIX}${agentId}`;
+export function runModelIdFor(modelId: string, _mode?: WorkMode): string {
+  return modelId;
 }
 
+/**
+ * Mali's own agent runs an API model in Cowork (files, commands, connectors),
+ * and in Chat while connectors are on (connectors only). Otherwise a chat
+ * reply is a plain API call.
+ */
+export function runsOnMaliAgent(modelId: string, mode: WorkMode) {
+  const api = apiModelOf(modelId);
+  if (!api || mediaKindForId(modelId, getOpencodeModels())) return false;
+  return mode === "cowork" || hasHubMcp();
+}
+
+/**
+ * Run a prompt on whichever backend its model lives on. Every reply — chats,
+ * the Quick bar, the Inbox — passes through here, so this is where its
+ * tokens go into the usage ledger, which outlives the chat.
+ */
 export async function generateStream(
   request: GenerateRequest,
   handlers: ChatStreamHandlers,
 ): Promise<void> {
-  let { modelId } = request;
+  const started = performance.now();
+  let firstTokenMs: number | undefined;
+  let usage: AgentUsage | undefined;
+  let recorded = false;
+  const record = () => {
+    if (recorded || !usage) return;
+    recorded = true;
+    recordUsage({
+      modelId: request.modelId,
+      chatId: request.runId,
+      prompt: request.prompt,
+      usage,
+      durationMs: performance.now() - started,
+      firstTokenMs,
+    });
+  };
+  const firstToken = () => {
+    firstTokenMs ??= performance.now() - started;
+  };
+  try {
+    await routeStream(request, {
+      ...handlers,
+      onChunk: (text) => {
+        firstToken();
+        handlers.onChunk(text);
+      },
+      onReasoning: (reasoning) => {
+        firstToken();
+        handlers.onReasoning?.(reasoning);
+      },
+      onMetadata: (data) => {
+        // Later reports refine earlier ones, as on the message (`withMetadata`).
+        if (data.usage) usage = { ...usage, ...data.usage };
+        handlers.onMetadata?.(data);
+      },
+      onDone: (doneModelId) => {
+        record();
+        handlers.onDone(doneModelId);
+      },
+      // A failed or stopped reply still spent what it reported.
+      onError: (message) => {
+        record();
+        handlers.onError(message);
+      },
+    });
+  } finally {
+    record();
+  }
+}
+
+async function routeStream(
+  request: GenerateRequest,
+  handlers: ChatStreamHandlers,
+): Promise<void> {
+  const { modelId } = request;
 
   // A picture model, which the chat picker does not offer — the Visual page
   // does. A selection stored before that change would otherwise be sent to a
@@ -134,6 +199,8 @@ export async function generateStream(
         model: api.model,
         kind: media,
         ...requestConfigFor(api.provider),
+        // Pictures attached in the chat are what to draw from.
+        references: (request.attachments ?? []).filter((a) => a.kind === "image").map((a) => a.path),
         // Cowork works in a folder, so the file belongs there; Chat has none.
         outputDir: request.mode === "cowork" ? request.cwd ?? null : null,
       },
@@ -145,14 +212,6 @@ export async function generateStream(
   const images = attachments.filter((a) => a.kind === "image").map((a) => a.path);
   const videos = attachments.filter((a) => a.kind === "video").map((a) => a.path);
   const pdfs = attachments.filter((a) => a.mime === "application/pdf").map((a) => a.path);
-
-  // Provider APIs here only take text; OpenCode can send the same model a picture.
-  if (api && images.length > 0) {
-    const agentId = `${api.provider}/${api.model}`;
-    const agentModel = getOpencodeModels()?.models.find((m) => m.id === agentId);
-    if (!agentModel?.connected) return handlers.onError(NO_IMAGES(api.model));
-    modelId = `${OPENCODE_PREFIX}${agentId}`;
-  }
 
   // Only ever a level the picked model listed (see `efforts`), so it is safe
   // to hand to whichever backend ends up running: an api model that moves
@@ -184,6 +243,37 @@ export async function generateStream(
         files: [...images, ...pdfs, ...videos],
         instructions: request.instructions,
         effort,
+      },
+      handlers,
+    );
+  }
+
+  // An API key on Mali's own agent, which keeps its own session and reaches
+  // the connectors through Mali's MCP hub. A plain chat reply only carries
+  // text, so a prompt with pictures goes to the agent too.
+  if (api && !opencode && (runsOnMaliAgent(modelId, request.mode) || images.length > 0)) {
+    if (request.mode === "cowork" && !request.cwd) return handlers.onError("Pick the folder Cowork works in first.");
+    return agentGenerateStream(
+      {
+        prompt: withEarlierSummary(withHandoff(withFiles, request), request),
+        provider: api.provider,
+        model: api.model,
+        ...requestConfigFor(api.provider),
+        sessionId: request.sessionId,
+        mode: request.mode,
+        cwd: request.mode === "cowork" ? request.cwd : undefined,
+        folders: request.mode === "cowork" ? (request.folders ?? []) : [],
+        instructions: request.instructions,
+        effort,
+        autoApprove: loadOpencodeSettings().autoApprove,
+        sandbox: loadCommandSandbox(),
+        runId: request.runId,
+        mcp: await hubMcpServers(request.mode === "cowork" ? request.cwd : undefined),
+        images,
+        contextLimit: request.maxTokens,
+        vision: !!getOpencodeModels()
+          ?.models.find((m) => m.id === `${api.provider}/${api.model}`)
+          ?.input?.includes("image"),
       },
       handlers,
     );

@@ -30,6 +30,11 @@ export async function fetchSkillsFromUrl(url: string) {
   return toCandidates(await invoke<FoundSkill[]>("skills_fetch_url", { url }));
 }
 
+/** Skills in an npm package, downloaded with `npm pack` and scanned. */
+export async function fetchSkillsFromNpm(packageName: string) {
+  return toCandidates(await invoke<FoundSkill[]>("skills_install_npx", { package: packageName }));
+}
+
 /** Pick a folder (a shared drive, a cloned repo…) and find its SKILL.md files. */
 export async function pickSkillsFolder(): Promise<SkillCandidate[] | null> {
   const folder = await open({ directory: true, multiple: false, title: "Import skills from a folder" });
@@ -68,7 +73,7 @@ export async function exportSkillsToFolder(skills: Skill[]): Promise<{ folder: s
     let slug = exportSlug(skill);
     for (let n = 2; used.has(slug); n++) slug = `${exportSlug(skill)}-${n}`;
     used.add(slug);
-    return { slug, content: toSkillFile(skill) };
+    return { slug, content: toSkillFile(skill), dir: skill.install?.dir };
   });
   const count = await invoke<number>("skills_export_folder", { folder, skills: files });
   return { folder, count };

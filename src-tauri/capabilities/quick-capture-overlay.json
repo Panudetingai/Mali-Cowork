@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "quick-capture-overlay",
+  "description": "Quick bar region picker (Windows): it only needs to close itself; the capture runs in Rust.",
+  "windows": [
+    "quick-capture-overlay"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-set-focus"
+  ]
+}

@@ -38,7 +38,9 @@ const KIND_ICON = { image: ImageIcon, video: FilmIcon, file: FileIcon } as const
 
 function fileNameOf(item: MediaPreviewItem) {
   if (item.title?.trim()) return item.title.trim();
-  const raw = item.localPath ?? item.src;
+  // Saved data can lack both (e.g. a picture whose preview never loaded).
+  const raw = item.localPath ?? item.src ?? "";
+  if (!raw) return "file";
   try {
     const u = new URL(raw);
     return decodeURIComponent(u.pathname.split("/").pop() || "file");

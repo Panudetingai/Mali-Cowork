@@ -73,6 +73,8 @@ export function DiscoverView({ query }: { query: string }) {
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
   const [fromSmithery, setFromSmithery] = useState<SmitheryServer[]>([]);
   const [smitheryError, setSmitheryError] = useState<string | null>(null);
   const smitheryOn = useSmitheryReady();
@@ -112,13 +114,15 @@ export function DiscoverView({ query }: { query: string }) {
         if (!live) return;
         setServers(page.servers);
         setCursor(page.nextCursor ?? null);
+        setStale(Boolean(page.stale));
       })
+      // Keep whatever is on screen; the notice says the list may be out of date.
       .catch((e) => live && setError(String(e)))
       .finally(() => live && setLoading(false));
     return () => {
       live = false;
     };
-  }, [search]);
+  }, [search, retryKey]);
 
   const loadMore = async () => {
     if (!cursor) return;
@@ -127,12 +131,19 @@ export function DiscoverView({ query }: { query: string }) {
       const page = await searchRegistry(search, cursor, 40);
       setServers((prev) => [...prev, ...page.servers.filter((s) => !prev.some((p) => p.name === s.name))]);
       setCursor(page.nextCursor ?? null);
+      setStale(Boolean(page.stale));
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
   };
+
+  const retry = (
+    <Button type="button" variant="outline" size="sm" disabled={loading} onClick={() => setRetryKey((k) => k + 1)}>
+      Try again
+    </Button>
+  );
 
   const shown = servers.filter((s) => matchesKind(s, kind));
   const showFeatured = !search && featured && featured.length > 0;
@@ -157,7 +168,18 @@ export function DiscoverView({ query }: { query: string }) {
 
       <SmitheryCard what="connectors" />
 
-      {error && <Notice tone="danger">{error}</Notice>}
+      {error ? (
+        <Notice tone="warning" title="MCP Registry is slow to respond" action={retry} onDismiss={() => setError(null)}>
+          {error}
+        </Notice>
+      ) : (
+        stale &&
+        !loading && (
+          <Notice tone="info" title="Showing saved results" action={retry}>
+            The MCP Registry isn’t responding, so these come from an earlier visit and may be incomplete.
+          </Notice>
+        )
+      )}
       {smitheryError && (
         <Notice tone="warning" title="Couldn’t search Smithery" onDismiss={() => setSmitheryError(null)}>
           {smitheryError} The MCP Registry below is unaffected.

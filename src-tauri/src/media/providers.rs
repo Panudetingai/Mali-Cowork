@@ -134,6 +134,43 @@ impl Provider {
     }
 }
 
+/// A picture the user gave as a starting point: what to edit, what to keep
+/// the style of, or a video's first frame.
+pub struct Reference {
+    pub mime: String,
+    pub bytes: Vec<u8>,
+    pub name: String,
+}
+
+// By hand: the bytes would flood a test failure or a log line.
+impl std::fmt::Debug for Reference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Reference").field("mime", &self.mime).field("bytes", &self.bytes.len()).finish()
+    }
+}
+
+impl Reference {
+    fn base64(&self) -> String {
+        base64::engine::general_purpose::STANDARD.encode(&self.bytes)
+    }
+
+    fn data_uri(&self) -> String {
+        format!("data:{};base64,{}", self.mime, self.base64())
+    }
+}
+
+/// How many reference pictures a provider takes for a kind; 0 = none.
+/// Mirrored by `maxReferencesFor` in the Visual page.
+pub fn max_references(provider: Provider, kind: Kind) -> usize {
+    match (provider, kind) {
+        (Provider::Xai, _) => 0,
+        (_, Kind::Image) => 3,
+        // Veo and Wan animate from one picture: the first frame.
+        (Provider::Google | Provider::Alibaba, Kind::Video) => 1,
+        (_, Kind::Video) => 0,
+    }
+}
+
 pub struct Job<'a> {
     pub kind: Kind,
     pub prompt: &'a str,
@@ -148,6 +185,8 @@ pub struct Job<'a> {
     /// Video only: `1080P`, `720P`, `480P`. Providers spell the case
     /// differently, so each route normalises it.
     pub resolution: Option<&'a str>,
+    /// Pictures to work from; see `max_references` for how many each takes.
+    pub references: &'a [Reference],
 }
 
 impl Default for Job<'_> {
@@ -162,6 +201,7 @@ impl Default for Job<'_> {
             deadline: Instant::now() + Duration::from_secs(300),
             base_url: None,
             resolution: None,
+            references: &[],
         }
     }
 }
@@ -421,6 +461,9 @@ async fn google_image(job: &Job<'_>, key: &str, model: &str) -> Result<Vec<Produ
     // Imagen is a `predict` model; the Gemini image models answer on
     // `generateContent` with an IMAGE modality.
     if model.contains("imagen") {
+        if !job.references.is_empty() {
+            return Err("Imagen models can't start from a reference picture. Pick a Gemini image model to use one.".into());
+        }
         let mut parameters = json!({ "sampleCount": job.count.clamp(1, 4) });
         if let Some(ratio) = job.aspect_ratio {
             parameters["aspectRatio"] = json!(ratio);
@@ -443,8 +486,15 @@ async fn google_image(job: &Job<'_>, key: &str, model: &str) -> Result<Vec<Produ
     if let Some(ratio) = job.aspect_ratio {
         generation["imageConfig"] = json!({ "aspectRatio": ratio });
     }
+    // Reference pictures go first, as inline data, then the instruction.
+    let mut parts: Vec<Value> = job
+        .references
+        .iter()
+        .map(|r| json!({ "inline_data": { "mime_type": r.mime, "data": r.base64() } }))
+        .collect();
+    parts.push(json!({ "text": job.prompt }));
     let body = json!({
-        "contents": [{ "role": "user", "parts": [{ "text": job.prompt }] }],
+        "contents": [{ "role": "user", "parts": parts }],
         "generationConfig": generation,
     });
     let reply = post_json(
@@ -469,7 +519,12 @@ async fn google_video(job: &Job<'_>, key: &str, model: &str) -> Result<Vec<Produ
     if let Some(resolution) = job.resolution {
         parameters["resolution"] = json!(resolution.to_ascii_lowercase());
     }
-    let body = json!({ "instances": [{ "prompt": job.prompt }], "parameters": parameters });
+    let mut instance = json!({ "prompt": job.prompt });
+    // Veo animates from a picture: it becomes the first frame.
+    if let Some(first) = job.references.first() {
+        instance["image"] = json!({ "bytesBase64Encoded": first.base64(), "mimeType": first.mime });
+    }
+    let body = json!({ "instances": [instance], "parameters": parameters });
     let started = post_json(
         Provider::Google,
         http.post(format!("{GOOGLE_API}/models/{model}:predictLongRunning"))
@@ -589,12 +644,36 @@ async fn run_openai_compatible(
         })
         .unwrap_or_else(|| default_base.to_string());
     let base = base.trim_end_matches('/');
-    let reply = post_json(
-        provider,
-        client()?.post(format!("{base}/images/generations")).bearer_auth(key),
-        &body,
-    )
-    .await?;
+    let reply = if job.references.is_empty() {
+        post_json(provider, client()?.post(format!("{base}/images/generations")).bearer_auth(key), &body).await?
+    } else {
+        if provider == Provider::Xai {
+            return Err("xAI can't start from a reference picture here yet. Remove it, or pick a Gemini, OpenAI or Qwen image model.".into());
+        }
+        // Pictures to start from go to `/images/edits`, as a form.
+        let mut form = reqwest::multipart::Form::new()
+            .text("model", model.clone())
+            .text("prompt", job.prompt.to_string())
+            .text("n", job.count.clamp(1, 4).to_string());
+        if let Some(size) = openai_size(job.aspect_ratio) {
+            form = form.text("size", size);
+        }
+        for reference in job.references {
+            let part = reqwest::multipart::Part::bytes(reference.bytes.clone())
+                .file_name(reference.name.clone())
+                .mime_str(&reference.mime)
+                .map_err(|e| e.to_string())?;
+            form = form.part("image[]", part);
+        }
+        let response = client()?
+            .post(format!("{base}/images/edits"))
+            .bearer_auth(key)
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| format!("Cannot reach {}: {e}", provider.label()))?;
+        read_json(provider, response).await?
+    };
     let files = collect_files(provider, &reply, Kind::Image, None, job.count as usize).await?;
     Ok(Output { files, model })
 }
@@ -608,10 +687,21 @@ async fn run_openrouter(job: &Job<'_>, key: &str) -> Result<Output, String> {
     let model =
         asked.clone().unwrap_or_else(|| Provider::OpenRouter.default_model(job.kind).to_string());
     let attempt = |model: String| async move {
+        let content = if job.references.is_empty() {
+            json!(job.prompt)
+        } else {
+            let mut parts: Vec<Value> = job
+                .references
+                .iter()
+                .map(|r| json!({ "type": "image_url", "image_url": { "url": r.data_uri() } }))
+                .collect();
+            parts.push(json!({ "type": "text", "text": job.prompt }));
+            json!(parts)
+        };
         let body = json!({
             "model": model,
             "modalities": ["image", "text"],
-            "messages": [{ "role": "user", "content": job.prompt }],
+            "messages": [{ "role": "user", "content": content }],
         });
         let reply = post_json(
             Provider::OpenRouter,
@@ -713,9 +803,12 @@ async fn run_dashscope_image(job: &Job<'_>, key: &str) -> Result<Output, String>
     if let Some(size) = dashscope_size(job.aspect_ratio) {
         parameters["size"] = json!(size);
     }
+    // Edit models (`qwen-image-edit…`) take the pictures in the same message.
+    let mut content: Vec<Value> = job.references.iter().map(|r| json!({ "image": r.data_uri() })).collect();
+    content.push(json!({ "text": job.prompt }));
     let body = json!({
         "model": model,
-        "input": { "messages": [{ "role": "user", "content": [{ "text": job.prompt }] }] },
+        "input": { "messages": [{ "role": "user", "content": content }] },
         "parameters": parameters,
     });
     let reply = post_json(
@@ -747,11 +840,12 @@ async fn run_dashscope_video(job: &Job<'_>, key: &str) -> Result<Output, String>
     if let Some(resolution) = job.resolution {
         parameters["resolution"] = json!(resolution.to_ascii_uppercase());
     }
-    let body = json!({
-        "model": model,
-        "input": { "prompt": job.prompt },
-        "parameters": parameters,
-    });
+    let mut input = json!({ "prompt": job.prompt });
+    // Image-to-video models (`wan…-i2v…`) start from the picture.
+    if let Some(first) = job.references.first() {
+        input["img_url"] = json!(first.data_uri());
+    }
+    let body = json!({ "model": model, "input": input, "parameters": parameters });
     let started = post_json(
         Provider::Alibaba,
         http.post(format!("{root}{DASHSCOPE_VIDEO_PATH}"))

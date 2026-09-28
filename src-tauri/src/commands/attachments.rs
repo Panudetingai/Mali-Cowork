@@ -29,7 +29,7 @@ pub struct Attachment {
     pub kind: &'static str,
 }
 
-fn root() -> PathBuf {
+pub(crate) fn root() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join("mali-cowork")
@@ -64,6 +64,70 @@ pub fn attachment_save(name: String, data: Vec<u8>) -> Result<Attachment, String
     let target = new_slot(&name)?;
     std::fs::write(&target, &data).map_err(|e| format!("Cannot save {name}: {e}"))?;
     describe(&target)
+}
+
+/// The bytes of a saved attachment, for a preview in a window without file
+/// system access (the Quick bar). Only files inside the attachments folder.
+#[tauri::command]
+pub fn attachment_read(path: String) -> Result<tauri::ipc::Response, String> {
+    let real = resolve(&path)?;
+    let bytes = std::fs::read(&real).map_err(|e| format!("Cannot read {path}: {e}"))?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Download a picture from a link (Visual: "File/Link"), as if it had been
+/// pasted. https only, pictures only, and no larger than an attachment.
+#[tauri::command]
+pub async fn attachment_from_url(url: String) -> Result<Attachment, String> {
+    let parsed = reqwest::Url::parse(url.trim()).map_err(|_| "That isn't a web address.".to_string())?;
+    if parsed.scheme() != "https" {
+        return Err("Only https:// links can be used.".into());
+    }
+    let response = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?
+        .get(parsed.clone())
+        .send()
+        .await
+        .map_err(|e| format!("Cannot download it: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("The link answered {}.", response.status()));
+    }
+    let mime = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let ext = match mime.as_str() {
+        "image/png" => "png",
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        _ => return Err("That link isn't a picture (PNG, JPEG, WebP or GIF).".into()),
+    };
+    if response.content_length().is_some_and(|n| n > MAX_BYTES) {
+        return Err("That picture is larger than 20 MB.".into());
+    }
+    let bytes = response.bytes().await.map_err(|e| format!("Cannot download it: {e}"))?;
+    if bytes.len() as u64 > MAX_BYTES {
+        return Err("That picture is larger than 20 MB.".into());
+    }
+    let stem = parsed
+        .path_segments()
+        .and_then(|mut s| s.next_back())
+        .and_then(|name| name.rsplit_once('.').map(|(stem, _)| stem.to_string()).or(Some(name.to_string())))
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or_else(|| "linked-picture".into());
+    let name = format!("{stem}.{ext}");
+    tokio::task::spawn_blocking(move || attachment_save(name, bytes.to_vec()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// A fresh `<root>/<uuid>/<name>` path; also clears out old attachments.

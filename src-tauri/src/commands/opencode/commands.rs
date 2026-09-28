@@ -27,6 +27,19 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Silence on the event stream after which the server is checked.
 const STREAM_IDLE: Duration = Duration::from_secs(90);
 
+/// `opencode --version`, for messages that tell the user which one they have.
+async fn cli_version(bin: &str) -> Option<String> {
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        super::bin::opencode_command(bin, &["--version"]).output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!text.is_empty()).then(|| text.lines().last().unwrap_or(&text).trim().to_string())
+}
+
 #[tauri::command]
 pub async fn opencode_check() -> OpencodeCheckResult {
     let path = opencode_bin().map(str::to_string);
@@ -50,12 +63,22 @@ pub async fn opencode_check() -> OpencodeCheckResult {
             path,
             error: None,
         },
-        Err(error) => OpencodeCheckResult {
-            available: false,
-            version: None,
-            path,
-            error: Some(error),
-        },
+        Err(error) => {
+            let version = match path.as_deref() {
+                Some(bin) => cli_version(bin).await,
+                None => None,
+            };
+            let error = if error.starts_with(super::client::HEALTH_UNSUPPORTED) {
+                format!(
+                    "OpenCode {} on this computer doesn't work with Mali — its server doesn't have the API Mali \
+                     uses. Update it: open Terminal, run `opencode upgrade`, then quit and reopen Mali.",
+                    version.as_deref().unwrap_or("(unknown version)")
+                )
+            } else {
+                error
+            };
+            OpencodeCheckResult { available: false, version, path, error: Some(error) }
+        }
     }
 }
 
@@ -128,6 +151,7 @@ pub async fn opencode_list_models(cwd: Option<String>) -> Result<OpencodeModelsR
                     .as_bool()
                     .or_else(|| model["tool_call"].as_bool()),
                 output,
+                input: string_list(&model["modalities"]["input"]),
                 efforts: effort_levels(&model["variants"]),
             });
         }
@@ -215,10 +239,22 @@ pub fn opencode_default_cwd() -> String {
     path_str(&get_default_public_dir())
 }
 
+/// Permission requests for risky commands: "Always" is answered as "once",
+/// so opencode never learns a rule that skips the next one.
+fn risky_asks() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
+    static ASKS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
+    ASKS.get_or_init(Default::default)
+}
+
 #[tauri::command]
 pub async fn opencode_permission_reply(request: PermissionReplyRequest) -> Result<(), String> {
     if !matches!(request.reply.as_str(), "once" | "always" | "reject") {
         return Err(format!("Invalid permission reply: {}", request.reply));
+    }
+    let risky = risky_asks().lock().unwrap().remove(&request.id);
+    if risky && request.reply == "always" {
+        let client = ensure_server().await?;
+        return client.reply_permission(&request.directory, &request.id, "once", None).await;
     }
     let client = ensure_server().await?;
     if let (Some(session_id), Some(grant)) = (&request.session_id, &request.grant) {
@@ -323,6 +359,7 @@ pub async fn opencode_generate(
     on_event: Channel<ChatStreamEvent>,
 ) -> Result<(), String> {
     if let Err(message) = run_prompt(&request, &on_event).await {
+        let message = crate::http_body::clarify_reqwest(&message).unwrap_or(message);
         let _ = on_event.send(ChatStreamEvent::Error { message });
     }
     Ok(())
@@ -454,7 +491,7 @@ async fn run_prompt(
                 None => break,
             },
             // Quiet for a while: a long tool call is fine, a hung server is not.
-            Err(_) if client.health().await.is_ok() => {
+            Err(_) if client.alive().await => {
                 // A question whose event never reached the window (a reload, a
                 // dropped card) holds the turn open for good, so ask the server
                 // what it is still waiting for. The window ignores ids it
@@ -495,17 +532,33 @@ async fn run_prompt(
                                 .await?;
                             emit(on_event, blocked_activity(&ask))
                         }
-                        Decision::AskUser => emit(
-                            on_event,
-                            ChatStreamEvent::Permission {
-                                id: ask.id,
-                                directory: directory.clone(),
-                                permission: ask.permission,
-                                patterns: ask.patterns,
-                                title: ask.title,
-                                detail: ask.detail,
-                            },
-                        ),
+                        Decision::AskUser => {
+                            // A risky command says why on the card, and can't be allowed "always".
+                            let warning = (ask.permission == "bash")
+                                .then(|| crate::sandbox::command_risk::classify(ask.command.as_deref().unwrap_or_default()))
+                                .and_then(|risk| match risk {
+                                    crate::sandbox::command_risk::Risk::Dangerous(reason) => Some(reason),
+                                    _ => None,
+                                });
+                            let detail = match warning {
+                                Some(reason) => {
+                                    risky_asks().lock().unwrap().insert(ask.id.clone());
+                                    Some(format!("⚠ {reason}\n{}", ask.detail.unwrap_or_default()))
+                                }
+                                None => ask.detail,
+                            };
+                            emit(
+                                on_event,
+                                ChatStreamEvent::Permission {
+                                    id: ask.id,
+                                    directory: directory.clone(),
+                                    permission: ask.permission,
+                                    patterns: ask.patterns,
+                                    title: ask.title,
+                                    detail,
+                                },
+                            )
+                        }
                     }
                 }
                 Outcome::QuestionAsked(ask) => emit(
@@ -610,7 +663,9 @@ async fn model_tool_call(
 
 const CHAT_SYSTEM: &str = "You are Mali Cowork in Chat mode: a friendly, concise assistant. \
 Answer from your own knowledge. You cannot read or change the user's files in this mode; \
-if the task needs that, suggest switching to Cowork mode.";
+if the task needs that, suggest switching to Cowork mode. \
+When the task needs an external service and no connected MCP tool covers it, say so and suggest \
+a connector (see Connectors instructions below) — do not claim the integration work is done.";
 
 /// Tools that touch the file system or run commands, including those of the
 /// MCP servers in [`WORKSPACE_MCP`].
@@ -776,19 +831,49 @@ fn mcp_refused_activity(mcp: &[String], first_time: bool) -> ChatStreamEvent {
 /// Points the model at the MCP tools; without it, models tend to write
 /// scripts or hunt for instructions instead.
 fn mcp_note(servers: &[String]) -> Option<String> {
+    // `mali` is Mali's gateway: name the connectors behind it, as OpenCode
+    // names their tools (`mali_<connector>_<tool>`).
+    let servers: Vec<String> = servers
+        .iter()
+        .flat_map(|id| {
+            if id == crate::mcp_hub::gateway::SERVER_NAME {
+                // Mali's own document tools (templates, .docx), plus each connector behind the gateway.
+                let mut ids: Vec<String> = crate::mcp_hub::offered_ids().into_iter().map(|c| format!("mali_{c}")).collect();
+                ids.push(crate::mcp_hub::gateway::SERVER_NAME.into());
+                ids
+            } else {
+                vec![id.clone()]
+            }
+        })
+        .collect();
     if servers.is_empty() {
-        return None;
+        return Some(
+            "No MCP connectors are connected right now. If the user's task needs an external \
+             app or API, explain that briefly and add a ```connector {\"query\": \"…\"} ``` block \
+             in your reply so the app can show a safe install card — do not run install commands \
+             or ask for secrets in chat.".into(),
+        );
     }
     let list = servers
         .iter()
-        .map(|id| format!("- {id} (tools named `{id}_*`)"))
+        .map(|id| {
+            if id == crate::mcp_hub::gateway::SERVER_NAME {
+                "- mali — Mali's document tools: mali_list_templates, mali_read_document, mali_fill_template, \
+                 mali_save_template, mali_make_template (quotations, invoices, letters, the user's own templates)"
+                    .to_string()
+            } else {
+                format!("- {id} (tools named `{id}_*`)")
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n");
     Some(format!(
         "Connected MCP servers:\n{list}\n\nWhen one of these servers covers the task \
          (e.g. `word_*` for Word documents, `media_*` to make a picture or a video), call its \
          tools directly rather than writing a script — or saying you cannot — for what they \
-         already do. A skill listed below may still tell you how the user wants that work done."
+         already do. If the task needs another service and none of the above apply, suggest a \
+         connector via a ```connector``` block (see Connectors instructions below). A skill listed \
+         below may still tell you how the user wants that work done."
     ))
 }
 

@@ -26,8 +26,13 @@ const HEALTH_ATTEMPTS: u32 = 3;
 /// folder taken every step, for undo) cost seconds in folders with
 /// `node_modules` or `target`, and this app never offers undo. Providers set
 /// up in Settings → Models (Ollama, OpenRouter) are added on top.
-fn app_config() -> String {
+fn app_config(mcp: Option<serde_json::Value>) -> String {
     let mut config = serde_json::json!({ "snapshot": false });
+    // Connectors come from Mali's `mali` gateway; the user's own OpenCode
+    // servers are switched off for Mali's runs (see `mcp_bridge`).
+    if let Some(mcp) = mcp {
+        config["mcp"] = mcp;
+    }
     let providers = super::providers::load_overlay();
     if !providers.is_empty() {
         config["provider"] = serde_json::Value::Object(providers);
@@ -87,7 +92,7 @@ pub async fn ensure_server() -> Result<OpencodeClient, String> {
 /// A few health checks with a pause between them.
 async fn responsive(client: &OpencodeClient) -> bool {
     for attempt in 1..=HEALTH_ATTEMPTS {
-        if client.health().await.is_ok() {
+        if client.alive().await {
             return true;
         }
         if attempt < HEALTH_ATTEMPTS {
@@ -122,7 +127,7 @@ async fn spawn_server() -> Result<Running, String> {
     ));
     // Respect a config the user injected themselves.
     if std::env::var_os("OPENCODE_CONFIG_CONTENT").is_none() {
-        cmd.env("OPENCODE_CONFIG_CONTENT", app_config());
+        cmd.env("OPENCODE_CONFIG_CONTENT", app_config(crate::commands::mcp_bridge::opencode_mcp().await));
     }
     // Skills in ~/.claude/skills belong to Claude Code; offered here, they
     // pull the agent away from the MCP servers set up in this app.

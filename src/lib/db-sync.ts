@@ -17,7 +17,11 @@ const DELETED = Symbol("deleted");
  * whose object is unchanged since the last save is skipped: streaming a reply
  * rewrites only that one chat, not the whole history.
  */
-export function syncToDatabase<T extends Row>(store: Store<T>, table: Table, { throttleMs = 500 } = {}) {
+export function syncToDatabase<T extends Row>(
+  store: Store<T>,
+  table: Table,
+  { throttleMs = 500, skip }: { throttleMs?: number; skip?: (row: T) => boolean } = {},
+) {
   let saved = new Map<string, T | typeof DELETED>();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let queue: Promise<void> = Promise.resolve();
@@ -26,7 +30,8 @@ export function syncToDatabase<T extends Row>(store: Store<T>, table: Table, { t
   function flush() {
     clearTimeout(timer);
     timer = undefined;
-    const current = store.get();
+    // Rows `skip` rejects are never written (and so never need deleting).
+    const current = skip ? store.get().filter((row) => !skip(row)) : store.get();
     const ids = new Set(current.map((row) => row.id));
     const upserts = current.filter((row) => saved.get(row.id) !== row);
     const deletes = [...saved.keys()].filter((id) => !ids.has(id));

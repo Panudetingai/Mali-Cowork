@@ -26,6 +26,7 @@ import type { TodoItem } from "../../api/chat";
 import type { ActivityItem } from "../../types";
 import { AgentSteps, segmentReply } from "./agent-steps";
 import { AgentTaskPlan } from "./agent-task-plan";
+import { extractCoworkBlock } from "../../cowork-handoff";
 import { ConnectorSuggestions } from "./connector-suggestions";
 import { extractConnectorBlocks } from "@/features/mcp/agent-install";
 import { ExpandableClamp } from "./expandable-clamp";
@@ -91,13 +92,14 @@ export function AssistantMessage({
   const isCli = isOpencode || id.startsWith("cli:");
 
   const hasReasoning = Boolean(reasoning?.trim());
-  const { authActions, mediaPreviews, text: afterRichBlocks } = useMemo(
+  const { authActions, mediaPreviews, galleries, text: afterRichBlocks } = useMemo(
     () => extractChatBlocks(content),
     [content],
   );
   // ```connector blocks become install cards instead of code.
+  // ```cowork is shown as a "Continue in Cowork" card under the thread.
   const { text: visibleContent, suggestions } = useMemo(
-    () => extractConnectorBlocks(afterRichBlocks),
+    () => extractConnectorBlocks(extractCoworkBlock(afterRichBlocks).text),
     [afterRichBlocks],
   );
   const hasContent = Boolean(content.trim());
@@ -162,8 +164,8 @@ export function AssistantMessage({
             No response received.
           </div>
         ) : null}
-        {(authActions.length > 0 || mediaPreviews.length > 0) && (
-          <ChatRichBlocks authActions={authActions} mediaPreviews={mediaPreviews} />
+        {(authActions.length > 0 || mediaPreviews.length > 0 || galleries.length > 0) && (
+          <ChatRichBlocks authActions={authActions} mediaPreviews={mediaPreviews} galleries={galleries} />
         )}
         {suggestions.length > 0 && <ConnectorSuggestions suggestions={suggestions} />}
       </MessageContent>

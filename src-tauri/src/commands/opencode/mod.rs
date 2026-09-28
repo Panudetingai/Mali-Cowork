@@ -26,9 +26,8 @@ mod providers;
 mod schema;
 mod server;
 
-pub(crate) use client::OpencodeClient;
-pub(crate) use commands::session_dir;
-pub(crate) use instances::{lease as lease_instance, DEFAULT as DEFAULT_INSTANCE};
+use instances::lease as lease_instance;
+
 pub use commands::{
     opencode_abort, opencode_check, opencode_default_cwd, opencode_delete_session,
     opencode_generate, opencode_list_models, opencode_permission_reply, opencode_question_reply,
@@ -145,6 +144,9 @@ pub struct OpencodeModel {
     /// pictures is called over its own API rather than through an agent
     /// (see `commands::media`), so the front end has to be able to tell.
     pub output: Vec<String>,
+    /// What it takes in: `text`, `image`, `pdf`… Mali's agent only shows
+    /// pictures to a model that lists `image` here.
+    pub input: Vec<String>,
     /// Reasoning effort levels this model accepts, weakest first — the keys of
     /// opencode's per-model `variants`, which is also what a prompt passes
     /// back as `variant`. Empty when the model does not think in levels, and

@@ -14,3 +14,17 @@ export async function statOutputs(items: Pick<OutputItem, "path" | "checkpointId
     items: items.map(({ path, checkpointId }) => ({ path, checkpointId })),
   });
 }
+
+export type TrashResult = { path: string; ok: boolean; error?: string | null };
+
+/**
+ * Move outputs to the Trash. The backend only does it for a file its
+ * checkpoint says the agent created; an edited file is refused.
+ */
+export async function trashOutputs(items: Pick<OutputItem, "path" | "checkpointId">[]): Promise<TrashResult[]> {
+  if (items.length === 0) return [];
+  if (!isTauri()) return items.map(({ path }) => ({ path, ok: false, error: "Only in the desktop app" }));
+  return invoke<TrashResult[]>("outputs_trash", {
+    items: items.map(({ path, checkpointId }) => ({ path, checkpointId })),
+  });
+}

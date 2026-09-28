@@ -1,4 +1,7 @@
-//! Sync MCP servers from the app into OpenCode (config + live) and Codex (`config.toml`).
+//! The user's MCP servers as the app describes them: validation, finding the
+//! launcher on `PATH`, the sandbox runner around local servers, and the hints
+//! shown when one fails. Mali's own hub (`crate::mcp_hub`) connects them; the
+//! CLI agents reach them through its `mali` gateway (see `mcp_bridge`).
 //!
 //! Robustness notes:
 //! - The GUI process often has a smaller `PATH` than the user's terminal, so
@@ -7,33 +10,20 @@
 //! - `uvx <pkg>` downloads on first run (slow). Config gets a generous
 //!   `timeout`, and the UI sends fallback launch methods which we try in
 //!   order until one connects.
-//! - Only servers the app manages are written to `opencode.json`; entries the
-//!   user added by hand are kept. The file is replaced atomically.
-//! - Syncs are serialized, and a server already connected with the same
-//!   config is left alone, so syncing before every prompt stays cheap.
 //! - Everything coming from the UI is validated: ids end up in URL paths and
 //!   commands are spawned, so neither may be arbitrary.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use toml_edit::{Array, DocumentMut, InlineTable, Item, Table, Value as TomlValue};
 
-use super::mcp_clients;
-use super::mcp_oauth::{self, Callback};
-use super::opencode::warm_up_server as ensure_server;
-use super::opencode::{lease_instance, session_dir, OpencodeClient, DEFAULT_INSTANCE};
-use super::secure_fs::write_private;
 use crate::mcp_runner::runner_binary_path;
 use crate::sandbox::{McpTrustLevel, SandboxPolicy};
 
 const DEFAULT_TIMEOUT_MS: u64 = 60_000;
 const MAX_TIMEOUT_MS: u64 = 600_000;
-/// Ids of servers the user created in Settings → MCP (see `features/mcp/custom.ts`).
-const CUSTOM_PREFIX: &str = "custom-";
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,32 +55,15 @@ fn default_kind() -> String {
 }
 
 impl McpServerEntry {
-    fn is_remote(&self) -> bool {
+    pub(crate) fn is_remote(&self) -> bool {
         self.kind == "remote"
     }
 
-    fn timeout(&self) -> u64 {
+    pub(crate) fn timeout(&self) -> u64 {
         self.timeout_ms
             .unwrap_or(DEFAULT_TIMEOUT_MS)
             .clamp(5_000, MAX_TIMEOUT_MS)
     }
-}
-
-#[derive(Debug, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct McpSyncOptions {
-    /// Only (re)connect these ids live; the config file still gets every server.
-    #[serde(default)]
-    pub targets: Option<Vec<String>>,
-    /// Ids the app no longer manages (deleted custom servers).
-    #[serde(default)]
-    pub removed: Vec<String>,
-    /// `chat`: connect in Chat mode's session folder instead of `directory`.
-    #[serde(default)]
-    pub mode: Option<String>,
-    /// When false, only write config files (OpenCode JSON + Codex TOML) — no live connect.
-    #[serde(default)]
-    pub live_connect: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -166,7 +139,7 @@ fn validate_url(raw: &str) -> Result<String, String> {
     }
 }
 
-fn validate(server: &McpServerEntry) -> Result<(), String> {
+pub(crate) fn validate(server: &McpServerEntry) -> Result<(), String> {
     if !valid_id(&server.id) {
         return Err(format!(
             "Invalid MCP id '{}' — use a-z, 0-9, - or _ (max 64)",
@@ -293,7 +266,7 @@ fn find_binary(binary: &str) -> Option<PathBuf> {
 
 /// Replace `argv[0]` with its absolute path when found. Keeps argv unchanged
 /// when the binary cannot be resolved (server will report the spawn error).
-fn resolve_argv(argv: &[String]) -> Vec<String> {
+pub(crate) fn resolve_argv(argv: &[String]) -> Vec<String> {
     let mut out = argv.to_vec();
     if let Some(full) = argv.first().and_then(|bin| find_binary(bin)) {
         out[0] = full.to_string_lossy().to_string();
@@ -424,12 +397,12 @@ fn hint_for_binary(binary: &str) -> &'static str {
 
 // ── config ──
 
-fn opencode_config_path() -> Result<PathBuf, String> {
+pub(crate) fn opencode_config_path() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or("Cannot resolve home directory")?;
     Ok(home.join(".config").join("opencode").join("opencode.json"))
 }
 
-fn server_config(server: &McpServerEntry, command: &[String]) -> Value {
+pub(crate) fn server_config(server: &McpServerEntry, command: &[String]) -> Value {
     if server.is_remote() {
         let mut config = json!({
             "type": "remote",
@@ -439,12 +412,6 @@ fn server_config(server: &McpServerEntry, command: &[String]) -> Value {
         });
         if !server.headers.is_empty() {
             config["headers"] = json!(server.headers);
-        }
-        // Sign in as Mali Cowork (our registered client) instead of OpenCode.
-        if let Some(oauth) =
-            mcp_oauth::oauth_config_for(&server.id, server.url.as_deref().unwrap_or_default())
-        {
-            config["oauth"] = oauth;
         }
         return config;
     }
@@ -501,57 +468,7 @@ fn runner_wrapped_argv(server: &McpServerEntry, command: &[String]) -> Vec<Strin
     argv
 }
 
-fn write_opencode_mcp_config(servers: &[McpServerEntry], removed: &[String]) -> Result<(), String> {
-    let path = opencode_config_path()?;
-    let mut config: Value = if path.is_file() {
-        let raw = std::fs::read_to_string(&path)
-            .map_err(|e| format!("Can't read {}: {e}", path.display()))?;
-        if raw.trim().is_empty() {
-            json!({})
-        } else {
-            // Never overwrite a file we cannot parse: it is the user's own config.
-            serde_json::from_str(&raw).map_err(|e| {
-                format!(
-                    "{} isn't valid JSON ({e}) — fix the file and retry",
-                    path.display()
-                )
-            })?
-        }
-    } else {
-        json!({ "$schema": "https://opencode.ai/config.json" })
-    };
-    if !config.is_object() {
-        return Err(format!("{} must be a JSON object", path.display()));
-    }
-
-    let mut mcp = config
-        .get("mcp")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    for id in removed {
-        mcp.remove(id);
-    }
-    // Custom servers are always sent in full, so a `custom-*` id that is
-    // missing was deleted (perhaps while OpenCode was not running).
-    let sent: HashSet<&str> = servers.iter().map(|s| s.id.as_str()).collect();
-    mcp.retain(|id, _| !id.starts_with(CUSTOM_PREFIX) || sent.contains(id.as_str()));
-    for server in servers {
-        let entry = if server.enabled {
-            server_config(server, &server.command)
-        } else {
-            // opencode accepts a bare `enabled: false` to switch a server off.
-            json!({ "enabled": false })
-        };
-        mcp.insert(server.id.clone(), entry);
-    }
-    config["mcp"] = Value::Object(mcp);
-
-    let pretty = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
-    write_private(&path, &pretty)
-}
-
-fn codex_config_path() -> Result<PathBuf, String> {
+pub(crate) fn codex_config_path() -> Result<PathBuf, String> {
     let base = std::env::var("CODEX_HOME")
         .ok()
         .filter(|s| !s.trim().is_empty())
@@ -561,245 +478,7 @@ fn codex_config_path() -> Result<PathBuf, String> {
     Ok(base.join("config.toml"))
 }
 
-/// MCP servers in Codex's `config.toml` that read files or run commands.
-/// Codex runs MCP servers outside its sandbox, so read-only runs switch
-/// these off with `-c mcp_servers.<id>.enabled=false`.
-pub(crate) fn codex_workspace_mcp_overrides() -> Vec<String> {
-    let Ok(raw) =
-        codex_config_path().and_then(|p| std::fs::read_to_string(p).map_err(|e| e.to_string()))
-    else {
-        return Vec::new();
-    };
-    let Ok(doc) = raw.parse::<DocumentMut>() else {
-        return Vec::new();
-    };
-    ["exec", "filesystem"]
-        .into_iter()
-        .filter(|id| doc.get("mcp_servers").and_then(|t| t.get(id)).is_some())
-        .flat_map(|id| ["-c".to_string(), format!("mcp_servers.{id}.enabled=false")])
-        .collect()
-}
-
-fn codex_env_table(server: &McpServerEntry) -> InlineTable {
-    let mut environment = server.environment.clone();
-    if !environment.contains_key("PATH") {
-        if let Some(path) = child_path() {
-            environment.insert("PATH".into(), path);
-        }
-    }
-    let mut env = InlineTable::new();
-    for (key, value) in environment {
-        env.insert(key.as_str(), TomlValue::from(value));
-    }
-    env
-}
-
-fn codex_http_headers(server: &McpServerEntry) -> InlineTable {
-    let mut headers = InlineTable::new();
-    for (key, value) in &server.headers {
-        headers.insert(key.as_str(), TomlValue::from(value.clone()));
-    }
-    headers
-}
-
-fn codex_set(table: &mut Table, key: &str, value: TomlValue) {
-    table.insert(key, Item::Value(value));
-}
-
-/// One `[mcp_servers.<id>]` table, or `None` when the entry has no transport
-/// to write.
-///
-/// Codex reads the transport (`command`, or `url`) out of every entry before
-/// it looks at `enabled`, so a table carrying `enabled = false` on its own
-/// fails the *whole* file with `invalid transport in mcp_servers.<id>` — and
-/// Codex then starts with no MCP servers at all, not even the working ones.
-/// A switched-off server therefore keeps its command; one that never had a
-/// command is left out of the file entirely.
-fn codex_server_table(server: &McpServerEntry, argv: &[String]) -> Option<Table> {
-    let mut table = Table::new();
-    table.set_implicit(false);
-    codex_set(&mut table, "enabled", TomlValue::from(server.enabled));
-    let startup_sec = server.timeout().div_ceil(1000).clamp(5, 600);
-
-    if server.is_remote() {
-        let url = server.url.as_deref().unwrap_or_default().trim();
-        if url.is_empty() {
-            return None;
-        }
-        codex_set(&mut table, "url", TomlValue::from(url));
-        if !server.headers.is_empty() {
-            codex_set(
-                &mut table,
-                "http_headers",
-                TomlValue::InlineTable(codex_http_headers(server)),
-            );
-        }
-        codex_set(
-            &mut table,
-            "startup_timeout_sec",
-            TomlValue::from(startup_sec as i64),
-        );
-        return Some(table);
-    }
-
-    // A switched-off server is never started, so it is written as it stands —
-    // no sandbox policy file, no launch record, just enough for Codex to parse.
-    let resolved = if server.enabled {
-        runner_wrapped_argv(server, argv)
-    } else {
-        argv.to_vec()
-    };
-    let command = resolved.first().map(String::as_str).unwrap_or_default();
-    if command.is_empty() {
-        return None;
-    }
-    codex_set(&mut table, "command", TomlValue::from(command));
-    if resolved.len() > 1 {
-        let mut args = Array::new();
-        for arg in &resolved[1..] {
-            args.push(TomlValue::from(arg.as_str()));
-        }
-        codex_set(&mut table, "args", TomlValue::Array(args));
-    }
-    if server.enabled {
-        let env = codex_env_table(server);
-        if !env.is_empty() {
-            codex_set(&mut table, "env", TomlValue::InlineTable(env));
-        }
-    }
-    codex_set(
-        &mut table,
-        "startup_timeout_sec",
-        TomlValue::from(startup_sec as i64),
-    );
-    Some(table)
-}
-
-/// True when an entry already in the file names a transport Codex can parse.
-/// Entries written by older builds hold `enabled = false` and nothing else,
-/// which stops Codex loading `config.toml` at all; those are dropped on the
-/// next sync so the file starts working again without the user editing TOML.
-///
-/// Only the exact shape Codex rejects — no `command`, no `url` — is dropped.
-/// Anything else in the file is the user's to keep, however odd it looks.
-fn codex_entry_is_loadable(item: &Item) -> bool {
-    let Some(table) = item.as_table_like() else {
-        return false;
-    };
-    table.get("command").is_some() || table.get("url").is_some()
-}
-
-/// Mirror MCP choices into `~/.codex/config.toml` so Codex CLI picks them up
-/// without spawning servers until a Codex run needs them.
-fn write_codex_mcp_config(servers: &[McpServerEntry], removed: &[String]) -> Result<(), String> {
-    let path = codex_config_path()?;
-    let mut doc: DocumentMut = if path.is_file() {
-        let raw = std::fs::read_to_string(&path)
-            .map_err(|e| format!("Can't read {}: {e}", path.display()))?;
-        if raw.trim().is_empty() {
-            DocumentMut::new()
-        } else {
-            raw.parse().map_err(|e| {
-                format!(
-                    "{} isn't valid TOML ({e}) — fix the file and retry",
-                    path.display()
-                )
-            })?
-        }
-    } else {
-        DocumentMut::new()
-    };
-
-    let mcp_item = doc
-        .entry("mcp_servers")
-        .or_insert(Item::Table(Table::new()));
-    let mcp = mcp_item
-        .as_table_mut()
-        .ok_or("mcp_servers in config.toml must be a table")?;
-
-    for id in removed {
-        mcp.remove(id);
-    }
-    let sent: HashSet<String> = servers.iter().map(|s| s.id.clone()).collect();
-    mcp.retain(|id, _| !id.starts_with(CUSTOM_PREFIX) || sent.contains(id));
-
-    for server in servers {
-        let argv = if server.enabled && !server.is_remote() {
-            resolve_argv(&server.command)
-        } else {
-            server.command.clone()
-        };
-        match codex_server_table(server, &argv) {
-            Some(table) => {
-                mcp.insert(server.id.as_str(), Item::Table(table));
-            }
-            // Nothing Codex could load: better absent than breaking the file.
-            None => {
-                mcp.remove(server.id.as_str());
-            }
-        }
-    }
-
-    // Repair what earlier builds wrote: any entry without a transport, ours or
-    // not, is what Codex refuses the file over.
-    let unloadable: Vec<String> = mcp
-        .iter()
-        .filter(|(_, item)| !codex_entry_is_loadable(item))
-        .map(|(id, _)| id.to_string())
-        .collect();
-    for id in unloadable {
-        eprintln!("[mcp] dropping {id} from codex config.toml: it names no command or url");
-        mcp.remove(&id);
-    }
-
-    write_private(&path, &doc.to_string())
-}
-
-// ── live server ──
-
-/// Config last applied per `(directory, id)` that reached `connected`.
-fn applied() -> &'static Mutex<HashMap<(String, String), String>> {
-    static APPLIED: OnceLock<Mutex<HashMap<(String, String), String>>> = OnceLock::new();
-    APPLIED.get_or_init(Default::default)
-}
-
-fn sync_lock() -> &'static tokio::sync::Mutex<()> {
-    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
-}
-
-fn applied_key(directory: Option<&str>, id: &str) -> (String, String) {
-    (directory.unwrap_or_default().to_string(), id.to_string())
-}
-
-fn parse_status(id: &str, value: &Value, fallback_error: Option<String>) -> McpServerStatus {
-    let status = value
-        .get("status")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown")
-        .to_string();
-    let error = value
-        .get("error")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .or(fallback_error);
-    McpServerStatus {
-        id: id.to_string(),
-        status,
-        error,
-    }
-}
-
-async fn live_entry(
-    client: &OpencodeClient,
-    directory: Option<&str>,
-    id: &str,
-) -> Result<Option<Value>, String> {
-    let status = client.mcp_status(directory).await?;
-    Ok(status.get(id).cloned())
-}
-
-fn failure_message(server: &McpServerEntry, detail: String) -> String {
+pub(crate) fn failure_message(server: &McpServerEntry, detail: String) -> String {
     if server.id == "word" {
         return word_failure_hint(&detail);
     }
@@ -812,304 +491,6 @@ fn failure_message(server: &McpServerEntry, detail: String) -> String {
         .map(String::as_str)
         .unwrap_or_default();
     format!("{detail} — Fix: {}", hint_for_binary(binary))
-}
-
-/// Try every launch variant for one server until the live status is `connected`.
-async fn connect_server(
-    client: &OpencodeClient,
-    directory: Option<&str>,
-    server: &McpServerEntry,
-) -> McpServerStatus {
-    let mut candidates: Vec<&Vec<String>> = vec![&server.command];
-    if !server.is_remote() {
-        for fallback in &server.fallbacks {
-            if !fallback.is_empty() && !candidates.contains(&fallback) {
-                candidates.push(fallback);
-            }
-        }
-    }
-
-    // Already connected with one of these configs: nothing to do.
-    let key = applied_key(directory, &server.id);
-    let known = applied().lock().unwrap().get(&key).cloned();
-    if let Some(known) = known {
-        let same = candidates
-            .iter()
-            .any(|c| server_config(server, c).to_string() == known);
-        if same {
-            if let Ok(Some(entry)) = live_entry(client, directory, &server.id).await {
-                if entry["status"] == "connected" {
-                    return parse_status(&server.id, &entry, None);
-                }
-            }
-        }
-    }
-
-    let mut last_error: Option<String> = None;
-    for (attempt, candidate) in candidates.iter().enumerate() {
-        let config = server_config(server, candidate);
-        let method = attempt + 1;
-        if let Err(e) = client.mcp_add(directory, &server.id, &config).await {
-            last_error = Some(format!("Registration failed (method {method}): {e}"));
-            continue;
-        }
-        if let Err(e) = client.mcp_connect(directory, &server.id).await {
-            last_error = Some(format!("Connection failed (method {method}): {e}"));
-            continue;
-        }
-        match live_entry(client, directory, &server.id).await {
-            Ok(Some(entry)) => {
-                let st = entry["status"].as_str().unwrap_or("unknown");
-                if st == "connected" {
-                    applied().lock().unwrap().insert(key, config.to_string());
-                    return parse_status(&server.id, &entry, None);
-                }
-                last_error = entry["error"]
-                    .as_str()
-                    .map(str::to_string)
-                    .or_else(|| Some(format!("Status '{st}' (method {method})")));
-                // `failed` may still succeed with another launcher; anything
-                // else (e.g. an OAuth flow) is final.
-                if st != "failed" && st != "unknown" {
-                    return parse_status(&server.id, &entry, last_error);
-                }
-            }
-            Ok(None) => last_error = Some(format!("No status after connecting (method {method})")),
-            Err(e) => last_error = Some(format!("Can't read status (method {method}): {e}")),
-        }
-    }
-
-    applied().lock().unwrap().remove(&key);
-    McpServerStatus {
-        id: server.id.clone(),
-        status: "failed".into(),
-        error: Some(failure_message(
-            server,
-            last_error.unwrap_or_else(|| "Couldn't connect".into()),
-        )),
-    }
-}
-
-async fn disconnect_server(client: &OpencodeClient, directory: Option<&str>, id: &str) {
-    applied()
-        .lock()
-        .unwrap()
-        .remove(&applied_key(directory, id));
-    let _ = client.mcp_disconnect(directory, id).await;
-}
-
-/// Persist MCP choices to `~/.config/opencode/opencode.json` and register them on the running server.
-#[tauri::command]
-pub async fn mcp_sync(
-    servers: Vec<McpServerEntry>,
-    directory: Option<String>,
-    options: Option<McpSyncOptions>,
-) -> Result<McpSyncResult, String> {
-    let options = options.unwrap_or_default();
-    for server in &servers {
-        validate(server)?;
-    }
-    let mut seen = HashSet::new();
-    if let Some(dup) = servers.iter().find(|s| !seen.insert(s.id.as_str())) {
-        return Err(format!("Duplicate MCP id: {}", dup.id));
-    }
-    let removed: Vec<String> = options
-        .removed
-        .into_iter()
-        .filter(|id| valid_id(id) && !seen.contains(id.as_str()))
-        .collect();
-
-    let _guard = sync_lock().lock().await;
-    write_opencode_mcp_config(&servers, &removed)?;
-    write_codex_mcp_config(&servers, &removed)?;
-    // Antigravity CLI and Cursor get the same connectors (best effort).
-    for warning in mcp_clients::write_all(&servers, resolve_argv, child_path()) {
-        eprintln!("[mcp] {warning}");
-    }
-    // A deleted connector's sign-in client isn't needed any more.
-    for id in &removed {
-        let _ = mcp_oauth::forget(id);
-    }
-
-    if !options.live_connect.unwrap_or(true) {
-        return Ok(McpSyncResult { servers: vec![] });
-    }
-
-    let client = ensure_server().await?;
-    let chat_dir = if options.mode.as_deref() == Some("chat") {
-        let dir = session_dir(Some("chat"), None);
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        Some(dir.to_string_lossy().into_owned())
-    } else {
-        None
-    };
-    let dir = chat_dir.as_deref().or_else(|| {
-        directory
-            .as_deref()
-            .map(str::trim)
-            .filter(|d| !d.is_empty())
-    });
-    // Don't let the idle sweep close this instance while servers connect.
-    let _instance = lease_instance(dir.unwrap_or(DEFAULT_INSTANCE)).await;
-    let targets: Option<HashSet<&str>> = options
-        .targets
-        .as_ref()
-        .map(|t| t.iter().map(String::as_str).collect());
-
-    for id in &removed {
-        disconnect_server(&client, dir, id).await;
-    }
-
-    let mut out = Vec::new();
-    for server in &servers {
-        if targets
-            .as_ref()
-            .is_some_and(|t| !t.contains(server.id.as_str()))
-        {
-            continue;
-        }
-        if server.enabled {
-            out.push(connect_server(&client, dir, server).await);
-        } else {
-            disconnect_server(&client, dir, &server.id).await;
-            out.push(McpServerStatus {
-                id: server.id.clone(),
-                status: "disabled".into(),
-                error: None,
-            });
-        }
-    }
-    Ok(McpSyncResult { servers: out })
-}
-
-/// The folder a live MCP call runs in: Chat mode's session folder or a Cowork folder.
-fn live_dir(directory: Option<String>, mode: Option<&str>) -> Result<Option<String>, String> {
-    if mode == Some("chat") {
-        let dir = session_dir(Some("chat"), None);
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        return Ok(Some(dir.to_string_lossy().into_owned()));
-    }
-    Ok(directory
-        .map(|d| d.trim().to_string())
-        .filter(|d| !d.is_empty()))
-}
-
-/// Sign in to a remote MCP server with OAuth. OpenCode opens the provider's
-/// page in the user's browser, receives the callback on loopback (PKCE) and
-/// keeps the tokens in its owner-only auth file: they never reach the
-/// webview, the chat or the model.
-#[tauri::command]
-pub async fn mcp_auth(
-    app: tauri::AppHandle,
-    id: String,
-    directory: Option<String>,
-    mode: Option<String>,
-) -> Result<McpServerStatus, String> {
-    if !valid_id(&id) {
-        return Err(format!("Invalid MCP id '{id}'"));
-    }
-    let client = ensure_server().await?;
-    let dir = live_dir(directory, mode.as_deref())?;
-    let _instance = lease_instance(dir.as_deref().unwrap_or(DEFAULT_INSTANCE)).await;
-
-    let status = match mcp_oauth::registered_url(&id) {
-        Some(url) => branded_sign_in(&app, &client, dir.as_deref(), &id, &url).await?,
-        // No client of our own (the server has no dynamic registration): OpenCode's flow.
-        None => client.mcp_authenticate(dir.as_deref(), &id).await.map_err(|e| {
-            if e.contains("Unsupported") || e.contains("OAuth") {
-                format!("This server doesn't support sign-in with OAuth. Add its token instead. ({e})")
-            } else if e.contains("timed out") {
-                "Sign-in wasn't finished in time. Try again.".to_string()
-            } else {
-                e
-            }
-        })?,
-    };
-    applied()
-        .lock()
-        .unwrap()
-        .remove(&applied_key(dir.as_deref(), &id));
-    Ok(parse_status(&id, &status, None))
-}
-
-/// OAuth as Mali Cowork: OpenCode prepares the request (PKCE + state) with
-/// our client, we open the browser and take the callback on loopback.
-async fn branded_sign_in(
-    app: &tauri::AppHandle,
-    client: &OpencodeClient,
-    dir: Option<&str>,
-    id: &str,
-    server_url: &str,
-) -> Result<Value, String> {
-    use tauri_plugin_opener::OpenerExt;
-
-    let service = reqwest::Url::parse(server_url)
-        .ok()
-        .and_then(|u| u.host_str().map(str::to_string))
-        .unwrap_or_else(|| "the service".into());
-    // Bind first: OpenCode then sees the port taken and leaves the callback to us.
-    let mut callback = mcp_oauth::listen(id).await?;
-    let started = client.mcp_auth_start(dir, id).await?;
-    let authorize = started["authorizationUrl"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string();
-    let state = started["oauthState"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string();
-    if authorize.is_empty() {
-        // Already signed in: report the live status.
-        return Ok(live_entry(client, dir, id)
-            .await?
-            .unwrap_or_else(|| json!({ "status": "connected" })));
-    }
-    let parsed = reqwest::Url::parse(&authorize)
-        .map_err(|_| "The server sent an invalid sign-in link".to_string())?;
-    if parsed.scheme() != "https" {
-        return Err("The server's sign-in page isn't https; not opening it".into());
-    }
-    app.opener()
-        .open_url(parsed.as_str(), None::<&str>)
-        .map_err(|e| format!("Couldn't open the browser: {e}"))?;
-    match callback.wait(&state, &service).await? {
-        Callback::Code(code) => client.mcp_auth_callback(dir, id, &code).await,
-        Callback::Denied(reason) => Err(format!("Sign-in was declined: {reason}")),
-    }
-}
-
-/// Sign out of a remote MCP server: OpenCode deletes its stored tokens.
-#[tauri::command]
-pub async fn mcp_auth_remove(
-    id: String,
-    directory: Option<String>,
-    mode: Option<String>,
-) -> Result<(), String> {
-    if !valid_id(&id) {
-        return Err(format!("Invalid MCP id '{id}'"));
-    }
-    let client = ensure_server().await?;
-    let dir = live_dir(directory, mode.as_deref())?;
-    client.mcp_auth_remove(dir.as_deref(), &id).await?;
-    disconnect_server(&client, dir.as_deref(), &id).await;
-    Ok(())
-}
-
-/// Read MCP status from the running OpenCode server without changing config.
-#[tauri::command]
-pub async fn mcp_status(directory: Option<String>) -> Result<Vec<McpServerStatus>, String> {
-    let client = ensure_server().await?;
-    let dir = directory
-        .as_deref()
-        .map(str::trim)
-        .filter(|d| !d.is_empty());
-    let status = client.mcp_status(dir).await?;
-    Ok(status
-        .as_object()
-        .into_iter()
-        .flatten()
-        .map(|(id, entry)| parse_status(id, entry, None))
-        .collect())
 }
 
 /// Check which launcher binaries (uvx, npx, docker, …) exist for MCP diagnostics.
@@ -1207,25 +588,6 @@ mod tests {
     }
 
     #[test]
-    fn codex_table_splits_command_and_args() {
-        let server = entry("github");
-        let table = codex_server_table(&server, &server.command).expect("has a command");
-        assert_eq!(
-            table
-                .get("enabled")
-                .and_then(|i| i.as_value())
-                .and_then(|v| v.as_bool()),
-            Some(true)
-        );
-        assert!(table.contains_key("command"));
-        assert!(table
-            .get("args")
-            .and_then(|i| i.as_value())
-            .and_then(|v| v.as_array())
-            .is_some_and(|a| !a.is_empty()));
-    }
-
-    #[test]
     #[cfg(unix)]
     fn shell_server_starts_outside_the_users_folders() {
         let argv: Vec<String> = ["npx", "-y", "@mkusaka/mcp-shell-server"]
@@ -1244,71 +606,5 @@ mod tests {
             .map(String::from)
             .into();
         assert_eq!(launch_argv(&other).len(), 3);
-    }
-
-    /// Codex parses the transport of every entry before it reads `enabled`,
-    /// so a switched-off server keeps its command — `enabled = false` alone
-    /// is the "invalid transport in mcp_servers.<id>" that stops Codex
-    /// loading `config.toml` at all.
-    #[test]
-    fn codex_disabled_keeps_a_transport() {
-        let mut server = entry("word");
-        server.enabled = false;
-        let table = codex_server_table(&server, &server.command).expect("has a command");
-        assert_eq!(
-            table
-                .get("enabled")
-                .and_then(|i| i.as_value())
-                .and_then(|v| v.as_bool()),
-            Some(false)
-        );
-        assert_eq!(
-            table
-                .get("command")
-                .and_then(|i| i.as_value())
-                .and_then(|v| v.as_str()),
-            Some("npx")
-        );
-        // Nothing runs, so the sandbox policy and the secrets stay out of it.
-        assert!(!table.contains_key("env"));
-    }
-
-    #[test]
-    fn codex_entries_without_a_transport_are_left_out() {
-        let mut off = entry("word");
-        off.enabled = false;
-        off.command.clear();
-        assert!(codex_server_table(&off, &[]).is_none());
-
-        let mut remote = entry("remote");
-        remote.kind = "remote".into();
-        remote.url = Some("   ".into());
-        assert!(codex_server_table(&remote, &[]).is_none());
-    }
-
-    #[test]
-    fn codex_spots_the_entries_that_break_the_file() {
-        let doc: DocumentMut = r#"
-            [mcp_servers.broken]
-            enabled = false
-
-            [mcp_servers.stdio]
-            command = "npx"
-
-            [mcp_servers.remote]
-            url = "https://example.com/mcp"
-
-            [mcp_servers.blank]
-            command = ""
-        "#
-        .parse()
-        .unwrap();
-        let mcp = doc["mcp_servers"].as_table().unwrap();
-        let loadable = |id: &str| codex_entry_is_loadable(mcp.get(id).unwrap());
-        assert!(!loadable("broken"));
-        assert!(loadable("stdio"));
-        assert!(loadable("remote"));
-        // Odd but parseable, and the user's own: left where it is.
-        assert!(loadable("blank"));
     }
 }

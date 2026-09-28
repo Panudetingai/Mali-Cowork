@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { createStore } from "@/lib/local-store";
-import { loadOpencodeSettings } from "@/features/opencode/settings";
-import { fetchMcpStatus, syncMcpServers } from "./api";
+import { signInMcpHub, signOutMcpHub, syncMcpHub, syncMcpServers } from "./api";
 import { getCustomMcps, removeCustomMcp, saveCustomMcp, type CustomMcp } from "./custom";
 import { setConnectorIcon } from "./icon-override";
 import { oauthLimitFor } from "./oauth-limits";
@@ -29,27 +28,28 @@ function setBusy(id: string, state?: "connecting" | "disconnecting" | "signing-i
   busyStore.set(({ [id]: _old, ...rest }) => (state ? { ...rest, [id]: state } : rest));
 }
 
-/** Connectors run in the default Cowork folder's OpenCode instance. */
-function folder() {
-  return loadOpencodeSettings().cwd || undefined;
-}
-
+/**
+ * Live status comes from Mali's own MCP hub, which is what the agent uses.
+ * The CLIs' config files are still written (`syncMcpServers`) until they get
+ * their connectors from Mali too.
+ */
 export async function refreshMcpLive() {
   try {
-    const rows = await fetchMcpStatus(folder());
+    const rows = (await syncMcpHub())?.servers ?? [];
     liveStore.set(Object.fromEntries(rows.map((r) => [r.id, r])));
   } catch {
     // Best effort; the list falls back to the saved state.
   }
 }
 
-/** Save a connector's settings and (dis)connect it; rolls back if OpenCode refuses. */
+/** Save a connector's settings and (dis)connect it in Mali's hub; rolls back if that fails. */
 export async function applyConnector(id: string, patch: Parameters<typeof patchMcpConnection>[1]) {
   const before = getMcpConnections();
   patchMcpConnection(id, patch);
   setBusy(id, patch.enabled === false ? "disconnecting" : "connecting");
   try {
-    const result = await syncMcpServers({ cwd: folder(), targets: [id] });
+    await syncMcpServers();
+    const result = await syncMcpHub([id]);
     if (result) mergeMcpLive(result.servers);
     return result?.servers.find((s) => s.id === id);
   } catch (error) {
@@ -63,8 +63,8 @@ export async function applyConnector(id: string, patch: Parameters<typeof patchM
 const pendingSignIns = new Map<string, (error: Error) => void>();
 
 /**
- * Sign in to a remote connector (OAuth). OpenCode opens the provider's page
- * in the browser and keeps the tokens itself; the app and the AI never see them.
+ * Sign in to a remote connector (OAuth) as Mali Cowork. The provider's page
+ * opens in the browser and Mali keeps the tokens; the webview and the AI never see them.
  * `fresh` first forgets any earlier (possibly rejected) app registration.
  */
 export async function signInConnector(id: string, { fresh = false } = {}) {
@@ -73,25 +73,11 @@ export async function signInConnector(id: string, { fresh = false } = {}) {
   if (limit) throw new Error(limit.reason);
   setBusy(id, "signing-in");
   try {
-    if (fresh) {
-      await invoke("mcp_auth_remove", { id, directory: folder() ?? null, mode: null }).catch(() => undefined);
-    }
-    // Register "Mali Cowork" as the app asking for access (instead of OpenCode),
-    // then reconnect so OpenCode uses that client. Servers without app
-    // registration keep OpenCode's own sign-in.
-    if (connector?.kind === "remote" && connector.url) {
-      const branded = await invoke<boolean>("mcp_oauth_prepare", { id, url: connector.url, fresh }).catch(() => false);
-      if (branded) await syncMcpServers({ cwd: folder(), targets: [id] }).catch(() => undefined);
-    }
+    // Mali signs in as "Mali Cowork" and keeps the tokens for its own hub.
     // The backend waits up to 5 minutes for the browser; the user can stop waiting sooner.
     const cancelled = new Promise<never>((_, reject) => pendingSignIns.set(id, reject));
-    const status = await Promise.race([
-      invoke<McpServerStatus>("mcp_auth", { id, directory: folder() ?? null, mode: null }),
-      cancelled,
-    ]);
+    const status: McpServerStatus = await Promise.race([signInMcpHub(id, fresh), cancelled]);
     mergeMcpLive([status]);
-    // Chat mode has its own OpenCode instance; reconnect there with the new tokens.
-    void syncMcpServers({ mode: "chat", targets: [id] }).catch(() => undefined);
     return status;
   } finally {
     pendingSignIns.delete(id);
@@ -107,7 +93,7 @@ export function cancelSignIn(id: string) {
 }
 
 export async function signOutConnector(id: string) {
-  await invoke("mcp_auth_remove", { id, directory: folder() ?? null, mode: null });
+  await signOutMcpHub(id);
   mergeMcpLive([{ id, status: "needs_auth", error: null }]);
 }
 
@@ -118,7 +104,7 @@ export async function installConnector(connector: CustomMcp, env: Record<string,
   try {
     return await applyConnector(connector.id, { enabled: true, env });
   } catch (error) {
-    // OpenCode refused the config: don't keep a new connector half-installed.
+    // The hub refused the connector: don't keep a new one half-installed.
     if (isNew) {
       removeCustomMcp(connector.id);
       removeMcpConnection(connector.id);
@@ -132,7 +118,8 @@ export async function removeConnector(id: string) {
   setConnectorIcon(id, null);
   removeMcpConnection(id);
   liveStore.set(({ [id]: _gone, ...rest }) => rest);
-  await syncMcpServers({ cwd: folder(), targets: [], removed: [id] });
+  await signOutMcpHub(id).catch(() => undefined);
+  await syncMcpServers({ removed: [id] });
 }
 
 /** The installed connector for a registry entry, if any. */

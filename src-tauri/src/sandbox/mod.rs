@@ -7,6 +7,8 @@
 //!   `mali-mcp-runner`, plus an audit trail the Settings → MCP card reads back.
 
 mod audit;
+pub mod command_risk;
+pub mod os_sandbox;
 mod events;
 mod filesystem;
 mod manager;

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Bumped whenever `migrate` gains a step.
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const MAX_ID_LEN: usize = 128;
 /// One chat's JSON; far above a real conversation, so only junk is refused.
 const MAX_ROW_BYTES: usize = 64 * 1024 * 1024;
@@ -60,7 +60,7 @@ fn make_private(path: &Path) {
     let _ = path;
 }
 
-fn migrate(conn: &Connection) -> Result<(), String> {
+pub(super) fn migrate(conn: &Connection) -> Result<(), String> {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(|e| e.to_string())?;
@@ -91,6 +91,14 @@ fn migrate(conn: &Connection) -> Result<(), String> {
              COMMIT;",
         )
         .map_err(|e| format!("Cannot set up chat history: {e}"))?;
+    }
+    if version < 2 {
+        // `unchecked`: `migrate` only has a shared borrow; the step is still atomic.
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        super::usage::create_table(&tx).map_err(|e| format!("Cannot set up usage: {e}"))?;
+        super::usage::backfill(&tx)?;
+        tx.execute_batch("PRAGMA user_version = 2;").map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -272,7 +280,7 @@ pub fn import_legacy(conn: &mut Connection, chats: &[Value]) -> Result<usize, St
     Ok(imported)
 }
 
-async fn blocking<T: Send + 'static>(
+pub(super) async fn blocking<T: Send + 'static>(
     work: impl FnOnce(&mut Connection) -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
     tokio::task::spawn_blocking(move || with_db(work))

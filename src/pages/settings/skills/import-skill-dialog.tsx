@@ -8,8 +8,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { fetchSkillsFromUrl, pickSkillsFolder, type SkillCandidate } from "@/features/instructions";
-import { FolderOpenIcon, LinkIcon, LoaderCircleIcon } from "lucide-react";
+import { fetchSkillsFromNpm, fetchSkillsFromUrl, pickSkillsFolder, type SkillCandidate } from "@/features/instructions";
+import { FolderOpenIcon, LinkIcon, LoaderCircleIcon, PackageIcon } from "lucide-react";
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { Field, Notice } from "../ui";
 
@@ -28,17 +28,20 @@ export function ImportSkillDialog({
   onClose: () => void;
 }) {
   const urlId = useId();
+  const npmId = useId();
   const [url, setUrl] = useState("");
-  const [busy, setBusy] = useState<"url" | "folder" | null>(null);
+  const [npmPackage, setNpmPackage] = useState("");
+  const [busy, setBusy] = useState<"url" | "folder" | "npm" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) return;
     setUrl("");
+    setNpmPackage("");
     setError(null);
   }, [open]);
 
-  const run = async (kind: "url" | "folder", load: () => Promise<SkillCandidate[] | null>) => {
+  const run = async (kind: "url" | "folder" | "npm", load: () => Promise<SkillCandidate[] | null>) => {
     setBusy(kind);
     setError(null);
     try {
@@ -62,13 +65,18 @@ export function ImportSkillDialog({
     if (url.trim()) void run("url", () => fetchSkillsFromUrl(url.trim()));
   };
 
+  const findFromNpm = (event: FormEvent) => {
+    event.preventDefault();
+    if (npmPackage.trim()) void run("npm", () => fetchSkillsFromNpm(npmPackage.trim()));
+  };
+
   return (
     <Dialog open={open} onOpenChange={(next) => !next && !busy && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Import skills</DialogTitle>
           <DialogDescription>
-            From a GitHub repository or folder, a link to a SKILL.md, or a folder your team shares.
+            From a GitHub repository or folder, an npm package, a link to a SKILL.md, or a folder your team shares.
           </DialogDescription>
         </DialogHeader>
 
@@ -93,6 +101,35 @@ export function ImportSkillDialog({
                     <LoaderCircleIcon className="size-4 animate-spin" />
                   ) : (
                     <LinkIcon className="size-4" />
+                  )}
+                  Find
+                </Button>
+              </div>
+            </Field>
+          </form>
+
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="h-px flex-1 bg-border" />
+            or
+            <span className="h-px flex-1 bg-border" />
+          </div>
+
+          <form onSubmit={findFromNpm}>
+            <Field label="npm package" htmlFor={npmId} hint="Any package that ships SKILL.md files, e.g. @org/skills.">
+              <div className="flex gap-2">
+                <Input
+                  id={npmId}
+                  value={npmPackage}
+                  onChange={(e) => setNpmPackage(e.target.value)}
+                  placeholder="@owner/skills-package"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <Button type="submit" variant="outline" disabled={!npmPackage.trim() || !!busy} className="gap-1.5">
+                  {busy === "npm" ? (
+                    <LoaderCircleIcon className="size-4 animate-spin" />
+                  ) : (
+                    <PackageIcon className="size-4" />
                   )}
                   Find
                 </Button>

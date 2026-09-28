@@ -14,8 +14,22 @@ export async function saveAttachment(file: File) {
   return invoke<Attachment>("attachment_save", { name, data });
 }
 
-export function readAttachmentBytes(attachment: Attachment) {
-  return readFile(attachment.path);
+/** Download a picture from an https link, as if it had been pasted. */
+export function attachmentFromUrl(url: string) {
+  return invoke<Attachment>("attachment_from_url", { url });
+}
+
+export async function readAttachmentBytes(attachment: Attachment) {
+  try {
+    return await readFile(attachment.path);
+  } catch (error) {
+    // Windows without file system access (the Quick bar) ask the app, which
+    // only reads from its own attachments folder.
+    const bytes = await invoke<ArrayBuffer>("attachment_read", { path: attachment.path }).catch(() => {
+      throw error;
+    });
+    return new Uint8Array(bytes);
+  }
 }
 
 const MAX_TEXT_CHARS = 60_000;
@@ -29,7 +43,9 @@ export async function buildAttachmentAppendix(attachments: Attachment[], { files
   for (const attachment of attachments) {
     if (attachment.kind === "text") {
       try {
-        let content = await readTextFile(attachment.path);
+        let content = await readTextFile(attachment.path).catch(async () =>
+          new TextDecoder().decode(await readAttachmentBytes(attachment)),
+        );
         if (content.length > MAX_TEXT_CHARS) {
           content = `${content.slice(0, MAX_TEXT_CHARS)}\n… (truncated)`;
         }

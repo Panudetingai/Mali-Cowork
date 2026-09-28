@@ -17,7 +17,8 @@ use tauri::ipc::Channel;
 
 use crate::chat_stream::ChatStreamEvent;
 use crate::media::output::{resolve_dir, save_all};
-use crate::media::providers::{self, Job, Kind, Provider};
+use crate::commands::attachments::{mime_for, root as attachments_root};
+use crate::media::providers::{self, max_references, Job, Kind, Provider, Reference};
 
 /// Longest a single picture or clip may take before it is given up on.
 const IMAGE_TIMEOUT: u64 = 180;
@@ -49,6 +50,50 @@ pub struct MediaRequest {
     pub duration_seconds: Option<u32>,
     /// Video only: `1080P`, `720P`, `480P`.
     pub resolution: Option<String>,
+    /// Pictures to start from: attachment paths (see `attachment_import`).
+    #[serde(default)]
+    pub references: Vec<String>,
+}
+
+/// Largest reference picture sent to a provider.
+const MAX_REFERENCE_BYTES: u64 = 20 * 1024 * 1024;
+
+/// Read the reference pictures. Only files in the app's attachments folder
+/// are read — what the user picked, pasted or dropped was copied there — so
+/// the page can't send any other file on this computer to a provider.
+fn load_references(paths: &[String], limit: usize, label: &str) -> Result<Vec<Reference>, String> {
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+    if limit == 0 {
+        return Err(format!("{label} can't start from a reference picture. Remove it, or pick another model."));
+    }
+    if paths.len() > limit {
+        return Err(format!("{label} takes at most {limit} reference picture{}.", if limit == 1 { "" } else { "s" }));
+    }
+    let root = std::fs::canonicalize(attachments_root()).map_err(|_| "No reference pictures were saved.".to_string())?;
+    paths
+        .iter()
+        .map(|path| {
+            let file = std::fs::canonicalize(path).map_err(|_| "A reference picture is no longer there.".to_string())?;
+            if !file.starts_with(&root) {
+                return Err("Reference pictures must be added in the app.".to_string());
+            }
+            let mime = mime_for(&file);
+            if !mime.starts_with("image/") {
+                return Err("Only pictures can be used as references.".to_string());
+            }
+            let size = std::fs::metadata(&file).map_err(|e| e.to_string())?.len();
+            if size > MAX_REFERENCE_BYTES {
+                return Err("A reference picture is larger than 20 MB.".to_string());
+            }
+            Ok(Reference {
+                mime: mime.to_string(),
+                bytes: std::fs::read(&file).map_err(|e| e.to_string())?,
+                name: file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "reference.png".into()),
+            })
+        })
+        .collect()
 }
 
 fn trimmed(value: Option<&str>) -> Option<&str> {
@@ -124,6 +169,7 @@ async fn run(request: &MediaRequest, on_event: &Channel<ChatStreamEvent>) -> Res
         duration_ms: None,
     });
 
+    let references = load_references(&request.references, max_references(provider, kind), provider.label())?;
     let timeout = if kind == Kind::Image { IMAGE_TIMEOUT } else { VIDEO_TIMEOUT };
     let job = Job {
         kind,
@@ -141,6 +187,7 @@ async fn run(request: &MediaRequest, on_event: &Channel<ChatStreamEvent>) -> Res
             .flatten(),
         deadline: Instant::now() + Duration::from_secs(timeout),
         base_url: trimmed(request.base_url.as_deref()),
+        references: &references,
     };
 
     let started = Instant::now();
@@ -215,7 +262,25 @@ mod tests {
             aspect_ratio: None,
             duration_seconds: None,
             resolution: None,
+            references: Vec::new(),
         }
+    }
+
+    #[test]
+    fn references_only_from_the_attachments_folder() {
+        let outside = std::env::temp_dir().join(format!("mali-ref-{}.png", std::process::id()));
+        std::fs::write(&outside, b"png").unwrap();
+        let err = load_references(&[outside.to_string_lossy().into_owned()], 3, "Google").unwrap_err();
+        assert!(err.contains("added in the app") || err.contains("No reference pictures"), "{err}");
+        let _ = std::fs::remove_file(&outside);
+    }
+
+    #[test]
+    fn references_respect_each_providers_limit() {
+        let paths = vec!["a.png".to_string(), "b.png".to_string()];
+        assert!(load_references(&paths, 0, "xAI").unwrap_err().contains("can't start from"));
+        assert!(load_references(&paths, 1, "Veo").unwrap_err().contains("at most 1 reference picture."));
+        assert!(load_references(&[], 0, "xAI").unwrap().is_empty());
     }
 
     fn fails_with(request: &MediaRequest) -> String {

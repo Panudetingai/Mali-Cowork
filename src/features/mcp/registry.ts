@@ -55,7 +55,12 @@ export type RegistryServer = {
   remotes: RegistryRemote[];
 };
 
-export type RegistryPage = { servers: RegistryServer[]; nextCursor?: string | null };
+export type RegistryPage = {
+  servers: RegistryServer[];
+  nextCursor?: string | null;
+  /** The registry didn't answer; these are servers it returned earlier. */
+  stale?: boolean;
+};
 
 /** Well-known services, shown as "Popular" before any search. */
 export const FEATURED_REGISTRY = [

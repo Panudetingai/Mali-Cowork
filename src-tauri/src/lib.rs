@@ -1,12 +1,25 @@
+mod agent;
 mod ai;
+mod http_body;
+mod mcp_hub;
 mod chat_stream;
 mod commands;
 pub mod mcp_runner;
 mod media;
 pub mod panic_log;
 mod sandbox;
+mod templates;
 
-use commands::attachments::{attachment_import, attachment_save};
+use commands::app_cache::{app_cache_size, app_clear_cache};
+use commands::agent::{agent_abort, agent_answer_question, agent_generate, agent_reply_permission};
+use commands::mcp_hub::{mcp_hub_set_servers, mcp_hub_set_workspace, mcp_hub_sign_in, mcp_hub_sign_out, mcp_hub_sync};
+use commands::mcp_bridge::mcp_release_other_apps;
+use commands::templates::{
+    templates_add, templates_export, templates_inspect, templates_list, templates_open, templates_refresh,
+    templates_remove, templates_update,
+};
+use commands::voice::voice_input_status;
+use commands::attachments::{attachment_from_url, attachment_import, attachment_read, attachment_save};
 use commands::link_preview::link_preview;
 use commands::chat::{chat_generate, ollama_list_models, provider_check_key, provider_env_keys};
 use commands::media::media_generate;
@@ -15,7 +28,7 @@ use commands::checkpoint::{
     checkpoint_before_text, checkpoint_preview, checkpoint_restore, checkpoint_restore_file,
 };
 use commands::cli::{check_cli, cli_generate};
-use commands::code::{code_detect, code_kill, code_read, code_run, code_scan, code_write};
+use commands::code::{code_delete, code_detect, code_kill, code_read, code_rename, code_run, code_scan, code_write};
 use commands::codex::{codex_abort, codex_check, codex_generate, codex_list_models};
 use commands::cursor::{
     cursor_abort, cursor_check, cursor_generate, cursor_list_models, cursor_login,
@@ -26,12 +39,11 @@ use commands::git::{
     git_create_branch, git_discard, git_fetch, git_file_diff, git_init, git_log, git_pull,
     git_push, git_stage, git_stage_all, git_stash, git_status, git_switch_branch, git_unstage,
 };
-use commands::mcp::{mcp_auth, mcp_auth_remove, mcp_diagnose, mcp_status, mcp_sync};
-use commands::mcp_oauth::{mcp_auth_cancel, mcp_oauth_prepare};
+use commands::mcp::mcp_diagnose;
+use commands::mcp_oauth::mcp_auth_cancel;
 use commands::mcp_registry::{mcp_fetch_icon, mcp_registry_get, mcp_registry_icon, mcp_registry_search};
 use commands::native_alert::native_alert;
-use commands::outputs::outputs_stat;
-use commands::arena::{arena_apply, arena_cleanup, arena_cleanup_stale, arena_prepare};
+use commands::outputs::{outputs_stat, outputs_trash};
 use commands::quick::{
     quick_capture_region, quick_capture_screen, quick_configure, quick_hide, quick_open_main,
     quick_start_capture_overlay, quick_take_context, QuickState,
@@ -45,10 +57,11 @@ use commands::opencode::{
     opencode_warm, warm_up_server,
 };
 use commands::storage::{
-    history_import_legacy, history_load, history_save, secrets_load, secrets_save,
-    skills_dir, skills_export_folder, skills_fetch_url, skills_install, skills_installed,
+    history_import_legacy, history_load, history_save, secrets_load, secrets_save, usage_load, usage_record,
+    skills_dir, skills_export_folder, skills_fetch_url, skills_install, skills_install_npx, skills_installed,
     skills_read_asset, skills_scan_folder, skills_search_repos, skills_sync, skills_uninstall,
 };
+use commands::usage_remote::{usage_model_prices, usage_provider_account};
 use commands::smithery::{
     smithery_check_key, smithery_search_servers, smithery_search_skills, smithery_server,
 };
@@ -143,6 +156,8 @@ pub fn run() {
             supervisor::exit_on_signals();
             // So a system notification carries the app's name and icon.
             commands::native_alert::init(&app.config().identifier);
+            // Agent Arena was removed; its worktree copies go with it.
+            tauri::async_runtime::spawn(commands::arena::remove_leftovers());
             // Start opencode in the background so the first prompt is fast.
             tauri::async_runtime::spawn(async {
                 if let Err(e) = warm_up_server().await {
@@ -159,6 +174,27 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             attachment_import,
             attachment_save,
+            attachment_read,
+            attachment_from_url,
+            voice_input_status,
+            templates_list,
+            templates_inspect,
+            templates_add,
+            templates_update,
+            templates_refresh,
+            templates_remove,
+            templates_export,
+            templates_open,
+            agent_generate,
+            agent_reply_permission,
+            agent_abort,
+            agent_answer_question,
+            mcp_hub_sync,
+            mcp_hub_set_servers,
+            mcp_hub_set_workspace,
+            mcp_release_other_apps,
+            mcp_hub_sign_in,
+            mcp_hub_sign_out,
             link_preview,
             chat_generate,
             media_generate,
@@ -172,10 +208,7 @@ pub fn run() {
             checkpoint_preview,
             checkpoint_open,
             outputs_stat,
-            arena_prepare,
-            arena_apply,
-            arena_cleanup,
-            arena_cleanup_stale,
+            outputs_trash,
             quick_configure,
             quick_take_context,
             quick_hide,
@@ -188,6 +221,8 @@ pub fn run() {
             code_scan,
             code_read,
             code_write,
+            code_rename,
+            code_delete,
             code_detect,
             code_run,
             code_kill,
@@ -202,13 +237,8 @@ pub fn run() {
             opencode_delete_session,
             opencode_warm,
             opencode_configure_providers,
-            mcp_sync,
-            mcp_status,
             mcp_diagnose,
-            mcp_auth,
-            mcp_auth_remove,
             mcp_auth_cancel,
-            mcp_oauth_prepare,
             native_alert,
             mcp_registry_search,
             mcp_registry_get,
@@ -257,6 +287,12 @@ pub fn run() {
             provider_check_key,
             ollama_list_models,
             history_load,
+            app_cache_size,
+            app_clear_cache,
+            usage_record,
+            usage_load,
+            usage_provider_account,
+            usage_model_prices,
             history_save,
             history_import_legacy,
             secrets_load,
@@ -268,6 +304,7 @@ pub fn run() {
             skills_search_repos,
             skills_dir,
             skills_install,
+            skills_install_npx,
             skills_installed,
             skills_sync,
             skills_uninstall,
@@ -276,6 +313,7 @@ pub fn run() {
             smithery_search_servers,
             smithery_server,
             get_sandbox_status,
+            sandbox::os_sandbox::sandbox_engine,
             get_audit_logs
         ])
         .build(tauri::generate_context!())

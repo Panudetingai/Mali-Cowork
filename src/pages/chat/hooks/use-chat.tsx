@@ -338,32 +338,49 @@ export function useChat(
    * model that is selected now — switching model and pressing Retry is how a
    * chat carries on when the one it started with runs out of credits or gets
    * rate-limited. The agent session is kept, so the work so far still counts.
-   * Only the latest exchange can be retried, and while a run is in flight
-   * nothing happens.
+   * Retry is offered on the latest exchange; an edit (`editedContent`) may
+   * start from any prompt. While a run is in flight nothing happens.
    */
   const retryMessage = useCallback(
-    async (userMessageId: string): Promise<boolean> => {
+    async (userMessageId: string, editedContent?: string): Promise<boolean> => {
       if (!chatId || getRun(chatId)) return false;
       const chat = getChat(chatId);
       const index = chat?.messages.findIndex((m) => m.id === userMessageId && m.role === "user") ?? -1;
       const original = index >= 0 ? chat!.messages[index] : undefined;
-      if (!chat || !original?.resend) return false;
+      if (!chat || !original) return false;
       const chatMode = sessionMode(chat);
       const picked = loadSelectedModelId(chatMode);
-      const { skills, connectors } = original.resend;
+      // A prompt saved without its settings (e.g. from the Quick bar) runs on the picked model.
+      const sent: ChatMessage["resend"] = original.resend ?? resendSettingsFor(picked, getOpencodeModels(), chatMode);
+      if (!sent) return false;
+      const { skills, connectors } = sent;
       const resend =
-        picked === original.resend.modelId
-          ? original.resend
-          : { ...(resendSettingsFor(picked, getOpencodeModels(), chatMode) ?? original.resend), skills, connectors };
+        picked === sent.modelId
+          ? sent
+          : { ...(resendSettingsFor(picked, getOpencodeModels(), chatMode) ?? sent), skills, connectors };
+      const removed = chat.messages.slice(index);
       updateChatMessages(chatId, (prev) => prev.slice(0, index));
-      return executeSend({
-        prompt: original.content,
+      const ok = await executeSend({
+        prompt: editedContent?.trim() || original.content,
         resend,
         attachments: original.attachments,
         context: original.context,
       });
+      // Not sent (e.g. folder access declined): put the conversation back as it was.
+      if (!ok) updateChatMessages(chatId, (prev) => (prev.length === index ? [...prev, ...removed] : prev));
+      return ok;
     },
     [chatId, executeSend],
+  );
+
+  /**
+   * Editing a prompt sends it again as a new message: the prompt and every
+   * reply after it go, and the edited text runs with the same picks,
+   * attachments and model settings — like Retry, from any earlier prompt.
+   */
+  const editAndResend = useCallback(
+    (userMessageId: string, content: string) => retryMessage(userMessageId, content),
+    [retryMessage],
   );
 
   /**
@@ -502,6 +519,7 @@ export function useChat(
     sendMessage,
     sendText,
     retryMessage,
+    editAndResend,
     rateMessage,
     summarizeAndContinue,
     permissions: permissions ?? [],

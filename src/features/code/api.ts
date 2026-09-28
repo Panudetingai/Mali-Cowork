@@ -40,6 +40,9 @@ export const codeApi = {
   /** Resolves with the new mtime; rejects with `conflict: …` if the file changed since `expectedMtime`. */
   write: (root: string, rel: string, text: string, expectedMtime?: number) =>
     invoke<number>("code_write", { root, rel, text, expectedMtime: expectedMtime ?? null }),
+  rename: (root: string, oldRel: string, newRel: string) =>
+    invoke<number>("code_rename", { root, oldRel, newRel }),
+  delete: (root: string, rel: string) => invoke<void>("code_delete", { root, rel }),
   detect: (root: string) => invoke<CodeTask[]>("code_detect", { root }),
   kill: (runId: string) => invoke<void>("code_kill", { runId }),
   run(runId: string, root: string, command: string, cwd: string, onEvent: (event: RunEvent) => void) {

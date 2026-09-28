@@ -1,3 +1,4 @@
+import { agentAbort } from "@/features/agent";
 import { opencodeAbort, opencodeDeleteSession, type WorkMode } from "@/features/opencode";
 import { syncToDatabase } from "@/lib/db-sync";
 import { loadHistorySnapshot, type HistorySnapshot } from "@/lib/history-db";
@@ -31,12 +32,24 @@ export type ChatSession = {
   codexSessionId?: string;
   /** Antigravity conversation id, so `agy --conversation <id>` keeps the thread. */
   antigravitySessionId?: string;
+  /** Mali's own agent (Cowork on an API key): its saved conversation. */
+  maliSessionId?: string;
   /** A background task's chat (Inbox): listed there, not in the sidebar. */
   inboxTask?: boolean;
   /** For a background task: the chat it was started from. */
   taskFrom?: { id: string; title: string };
-  /** A contender in an Arena round; kept out of the history list until picked. */
-  arenaId?: string;
+  /**
+   * A throwaway chat (the skill editor): never saved, left out of the
+   * sidebar, and removed once you leave it.
+   */
+  ephemeral?: boolean;
+  /**
+   * This chat began in Chat mode and moved to Cowork; the conversation came
+   * along. The thread shows a divider after `afterMessageId`.
+   */
+  movedToCowork?: { at: number; afterMessageId?: string; folder: string };
+  /** A reply whose "continue in Cowork" hint the user closed. */
+  coworkHintDismissed?: string;
   /** Chat this one continues after the context limit was reached. */
   continuedFrom?: {
     id: string;
@@ -48,7 +61,7 @@ export type ChatSession = {
   };
 };
 
-type NewChat = Pick<ChatSession, "mode" | "view" | "cwd" | "continuedFrom" | "projectId" | "taskFrom" | "inboxTask"> & {
+type NewChat = Pick<ChatSession, "mode" | "view" | "cwd" | "continuedFrom" | "projectId" | "taskFrom" | "inboxTask" | "ephemeral"> & {
   /** Chosen by the caller when another window already refers to the chat (Quick bar). */
   id?: string;
 };
@@ -74,7 +87,7 @@ const LEGACY_KEY = "mali_chat_sessions";
 // Held in memory; saved to SQLite (see `loadChatHistory`).
 const sessionStore = createStore<ChatSession[]>([]);
 const runStore = createStore<Record<string, ChatRun>>({});
-const database = syncToDatabase(sessionStore, "chats");
+const database = syncToDatabase(sessionStore, "chats", { skip: (chat) => !!chat.ephemeral });
 
 /**
  * Load the history from SQLite before the app renders. The first time, chats
@@ -101,7 +114,7 @@ export async function loadChatHistory() {
       timer ??= setTimeout(() => {
         timer = undefined;
         try {
-          localStorage.setItem(LEGACY_KEY, JSON.stringify(sessionStore.get()));
+          localStorage.setItem(LEGACY_KEY, JSON.stringify(sessionStore.get().filter((s) => !s.ephemeral)));
         } catch {
           // Storage full; the chats still live for this session.
         }
@@ -129,6 +142,9 @@ export const useChatRuns = runStore.use;
 /** Every active run by chat id; for code outside React (the Task Inbox queue). */
 export const getRuns = runStore.get;
 export const subscribeToRuns = runStore.subscribe;
+
+/** Every chat's id, including tasks and throwaway chats. */
+export const getChatIds = () => sessionStore.get().map((s) => s.id);
 
 export function getChat(id: string) {
   return sessionStore.get().find((s) => s.id === id);
@@ -162,6 +178,12 @@ export function updateChat(id: string, fn: (session: ChatSession) => ChatSession
 
 export function updateChatMessages(id: string, fn: (messages: ChatMessage[]) => ChatMessage[]) {
   updateChat(id, (s) => ({ ...s, messages: fn(s.messages), updatedAt: Date.now() }));
+}
+
+export function editMessage(chatId: string, messageId: string, content: string) {
+  updateChatMessages(chatId, (messages) =>
+    messages.map((m) => (m.id === messageId ? { ...m, content: content.trim() } : m)),
+  );
 }
 
 export function renameChat(id: string, title: string) {
@@ -203,6 +225,7 @@ export function clearAgentSessions(chatId?: string) {
     cursorSessionId: undefined,
     codexSessionId: undefined,
     antigravitySessionId: undefined,
+    maliSessionId: undefined,
   });
   if (chatId) {
     updateChat(chatId, strip);
@@ -222,6 +245,11 @@ export function deleteChat(id: string) {
   sessionStore.set((prev) => prev.filter((s) => s.id !== id));
   endRun(id);
 
+  // Mali's own agent: stop it; its saved conversation is only a file.
+  if (run?.agentSessionId?.startsWith("mali_")) {
+    void agentAbort(id).catch(() => undefined);
+    return;
+  }
   const sessionId = session?.opencodeSessionId ?? run?.agentSessionId;
   if (!sessionId) return;
   const target = { sessionId, cwd: session?.cwd, mode: sessionMode(session) };
@@ -231,6 +259,22 @@ export function deleteChat(id: string) {
       console.warn("[chat-history] could not delete OpenCode session", error),
     ),
   );
+}
+
+/** Remove throwaway chats other than `keep`; one still running stays until it's done. */
+export function discardEphemeralChats(keep?: string) {
+  const runs = runStore.get();
+  for (const s of sessionStore.get()) {
+    if (s.ephemeral && s.id !== keep && !runs[s.id]) deleteChat(s.id);
+  }
+}
+
+/** Write pending history changes now (before a relaunch). */
+export const flushChatHistory = () => database.flush();
+
+/** Shown in chat lists (sidebar, search): not background tasks or throwaway chats. */
+export function isListedChat(s: ChatSession) {
+  return !s.inboxTask && !s.taskFrom && !s.ephemeral;
 }
 
 /** Remove many chats at once. */

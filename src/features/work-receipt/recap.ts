@@ -45,7 +45,9 @@ export function buildWeeklyRecap(
 
   for (const session of sessions) {
     for (const message of session.messages) {
-      const at = message.createdAt;
+      // Replies saved before messages kept their time: the chat's last update,
+      // as Outputs does, rather than leaving them out of every week.
+      const at = message.createdAt ?? session.updatedAt;
       if (at === undefined || at < weekStart || at >= weekEnd) continue;
       const receipt = buildWorkReceipt(session, message);
       if (!receipt) continue;

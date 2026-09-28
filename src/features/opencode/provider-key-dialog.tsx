@@ -37,6 +37,11 @@ type KeyPrompt = {
   target?: "opencode" | "api";
   /** Model the user tried to use, for the description. */
   modelName?: string;
+  /**
+   * With `target: "api"`: the model id at the provider (e.g. `gpt-5`), added
+   * to Settings → Models so it shows up under the user's own key.
+   */
+  model?: string;
   /** The saved key was rejected rather than missing. */
   invalid?: boolean;
   /** Runs after the key is saved, e.g. to send the pending prompt. */
@@ -128,8 +133,12 @@ function KeyForm({ prompt, onClose }: { prompt: KeyPrompt; onClose: () => void }
     try {
       if (toApi && appProvider) {
         const saved = getProviderConfig(prompt.providerId);
+        const config = configOrDefaults(appProvider, saved);
+        const models = config.models.split(",").map((m) => m.trim()).filter(Boolean);
+        if (prompt.model && !models.includes(prompt.model)) models.push(prompt.model);
         saveProviderConfig(prompt.providerId, {
-          ...configOrDefaults(appProvider, saved),
+          ...config,
+          models: models.join(", "),
           apiKey: value,
         });
         // Keep OpenCode on the same key, so both paths stay in sync.

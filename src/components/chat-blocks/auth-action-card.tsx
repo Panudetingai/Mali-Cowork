@@ -2,14 +2,36 @@
 
 import { Button } from "@/components/ui/button";
 import type { AuthActionBlock } from "@/features/chat-blocks";
-import { lobeMcpIcon } from "@/features/mcp/lobe-icons";
-import { getCustomMcps, useConnectorIcon, useRegistryIcon, type McpToolRef } from "@/features/mcp";
+import {
+    getCustomMcps,
+    useConnectorIcon,
+    useRegistryIcon,
+    type McpToolRef,
+} from "@/features/mcp";
 import { signInConnector } from "@/features/mcp/connectors";
+import { lobeMcpIcon } from "@/features/mcp/lobe-icons";
 import { cn } from "@/lib/utils";
+import {
+    Brave,
+    Cloudflare,
+    Figma,
+    Github,
+    Google,
+    MCP,
+    Microsoft,
+    Notion,
+    Vercel,
+} from "@lobehub/icons";
 import type { IconType } from "@lobehub/icons/es/types";
-import { Brave, Cloudflare, Figma, Github, Google, MCP, Microsoft, Notion, Vercel } from "@lobehub/icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { CheckIcon, ExternalLinkIcon, KeyRound, LoaderIcon, LogInIcon, ShieldCheckIcon } from "lucide-react";
+import {
+    CheckIcon,
+    ExternalLinkIcon,
+    KeyRound,
+    LoaderIcon,
+    LogInIcon,
+    ShieldCheckIcon,
+} from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
 const ICON_TILE =
@@ -44,7 +66,12 @@ function resolveAuthMcp(action: AuthActionBlock): McpToolRef | undefined {
       try {
         const host = new URL(custom.url).host.toLowerCase();
         if (host.length > 3 && hay.includes(host)) {
-          return { serverId: custom.id, serverName: custom.name, tool: "", custom };
+          return {
+            serverId: custom.id,
+            serverName: custom.name,
+            tool: "",
+            custom,
+          };
         }
       } catch {
         // ignore bad connector url
@@ -58,7 +85,10 @@ function resolveAuthMcp(action: AuthActionBlock): McpToolRef | undefined {
 const BRAND_RULES: { test: RegExp; Icon: IconType }[] = [
   { test: /gmail|google|accounts\.google|youtube\.com/, Icon: Google },
   { test: /\bnotion\b|notion\.(so|com)/, Icon: Notion },
-  { test: /microsoft|login\.live|outlook|office\.com|office365|azure/, Icon: Microsoft },
+  {
+    test: /microsoft|login\.live|outlook|office\.com|office365|azure/,
+    Icon: Microsoft,
+  },
   { test: /\bgithub\b|github\.com/, Icon: Github },
   { test: /\bfigma\b|figma\.com/, Icon: Figma },
   { test: /\bvercel\b|vercel\.com/, Icon: Vercel },
@@ -74,7 +104,9 @@ function brandIcon(hay: string): IconType | null {
 }
 
 function DefaultAuthIcon() {
-  return <KeyRound className="size-5 text-primary" strokeWidth={1.75} aria-hidden />;
+  return (
+    <KeyRound className="size-5 text-primary" strokeWidth={1.75} aria-hidden />
+  );
 }
 
 /** Registry / brand marks like MCP steps; unknown services use a generic auth icon. */
@@ -82,7 +114,9 @@ function AuthServiceIcon({ action }: { action: AuthActionBlock }) {
   const mcp = useMemo(() => resolveAuthMcp(action), [action]);
   const hay = useMemo(() => authHaystack(action), [action]);
   const own = useConnectorIcon(mcp?.serverId);
-  const registry = useRegistryIcon(own ? undefined : mcp?.custom?.registry?.icons);
+  const registry = useRegistryIcon(
+    own ? undefined : mcp?.custom?.registry?.icons,
+  );
   const registrySrc = own ?? registry;
 
   let inner: ReactNode;
@@ -157,26 +191,31 @@ export function AuthActionCard({
     <div
       data-skip-markdown-delegate
       className={cn(
-        // A card, not loose text: this is the one thing in the reply the user
-        // has to act on, and it was previously indistinguishable from prose.
-        "overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm",
+        "overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm max-w-sm",
         className,
       )}
     >
-      <div className="flex items-start gap-3 p-3">
-        <AuthServiceIcon action={action} />
+      <div className="flex items-start gap-3 p-3 flex-col">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-foreground" title={action.title}>
-            {action.title}
-          </p>
+          <div className="flex items-center gap-2">
+            <AuthServiceIcon action={action} />
+            <p
+              className="truncate text-sm font-semibold text-foreground"
+              title={action.title}
+            >
+              {action.title}
+            </p>
+          </div>
           <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-            {action.description ?? `${host || "This service"} needs your permission first.`}
+            {action.description ??
+              `${host || "This service"} needs your permission first.`}
           </p>
         </div>
         <Button
           type="button"
+          variant="outline"
           size="sm"
-          className="shrink-0 gap-1.5"
+          className="shrink-0 gap-1.5 w-full"
           disabled={busy || done}
           onClick={() => void run()}
         >
@@ -201,7 +240,10 @@ export function AuthActionCard({
         // Where the tokens end up is the question people actually have about
         // a sign-in card, so it is answered on the card rather than nowhere.
         <p className="flex items-center gap-1.5 border-t bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
-          <ShieldCheckIcon className="size-3 shrink-0 text-emerald-600 dark:text-emerald-500" aria-hidden />
+          <ShieldCheckIcon
+            className="size-3 shrink-0 text-emerald-600 dark:text-emerald-500"
+            aria-hidden
+          />
           <span className="min-w-0 flex-1 truncate" title={action.url}>
             {done
               ? "Finish in your browser, then send your message again."
@@ -224,7 +266,10 @@ export function AuthActionList({
   return (
     <div className={cn("flex flex-col gap-2", className)}>
       {actions.map((action) => (
-        <AuthActionCard key={`${action.connectorId ?? action.url}-${action.title}`} action={action} />
+        <AuthActionCard
+          key={`${action.connectorId ?? action.url}-${action.title}`}
+          action={action}
+        />
       ))}
     </div>
   );

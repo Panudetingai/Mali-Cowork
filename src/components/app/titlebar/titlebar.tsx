@@ -1,5 +1,6 @@
 import { CoworkBot, CoworkBotPicker } from "@/components/anim/cowork-bot";
 import { ThemeToggle } from "@/components/app/titlebar/theme-toggle";
+import { LanguageToggle } from "@/components/app/titlebar/language-toggle";
 import { useSidebar } from "@/components/animate-ui/components/radix/sidebar";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -111,7 +112,8 @@ export function Titlebar() {
 
       {/* ปุ่มควบคุมหน้าต่าง */}
       <div className="relative z-50 flex shrink-0 items-center border-b border-border bg-background">
-        <div className="mr-1 flex items-center gap-2 px-1">
+        <div className="mr-1 flex items-center gap-1.5 px-1">
+          <LanguageToggle />
           <ThemeToggle />
           <Popover>
             <PopoverTrigger asChild>

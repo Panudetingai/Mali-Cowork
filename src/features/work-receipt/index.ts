@@ -1,6 +1,7 @@
 export * from "./types";
 export * from "./receipt";
 export * from "./outputs";
+export * from "./outputs-hidden";
 export * from "./recap";
 export * from "./api";
 export * from "./settings-store";
@@ -10,3 +11,4 @@ export * from "./work-receipt-dialog";
 export * from "./outputs-list";
 export * from "./weekly-recap-dialog";
 export * from "./weekly-recap-store";
+export * from "./completion";

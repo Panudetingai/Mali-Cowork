@@ -5,6 +5,8 @@ import {
   CodeBlockHeader,
   CodeBlockTitle,
 } from "@/components/ai-elements/code-block";
+import { DiffCard } from "@/components/diff/diff-card";
+import { parseUnifiedDiff } from "@/components/diff/parse-unified";
 import { cn } from "@/lib/utils";
 import type { ReactNode } from "react";
 import type { BundledLanguage } from "shiki";
@@ -124,19 +126,45 @@ function isDiffDetail(verb: string, detail: string) {
 }
 
 function DiffOutput({ detail }: { detail: string }) {
+  const files = parseUnifiedDiff(detail);
+  if (files.length === 0) {
+    return (
+      <CodeBlock
+        code={detail}
+        language={"diff" as BundledLanguage}
+        className="mt-0.5 mb-1.5 ml-8 max-h-60 overflow-auto [&_pre]:px-3 [&_pre]:py-2 [&_pre]:text-[11px] [&_code]:text-[11px] [&_pre]:leading-relaxed"
+      >
+        <CodeBlockHeader className="px-2.5 py-1">
+          <CodeBlockTitle className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+            diff
+          </CodeBlockTitle>
+        </CodeBlockHeader>
+      </CodeBlock>
+    );
+  }
+  return <DiffCards detail={detail} className="mt-1 mb-2 ml-8" />;
+}
+
+/** An edit step's diff as file cards, like a pull request. */
+export function DiffCards({ detail, className }: { detail: string; className?: string }) {
+  const files = parseUnifiedDiff(detail);
   return (
-    <CodeBlock
-      code={detail}
-      language={"diff" as BundledLanguage}
-      className="mt-0.5 mb-1.5 ml-8 max-h-60 overflow-auto [&_pre]:px-3 [&_pre]:py-2 [&_pre]:text-[11px] [&_code]:text-[11px] [&_pre]:leading-relaxed"
-    >
-      <CodeBlockHeader className="px-2.5 py-1">
-        <CodeBlockTitle className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-          diff
-        </CodeBlockTitle>
-      </CodeBlockHeader>
-    </CodeBlock>
+    <div className={cn("flex flex-col gap-2", className)}>
+      {files.map((file) => (
+        <DiffCard
+          key={file.path}
+          path={file.path}
+          diff={file.diff}
+          kind={file.created ? "added" : file.deleted ? "deleted" : "modified"}
+        />
+      ))}
+    </div>
   );
+}
+
+/** A write or edit step whose detail is a diff: shown in the reply, not folded away. */
+export function isFileEdit(verb: string, detail: string | undefined) {
+  return !!detail && /^(write|edit|patch|update|create|overwrite|replace)/i.test(verb) && parseUnifiedDiff(detail).length > 0;
 }
 
 export function StepDetail({ detail, verb }: { detail: string; verb: string }) {

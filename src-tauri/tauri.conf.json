@@ -88,7 +88,8 @@
       "minimumSystemVersion": "10.13",
       "signingIdentity": null,
       "entitlements": null,
-      "exceptionDomain": ""
+      "exceptionDomain": "",
+      "infoPlist": "Info.plist"
     },
     "createUpdaterArtifacts": true
   },

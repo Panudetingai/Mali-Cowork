@@ -31,6 +31,8 @@ const database = syncToDatabase(store, "projects", { throttleMs: 300 });
 
 export const useProjects = store.use;
 export const getProjects = store.get;
+/** Write pending project changes now (before a relaunch). */
+export const flushProjects = () => database.flush();
 /** For code outside React, e.g. keeping project skills on disk in step. */
 export const subscribeToProjects = store.subscribe;
 

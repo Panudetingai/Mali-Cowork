@@ -1,3 +1,5 @@
+pub mod agent;
+pub mod app_cache;
 pub mod arena;
 pub mod attachments;
 pub mod bin_cache;
@@ -12,7 +14,9 @@ pub mod antigravity;
 pub mod git;
 pub mod link_preview;
 pub mod mcp;
+pub mod mcp_bridge;
 pub mod mcp_clients;
+pub mod mcp_hub;
 pub mod media;
 pub mod mcp_oauth;
 pub mod mcp_registry;
@@ -26,6 +30,9 @@ pub mod secure_fs;
 pub mod setup;
 pub mod storage;
 pub mod supervisor;
+pub mod templates;
+pub mod usage_remote;
+pub mod voice;
 
 
 /// ตัดสตริงให้ยาวไม่เกิน `max` ไบต์ โดยไม่ตัดกลางตัวอักษร

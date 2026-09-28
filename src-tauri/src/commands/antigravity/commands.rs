@@ -291,6 +291,8 @@ async fn run_prompt(
     }
     let bin = antigravity_bin().ok_or_else(not_found_message)?;
 
+    // `mali` is in Antigravity's config only while runs inside Mali need it.
+    let _mali_mcp = crate::commands::mcp_bridge::antigravity_lease().await;
     let mut args = build_args(request);
     // `-p` forces headless mode; it also accepts piped stdin, which we close.
     args.extend(["-p".into(), prompt_with_notes(request)]);

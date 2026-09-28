@@ -28,6 +28,9 @@ export type SkillInstall = {
   at: string;
 };
 
+/** A skill being created or edited; the id is absent until it is saved. */
+export type SkillDraft = Omit<Skill, "id"> & { id?: string };
+
 /** A project's part of the instructions (see `features/projects`). */
 export type ProjectContext = {
   name: string;

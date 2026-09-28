@@ -259,3 +259,34 @@ describe("video models", () => {
     ]);
   });
 });
+
+// A key the user entered belongs to Mali: the model runs on it directly — in
+// Chat over the API, in Cowork on Mali's own agent — never "via OpenCode".
+describe("models on the user's own key", () => {
+  const catalogue = {
+    models: [
+      model({ id: "openai/gpt-5" }),
+      model({ id: "openai/gpt-tiny", toolCall: false }),
+      model({ id: "anthropic/claude-sonnet-5" }),
+    ],
+    defaultModel: undefined,
+    providers: [],
+  };
+  const openai = [{ provider: provider("openai", "OpenAI"), models: ["gpt-5", "gpt-tiny"] }];
+
+  for (const mode of ["chat", "cowork"] as const) {
+    test(`are listed once, under the key, in ${mode}`, () => {
+      const list = buildModelCatalog(catalogue, openai, mode);
+      expect(list.find((m) => m.id === apiModelId("openai", "gpt-5"))?.source).toBe("api");
+      expect(list.find((m) => m.id === `${OPENCODE_PREFIX}openai/gpt-5`)).toBeUndefined();
+      // Providers without a key in Mali stay on OpenCode.
+      expect(list.find((m) => m.id === `${OPENCODE_PREFIX}anthropic/claude-sonnet-5`)).toBeDefined();
+    });
+  }
+
+  test("that can't call tools are kept out of Cowork, not Chat", () => {
+    const tiny = apiModelId("openai", "gpt-tiny");
+    expect(buildModelCatalog(catalogue, openai, "cowork").find((m) => m.id === tiny)?.issue).toContain("tools");
+    expect(buildModelCatalog(catalogue, openai, "chat").find((m) => m.id === tiny)?.issue).toBeUndefined();
+  });
+});

@@ -4,6 +4,11 @@ import { findGrant, folderName, grantFolder, normalizeFolder, type FolderGrant }
 type Options = {
   /** Why the folder is needed, shown in the dialog. */
   reason?: string;
+  /**
+   * Access the caller needs. With "write", an earlier read-only answer asks
+   * again instead of being returned as is.
+   */
+  need?: "read" | "write";
 };
 
 const READ_WRITE = "Read & write";
@@ -22,7 +27,7 @@ const pending = new Map<string, Promise<FolderGrant | null>>();
 export function requestFolderAccess(path: string, options: Options = {}): Promise<FolderGrant | null> {
   const folder = normalizeFolder(path);
   const existing = findGrant(folder);
-  if (existing) return Promise.resolve(existing);
+  if (existing && covers(existing, options.need)) return Promise.resolve(existing);
 
   const same = pending.get(folder);
   if (same) return same;
@@ -34,10 +39,14 @@ export function requestFolderAccess(path: string, options: Options = {}): Promis
   return request;
 }
 
-async function ask(folder: string, { reason }: Options): Promise<FolderGrant | null> {
+function covers(grant: FolderGrant, need: Options["need"]) {
+  return need !== "write" || grant.access === "write";
+}
+
+async function ask(folder: string, { reason, need }: Options): Promise<FolderGrant | null> {
   // An earlier answer may already cover this folder.
   const covered = findGrant(folder);
-  if (covered) return covered;
+  if (covered && covers(covered, need)) return covered;
 
   const answer = await message(
     [

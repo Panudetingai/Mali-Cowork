@@ -5,6 +5,7 @@ import { CursorLoginDialog } from "@/features/cursor";
 import { GitBar, GitPanel, GitProvider } from "@/features/git";
 import { ProviderKeyDialog, saveOpencodeSettings, useDefaultCwd } from "@/features/opencode";
 import { FirstRunWizard } from "@/features/onboarding";
+import { SmartSuggestions } from "@/features/smart-start";
 import { getProject, useProjects } from "@/features/projects";
 import { carriedConversation, ChatTasksStrip, enqueueTask, TaskChatNote } from "@/features/tasks";
 import { folderName, normalizeFolder, requestFolderAccess } from "@/features/workspace";
@@ -15,9 +16,12 @@ import { startTransition, useRef, type ReactNode } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ChatComposer } from "./components/chat-composer";
 import { ChatMessagePanel } from "./components/chat-message-panel";
+import { MoveToCoworkDialog } from "./components/cowork-handoff-ui";
+import { requestMoveToCowork } from "./move-to-cowork";
 import { ChatModeNav } from "./components/chat-mode-nav";
 import ChatTitle from "./components/chat-title";
 import { CodeView } from "./components/code-view";
+import { AnimationBotMali } from "./components/animation-bot-mali";
 import { loadViewMode, saveWorkMode, type ViewMode } from "./components/work-mode-toggle";
 
 const VIEW_ORDER: Record<ViewMode, number> = { chat: 0, cowork: 1, code: 2 };
@@ -55,6 +59,7 @@ export default function ChatLayout() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const requested = params.get("mode");
+  const initialOpen = params.get("open") ?? undefined;
   const newChatView: ViewMode =
     requested === "cowork" || requested === "chat" || requested === "code" ? requested : loadViewMode();
   // Code runs the Cowork agent; only the page around it differs.
@@ -80,6 +85,7 @@ export default function ChatLayout() {
     promptInputRef,
     sendMessage,
     retryMessage,
+    editAndResend,
     rateMessage,
     summarizeAndContinue,
     permissions,
@@ -97,12 +103,20 @@ export default function ChatLayout() {
   const reduceMotion = useReducedMotion();
   const viewSlide = useRef(0);
 
-  // A chat keeps its type; switching starts a new chat of the other type.
-  const changeMode = (next: ViewMode) => {
-    if (next === view) return;
+  const openNewChatIn = (next: ViewMode) => {
     viewSlide.current = Math.sign(VIEW_ORDER[next] - VIEW_ORDER[view]);
     saveWorkMode(next);
     startTransition(() => navigate(`/?mode=${next}${projectQuery}`, { replace: !chatId }));
+  };
+  // Switching starts a new chat of the other type — except Chat → Cowork in
+  // a chat that has started: that one can move over with its conversation.
+  const changeMode = (next: ViewMode) => {
+    if (next === view) return;
+    if (session && view === "chat" && next === "cowork" && session.messages.length > 0 && !isLoading) {
+      requestMoveToCowork({ chatId: session.id, fromSwitch: true });
+      return;
+    }
+    openNewChatIn(next);
   };
   const startNewChat = (options?: { cwd?: string }) => {
     if (options?.cwd && mode === "cowork") {
@@ -163,6 +177,7 @@ export default function ChatLayout() {
     <>
       <ProviderKeyDialog />
       <CursorLoginDialog />
+      <MoveToCoworkDialog onNewCoworkChat={() => openNewChatIn("cowork")} />
     </>
   );
 
@@ -181,6 +196,7 @@ export default function ChatLayout() {
             project={project}
             root={coworkFolder}
             withGit={!!gitFolder}
+            initialOpen={initialOpen}
             onModeChange={changeMode}
             onNewChat={startNewChat}
             onPickDefaultFolder={(path) => saveOpencodeSettings({ cwd: path })}
@@ -199,11 +215,11 @@ export default function ChatLayout() {
             <div
               className={cn(
                 "relative mt-5 min-h-0 flex-1",
-                hasMessages ? "flex min-h-0 flex-col overflow-hidden" : "flex items-center justify-center overflow-hidden",
+                hasMessages ? "flex min-h-0 flex-col overflow-hidden" : "flex items-center justify-center",
               )}
             >
               <AnimatePresence initial={false}>
-                {!hasMessages ? (
+                {!hasMessages ? (                  
                   <motion.div
                     key={`empty-${mode}`}
                     initial={{ opacity: 0, y: reduceMotion ? 0 : 8 }}
@@ -212,11 +228,36 @@ export default function ChatLayout() {
                     transition={{ duration: 0.2, ease: viewEase }}
                     className="flex flex-col items-center gap-4"
                   >
-                    <ChatTitle mode={mode} project={project} />
-                    <FirstRunWizard />
+
+                    {/* The bots play around these, never over them. */}
+                    <div data-bot-avoid="children" className="flex flex-col items-center gap-4">
+                      <ChatTitle mode={mode} project={project} />
+                    </div>
+                    <div data-bot-avoid>
+                      <FirstRunWizard />
+                    </div>
+                    <AnimatePresence mode="wait" initial={false}>
+                      <motion.div
+                        key={`empty-suggestions-${mode}`}
+                        initial={{ opacity: 0, y: reduceMotion ? 0 : 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: reduceMotion ? 0 : -6 }}
+                        transition={{ duration: 0.2, ease: viewEase }}
+                        className="w-full min-w-0 shrink-0 self-stretch px-2"
+                        data-bot-avoid="children"
+                      >
+                        <SmartSuggestions
+                          folder={coworkFolder}
+                          mode={mode}
+                          motionKey={`${mode}-${viewShellKey}`}
+                          className="w-full"
+                        />
+                      </motion.div>
+                    </AnimatePresence>
                   </motion.div>
                 ) : null}
               </AnimatePresence>
+              {!hasMessages && <AnimationBotMali key={`bots-${mode}`} />}
 
               {/* Always mounted so scroll/follow keeps a container ref when the first reply arrives. */}
               <ChatMessagePanel
@@ -229,6 +270,7 @@ export default function ChatLayout() {
                 project={project}
                 continuedFrom={session?.continuedFrom}
                 onRetry={(id) => void retryMessage(id)}
+                  onEdit={(id, text) => void editAndResend(id, text)}
                 onRate={rateMessage}
                 className={cn(
                   hasMessages ? "min-h-0 flex-1" : "pointer-events-none absolute inset-0 overflow-hidden opacity-0",
