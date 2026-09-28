@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod app_cache;
 pub mod arena;
 pub mod attachments;
 pub mod bin_cache;

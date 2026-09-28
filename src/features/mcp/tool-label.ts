@@ -1,4 +1,4 @@
-import { catalogServer } from "./catalog";
+import { catalogServer, MCP_SERVERS } from "./catalog";
 import { CUSTOM_PREFIX, getCustomMcps, type CustomMcp } from "./custom";
 import type { McpDef } from "./catalog";
 
@@ -52,4 +52,36 @@ export function mcpToolOf(title: string): McpToolRef | undefined {
     custom,
     def,
   };
+}
+
+const squash = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/**
+ * The connector behind something an agent made: by its server id when the
+ * agent named it (`custom-canva`), or by the app's name (`canva`, `Google
+ * Slides`) against the connectors the user has. Undefined when none matches.
+ */
+export function connectorFor(source: string | undefined, serverId?: string): McpToolRef | undefined {
+  const ref = (id: string): McpToolRef | undefined => {
+    const custom = getCustomMcps().find((server) => server.id === id);
+    const def = catalogServer(id);
+    if (!custom && !def) return undefined;
+    return { serverId: id, serverName: custom?.name ?? def?.name ?? slugOf(id), tool: "", custom, def };
+  };
+  if (serverId) {
+    const byId = ref(serverId.replace(/^mali_/, ""));
+    if (byId) return byId;
+  }
+  const want = squash(source ?? "");
+  if (!want) return undefined;
+  const hosts = (server: { url?: string; registry?: { name?: string; websiteUrl?: string } }) =>
+    [server.url, server.registry?.name, server.registry?.websiteUrl].filter(Boolean).join(" ").toLowerCase();
+  // A user-installed connector first: it's the one the agent actually called.
+  const custom = getCustomMcps().find(
+    (server) =>
+      squash(slugOf(server.id)) === want || squash(server.name) === want || squash(hosts(server)).includes(want),
+  );
+  if (custom) return ref(custom.id);
+  const def = MCP_SERVERS.find((server) => squash(server.id) === want || squash(server.name) === want);
+  return def ? ref(def.id) : undefined;
 }

@@ -8,6 +8,7 @@ import {
     FilePenIcon,
     FilePlusIcon,
     FolderOpenIcon,
+    GitCompareArrowsIcon,
     LoaderIcon,
     Redo2Icon,
     TriangleAlertIcon,
@@ -15,7 +16,8 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { openCheckpointFile, restoreCheckpoint } from "./api";
-import { FilePreviewDialog, revealLabel } from "./file-preview-dialog";
+import { ChangesPanel } from "./changes-panel";
+import { revealLabel } from "./file-preview-dialog";
 import type { FileChange, FileChangeKind, TurnFiles } from "./types";
 
 const MAX_VISIBLE = 8;
@@ -39,7 +41,8 @@ export function FilesChanged({ chatId, messageId, turn }: Props) {
   const [busy, setBusy] = useState(false);
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [note, setNote] = useState<string>();
-  const [selected, setSelected] = useState<FileChange>();
+  /** The file the review panel opens on; `null` while it's closed. */
+  const [reviewing, setReviewing] = useState<string | null>(null);
 
   const undone = turn.state === "undone";
   const visible = expanded ? turn.changes : turn.changes.slice(0, MAX_VISIBLE);
@@ -76,8 +79,9 @@ export function FilesChanged({ chatId, messageId, turn }: Props) {
     turn.changes.find((c) => c.path === path)?.relative ?? path.split(/[\\/]/).pop() ?? path;
 
   return (
-    <div className="mt-3 overflow-hidden rounded-2xl border border-border/70 bg-muted/30">
-      <div className="flex items-center gap-2 px-3.5 py-2">
+    <div className="mt-3 overflow-hidden rounded-xl border border-border/70 bg-card">
+      <div className="flex items-center gap-2 border-b border-border/60 bg-muted/30 px-3 py-1.5">
+        <GitCompareArrowsIcon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="text-xs font-medium">
           {turn.changes.length} {turn.changes.length === 1 ? "file" : "files"} changed
         </span>
@@ -95,6 +99,16 @@ export function FilesChanged({ chatId, messageId, turn }: Props) {
           variant="ghost"
           size="sm"
           className="ml-auto h-7 gap-1.5 text-xs"
+          onClick={() => setReviewing(turn.changes[0]?.path ?? "")}
+        >
+          <GitCompareArrowsIcon className="size-3.5" />
+          Review changes
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 text-xs"
           disabled={busy || running}
           title={running ? "Wait for the agent to finish" : undefined}
           onClick={() => void restore()}
@@ -134,13 +148,13 @@ export function FilesChanged({ chatId, messageId, turn }: Props) {
         </div>
       )}
 
-      <ul className="flex flex-col px-1.5 pb-1.5">
+      <ul className="flex flex-col p-1.5">
         {visible.map((change) => (
           <FileRow
             key={change.path}
             change={change}
             dimmed={undone}
-            onSelect={() => setSelected(change)}
+            onSelect={() => setReviewing(change.path)}
             onOpen={(reveal) =>
               openCheckpointFile(turn.checkpointId, change.path, reveal).catch((e) => setNote(String(e)))
             }
@@ -172,11 +186,7 @@ export function FilesChanged({ chatId, messageId, turn }: Props) {
         </div>
       )}
 
-      <FilePreviewDialog
-        checkpointId={turn.checkpointId}
-        change={selected}
-        onOpenChange={(open) => !open && setSelected(undefined)}
-      />
+      <ChangesPanel turn={turn} focus={reviewing} onClose={() => setReviewing(null)} />
     </div>
   );
 }
@@ -198,7 +208,7 @@ function FileRow({
   const name = parts.pop();
   const dir = parts.join("/");
   return (
-    <li className="group/file flex items-center rounded-lg hover:bg-background/80">
+    <li className="group/file flex items-center rounded-lg hover:bg-muted/60">
       <button
         type="button"
         onClick={onSelect}

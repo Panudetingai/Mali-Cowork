@@ -24,7 +24,7 @@ import {
 import { McpToolIcon, mcpToolOf } from "@/features/mcp";
 import { useState } from "react";
 import type { ActivityItem } from "../../types";
-import { StepDetail } from "./step-detail";
+import { DiffCards, isFileEdit, StepDetail } from "./step-detail";
 
 /** A reply cut at its steps: text, the steps run there, more text, … */
 export type ReplySegment =
@@ -162,6 +162,17 @@ function StepRow({ step, running }: { step: ActivityItem; running: boolean }) {
   );
 
   const row = "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-xs";
+  // A file edit shows its diff right away: the change is the point of the step.
+  if (!failed && isFileEdit(verb, detail)) {
+    return (
+      <div>
+        <div className={row} title={title}>
+          {label}
+        </div>
+        <DiffCards detail={detail!} className="mt-0.5 mb-2 ml-8" />
+      </div>
+    );
+  }
   if (!detail) {
     return (
       <div className={row} title={title}>
@@ -219,6 +230,9 @@ export function AgentSteps({ steps, runningIndex }: { steps: ActivityItem[]; run
 
   const open = toggled ?? (running || steps.length <= FOLD_AFTER);
   const { kinds, failed, totalMs } = summarize(steps);
+  const edits = steps.filter(
+    (step) => !isFailed(step) && isFileEdit(labelOf(step.title).verb, step.detail?.trim()),
+  );
 
   return (
     <Collapsible
@@ -256,6 +270,14 @@ export function AgentSteps({ steps, runningIndex }: { steps: ActivityItem[]; run
       <CollapsibleContent>
         <div className="flex flex-col border-t px-1 py-1">{rows}</div>
       </CollapsibleContent>
+      {/* Folded, the steps hide, but what they changed stays in view. */}
+      {!open && edits.length > 0 && (
+        <div className="flex flex-col gap-2 pb-2">
+          {edits.map((step, i) => (
+            <DiffCards key={step.id ?? i} detail={step.detail!} />
+          ))}
+        </div>
+      )}
     </Collapsible>
   );
 }

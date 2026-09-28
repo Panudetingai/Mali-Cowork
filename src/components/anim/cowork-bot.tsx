@@ -12,7 +12,7 @@ import { CheckIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useRef } from "react";
 
-const EMBED_VERSION = "7";
+const EMBED_VERSION = "9";
 
 /**
  * The selected cowork bot, rendered from public/anim/cowork-bots.html
@@ -88,7 +88,7 @@ export function CoworkBotPicker({ onPicked }: { onPicked?: () => void }) {
   return (
     <div className="flex flex-col gap-1">
       <p className="px-1 text-xs font-medium text-muted-foreground">เลือกน้อง bot</p>
-      <div className="grid grid-cols-3 gap-1">
+      <div className="grid grid-cols-4 gap-1">
         {BOTS.map((b) => {
           const active = b.id === bot;
           return (

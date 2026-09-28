@@ -39,6 +39,11 @@ export type ChatSession = {
   /** For a background task: the chat it was started from. */
   taskFrom?: { id: string; title: string };
   /**
+   * A throwaway chat (the skill editor): never saved, left out of the
+   * sidebar, and removed once you leave it.
+   */
+  ephemeral?: boolean;
+  /**
    * This chat began in Chat mode and moved to Cowork; the conversation came
    * along. The thread shows a divider after `afterMessageId`.
    */
@@ -56,7 +61,7 @@ export type ChatSession = {
   };
 };
 
-type NewChat = Pick<ChatSession, "mode" | "view" | "cwd" | "continuedFrom" | "projectId" | "taskFrom" | "inboxTask"> & {
+type NewChat = Pick<ChatSession, "mode" | "view" | "cwd" | "continuedFrom" | "projectId" | "taskFrom" | "inboxTask" | "ephemeral"> & {
   /** Chosen by the caller when another window already refers to the chat (Quick bar). */
   id?: string;
 };
@@ -82,7 +87,7 @@ const LEGACY_KEY = "mali_chat_sessions";
 // Held in memory; saved to SQLite (see `loadChatHistory`).
 const sessionStore = createStore<ChatSession[]>([]);
 const runStore = createStore<Record<string, ChatRun>>({});
-const database = syncToDatabase(sessionStore, "chats");
+const database = syncToDatabase(sessionStore, "chats", { skip: (chat) => !!chat.ephemeral });
 
 /**
  * Load the history from SQLite before the app renders. The first time, chats
@@ -109,7 +114,7 @@ export async function loadChatHistory() {
       timer ??= setTimeout(() => {
         timer = undefined;
         try {
-          localStorage.setItem(LEGACY_KEY, JSON.stringify(sessionStore.get()));
+          localStorage.setItem(LEGACY_KEY, JSON.stringify(sessionStore.get().filter((s) => !s.ephemeral)));
         } catch {
           // Storage full; the chats still live for this session.
         }
@@ -137,6 +142,9 @@ export const useChatRuns = runStore.use;
 /** Every active run by chat id; for code outside React (the Task Inbox queue). */
 export const getRuns = runStore.get;
 export const subscribeToRuns = runStore.subscribe;
+
+/** Every chat's id, including tasks and throwaway chats. */
+export const getChatIds = () => sessionStore.get().map((s) => s.id);
 
 export function getChat(id: string) {
   return sessionStore.get().find((s) => s.id === id);
@@ -251,6 +259,22 @@ export function deleteChat(id: string) {
       console.warn("[chat-history] could not delete OpenCode session", error),
     ),
   );
+}
+
+/** Remove throwaway chats other than `keep`; one still running stays until it's done. */
+export function discardEphemeralChats(keep?: string) {
+  const runs = runStore.get();
+  for (const s of sessionStore.get()) {
+    if (s.ephemeral && s.id !== keep && !runs[s.id]) deleteChat(s.id);
+  }
+}
+
+/** Write pending history changes now (before a relaunch). */
+export const flushChatHistory = () => database.flush();
+
+/** Shown in chat lists (sidebar, search): not background tasks or throwaway chats. */
+export function isListedChat(s: ChatSession) {
+  return !s.inboxTask && !s.taskFrom && !s.ephemeral;
 }
 
 /** Remove many chats at once. */

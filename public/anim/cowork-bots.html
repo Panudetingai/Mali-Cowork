@@ -128,7 +128,7 @@
 
 <div class="page">
   <h1>Cowork AI bots</h1>
-  <p class="lede">หกน้องบอทสีเหลือง เขียว ม่วง ดำ ฟ้า ชมพู ที่เปลี่ยนท่าทางตามงานของ agent ตอนคิดและตอนทำงานจะสลับระหว่างร่างสามจุดกับหน้าปกติไปเรื่อย ๆ ตอนทำงานน้องจะดีใจ เด้งดุ๊กดิ๊ก มีสายรุ้งหมุนรอบตัว แล้วหดหายก่อนแยกร่าง เพิ่มท่าใหม่อีกสี่แบบ แจ้งเตือนจะกลายเป็นสีแดงกระพริบ ทักทายจะแปลงร่างเป็นมือโบกไปมา ใช้เครื่องมือจะพ่นเครื่องมือและละอองสีสุ่มออกมา รอเชื่อมต่อจะซีดลงและมองหาสัญญาณ ส่วนรออนุญาตจะเอียงคอถามพร้อมกล่องข้อความรูปแม่กุญแจ</p>
+  <p class="lede">แปดน้องบอทสีเหลือง เขียว ม่วง ดำ ฟ้า ชมพู ส้ม แดง ที่เปลี่ยนท่าทางตามงานของ agent ตอนคิดและตอนทำงานจะสลับระหว่างร่างสามจุดกับหน้าปกติไปเรื่อย ๆ ตอนทำงานน้องจะดีใจ เด้งดุ๊กดิ๊ก มีสายรุ้งหมุนรอบตัว แล้วหดหายก่อนแยกร่าง เพิ่มท่าใหม่อีกสี่แบบ แจ้งเตือนจะกลายเป็นสีแดงกระพริบ ทักทายจะแปลงร่างเป็นมือโบกไปมา ใช้เครื่องมือจะพ่นเครื่องมือและละอองสีสุ่มออกมา รอเชื่อมต่อจะซีดลงและมองหาสัญญาณ ส่วนรออนุญาตจะเอียงคอถามพร้อมกล่องข้อความรูปแม่กุญแจ</p>
 
   <div class="bar">
     <div class="seg" role="group" aria-label="สถานะของบอททุกตัว" id="allSeg">
@@ -149,7 +149,7 @@
 
   <section class="howto">
     <h2>นำไปใส่ในแอป</h2>
-    <p>ใช้ไฟล์นี้เป็น iframe แบบพื้นหลังโปร่งใส เลือกตัวด้วย <code>?embed=mochi</code>, <code>jelly</code>, <code>petal</code>, <code>nori</code>, <code>sora</code> หรือ <code>momo</code> แล้วส่งสถานะจาก agent เข้าไปด้วย postMessage</p>
+    <p>ใช้ไฟล์นี้เป็น iframe แบบพื้นหลังโปร่งใส เลือกตัวด้วย <code>?embed=mochi</code>, <code>jelly</code>, <code>petal</code>, <code>nori</code>, <code>sora</code>, <code>momo</code>, <code>mikan</code> หรือ <code>ichigo</code> แล้วส่งสถานะจาก agent เข้าไปด้วย postMessage</p>
 <pre><code>&lt;iframe id="bot" src="agent-streaming-bots.html?embed=jelly&amp;state=idle"
         style="border:0;width:160px;height:160px;background:transparent"&gt;&lt;/iframe&gt;
 
@@ -206,7 +206,7 @@ document.getElementById("bot").contentWindow
   function arcUp(r){ var k = (r*0.7071).toFixed(2); return "M-" + k + " -" + k + "A" + r + " " + r + " 0 0 1 " + k + " -" + k; }
 
   // rainbow ring colors: yellow → green → purple → black
-  var RING_COLORS = ["#f5c518","#34c77b","#3aa3f5","#8b5cf6","#f7609f","#2a2a33"];
+  var RING_COLORS = ["#f5c518","#ff9a2e","#f0443a","#f7609f","#8b5cf6","#3aa3f5","#34c77b","#2a2a33"];
   var RING_N = 44, RING_R = 108, RING_SWEEP = 0.8;
 
   // ---------- the four bots ----------
@@ -224,7 +224,8 @@ document.getElementById("bot").contentWindow
       morph: {4:0.13, 7:0.05},
       eyes: { L:{x:-29.79, y:14.6, m:[0.93,-0.14,0.23,0.68]}, R:{x:20.29, y:2.49, m:[0.94,-0.16,0.23,0.68]} },
       blush: false,
-      layout: "line", work: "wave", squash: 0.015
+      layout: "line", work: "wave", squash: 0.015,
+      ears: "tuft", mouth: "smile"
     },
     jelly: {
       name: "Jelly",
@@ -238,7 +239,8 @@ document.getElementById("bot").contentWindow
       morph: {3:0.13, 6:0.05},
       eyes: { L:{x:-25, y:6, m:[0.95,0,0,0.74]}, R:{x:25, y:6, m:[0.95,0,0,0.74]} },
       blush: true,
-      layout: "line", work: "hop", squash: 0.04
+      layout: "line", work: "hop", squash: 0.04,
+      ears: "leaf", mouth: "smile"
     },
     petal: {
       name: "Petal",
@@ -252,7 +254,8 @@ document.getElementById("bot").contentWindow
       morph: {6:0.11, 2:0.06},
       eyes: { L:{x:-23, y:9, m:[0.9,0.1,-0.08,0.7]}, R:{x:23, y:9, m:[0.9,-0.1,0.08,0.7]} },
       blush: true,
-      layout: "tri", work: "orbit", squash: 0.02
+      layout: "tri", work: "orbit", squash: 0.02,
+      ears: "bunny", mouth: "smile"
     },
     nori: {
       name: "Nori",
@@ -267,7 +270,8 @@ document.getElementById("bot").contentWindow
       eyes: { L:{x:-22, y:4, m:[1,0,0,0.8]}, R:{x:22, y:4, m:[1,0,0,0.8]} },
       eyeInk: "#ffffff",
       blush: true,
-      layout: "line", work: "snake", squash: 0.025
+      layout: "line", work: "snake", squash: 0.025,
+      ears: "cat", mouth: "cat"
     },
     sora: {
       name: "Sora",
@@ -281,7 +285,8 @@ document.getElementById("bot").contentWindow
       morph: {5:0.12, 2:0.05},
       eyes: { L:{x:-24, y:4, m:[0.9,0,0,0.78]}, R:{x:24, y:4, m:[0.9,0,0,0.78]} },
       blush: false,
-      layout: "line", work: "hop", squash: 0.03
+      layout: "line", work: "hop", squash: 0.03,
+      ears: "bear", mouth: "smile"
     },
     momo: {
       name: "Momo",
@@ -295,9 +300,64 @@ document.getElementById("bot").contentWindow
       morph: {4:0.12, 7:0.04},
       eyes: { L:{x:-22, y:8, m:[0.85,0.08,-0.05,0.72]}, R:{x:22, y:8, m:[0.85,-0.08,0.05,0.72]} },
       blush: true,
-      layout: "tri", work: "orbit", squash: 0.03
+      layout: "tri", work: "orbit", squash: 0.03,
+      ears: "cat", mouth: "cat"
+    },
+    mikan: {
+      name: "Mikan",
+      palettes: [
+        ["#ffe0bd","#ffa447","#ff8210","#b24a00"],
+        ["#ffd9b0","#ff9a36","#f57300","#a34200"],
+        ["#ffe6c7","#ffb05c","#ff8c21","#bd5500"]
+      ],
+      aspect: [1.04, 0.98],
+      base:  {2:0.03, 4:0.02},
+      morph: {3:0.12, 5:0.05},
+      eyes: { L:{x:-24, y:6, m:[0.92,0.05,-0.04,0.74]}, R:{x:24, y:6, m:[0.92,-0.05,0.04,0.74]} },
+      blush: true,
+      layout: "line", work: "wave", squash: 0.03,
+      ears: "fox", mouth: "cat"
+    },
+    ichigo: {
+      name: "Ichigo",
+      palettes: [
+        ["#ffe4e1","#ff8a80","#f0443a","#a3160f"],
+        ["#ffdcd6","#ff7066","#e53228","#8f1009"],
+        ["#ffe9e6","#ff9d94","#f5584f","#b02019"]
+      ],
+      aspect: [1.03, 0.99],
+      base:  {3:0.03, 5:0.02},
+      morph: {4:0.12, 2:0.05},
+      eyes: { L:{x:-23, y:6, m:[0.95,0,0,0.76]}, R:{x:23, y:6, m:[0.95,0,0,0.76]} },
+      blush: false,
+      layout: "tri", work: "orbit", squash: 0.025,
+      ears: "panda", mouth: "smile"
     }
   };
+
+  // ---------- little-animal parts ----------
+  // Each shape is drawn with its base at (0,0), pointing up; `inner` is the
+  // pink inside of an ear. `at` is the angle from the top of the head where
+  // it sits (a pair mirrors it); `single` sits alone on top.
+  var EARS = {
+    cat:   { d:"M-15 8Q-13 -12 -4 -29Q0 -35 4 -29Q13 -12 15 8Z",
+             inner:"M-8 2Q-7 -9 -2 -19Q0 -22 2 -19Q7 -9 8 2Z", at:0.62 },
+    bunny: { d:"M-10 8C-15 -18 -11 -50 0 -53C11 -50 15 -18 10 8Z",
+             inner:"M-4.5 0C-7.5 -16 -5.5 -40 0 -42C5.5 -40 7.5 -16 4.5 0Z", at:0.42, flop:true },
+    bear:  { d:"M-16 -8A16 16 0 1 1 16 -8A16 16 0 1 1 -16 -8Z",
+             inner:"M-8 -11A8 8 0 1 1 8 -11A8 8 0 1 1 -8 -11Z", at:0.66 },
+    fox:   { d:"M-17 8Q-15 -17 -4 -40Q0 -45 4 -40Q15 -17 17 8Z",
+             inner:"M-9 2Q-8 -12 -2 -27Q0 -30 2 -27Q8 -12 9 2Z", innerFill:"#fff3e4", at:0.58 },
+    panda: { d:"M-17 8Q-19 -14 -6 -25Q0 -28 6 -25Q19 -14 17 8Z",
+             inner:"M-10 3Q-11 -10 -3 -17Q0 -19 3 -17Q11 -10 10 3Z", innerFill:"#ffffff", at:0.66 },
+    leaf:  { d:"M-2.5 8L-2 -12C-14 -14 -24 -26 -19 -40C-5 -40 3 -28 2 -13L2.5 8Z", at:0.08, single:true },
+    tuft:  { d:"M-5 8Q-13 -10 -4 -22Q-3 -10 1 -5Q2 -18 11 -24Q9 -8 5 8Z", at:0.05, single:true }
+  };
+  var MOUTHS = {
+    smile: "M-5.5 0Q0 5 5.5 0",
+    cat:   "M-7 -0.5Q-3.5 4.5 0 -0.5Q3.5 4.5 7 -0.5"
+  };
+  var MOUTH_OPEN = "M-8 -1.5Q0 13 8 -1.5Q0 1.5 -8 -1.5Z";
 
   // ---------- helpers ----------
   function hex(h){ h=h.replace("#",""); return [parseInt(h.substr(0,2),16),parseInt(h.substr(2,2),16),parseInt(h.substr(4,2),16)]; }
@@ -351,6 +411,7 @@ document.getElementById("bot").contentWindow
     for (var k=0; k<8; k++){ base[k]=P.base[k]||0; mo[k]=P.morph[k]||0; amps[k]=base[k]; ph[k]=Math.random()*TAU; }
 
     var INK = P.eyeInk || "#000";
+    var EAR = EARS[P.ears] || EARS.cat;
     function eyeMarkup(e, cls){
       return '<g class="'+cls+'"><path d="'+PILL+'" fill="'+INK+'" transform="matrix('+e.m.join(",")+',0,0)"/></g>';
     }
@@ -381,11 +442,18 @@ document.getElementById("bot").contentWindow
         '<g'+gooAttr+'>' +
           '<ellipse class="d0"/><ellipse class="d1"/><ellipse class="d2"/>' +
           FINGERS.map(function(_, i){ return '<ellipse class="f'+i+'" fill="url(#fill'+id+')"/>'; }).join("") +
+          '<path class="earL" d="'+EAR.d+'" fill="url(#fill'+id+')"/>' +
+          (EAR.single ? '' : '<path class="earR" d="'+EAR.d+'" fill="url(#fill'+id+')"/>') +
+          '<ellipse class="footL" rx="13" ry="8.5"/><ellipse class="footR" rx="13" ry="8.5"/>' +
           '<path class="body" fill="url(#fill'+id+')"/>' +
         '</g>' +
+        (EAR.inner ? '<path class="inL" d="'+EAR.inner+'" fill="'+(EAR.innerFill || "#ff9ec0")+'" opacity=".85"/><path class="inR" d="'+EAR.inner+'" fill="'+(EAR.innerFill || "#ff9ec0")+'" opacity=".85"/>' : '') +
         (P.blush ? '<ellipse class="bL" rx="9" ry="5" fill="#ff8fab"/><ellipse class="bR" rx="9" ry="5" fill="#ff8fab"/>' : '') +
       '</g>' +
-      '<g class="eyeFront">' + eyeMarkup(P.eyes.L, "eL") + eyeMarkup(P.eyes.R, "eR") + '</g>' +
+      '<g class="eyeFront">' + eyeMarkup(P.eyes.L, "eL") + eyeMarkup(P.eyes.R, "eR") +
+        '<path class="mouth" d="'+MOUTHS[P.mouth || "smile"]+'" fill="none" stroke="'+INK+'" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<path class="mouthOpen" d="'+MOUTH_OPEN+'" fill="'+INK+'" opacity="0"/>' +
+      '</g>' +
       '<g class="waves" fill="none" stroke="var(--muted)" stroke-width="4" stroke-linecap="round" opacity="0">' +
         '<path d="M80 -74Q89 -62 80 -50"/><path d="M92 -84Q106 -62 92 -40"/>' +
         '<path d="M-80 -74Q-89 -62 -80 -50"/><path d="M-92 -84Q-106 -62 -92 -40"/>' +
@@ -416,6 +484,9 @@ document.getElementById("bot").contentWindow
     var badge = q(".badge"), fx = q(".fx");
     var perm = q(".perm"), shackle = q(".shackle"), permDots = [q(".pd0"), q(".pd1"), q(".pd2")];
     var fingers = FINGERS.map(function(_, i){ return q(".f"+i); });
+    var earL = q(".earL"), earR = q(".earR"), inL = q(".inL"), inR = q(".inR");
+    var footL = q(".footL"), footR = q(".footR"), eyeFront = q(".eyeFront");
+    var mouth = q(".mouth"), mouthOpen = q(".mouthOpen");
     var aDeep = ALERT_DEEP.map(hex), aBright = ALERT_BRIGHT.map(hex);
     var parts = [], pool = [], toolClock = 0, puff = 0, connA = 0;
     var ringSegs = [];
@@ -447,8 +518,15 @@ document.getElementById("bot").contentWindow
     var connOn = Spring(0,   0.05, 0.85);
     var permOn = Spring(0,   0.09, 0.72);
     var headTilt = Spring(0, 0.06, 0.80);
+    // little-animal life: walking about, ear twitches, stretches
+    var walkX   = Spring(0, 0.035, 0.86);
+    var walkOn  = Spring(0, 0.08, 0.80);
+    var stretch = Spring(0, 0.07, 0.78);
+    var twL     = Spring(0, 0.25, 0.60);
+    var twR     = Spring(0, 0.25, 0.60);
+    var wiggleAt = -10, stepP = 0;
     var springs = [bodyS, spread, dotS, eyeOpen, happy, squint, lookX, lookY, morph, work, hopY, dance, ringOn,
-                   alertOn, handOn, waveOn, toolOn, connOn, permOn, headTilt];
+                   alertOn, handOn, waveOn, toolOn, connOn, permOn, headTilt, walkX, walkOn, stretch, twL, twR];
 
     var t = Math.random()*10, colorP = Math.random()*pals.length, colorRate = 0.05;
     var orbitA = 0, ringA = Math.random()*TAU, blinkY = 1, blinkOK = true, ambient = true;
@@ -601,6 +679,50 @@ document.getElementById("bot").contentWindow
       }
     }
 
+    // little-animal habits while waiting: toddle about, hop, wiggle,
+    // twitch an ear, stretch, sniff. One at a time, every few seconds.
+    function calm(){ return state === "idle" && ambient && form === "face" && !REDUCED; }
+    var HABITS = {
+      toddle: function(){
+        var to = (walkX.t > 0 ? -1 : 1) * (6 + Math.random()*8);
+        walkOn.t = 1; walkX.t = to; lookX.t = to > 0 ? 5 : -5;
+        setTimeout(function(){ walkOn.t = 0; if (calm()) lookX.t = 0; }, 1500 + Math.random()*700);
+      },
+      hop: function(){
+        hopY.t = -13; bodyS.t = 1.05;
+        setTimeout(function(){ hopY.t = 0; bodyS.t = 1; }, 190);
+        setTimeout(function(){ if (calm()) hopY.t = -6; }, 380);
+        setTimeout(function(){ hopY.t = 0; }, 520);
+      },
+      wiggle: function(){ wiggleAt = t; },
+      twitch: function(){
+        var s = Math.random() < 0.5 ? twL : twR; s.vel += 1.6;
+        if (Math.random() < 0.4) setTimeout(function(){ s.vel += 1.2; }, 230);
+      },
+      stretch: function(){
+        stretch.t = 1; squint.t = 0.35;
+        setTimeout(function(){ stretch.t = 0; squint.t = 1; }, 950);
+      },
+      sniff: function(){
+        [0, 170, 340].forEach(function(ms){
+          setTimeout(function(){ bodyS.t = 1.035; lookY.t = 2; }, ms);
+          setTimeout(function(){ bodyS.t = 1; lookY.t = 0; }, ms + 90);
+        });
+      }
+    };
+    var HABIT_ORDER = ["toddle","hop","wiggle","twitch","toddle","stretch","sniff","twitch","hop"];
+    (function habitLoop(){
+      setTimeout(function(){
+        if (calm()){
+          var pick = HABIT_ORDER[Math.floor(Math.random()*HABIT_ORDER.length)];
+          HABITS[pick]();
+        } else if (state !== "idle"){
+          walkX.t = 0; walkOn.t = 0;
+        }
+        habitLoop();
+      }, 2600 + Math.random()*3400);
+    })();
+
     // ambient: blinking + glancing around (only on the plain waiting face)
     function blink(){ blinkY = 0.05; setTimeout(function(){ blinkY = 1; }, 110); }
     (function blinkLoop(){
@@ -663,16 +785,58 @@ document.getElementById("bot").contentWindow
       var bs = Math.max(0, bodyS.v);
       var w = Math.sin(t*2.4) * P.squash * motion;
       puff *= Math.pow(0.85, f);
-      var sx = P.aspect[0]*(1 + w + landSquash + 0.07*puff + 0.03*co), sy = P.aspect[1]*(1 - w - landSquash - 0.07*puff - 0.04*co);
+      var st = Math.max(0, stretch.v);
+      var sx = P.aspect[0]*(1 + w + landSquash + 0.07*puff + 0.03*co - 0.06*st), sy = P.aspect[1]*(1 - w - landSquash - 0.07*puff - 0.04*co + 0.09*st);
       body.setAttribute("d", bs < 0.015 ? "M0 0" : blobPath(84*bs, amps, ph, sx, sy));
 
       // float + hop + dance
       var sp = Math.max(0, spread.v);
       var bob = REDUCED ? 0 : (-3 + 3*Math.cos(TAU*t/4.2)) * (1 - 0.5*clamp01(sp)) * (1 - dn);
-      var y = bob + hopY.v + danceY;
+      // toddling: little steps, a sway, feet taking turns
+      var wo = clamp01(walkOn.v) * motion;
+      stepP += dt * TAU * 3.2 * Math.max(wo, dn);
+      var step = Math.sin(stepP);
+      var y = bob + hopY.v + danceY - 2.5*wo*Math.abs(step);
+      var wx = walkX.v;
+      // a quick happy shake that dies away
+      var wg = t - wiggleAt < 0.9 ? 9*Math.sin((t - wiggleAt)*26)*(1 - (t - wiggleAt)/0.9) : 0;
+      // lean toward where it's looking, like a curious pet
+      var lean = lookX.v*0.7 + 3.5*wo*step + wg;
       var shakeX = REDUCED ? 0 : ao * 3.2 * Math.sin(TAU*t*11) * (flash > 0.5 ? 1 : 0.3);
       var wv = clamp01(waveOn.v), waveAng = REDUCED ? 0 : waveOn.v * 20 * Math.sin(TAU*t/0.72);
-      rig.setAttribute("transform", "translate(" + shakeX.toFixed(2) + "," + y.toFixed(2) + ") rotate(" + (tilt + headTilt.v).toFixed(2) + ") rotate(" + waveAng.toFixed(2) + " 0 70)");
+      var rigT = "translate(" + (shakeX + wx).toFixed(2) + "," + y.toFixed(2) + ") rotate(" + (tilt + headTilt.v + lean).toFixed(2) + " 0 60) rotate(" + waveAng.toFixed(2) + " 0 70)";
+      rig.setAttribute("transform", rigT);
+      // the face rides along with the body now that it walks and hops
+      eyeFront.setAttribute("transform", rigT);
+
+      // ears, feet and mouth: there while it has a face, gone as dots or a hand
+      var R = 84*bs, handAway = 1 - clamp01(handOn.v*1.6);
+      var partsOn = clamp01((bs - 0.35)/0.45) * handAway;
+      function placeEar(el, inner, side, tw){
+        if (!el) return;
+        if (partsOn < 0.02){ el.setAttribute("transform", "scale(0)"); if (inner) inner.setAttribute("transform", "scale(0)"); return; }
+        var a = EAR.single ? EAR.at : side*EAR.at;
+        var bx = Math.sin(a)*R*sx*0.9, by = -Math.cos(a)*R*sy*0.9;
+        var flop = EAR.flop ? side*(6 + 4*Math.sin(t*1.7 + side)) : 0;
+        var rot = a*180/Math.PI*0.75 + flop + tw*18*side + (EAR.single ? 6*Math.sin(t*1.3) : 0);
+        var tf = "translate(" + bx.toFixed(2) + "," + by.toFixed(2) + ") rotate(" + rot.toFixed(2) + ") scale(" + (bs*partsOn).toFixed(3) + ")";
+        el.setAttribute("transform", tf);
+        if (inner) inner.setAttribute("transform", tf);
+      }
+      placeEar(earL, inL, -1, twL.v);
+      placeEar(earR, inR, 1, twR.v);
+      if (inL && EAR.single){ inL.setAttribute("transform", "scale(0)"); inR.setAttribute("transform", "scale(0)"); }
+
+      var footColor = rgb(tint(palAt(pals, colorP, 3), 3));
+      var run = Math.max(wo, dn);
+      [[footL, -1, Math.max(0, step)], [footR, 1, Math.max(0, -step)]].forEach(function(ft){
+        var el = ft[0], lift = 7*run*ft[2];
+        el.setAttribute("cx", (ft[1]*27*bs*sx).toFixed(2));
+        el.setAttribute("cy", (R*sy*0.9 - lift).toFixed(2));
+        el.setAttribute("rx", (13*bs*partsOn).toFixed(2));
+        el.setAttribute("ry", (8.5*bs*partsOn).toFixed(2));
+        el.setAttribute("fill", footColor);
+      });
 
       // permission: speech bubble with a lock, pops out from the tail tip
       var po = Math.max(0, permOn.v);
@@ -827,7 +991,17 @@ document.getElementById("bot").contentWindow
         });
       }
 
+      // mouth: a little smile (or ω), a wide open one when happy
+      var mx = ((P.eyes.L.x + P.eyes.R.x)/2)*es + lx*0.8, my = (Math.max(P.eyes.L.y, P.eyes.R.y) + 19)*es + ly*0.6;
+      var mo2 = partsOn * clamp01(bs);
+      var mt = "translate(" + mx.toFixed(2) + "," + my.toFixed(2) + ") scale(" + es.toFixed(3) + ")";
+      mouth.setAttribute("transform", mt);
+      mouthOpen.setAttribute("transform", mt);
+      mouth.setAttribute("opacity", (mo2*(1 - hp)).toFixed(3));
+      mouthOpen.setAttribute("opacity", (mo2*hp).toFixed(3));
+
       // ground shadow
+      shadow.setAttribute("cx", wx.toFixed(2));
       var srx = (46 + 50*clamp01(sp)) * (1 + y/70);
       shadow.setAttribute("rx", Math.max(10, srx).toFixed(2));
       shadow.setAttribute("opacity", (0.9 + y/60).toFixed(3));

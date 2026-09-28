@@ -529,3 +529,139 @@ export function KeyValueEditor({
     </div>
   );
 }
+
+/**
+ * A titled group of settings rows in one card, like macOS System Settings:
+ * every row reads label on the left, control on the right.
+ */
+export function SettingsGroup({
+  title,
+  description,
+  actions,
+  footer,
+  children,
+  className,
+}: {
+  title?: ReactNode;
+  description?: ReactNode;
+  actions?: ReactNode;
+  /** Small print under the card. */
+  footer?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={cn("flex flex-col gap-2", className)}>
+      {(title || actions) && (
+        <div className="flex items-end justify-between gap-3 px-1">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            {title && <h3 className="text-[13px] font-semibold text-foreground">{title}</h3>}
+            {description && <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>}
+          </div>
+          {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
+        </div>
+      )}
+      <div className="flex flex-col divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70 bg-card">
+        {children}
+      </div>
+      {footer && <p className="px-1 text-xs leading-relaxed text-muted-foreground">{footer}</p>}
+    </section>
+  );
+}
+
+/** One setting: what it is (and why) on the left, its control on the right. */
+export function SettingRow({
+  icon,
+  label,
+  description,
+  control,
+  children,
+  htmlFor,
+  className,
+}: {
+  icon?: ReactNode;
+  label: ReactNode;
+  description?: ReactNode;
+  control?: ReactNode;
+  /** Extra content under the row, full width. */
+  children?: ReactNode;
+  htmlFor?: string;
+  className?: string;
+}) {
+  const Label = htmlFor ? "label" : "div";
+  return (
+    <div className={cn("flex flex-col gap-3 px-4 py-3.5", className)}>
+      <div className="flex min-h-8 flex-col gap-3 sm:flex-row sm:items-center">
+        <Label htmlFor={htmlFor} className="flex min-w-0 flex-1 items-start gap-3">
+          {icon && (
+            <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground [&_svg]:size-4">
+              {icon}
+            </span>
+          )}
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="text-sm font-medium text-foreground">{label}</span>
+            {description && <span className="text-xs leading-relaxed text-muted-foreground">{description}</span>}
+          </span>
+        </Label>
+        {control && <div className="flex shrink-0 items-center gap-2 sm:justify-end">{control}</div>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** A small segmented control (Light | Dark), like the system one. */
+export function Segmented<T extends string>({
+  value,
+  onChange,
+  options,
+  label,
+}: {
+  value: T | undefined;
+  onChange: (value: T) => void;
+  options: { value: T; label: ReactNode; icon?: ReactNode }[];
+  label: string;
+}) {
+  return (
+    <div role="radiogroup" aria-label={label} className="inline-flex rounded-lg bg-muted p-0.5">
+      {options.map((opt) => {
+        const active = opt.value === value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onChange(opt.value)}
+            className={cn(
+              "inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors [&_svg]:size-3.5",
+              active ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {opt.icon}
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Numbered "how it works" steps, so a page says what to do first. */
+export function Steps({ steps }: { steps: { title: ReactNode; description: ReactNode }[] }) {
+  return (
+    <ol className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+      {steps.map((step, i) => (
+        <li key={i} className="flex gap-3 rounded-xl border border-border/70 bg-card p-3.5">
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+            {i + 1}
+          </span>
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="text-sm font-medium">{step.title}</span>
+            <span className="text-xs leading-relaxed text-muted-foreground">{step.description}</span>
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}

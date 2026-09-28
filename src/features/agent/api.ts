@@ -25,6 +25,8 @@ export type AgentRequest = {
   effort?: string;
   /** Changes and commands run without asking (Settings). */
   autoApprove: boolean;
+  /** Run shell commands inside the OS sandbox (Settings → Folders). */
+  sandbox: boolean;
   /** The chat id; `agentAbort` stops it. */
   runId: string;
   /** Connectors that are on, reached through Mali's own MCP hub. */

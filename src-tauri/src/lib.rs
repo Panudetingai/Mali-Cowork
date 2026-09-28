@@ -10,6 +10,7 @@ pub mod panic_log;
 mod sandbox;
 mod templates;
 
+use commands::app_cache::{app_cache_size, app_clear_cache};
 use commands::agent::{agent_abort, agent_answer_question, agent_generate, agent_reply_permission};
 use commands::mcp_hub::{mcp_hub_set_servers, mcp_hub_set_workspace, mcp_hub_sign_in, mcp_hub_sign_out, mcp_hub_sync};
 use commands::mcp_bridge::mcp_release_other_apps;
@@ -286,6 +287,8 @@ pub fn run() {
             provider_check_key,
             ollama_list_models,
             history_load,
+            app_cache_size,
+            app_clear_cache,
             usage_record,
             usage_load,
             usage_provider_account,
@@ -310,6 +313,7 @@ pub fn run() {
             smithery_search_servers,
             smithery_server,
             get_sandbox_status,
+            sandbox::os_sandbox::sandbox_engine,
             get_audit_logs
         ])
         .build(tauri::generate_context!())

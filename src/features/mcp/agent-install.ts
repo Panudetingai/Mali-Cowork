@@ -33,9 +33,19 @@ const SUGGEST_BLOCK = `To suggest a connector, add one block per connector at th
 
 Use \`"name"\` instead of \`"query"\` when you know the exact MCP Registry name (e.g. \`"com.notion/mcp"\`). Use \`{"url": "https://…", "title": "…"}\` only for an official https MCP endpoint the vendor documents that is not in the registry.`;
 
+const GALLERY_BLOCK = `# Showing what you made in another app
+When you create or change something with pages or slides in another app (a Canva design or presentation, Notion pages, Figma frames, a Google Slides deck), show it in the chat: ask the connector for the page thumbnails (for Canva, get the design's pages; for others, the thumbnail or cover of each page), then add one block at the end of your reply. The app hides the block and shows a strip of previews that keeps each page's shape (portrait or landscape):
+
+\`\`\`gallery
+{"source": "canva", "connector": "custom-canva", "title": "Campaign Review", "url": "https://www.canva.com/design/…/edit", "items": [{"image": "https://…/page-1.png", "width": 1920, "height": 1080, "title": "Cover"}]}
+\`\`\`
+
+- \`source\`: the app, lowercase (\`canva\`, \`notion\`, \`figma\`, \`google-slides\`, …). \`connector\`: the id of the connector whose tools you used (the part of the tool name before \`_\`, e.g. \`custom-canva\`), so the app shows its icon. \`url\`: the link that opens it in that app.
+- \`items\`: one per page, in order; \`image\` is the https thumbnail exactly as the tool returned it, with \`width\` and \`height\` when the tool gives them. Never invent an image URL; if no thumbnail is available, leave the block out and just give the link.`;
+
 /** System instructions so the model knows when and how to suggest MCP connectors. */
 export function connectorInstructionsFor(_prompt?: string) {
-  return `${BASE}\n\n${SUGGEST_BLOCK}`;
+  return `${BASE}\n\n${SUGGEST_BLOCK}\n\n${GALLERY_BLOCK}`;
 }
 
 const BLOCK = /```connector[^\S\n]*\n([\s\S]*?)```/g;

@@ -3,7 +3,7 @@ import { EffortPicker } from "@/pages/chat/components/effort-picker";
 import { effortLevels } from "@/features/effort";
 import { useState } from "react";
 import { SectionHeader, SettingsSection } from "@/pages/settings/ui";
-import type { AuthActionBlock, MediaPreviewBlock } from "@/features/chat-blocks";
+import type { AuthActionBlock, GalleryBlock, MediaPreviewBlock } from "@/features/chat-blocks";
 import { Link } from "react-router-dom";
 
 const DEMO_AUTH: AuthActionBlock[] = [
@@ -42,6 +42,46 @@ const DEMO_MEDIA: MediaPreviewBlock[] = [
     url: "https://modelcontextprotocol.io",
     title: "MCP documentation",
     description: "ลิงก์พร้อม hover preview ในแชท",
+  },
+];
+
+const pic = (seed: string, w: number, h: number) => `https://picsum.photos/seed/${seed}/${w}/${h}`;
+
+const DEMO_GALLERIES: GalleryBlock[] = [
+  {
+    source: "canva",
+    title: "HandCraft Campaign Review",
+    url: "https://www.canva.com/",
+    items: [
+      { image: pic("hc-cover", 1280, 720), width: 1920, height: 1080, title: "Cover" },
+      { image: pic("hc-results", 1280, 720), width: 1920, height: 1080, title: "Campaign Results" },
+      { image: pic("hc-chart", 1280, 720), width: 1920, height: 1080, title: "Engagement" },
+      { image: pic("hc-team", 1280, 720), width: 1920, height: 1080, title: "Team" },
+      { image: pic("hc-next", 1280, 720), width: 1920, height: 1080, title: "Next steps" },
+    ],
+  },
+  {
+    source: "canva",
+    title: "Instagram Stories",
+    url: "https://www.canva.com/",
+    items: [
+      { image: pic("story-1", 540, 960), width: 1080, height: 1920 },
+      { image: pic("story-2", 540, 960), width: 1080, height: 1920 },
+      { image: pic("story-3", 540, 960), width: 1080, height: 1920 },
+      { image: pic("story-4", 540, 960), width: 1080, height: 1920 },
+      { image: pic("story-5", 540, 960), width: 1080, height: 1920 },
+      { image: pic("story-6", 540, 960), width: 1080, height: 1920 },
+    ],
+  },
+  {
+    source: "notion",
+    title: "Q3 Planning",
+    url: "https://www.notion.so/",
+    items: [
+      { image: pic("notion-a", 1200, 630), title: "Roadmap" },
+      { image: pic("notion-b", 800, 800), title: "Team goals" },
+      { image: "https://invalid.example/missing.png", title: "Expired preview" },
+    ],
   },
 ];
 
@@ -100,6 +140,11 @@ export default function ChatBlocksPreviewPage() {
       </SettingsSection>
 
       <SettingsSection className="mt-10">
+        <h3 className="text-sm font-medium text-foreground">Galleries (Canva, Notion, …)</h3>
+        <ChatRichBlocks authActions={[]} mediaPreviews={[]} galleries={DEMO_GALLERIES} />
+      </SettingsSection>
+
+      <SettingsSection className="mt-10">
         <h3 className="text-sm font-medium text-foreground">MCP media & links</h3>
         <ChatRichBlocks authActions={[]} mediaPreviews={DEMO_MEDIA} />
       </SettingsSection>
@@ -122,6 +167,10 @@ export default function ChatBlocksPreviewPage() {
 
 \`\`\`preview
 {"kind":"image","url":"https://…","title":"Result","description":"…"}
+\`\`\`
+
+\`\`\`gallery
+{"source":"canva","title":"…","url":"https://www.canva.com/design/…","items":[{"image":"https://…","width":1920,"height":1080}]}
 \`\`\``}</pre>
       </SettingsSection>
     </div>

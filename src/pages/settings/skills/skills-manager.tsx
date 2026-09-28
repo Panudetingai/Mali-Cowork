@@ -7,6 +7,7 @@ import {
 } from "@/components/animate-ui/primitives/radix/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { toast } from "@/components/ui/sonner";
 import {
   copySkillFile,
   exportSkillFile,
@@ -17,7 +18,7 @@ import {
   type SkillCandidate,
   type SkillDraft,
 } from "@/features/instructions";
-import { libraryDir, openSkillEditor, uninstallSkill } from "@/features/skills";
+import { libraryDir, openSkillEditor, SkillsAccessError, uninstallSkill } from "@/features/skills";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useNavigate } from "react-router-dom";
 import { readTextFile } from "@tauri-apps/plugin-fs";
@@ -34,7 +35,6 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { FilterPills } from "../mcp/discover-view";
-import { Notice } from "../ui";
 import { DiscoverSkills } from "./discover-skills";
 import { ImportSkillDialog } from "./import-skill-dialog";
 import { InstallSkillDialog, type InstallChoice } from "./install-skill-dialog";
@@ -69,7 +69,6 @@ export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, e
   const [found, setFound] = useState<SkillCandidate[] | null>(null);
   const [tab, setTab] = useState<Tab>("yours");
   const [query, setQuery] = useState("");
-  const [message, setMessage] = useState<{ tone: "info" | "danger"; text: string } | null>(null);
   const { busy, install } = useSkillInstall(onSave, skills);
 
   const editSkill = (skill: Skill | SkillDraft) =>
@@ -79,11 +78,21 @@ export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, e
     });
 
   const report = async (work: () => Promise<string | null>) => {
+    const retry = () => report(work);
     try {
       const text = await work();
-      if (text) setMessage({ tone: "info", text });
+      if (text) toast.success(text);
     } catch (error) {
-      setMessage({ tone: "danger", text: String(error) });
+      if (error instanceof SkillsAccessError) {
+        toast.error("Cowork can’t write to the skills folder", {
+          description: error.message,
+          action: { label: "Try again", onClick: () => void retry() },
+        });
+        return;
+      }
+      toast.error("Something went wrong", {
+        description: error instanceof Error ? error.message : String(error),
+      });
     }
   };
 
@@ -203,12 +212,6 @@ export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, e
             ["discover", "Discover"],
           ]}
         />
-      )}
-
-      {message && (
-        <Notice tone={message.tone} onDismiss={() => setMessage(null)}>
-          {message.text}
-        </Notice>
       )}
 
       {discover && tab === "discover" ? (

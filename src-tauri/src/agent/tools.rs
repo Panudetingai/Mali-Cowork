@@ -152,6 +152,8 @@ pub struct ToolCtx<'a> {
     pub scope: &'a Scope,
     pub on_event: &'a Channel<ChatStreamEvent>,
     pub auto_approve: bool,
+    /// Run commands inside the OS sandbox (Settings; on by default).
+    pub sandbox: bool,
     pub always: &'a mut BTreeSet<String>,
     pub cancel: &'a mut watch::Receiver<bool>,
 }
@@ -218,11 +220,33 @@ fn approval_key(permission: &str, pattern: &str) -> String {
 }
 
 async fn approve(ctx: &mut ToolCtx<'_>, permission: &str, pattern: String, title: String, detail: Option<String>) -> bool {
-    if ctx.auto_approve {
-        return true;
-    }
+    ask_user(ctx, permission, pattern, title, detail, Gate::Usual).await
+}
+
+/// How much an earlier answer or a setting may skip the prompt.
+#[derive(Clone, Copy, PartialEq)]
+enum Gate {
+    /// Auto-approve and "Always" both apply.
+    Usual,
+    /// A command that runs outside the sandbox: auto-approve doesn't cover
+    /// it, but an explicit "Always" for that program does.
+    NoAuto,
+    /// A risky command: asked every time, and "Always" isn't remembered.
+    Risky,
+}
+
+async fn ask_user(
+    ctx: &mut ToolCtx<'_>,
+    permission: &str,
+    pattern: String,
+    title: String,
+    detail: Option<String>,
+    gate: Gate,
+) -> bool {
     let key = approval_key(permission, &pattern);
-    if ctx.always.contains(&key) {
+    let risky = gate == Gate::Risky;
+    let auto = gate == Gate::Usual && ctx.auto_approve;
+    if !risky && (auto || ctx.always.contains(&key)) {
         return true;
     }
     let directory = ctx.scope.cwd.to_string_lossy().to_string();
@@ -234,7 +258,9 @@ async fn approve(ctx: &mut ToolCtx<'_>, permission: &str, pattern: String, title
     .await;
     match reply {
         Reply::Always => {
-            ctx.always.insert(key);
+            if !risky {
+                ctx.always.insert(key);
+            }
             true
         }
         Reply::Once => true,
@@ -486,19 +512,61 @@ async fn bash(args: &Value, ctx: &mut ToolCtx<'_>) -> Outcome {
     let Some(command) = str_arg(args, "command").map(str::trim).filter(|c| !c.is_empty()) else {
         return Outcome::err("No command given.");
     };
+    use crate::sandbox::command_risk::{classify, Risk};
     if let Some(reason) = crate::sandbox::permission_rejection_reason("bash", None, Some(command)) {
+        crate::sandbox::record_blocked("bash", Some(command), reason);
         return Outcome::err(reason);
     }
+    let risk = classify(command);
+    if let Risk::Blocked(reason) = risk {
+        crate::sandbox::record_blocked("bash", Some(command), reason);
+        return Outcome::err(format!(
+            "Blocked for safety: {reason} This command never runs, whatever the user allows. Don't try it another way; tell the user what you meant to do."
+        ));
+    }
     let title = format!("Run command: {}", str_arg(args, "description").unwrap_or(command));
-    if !approve(ctx, "bash", command.to_string(), title, Some(format!("$ {command}"))).await {
-        return Outcome::err(DENIED);
+
+    // Contained first: whether the sandbox applies decides how much
+    // auto-approve may skip.
+    let mut inner = code::shell_command(command);
+    let mut sandboxed = false;
+    if ctx.sandbox {
+        let std = inner.as_std();
+        let program = std::path::PathBuf::from(std.get_program());
+        let shell_args: Vec<String> = std.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+        let (writable, read_only) = ctx.scope.sandbox_folders();
+        if let Some((wrapper, wrapped)) = crate::sandbox::os_sandbox::wrap(&program, &shell_args, &writable, &read_only) {
+            inner = tokio::process::Command::new(wrapper);
+            inner.args(wrapped);
+            sandboxed = true;
+        }
+    }
+
+    // Looking around the granted folders needs no prompt.
+    let free = risk == Risk::ReadOnly && ctx.scope.command_stays_inside(command);
+    if !free {
+        let (detail, gate) = match risk {
+            Risk::Dangerous(reason) => (format!("⚠ {reason}\n$ {command}"), Gate::Risky),
+            // Nothing contains a command outside the sandbox, so auto-approve
+            // doesn't wave it through: the user sees it.
+            _ if !sandboxed => (format!("$ {command}"), Gate::NoAuto),
+            _ => (format!("$ {command}"), Gate::Usual),
+        };
+        if !ask_user(ctx, "bash", command.to_string(), title, Some(detail), gate).await {
+            return Outcome::err(DENIED);
+        }
     }
     let timeout = args["timeout_seconds"].as_u64().unwrap_or(DEFAULT_TIMEOUT_SECS).clamp(1, MAX_TIMEOUT_SECS);
-
-    let mut inner = code::shell_command(command);
     inner.current_dir(&ctx.scope.cwd).env("CI", "1").env("NO_COLOR", "1").env("TERM", "dumb");
     if let Some(path) = code::run_path() {
         inner.env("PATH", path);
+    }
+    if sandboxed {
+        for (name, _) in std::env::vars_os() {
+            if name.to_str().is_some_and(crate::sandbox::os_sandbox::is_secret_env) {
+                inner.env_remove(name);
+            }
+        }
     }
     let mut cmd = supervisor::command(inner);
     cmd.current_dir(&ctx.scope.cwd).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
@@ -546,6 +614,12 @@ async fn bash(args: &Value, ctx: &mut ToolCtx<'_>) -> Outcome {
         Err(why) => (format!("\n(the command was stopped: {why})"), true),
     };
     let body = if text.is_empty() { "(no output)".to_string() } else { clip(&text, MAX_OUTPUT) };
+    // A write the sandbox refused reads like an ordinary error; say why.
+    let footer = if sandboxed && failed && text.contains("Operation not permitted") {
+        format!("{footer}\n(The sandbox only lets commands write inside the chat's read & write folders. Work there, or ask the user to add the folder.)")
+    } else {
+        footer
+    };
     let content = format!("{body}{footer}");
     Outcome {
         detail: Some(clip(&format!("$ {command}\n{content}"), MAX_DETAIL)),
@@ -626,7 +700,7 @@ mod tests {
         let channel: Channel<ChatStreamEvent> = Channel::new(|_| Ok(()));
         let (_tx, mut cancel) = watch::channel(false);
         let mut always = BTreeSet::new();
-        let mut ctx = ToolCtx { scope: &scope, on_event: &channel, auto_approve: true, always: &mut always, cancel: &mut cancel };
+        let mut ctx = ToolCtx { scope: &scope, on_event: &channel, auto_approve: true, sandbox: false, always: &mut always, cancel: &mut cancel };
         let call = ToolCall {
             id: "t".into(),
             name: "fill_template".into(),
@@ -647,6 +721,48 @@ mod tests {
         // The file reads back as a document, with no fields left over.
         let read = run(&ToolCall { id: "r".into(), name: "read_document".into(), args: json!({ "path": "ใบเสนอราคา-QT-001.docx" }) }, &mut ctx).await;
         assert!(read.content.contains("ลาเต้") && !read.content.contains("Template fields"), "{}", read.content);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Outside the sandbox, auto-approve doesn't cover commands; reading still
+    /// runs, and a wrecking command never does. A stopped run answers any
+    /// prompt with "no", so a command that asked shows up as denied.
+    #[tokio::test]
+    async fn auto_approve_only_covers_commands_the_sandbox_contains() {
+        let dir = std::env::temp_dir().join(format!("mali-gate-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let scope = Scope::new(dir.to_str().unwrap(), &[]).unwrap();
+        let channel: Channel<ChatStreamEvent> = Channel::new(|_| Ok(()));
+        let (_tx, mut cancel) = watch::channel(true);
+        let mut always = BTreeSet::new();
+        let bash = |command: &str| ToolCall { id: "b".into(), name: "bash".into(), args: json!({ "command": command }) };
+
+        let mut ctx = ToolCtx { scope: &scope, on_event: &channel, auto_approve: true, sandbox: false, always: &mut always, cancel: &mut cancel };
+        let out = run(&bash("touch made.txt"), &mut ctx).await;
+        assert_eq!(out.content, DENIED, "unsandboxed work must ask even with auto-approve");
+        assert!(!dir.join("made.txt").exists());
+
+        // Paths only the shell can expand can't be checked, so reading them asks.
+        for command in ["cat $HOME/.zshrc", "cat ~root/.profile", "cat -n</etc/hosts", "ls ~"] {
+            let out = run(&bash(command), &mut ctx).await;
+            assert_eq!(out.content, DENIED, "{command} must ask");
+        }
+
+        let out = run(&bash("bash -c 'rm -rf ~'"), &mut ctx).await;
+        assert!(out.content.starts_with("Blocked for safety"), "{}", out.content);
+
+        // Commands that don't ask run to the end: a live run from here on.
+        let (_live_tx, mut live) = watch::channel(false);
+        let mut ctx = ToolCtx { scope: &scope, on_event: &channel, auto_approve: true, sandbox: false, always: &mut always, cancel: &mut live };
+        let out = run(&bash("ls"), &mut ctx).await;
+        assert!(!out.is_error, "reading needs no prompt: {}", out.content);
+
+        if crate::sandbox::os_sandbox::engine().is_some() {
+            ctx.sandbox = true;
+            let out = run(&bash("touch made.txt"), &mut ctx).await;
+            assert!(!out.is_error, "sandboxed work runs on auto-approve: {}", out.content);
+            assert!(dir.join("made.txt").exists());
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 

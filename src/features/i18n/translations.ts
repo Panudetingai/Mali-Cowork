@@ -94,6 +94,49 @@ export const translations = {
     themeSectionDesc: "Customize the color theme for Mali Cowork.",
     themeLight: "Light",
     themeDark: "Dark",
+    themeLabel: "Theme",
+    storageSectionTitle: "Storage & reset",
+    clearCacheLabel: "Clear cache",
+    clearCacheDesc: "Removes downloaded catalogs and prices; they're fetched again when needed. Your chats and settings stay.",
+    clearCacheButton: "Clear cache",
+    cacheSizeLabel: "{size} in use",
+    cacheCleared: "Cache cleared",
+    cacheClearedDesc: "Freed {size}.",
+    resetSettingsLabel: "Reset settings",
+    resetSettingsDesc: "Puts every setting back to its default and restarts the app. Chats, projects and API keys are kept.",
+    resetSettingsButton: "Reset…",
+    resetSettingsConfirmTitle: "Reset all settings?",
+    resetSettingsConfirmDesc: "Models, MCP servers, the skills list, folder access, theme and language go back to their defaults, and Mali Cowork restarts. Your chats, projects and API keys are kept.",
+    resetEverythingLabel: "Restore to a fresh install",
+    resetEverythingDesc: "Deletes all chats, projects and settings, then restarts as if newly installed.",
+    resetEverythingButton: "Restore…",
+    resetEverythingConfirmTitle: "Delete everything and start over?",
+    resetEverythingConfirmDesc: "Every chat, project and setting is deleted for good, and Mali Cowork restarts. API keys stay in the system keychain, and files on your disk aren't touched. This can't be undone.",
+    resetRunningBlocked: "An agent is still working",
+    resetRunningBlockedDesc: "Stop it or wait for it to finish, then try again.",
+    resetFailed: "Couldn't finish",
+
+    // Empty chat welcome
+    chatEmptyWelcomePrefix: "Welcome to",
+    chatEmptyModeChat: "Chat",
+    chatEmptyModeCowork: "Cowork",
+    chatEmptyTailChat: "what would you like to talk about today?",
+    chatEmptyTailCowork: "what would you like to create today?",
+
+    chatSuggestionHowTitle: "How to use Mali Cowork",
+    chatSuggestionHowDescription:
+      "Learn how to use Mali Cowork to create a new project and start chatting with your AI agent.",
+    chatSuggestionHowPrompt:
+      "How do I get started with Mali Cowork? Walk me through the main features and how to use them.",
+    chatSuggestionProjectTitle: "Use Mali to create a new project",
+    chatSuggestionProjectDescription:
+      "Learn how to use Mali Cowork to create a new project and start chatting with your AI agent.",
+    chatSuggestionProjectPrompt:
+      "Help me create a new project in Mali Cowork. What should I set up first?",
+    chatSuggestionAboutTitle: "Tell me about the project",
+    chatSuggestionAboutDescription: "Tell me about the project and I'll tell you about it.",
+    chatSuggestionAboutPrompt:
+      "What can you help me with in Chat mode? Give me a few example things I can ask.",
   },
   th: {
     // Navigation & Sidebar
@@ -190,6 +233,49 @@ export const translations = {
     themeSectionDesc: "ปรับแต่งโทนสีหน้าต่างของ Mali Cowork",
     themeLight: "สว่าง",
     themeDark: "มืด",
+    themeLabel: "ธีม",
+    storageSectionTitle: "พื้นที่จัดเก็บและการรีเซ็ต",
+    clearCacheLabel: "ล้างแคช",
+    clearCacheDesc: "ลบรายการและข้อมูลราคาที่ดาวน์โหลดไว้ ระบบจะโหลดใหม่เมื่อจำเป็น แชทและการตั้งค่ายังอยู่ครบ",
+    clearCacheButton: "ล้างแคช",
+    cacheSizeLabel: "ใช้พื้นที่ {size}",
+    cacheCleared: "ล้างแคชแล้ว",
+    cacheClearedDesc: "คืนพื้นที่ {size}",
+    resetSettingsLabel: "รีเซ็ตการตั้งค่า",
+    resetSettingsDesc: "คืนค่าการตั้งค่าทั้งหมดเป็นค่าเริ่มต้นแล้วเปิดแอปใหม่ แชท โปรเจกต์ และ API key ยังอยู่",
+    resetSettingsButton: "รีเซ็ต…",
+    resetSettingsConfirmTitle: "รีเซ็ตการตั้งค่าทั้งหมด?",
+    resetSettingsConfirmDesc: "โมเดล, MCP, รายการ Skills, สิทธิ์โฟลเดอร์, ธีม และภาษา จะกลับเป็นค่าเริ่มต้น แล้ว Mali Cowork จะเปิดใหม่ แชท โปรเจกต์ และ API key จะยังอยู่",
+    resetEverythingLabel: "คืนค่าเหมือนติดตั้งใหม่",
+    resetEverythingDesc: "ลบแชท โปรเจกต์ และการตั้งค่าทั้งหมด แล้วเปิดแอปใหม่เหมือนเพิ่งติดตั้ง",
+    resetEverythingButton: "คืนค่า…",
+    resetEverythingConfirmTitle: "ลบทุกอย่างแล้วเริ่มใหม่?",
+    resetEverythingConfirmDesc: "แชท โปรเจกต์ และการตั้งค่าทั้งหมดจะถูกลบถาวร แล้ว Mali Cowork จะเปิดใหม่ API key ยังเก็บอยู่ใน Keychain ของระบบ และไฟล์ในเครื่องจะไม่ถูกแตะต้อง ย้อนกลับไม่ได้",
+    resetRunningBlocked: "Agent ยังทำงานอยู่",
+    resetRunningBlockedDesc: "หยุดหรือรอให้ทำงานเสร็จก่อน แล้วลองอีกครั้ง",
+    resetFailed: "ทำไม่สำเร็จ",
+
+    // Empty chat welcome
+    chatEmptyWelcomePrefix: "ยินดีต้อนรับสู่",
+    chatEmptyModeChat: "แชท",
+    chatEmptyModeCowork: "Cowork",
+    chatEmptyTailChat: "วันนี้อยากคุยเรื่องอะไร?",
+    chatEmptyTailCowork: "วันนี้อยากสร้างอะไร?",
+
+    chatSuggestionHowTitle: "วิธีใช้ Mali Cowork",
+    chatSuggestionHowDescription:
+      "เรียนรู้วิธีใช้ Mali Cowork สร้างโปรเจกต์ใหม่ และเริ่มแชทกับ AI agent ของคุณ",
+    chatSuggestionHowPrompt:
+      "เริ่มต้นใช้ Mali Cowork อย่างไร? อธิบายฟีเจอร์หลักและวิธีใช้งานให้ฟังหน่อย",
+    chatSuggestionProjectTitle: "ใช้ Mali สร้างโปรเจกต์ใหม่",
+    chatSuggestionProjectDescription:
+      "เรียนรู้วิธีใช้ Mali Cowork สร้างโปรเจกต์ใหม่ และเริ่มแชทกับ AI agent ของคุณ",
+    chatSuggestionProjectPrompt:
+      "ช่วยสร้างโปรเจกต์ใหม่ใน Mali Cowork ให้หน่อย ควรตั้งค่าอะไรก่อน?",
+    chatSuggestionAboutTitle: "เล่าให้ฟังเกี่ยวกับโปรเจกต์",
+    chatSuggestionAboutDescription: "เล่าเกี่ยวกับโปรเจกต์มา แล้วฉันจะอธิบายให้ฟัง",
+    chatSuggestionAboutPrompt:
+      "ในโหมดแชทคุณช่วยอะไรได้บ้าง? ยกตัวอย่างสิ่งที่ถามได้สักไม่กี่อย่าง",
   },
 } as const satisfies Record<string, Record<string, string>>;
 

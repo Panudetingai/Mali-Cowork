@@ -80,6 +80,29 @@ impl Scope {
         Ok(Self { cwd, grants })
     }
 
+    /// Folders the chat may write to, and read-only ones nested inside them,
+    /// for the OS sandbox.
+    pub fn sandbox_folders(&self) -> (Vec<PathBuf>, Vec<PathBuf>) {
+        let writable: Vec<PathBuf> = self.grants.iter().filter(|g| g.write).map(|g| g.root.clone()).collect();
+        let read_only = self
+            .grants
+            .iter()
+            .filter(|g| !g.write && writable.iter().any(|w| g.root.starts_with(w)))
+            .map(|g| g.root.clone())
+            .collect();
+        (writable, read_only)
+    }
+
+    /// True when every path-like argument of `command` is in a granted folder.
+    /// A bare word has no separator and lands in the working folder.
+    pub fn command_stays_inside(&self, command: &str) -> bool {
+        // A path only the shell can expand ($HOME, ~alice) can't be checked: not inside.
+        match crate::sandbox::command_risk::named_paths(command) {
+            Some(paths) => paths.iter().all(|p| self.resolve(p, false).is_ok()),
+            None => false,
+        }
+    }
+
     /// The absolute path for what the model wrote, if the chat may use it.
     pub fn resolve(&self, raw: &str, write: bool) -> Result<PathBuf, String> {
         let raw = raw.trim();

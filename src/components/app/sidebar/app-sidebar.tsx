@@ -29,7 +29,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { deleteChats, getRuns, sessionMode, useChatRuns, useChatSessions, type ChatSession } from "@/features/chat-history";
+import { deleteChats, getRuns, isListedChat, sessionMode, useChatRuns, useChatSessions, type ChatSession } from "@/features/chat-history";
 import { useInboxAttention } from "@/features/tasks";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
@@ -227,7 +227,7 @@ export function AppSidebar() {
     const q = query.trim().toLowerCase();
     const sorted = sessions
       // Background tasks live in the Inbox (and on the chat they came from).
-      .filter((s) => !s.inboxTask && !s.taskFrom && matches(s, q))
+      .filter((s) => isListedChat(s) && matches(s, q))
       .sort((a, b) => b.updatedAt - a.updatedAt);
     const unpinned = sorted.filter((s) => !s.pinned);
     return {
@@ -310,11 +310,15 @@ export function AppSidebar() {
             <NavItem title={t("newChat")} url="/?mode=chat" icon={SquarePenIcon} />
             <NavItem title={t("cowork")} url="/?mode=cowork" icon={SparklesIcon} />
             <NavItem title={t("code")} url="/?mode=code" icon={CodeXmlIcon} />
+            <NavItem title={t("visual")} url="/visual" icon={ImagesIcon} />
+          </SidebarMenu>
+          {/* Places to go, apart from the ways to start work above. */}
+          <div className="mx-2 my-1 h-px bg-sidebar-border/70 group-data-[collapsible=icon]:mx-1" aria-hidden />
+          <SidebarMenu className="gap-0.5">
             <NavItemWithSub
-              title={t("workspace")}
+              title={t("more")}
               icon={LayoutGridIcon}
               items={[
-                { title: t("visual"), url: "/visual", icon: ImagesIcon },
                 { title: t("inbox"), url: "/inbox", icon: InboxIcon, badge: inboxAttention },
                 { title: t("outputs"), url: "/outputs", icon: FilesIcon },
                 { title: t("usage"), url: "/usage", icon: ChartColumnIcon },

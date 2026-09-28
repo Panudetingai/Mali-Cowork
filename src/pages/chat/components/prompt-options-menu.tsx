@@ -216,7 +216,7 @@ export function PromptOptionsMenu({
                   <ToggleItem
                     icon={<ShieldCheckIcon className={iconClass} />}
                     label="Auto-approve actions"
-                    hint="Skip permission prompts"
+                    hint="Skip permission prompts. Risky commands still ask, and so does every command on a computer without a sandbox."
                     checked={opencode.autoApprove}
                     onChange={(autoApprove) => opencode.update({ autoApprove })}
                   />

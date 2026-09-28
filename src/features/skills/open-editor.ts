@@ -33,6 +33,14 @@ export async function ensureSkillFolder(
   return { skill: { ...saved, id } as Skill, slug: landed.slug, dir: landed.dir };
 }
 
+/** The user didn't allow writing to the skills folder. */
+export class SkillsAccessError extends Error {
+  constructor() {
+    super("Choose “Read & write” to create and edit skills.");
+    this.name = "SkillsAccessError";
+  }
+}
+
 /**
  * Open a skill in the code editor: create/ensure its folder, grant access,
  * start a code-mode chat rooted in the skills library, and pass the file to
@@ -44,13 +52,14 @@ export async function openSkillEditor(
   onSave: (skill: SkillDraft) => string,
 ): Promise<void> {
   const dir = await libraryDir();
-  const grant = await requestFolderAccess(dir, { reason: "Skills are edited as files in this folder." });
-  if (!grant || grant.access !== "write") {
-    throw new Error("Write access to the skills folder is required to edit skills.");
-  }
+  const grant = await requestFolderAccess(dir, {
+    reason: "Skills are edited as files in this folder.",
+    need: "write",
+  });
+  if (!grant || grant.access !== "write") throw new SkillsAccessError();
 
   const { slug } = await ensureSkillFolder(skill, onSave);
-  const chat = createChat("Skills", { mode: "cowork", view: "code", cwd: normalizeFolder(dir) });
+  const chat = createChat("Skills", { mode: "cowork", view: "code", cwd: normalizeFolder(dir), ephemeral: true });
   const rel = `${slug}/SKILL.md`;
   navigate(`/chat/${chat.id}?mode=code&open=${encodeURIComponent(rel)}`);
 }

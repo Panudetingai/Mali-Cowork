@@ -24,25 +24,30 @@ import {
   type TemplateInfo,
 } from "@/features/templates";
 import { cn } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/app/confirm-dialog";
 import {
-  EmptyState,
-  Field,
-  GroupLabel,
-  IconTile,
-  Notice,
-  SectionHeader,
-  SettingsList,
-  SettingsSection,
-} from "@/pages/settings/ui";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/animate-ui/primitives/radix/dropdown-menu";
+import { toast } from "@/components/ui/sonner";
+import { Field, Notice, SectionHeader, SettingsGroup, Steps } from "@/pages/settings/ui";
+import { menuClass, menuItemClass } from "@/pages/settings/skills/skill-row";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
+  BookOpenIcon,
   CalculatorIcon,
+  ChevronDownIcon,
   DownloadIcon,
   ExternalLinkIcon,
   FilePlusIcon,
   FileTextIcon,
   LoaderIcon,
+  MoreHorizontalIcon,
   PencilIcon,
+  PlusIcon,
   RefreshCwIcon,
   Trash2Icon,
 } from "lucide-react";
@@ -90,31 +95,35 @@ async function saveCopy(template: TemplateInfo) {
 
 type Draft = { path: string; inspection: Inspection; name: string; description: string };
 
+const slashName = (name: string) => name.trim().toLowerCase().replace(/\s+/g, "-");
+
+const fail = (e: unknown) =>
+  toast.error("Something went wrong", { description: e instanceof Error ? e.message : String(e) });
+
 export function TemplatesSettings() {
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
-  const [error, setError] = useState<string>();
   const [draft, setDraft] = useState<Draft>();
   const [editing, setEditing] = useState<TemplateInfo>();
   const [busy, setBusy] = useState<string>();
-  const [confirmDelete, setConfirmDelete] = useState<string>();
+  const [removing, setRemoving] = useState<TemplateInfo>();
 
   const reload = useCallback(async () => {
     try {
       setTemplates(await listTemplates());
     } catch (e) {
-      setError(String(e));
+      fail(e);
     }
   }, []);
   useEffect(() => void reload(), [reload]);
 
-  const run = async (key: string, task: () => Promise<unknown>) => {
+  const run = async (key: string, task: () => Promise<unknown>, done?: string) => {
     setBusy(key);
-    setError(undefined);
     try {
       await task();
       await reload();
+      if (done) toast.success(done);
     } catch (e) {
-      setError(String(e));
+      fail(e);
     } finally {
       setBusy(undefined);
     }
@@ -123,12 +132,11 @@ export function TemplatesSettings() {
   const pick = async () => {
     const path = await open({ multiple: false, title: "Add a Word template", filters: [{ name: "Word document", extensions: ["docx"] }] });
     if (typeof path !== "string") return;
-    setError(undefined);
     try {
       const inspection = await inspectTemplate(path);
       setDraft({ path, inspection, name: inspection.suggestedName, description: "" });
     } catch (e) {
-      setError(String(e));
+      fail(e);
     }
   };
 
@@ -136,161 +144,165 @@ export function TemplatesSettings() {
   const builtin = templates.filter((t) => t.builtin);
 
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-8">
       <SectionHeader
         title="Document templates"
-        description="Word layouts Mali fills in for you in Cowork — your company's quotation, a letter format, a form. Each one gets a / command in the chat box, and keeps its layout exactly."
+        description="Word documents Mali fills in for you in Cowork, such as your quotation, letter or form. The layout stays exactly as you designed it."
         actions={
           <Button onClick={() => void pick()} className="gap-1.5">
-            <FilePlusIcon className="size-4" />
+            <PlusIcon className="size-4" />
             Add template
           </Button>
         }
       />
 
-      {error && <Notice tone="danger">{error}</Notice>}
-
-      <SettingsSection>
-        <GroupLabel>Your templates</GroupLabel>
-        {own.length === 0 ? (
-          <EmptyState
-            icon={<FileTextIcon />}
-            title="No templates of your own yet"
-            description={
+      <Steps
+        steps={[
+          {
+            title: "Mark the blanks in Word",
+            description: (
               <>
-                Open your document in Word, type <code>{"{{customer_name}}"}</code> where each detail goes, and add it here.
-                No time? In a Cowork chat, ask Mali “ทำไฟล์นี้ให้เป็น template” and it marks the fields for you.
+                Type <code className="font-mono">{"{{customer_name}}"}</code> wherever a detail goes.
               </>
-            }
-            action={
-              <Button variant="outline" onClick={() => void pick()} className="gap-1.5">
-                <FilePlusIcon className="size-4" />
-                Add a .docx
-              </Button>
-            }
-          />
+            ),
+          },
+          { title: "Add the .docx here", description: "Mali keeps its own copy, so it works from any folder." },
+          { title: "Use it in a chat", description: "Type / and its name in a Cowork chat, and Mali fills it in." },
+        ]}
+      />
+
+      <SettingsGroup
+        title="Your templates"
+        description={own.length > 0 ? `${own.length} template${own.length === 1 ? "" : "s"}` : undefined}
+      >
+        {own.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
+            <span className="flex size-10 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+              <FileTextIcon className="size-5" />
+            </span>
+            <div className="flex max-w-sm flex-col gap-1">
+              <p className="text-sm font-medium">No templates yet</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Add a .docx to get started. No fields yet? In a Cowork chat, ask Mali “ทำไฟล์นี้ให้เป็น template”
+                and it marks them for you.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => void pick()} className="gap-1.5">
+              <FilePlusIcon className="size-4" />
+              Choose a .docx…
+            </Button>
+          </div>
         ) : (
-          <SettingsList>
-            {own.map((t) => (
-              <li key={t.id} className={cn("flex flex-col gap-3 p-4 sm:flex-row sm:items-start", !t.enabled && "opacity-60")}>
-                <IconTile className="bg-sky-500/10 text-sky-600 dark:text-sky-400">
-                  <FileTextIcon />
-                </IconTile>
-                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{t.name}</span>
-                    <code className="text-[11px] text-muted-foreground">/{t.name.trim().toLowerCase().replace(/\s+/g, "-")}</code>
-                    {t.money && (
-                      <Pill>
-                        <CalculatorIcon className="size-3" />
-                        Computes totals
-                      </Pill>
-                    )}
-                  </div>
-                  {t.description && <p className="text-sm text-muted-foreground">{t.description}</p>}
-                  <Fields fields={t.fields} />
-                </div>
-                <div className="flex shrink-0 flex-wrap items-center gap-1">
-                  <Button size="icon-sm" variant="ghost" title="Rename or describe" onClick={() => setEditing(t)}>
-                    <PencilIcon />
-                  </Button>
-                  <Button size="icon-sm" variant="ghost" title="Open in Word to change its look" onClick={() => void run(`open:${t.id}`, () => openTemplate(t.id))}>
-                    <ExternalLinkIcon />
-                  </Button>
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    title="Read the fields again (after editing it in Word)"
-                    disabled={busy === `reload:${t.id}`}
-                    onClick={() => void run(`reload:${t.id}`, () => reloadTemplate(t.id))}
-                  >
-                    {busy === `reload:${t.id}` ? <LoaderIcon className="animate-spin" /> : <RefreshCwIcon />}
-                  </Button>
-                  <Button size="icon-sm" variant="ghost" title="Save a copy" onClick={() => void run(`copy:${t.id}`, () => saveCopy(t))}>
-                    <DownloadIcon />
-                  </Button>
-                  <Button
-                    size={confirmDelete === t.id ? "sm" : "icon-sm"}
-                    variant={confirmDelete === t.id ? "destructive" : "ghost"}
-                    title="Remove"
-                    onClick={() => {
-                      if (confirmDelete !== t.id) {
-                        setConfirmDelete(t.id);
-                        setTimeout(() => setConfirmDelete((c) => (c === t.id ? undefined : c)), 3000);
-                        return;
-                      }
-                      setConfirmDelete(undefined);
-                      void run(`remove:${t.id}`, () => removeTemplate(t.id));
-                    }}
-                  >
-                    <Trash2Icon />
-                    {confirmDelete === t.id && "Remove?"}
-                  </Button>
+          own.map((t) => (
+            <TemplateRow
+              key={t.id}
+              template={t}
+              busy={!!busy?.endsWith(`:${t.id}`)}
+              control={
+                <>
                   <Switch
-                    className="ml-1"
                     checked={t.enabled}
                     aria-label={`Use ${t.name}`}
                     onCheckedChange={(on) => void run(`toggle:${t.id}`, () => updateTemplate(t.id, { enabled: on }))}
                   />
-                </div>
-              </li>
-            ))}
-          </SettingsList>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="icon-sm" variant="ghost" aria-label={`More for ${t.name}`}>
+                        <MoreHorizontalIcon />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" sideOffset={6} className={menuClass}>
+                      <DropdownMenuItem className={menuItemClass} onSelect={() => setEditing(t)}>
+                        <PencilIcon className="size-4 text-muted-foreground" />
+                        Rename…
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className={menuItemClass}
+                        onSelect={() => void run(`open:${t.id}`, () => openTemplate(t.id))}
+                      >
+                        <ExternalLinkIcon className="size-4 text-muted-foreground" />
+                        Open in Word
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className={menuItemClass}
+                        onSelect={() => void run(`reload:${t.id}`, () => reloadTemplate(t.id), "Fields updated")}
+                      >
+                        <RefreshCwIcon className="size-4 text-muted-foreground" />
+                        Re-read fields
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className={menuItemClass}
+                        onSelect={() => void run(`copy:${t.id}`, () => saveCopy(t))}
+                      >
+                        <DownloadIcon className="size-4 text-muted-foreground" />
+                        Save a copy…
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator className="-mx-1 my-1 h-px bg-border" />
+                      <DropdownMenuItem
+                        className={cn(menuItemClass, "text-destructive data-[highlighted]:text-destructive")}
+                        onSelect={() => setRemoving(t)}
+                      >
+                        <Trash2Icon className="size-4" />
+                        Remove
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </>
+              }
+            />
+          ))
         )}
-        <Notice tone="info">
-          <span className="font-medium">Making a template:</span> type <code>{"{{field_name}}"}</code> for each detail
-          (English letters, digits and _). A table row with <code>{"{{item.description}}"}</code>,{" "}
-          <code>{"{{item.qty}}"}</code>, <code>{"{{item.unit_price}}"}</code>, <code>{"{{item.amount}}"}</code> repeats
-          once per item. Put <code>?</code> in front for an optional field (<code>{"{{?note}}"}</code>) — its line goes
-          when it's empty. With <code>{"{{total}}"}</code>, Mali computes the amounts, VAT 7% and the total in Thai words.
-        </Notice>
-      </SettingsSection>
+      </SettingsGroup>
 
-      <SettingsSection>
-        <GroupLabel>Built in</GroupLabel>
-        <SettingsList>
-          {builtin.map((t) => (
-            <li key={t.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start">
-              <IconTile className="bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                <FileTextIcon />
-              </IconTile>
-              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{t.name}</span>
-                  <code className="text-[11px] text-muted-foreground">/{t.name}</code>
-                  {t.money && (
-                    <Pill>
-                      <CalculatorIcon className="size-3" />
-                      Computes totals
-                    </Pill>
-                  )}
-                </div>
-                <p className="text-sm text-muted-foreground">{t.description}</p>
-                <Fields fields={t.fields} max={6} />
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="shrink-0 gap-1.5"
-                title="Save it as a .docx to restyle in Word, then add it back as your own"
-                onClick={() => void run(`copy:${t.id}`, () => saveCopy(t))}
-              >
+      <SettingsGroup
+        title="Built in"
+        description="Ready to use. Save a copy to restyle it in Word, then add it back as your own."
+      >
+        {builtin.map((t) => (
+          <TemplateRow
+            key={t.id}
+            template={t}
+            builtin
+            busy={busy === `copy:${t.id}`}
+            control={
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void run(`copy:${t.id}`, () => saveCopy(t))}>
                 <DownloadIcon className="size-3.5" />
                 Save a copy
               </Button>
-            </li>
-          ))}
-        </SettingsList>
-      </SettingsSection>
+            }
+          />
+        ))}
+      </SettingsGroup>
+
+      <details className="group rounded-xl border border-border/70 bg-card">
+        <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium select-none [&::-webkit-details-marker]:hidden">
+          <BookOpenIcon className="size-4 text-muted-foreground" />
+          Field syntax reference
+          <ChevronDownIcon className="ml-auto size-4 text-muted-foreground transition-transform group-open:rotate-180" />
+        </summary>
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-3 border-t border-border/60 px-4 py-4 text-xs sm:grid-cols-[auto_1fr]">
+          <SyntaxItem code="{{field_name}}">A detail to fill in. English letters, digits and _.</SyntaxItem>
+          <SyntaxItem code="{{?note}}">Optional. Its line is removed when it's empty.</SyntaxItem>
+          <SyntaxItem code="{{item.description}}">
+            In a table row: the row repeats once per item. Also <code className="font-mono">item.qty</code>,{" "}
+            <code className="font-mono">item.unit_price</code>, <code className="font-mono">item.amount</code>.
+          </SyntaxItem>
+          <SyntaxItem code="{{total}}">Mali computes the amounts, VAT 7% and the total in Thai words.</SyntaxItem>
+        </dl>
+      </details>
 
       <AddDialog
         draft={draft}
         onChange={setDraft}
         onSave={(d) =>
-          run("add", async () => {
-            await addTemplate(d.path, d.name, d.description);
-            setDraft(undefined);
-          })
+          run(
+            "add",
+            async () => {
+              await addTemplate(d.path, d.name, d.description);
+              setDraft(undefined);
+            },
+            `Added “${d.name}”. Type /${slashName(d.name)} in a Cowork chat to use it.`,
+          )
         }
         saving={busy === "add"}
       />
@@ -304,7 +316,74 @@ export function TemplatesSettings() {
           })
         }
       />
+      <ConfirmDialog
+        onClose={() => setRemoving(undefined)}
+        request={
+          removing && {
+            title: `Remove “${removing.name}”?`,
+            description: "Mali's copy is deleted. Your original .docx isn't touched.",
+            confirmLabel: "Remove",
+            destructive: true,
+            onConfirm: () => void run(`remove:${removing.id}`, () => removeTemplate(removing.id), `Removed “${removing.name}”`),
+          }
+        }
+      />
     </div>
+  );
+}
+
+function TemplateRow({
+  template: t,
+  builtin,
+  busy,
+  control,
+}: {
+  template: TemplateInfo;
+  builtin?: boolean;
+  busy?: boolean;
+  control: ReactNode;
+}) {
+  return (
+    <div className={cn("flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center", !t.enabled && !builtin && "opacity-60")}>
+      <div className="flex min-w-0 flex-1 items-start gap-3">
+        <span
+          className={cn(
+            "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg [&_svg]:size-4",
+            builtin ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" : "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+          )}
+        >
+          {busy ? <LoaderIcon className="animate-spin" /> : <FileTextIcon />}
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-sm font-medium">{t.name}</span>
+            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+              /{builtin ? t.name : slashName(t.name)}
+            </code>
+            {t.money && (
+              <Pill>
+                <CalculatorIcon className="size-3" />
+                Computes totals
+              </Pill>
+            )}
+          </div>
+          {t.description && <p className="text-xs leading-relaxed text-muted-foreground">{t.description}</p>}
+          <Fields fields={t.fields} max={builtin ? 6 : 8} />
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5 sm:justify-end">{control}</div>
+    </div>
+  );
+}
+
+function SyntaxItem({ code, children }: { code: string; children: ReactNode }) {
+  return (
+    <>
+      <dt>
+        <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">{code}</code>
+      </dt>
+      <dd className="leading-relaxed text-muted-foreground">{children}</dd>
+    </>
   );
 }
 

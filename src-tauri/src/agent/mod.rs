@@ -67,6 +67,9 @@ pub struct AgentRequest {
     /// Settings: changes and commands run without asking.
     #[serde(default)]
     pub auto_approve: bool,
+    /// Settings: run shell commands inside the OS sandbox (on unless turned off).
+    #[serde(default = "yes")]
+    pub sandbox: bool,
     /// The chat id; stops the run through [`abort`].
     pub run_id: String,
     /// The user's connectors, as the Connectors page keeps them; the ones that
@@ -82,6 +85,10 @@ pub struct AgentRequest {
     /// The model takes pictures: it gets `view_image`, and sees what tools return.
     #[serde(default)]
     pub vision: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl AgentRequest {
@@ -547,6 +554,7 @@ async fn run(
                             scope,
                             on_event,
                             auto_approve: request.auto_approve,
+                            sandbox: request.sandbox,
                             always: &mut always,
                             cancel: &mut *cancel,
                         };
@@ -711,6 +719,7 @@ mod tests {
             instructions: None,
             effort: None,
             auto_approve: false,
+            sandbox: true,
             run_id: "test-run".into(),
         };
         generate(request, channel).await.unwrap();
@@ -783,6 +792,7 @@ mod tests {
             instructions: None,
             effort: None,
             auto_approve: false,
+            sandbox: true,
             run_id: "test-run-a".into(),
         };
         generate(request, channel).await.unwrap();
@@ -855,6 +865,7 @@ done
             instructions: None,
             effort: None,
             auto_approve: false,
+            sandbox: true,
             run_id: "test-run-mcp".into(),
         };
         generate(request, channel).await.unwrap();
@@ -916,6 +927,7 @@ done
             instructions: None,
             effort: None,
             auto_approve: false,
+            sandbox: true,
             run_id: "test-run-compact".into(),
         };
         generate(request, channel).await.unwrap();
@@ -955,6 +967,7 @@ done
             instructions: None,
             effort: None,
             auto_approve: false,
+            sandbox: true,
             run_id: run.into(),
         }
     }

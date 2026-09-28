@@ -125,7 +125,7 @@ export default function SettingsPage() {
             <p className="text-sm text-muted-foreground">{t(active.description)}</p>
           </div>
 
-          <TabPanels mode="layout">
+          <TabPanels mode="layout" style={{ overflow: "auto !important" }}>
             <TabPanel>
               <GeneralSettings />
             </TabPanel>

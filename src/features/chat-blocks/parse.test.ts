@@ -92,3 +92,42 @@ test("a media block still streaming in doesn't show as raw JSON", () => {
   expect(out.text).toBe("Making it now…");
   expect(out.mediaPreviews).toHaveLength(0);
 });
+
+test("a gallery block becomes a slide strip, keeping each page's shape", () => {
+  const out = extractChatBlocks(
+    [
+      "Your deck is ready.",
+      "```gallery",
+      JSON.stringify({
+        source: "Canva",
+        title: "HandCraft Campaign Review",
+        url: "https://www.canva.com/design/DAG1/edit",
+        items: [
+          { image: "https://cdn.canva.com/p1.png", width: 1920, height: 1080, title: "Cover" },
+          { thumbnail: "https://cdn.canva.com/p2.png", width: 1080, height: 1920 },
+          "https://cdn.canva.com/p3.png",
+        ],
+      }),
+      "```",
+    ].join("\n"),
+  );
+  expect(out.text).toBe("Your deck is ready.");
+  expect(out.galleries).toHaveLength(1);
+  const [gallery] = out.galleries;
+  expect(gallery.source).toBe("canva");
+  expect(gallery.items).toHaveLength(3);
+  expect(gallery.items[1]).toEqual({ image: "https://cdn.canva.com/p2.png", width: 1080, height: 1920 });
+});
+
+test("a gallery only shows https pictures", () => {
+  const out = extractChatBlocks(
+    '```gallery\n{"items":[{"image":"file:///etc/passwd"},{"image":"http://x.test/a.png"},{"image":"https://x.test/b.png","url":"javascript:alert(1)"}]}\n```',
+  );
+  expect(out.galleries[0].items).toEqual([{ image: "https://x.test/b.png" }]);
+});
+
+test("a gallery still being written is hidden, not shown as code", () => {
+  const out = extractChatBlocks('Done!\n```gallery\n{"items":[{"image":"https://x');
+  expect(out.text).toBe("Done!");
+  expect(out.galleries).toHaveLength(0);
+});

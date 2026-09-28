@@ -239,10 +239,22 @@ pub fn opencode_default_cwd() -> String {
     path_str(&get_default_public_dir())
 }
 
+/// Permission requests for risky commands: "Always" is answered as "once",
+/// so opencode never learns a rule that skips the next one.
+fn risky_asks() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
+    static ASKS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
+    ASKS.get_or_init(Default::default)
+}
+
 #[tauri::command]
 pub async fn opencode_permission_reply(request: PermissionReplyRequest) -> Result<(), String> {
     if !matches!(request.reply.as_str(), "once" | "always" | "reject") {
         return Err(format!("Invalid permission reply: {}", request.reply));
+    }
+    let risky = risky_asks().lock().unwrap().remove(&request.id);
+    if risky && request.reply == "always" {
+        let client = ensure_server().await?;
+        return client.reply_permission(&request.directory, &request.id, "once", None).await;
     }
     let client = ensure_server().await?;
     if let (Some(session_id), Some(grant)) = (&request.session_id, &request.grant) {
@@ -520,17 +532,33 @@ async fn run_prompt(
                                 .await?;
                             emit(on_event, blocked_activity(&ask))
                         }
-                        Decision::AskUser => emit(
-                            on_event,
-                            ChatStreamEvent::Permission {
-                                id: ask.id,
-                                directory: directory.clone(),
-                                permission: ask.permission,
-                                patterns: ask.patterns,
-                                title: ask.title,
-                                detail: ask.detail,
-                            },
-                        ),
+                        Decision::AskUser => {
+                            // A risky command says why on the card, and can't be allowed "always".
+                            let warning = (ask.permission == "bash")
+                                .then(|| crate::sandbox::command_risk::classify(ask.command.as_deref().unwrap_or_default()))
+                                .and_then(|risk| match risk {
+                                    crate::sandbox::command_risk::Risk::Dangerous(reason) => Some(reason),
+                                    _ => None,
+                                });
+                            let detail = match warning {
+                                Some(reason) => {
+                                    risky_asks().lock().unwrap().insert(ask.id.clone());
+                                    Some(format!("⚠ {reason}\n{}", ask.detail.unwrap_or_default()))
+                                }
+                                None => ask.detail,
+                            };
+                            emit(
+                                on_event,
+                                ChatStreamEvent::Permission {
+                                    id: ask.id,
+                                    directory: directory.clone(),
+                                    permission: ask.permission,
+                                    patterns: ask.patterns,
+                                    title: ask.title,
+                                    detail,
+                                },
+                            )
+                        }
                     }
                 }
                 Outcome::QuestionAsked(ask) => emit(

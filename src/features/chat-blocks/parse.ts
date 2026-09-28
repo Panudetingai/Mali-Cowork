@@ -1,4 +1,4 @@
-import type { AuthActionBlock, MediaPreviewBlock } from "./types";
+import type { AuthActionBlock, GalleryBlock, GalleryItem, MediaPreviewBlock } from "./types";
 
 const AUTH_BLOCK = /```auth[^\S\n]*\n([\s\S]*?)```/g;
 const OPEN_AUTH = /```auth[^\S\n]*(\n[\s\S]*)?$/;
@@ -6,6 +6,10 @@ const PREVIEW_BLOCK = /```preview[^\S\n]*\n([\s\S]*?)```/g;
 const OPEN_PREVIEW = /```preview[^\S\n]*(\n[\s\S]*)?$/;
 const MEDIA_BLOCK = /```media[^\S\n]*\n([\s\S]*?)```/g;
 const OPEN_MEDIA = /```media[^\S\n]*(\n[\s\S]*)?$/;
+const GALLERY_BLOCK = /```gallery[^\S\n]*\n([\s\S]*?)```/g;
+const OPEN_GALLERY = /```gallery[^\S\n]*(\n[\s\S]*)?$/;
+/** Enough for a long deck; more would only slow the strip down. */
+const MAX_GALLERY_ITEMS = 60;
 
 const MD_LINK = /\[([^\]]+)\]\(([^)]+)\)/g;
 const HTML_ANCHOR = /<a\s+[^>]*href=["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
@@ -92,6 +96,47 @@ function parsePreview(body: string): MediaPreviewBlock | null {
     title: typeof value.title === "string" ? value.title.trim() : undefined,
     description: typeof value.description === "string" ? value.description.trim() : undefined,
     thumbnail: typeof value.thumbnail === "string" ? value.thumbnail.trim() : undefined,
+  };
+}
+
+const httpsOnly = (value: unknown) =>
+  typeof value === "string" && /^https:\/\//i.test(value.trim()) ? value.trim() : undefined;
+const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
+const size = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value) && value > 0 && value < 100_000 ? value : undefined;
+
+/**
+ * A ```gallery block. Links are https only: the pictures are fetched by the
+ * app, and an agent could have been talked into writing any address.
+ */
+function parseGallery(body: string): GalleryBlock | null {
+  const value = parseJson<Record<string, unknown>>(body);
+  if (!value) return null;
+  const raw = Array.isArray(value.items) ? value.items : Array.isArray(value.pages) ? value.pages : [];
+  const items: GalleryItem[] = raw
+    .slice(0, MAX_GALLERY_ITEMS)
+    .map((entry): GalleryItem | null => {
+      if (typeof entry === "string") return httpsOnly(entry) ? { image: entry.trim() } : null;
+      if (!entry || typeof entry !== "object") return null;
+      const item = entry as Record<string, unknown>;
+      const image = httpsOnly(item.image ?? item.thumbnail ?? item.src);
+      if (!image) return null;
+      return {
+        image,
+        title: text(item.title),
+        url: httpsOnly(item.url),
+        width: size(item.width),
+        height: size(item.height),
+      };
+    })
+    .filter((item): item is GalleryItem => item !== null);
+  if (items.length === 0) return null;
+  return {
+    source: text(value.source)?.toLowerCase(),
+    connector: text(value.connector),
+    title: text(value.title),
+    url: httpsOnly(value.url),
+    items,
   };
 }
 
@@ -250,11 +295,23 @@ export function extractChatBlocks(content: string): {
   text: string;
   authActions: AuthActionBlock[];
   mediaPreviews: MediaPreviewBlock[];
+  galleries: GalleryBlock[];
 } {
   const authActions: AuthActionBlock[] = [];
   const mediaPreviews: MediaPreviewBlock[] = [];
+  const galleries: GalleryBlock[] = [];
 
   let text = content;
+
+  if (text.includes("```gallery")) {
+    text = text
+      .replace(GALLERY_BLOCK, (_, body: string) => {
+        const parsed = parseGallery(body);
+        if (parsed) galleries.push(parsed);
+        return "";
+      })
+      .replace(OPEN_GALLERY, "");
+  }
 
   if (text.includes("```auth")) {
     text = text
@@ -293,6 +350,7 @@ export function extractChatBlocks(content: string): {
     text: text.replace(/\n{3,}/g, "\n\n").trim(),
     authActions: dedupeAuth(authActions),
     mediaPreviews: dedupeMedia(mediaPreviews),
+    galleries,
   };
 }
 

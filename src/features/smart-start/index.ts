@@ -1,2 +1,2 @@
 export * from "./suggestions";
-export { SmartSuggestions } from "./smart-suggestions";
+export { AnimatedSuggestionCards, SmartSuggestions, SuggestionCardsSkeleton } from "./smart-suggestions";

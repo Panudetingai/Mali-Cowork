@@ -21,6 +21,7 @@ import { requestMoveToCowork } from "./move-to-cowork";
 import { ChatModeNav } from "./components/chat-mode-nav";
 import ChatTitle from "./components/chat-title";
 import { CodeView } from "./components/code-view";
+import { AnimationBotMali } from "./components/animation-bot-mali";
 import { loadViewMode, saveWorkMode, type ViewMode } from "./components/work-mode-toggle";
 
 const VIEW_ORDER: Record<ViewMode, number> = { chat: 0, cowork: 1, code: 2 };
@@ -214,11 +215,11 @@ export default function ChatLayout() {
             <div
               className={cn(
                 "relative mt-5 min-h-0 flex-1",
-                hasMessages ? "flex min-h-0 flex-col overflow-hidden" : "flex items-center justify-center overflow-hidden",
+                hasMessages ? "flex min-h-0 flex-col overflow-hidden" : "flex items-center justify-center",
               )}
             >
               <AnimatePresence initial={false}>
-                {!hasMessages ? (
+                {!hasMessages ? (                  
                   <motion.div
                     key={`empty-${mode}`}
                     initial={{ opacity: 0, y: reduceMotion ? 0 : 8 }}
@@ -227,12 +228,36 @@ export default function ChatLayout() {
                     transition={{ duration: 0.2, ease: viewEase }}
                     className="flex flex-col items-center gap-4"
                   >
-                    <ChatTitle mode={mode} project={project} />
-                    <FirstRunWizard />
-                    {mode === "cowork" ? <SmartSuggestions folder={coworkFolder} className="mt-2" /> : null}
+
+                    {/* The bots play around these, never over them. */}
+                    <div data-bot-avoid="children" className="flex flex-col items-center gap-4">
+                      <ChatTitle mode={mode} project={project} />
+                    </div>
+                    <div data-bot-avoid>
+                      <FirstRunWizard />
+                    </div>
+                    <AnimatePresence mode="wait" initial={false}>
+                      <motion.div
+                        key={`empty-suggestions-${mode}`}
+                        initial={{ opacity: 0, y: reduceMotion ? 0 : 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: reduceMotion ? 0 : -6 }}
+                        transition={{ duration: 0.2, ease: viewEase }}
+                        className="w-full min-w-0 shrink-0 self-stretch px-2"
+                        data-bot-avoid="children"
+                      >
+                        <SmartSuggestions
+                          folder={coworkFolder}
+                          mode={mode}
+                          motionKey={`${mode}-${viewShellKey}`}
+                          className="w-full"
+                        />
+                      </motion.div>
+                    </AnimatePresence>
                   </motion.div>
                 ) : null}
               </AnimatePresence>
+              {!hasMessages && <AnimationBotMali key={`bots-${mode}`} />}
 
               {/* Always mounted so scroll/follow keeps a container ref when the first reply arrives. */}
               <ChatMessagePanel

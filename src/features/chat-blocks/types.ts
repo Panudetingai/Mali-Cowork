@@ -22,3 +22,30 @@ export type MediaPreviewBlock = {
   description?: string;
   thumbnail?: string;
 };
+
+/** One page, slide or picture in a gallery. */
+export type GalleryItem = {
+  /** Thumbnail, an https link. */
+  image: string;
+  title?: string;
+  /** Opens this page itself, when the service has a link per page. */
+  url?: string;
+  /** Pixel size, so portrait and landscape keep their shape before loading. */
+  width?: number;
+  height?: number;
+};
+
+/**
+ * What an agent made or found in another app, shown as a strip of previews:
+ * a Canva deck's slides, Notion pages, Figma frames, a Google Slides deck.
+ */
+export type GalleryBlock = {
+  /** The app it lives in: `canva`, `notion`, `figma`, `google-slides`, … */
+  source?: string;
+  /** The connector the agent used (`custom-canva`), for its icon and name. */
+  connector?: string;
+  title?: string;
+  /** Opens the whole thing in its app. */
+  url?: string;
+  items: GalleryItem[];
+};

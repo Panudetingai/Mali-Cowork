@@ -92,7 +92,7 @@ export function AssistantMessage({
   const isCli = isOpencode || id.startsWith("cli:");
 
   const hasReasoning = Boolean(reasoning?.trim());
-  const { authActions, mediaPreviews, text: afterRichBlocks } = useMemo(
+  const { authActions, mediaPreviews, galleries, text: afterRichBlocks } = useMemo(
     () => extractChatBlocks(content),
     [content],
   );
@@ -164,8 +164,8 @@ export function AssistantMessage({
             No response received.
           </div>
         ) : null}
-        {(authActions.length > 0 || mediaPreviews.length > 0) && (
-          <ChatRichBlocks authActions={authActions} mediaPreviews={mediaPreviews} />
+        {(authActions.length > 0 || mediaPreviews.length > 0 || galleries.length > 0) && (
+          <ChatRichBlocks authActions={authActions} mediaPreviews={mediaPreviews} galleries={galleries} />
         )}
         {suggestions.length > 0 && <ConnectorSuggestions suggestions={suggestions} />}
       </MessageContent>

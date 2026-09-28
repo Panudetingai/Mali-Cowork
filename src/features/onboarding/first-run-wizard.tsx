@@ -3,7 +3,7 @@
 import { CoworkBot } from "@/components/anim/cowork-bot";
 import { Button } from "@/components/ui/button";
 import { useMcpConnections } from "@/features/mcp";
-import { useOpencode } from "@/features/opencode";
+import { useOpencode, WorkMode } from "@/features/opencode";
 import { listConfiguredProviders, useEnvKeys, useProviderConfigs } from "@/features/providers";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";

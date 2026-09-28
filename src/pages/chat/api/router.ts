@@ -1,4 +1,4 @@
-import { agentGenerateStream } from "@/features/agent";
+import { agentGenerateStream, loadCommandSandbox } from "@/features/agent";
 import { buildAttachmentAppendix, type Attachment } from "@/features/attachments";
 import type { Skill } from "@/features/instructions";
 import { codexGenerateStream } from "@/features/codex";
@@ -266,6 +266,7 @@ async function routeStream(
         instructions: request.instructions,
         effort,
         autoApprove: loadOpencodeSettings().autoApprove,
+        sandbox: loadCommandSandbox(),
         runId: request.runId,
         mcp: await hubMcpServers(request.mode === "cowork" ? request.cwd : undefined),
         images,

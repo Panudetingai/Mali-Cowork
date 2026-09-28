@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { ErrorBoundary } from "@/components/app/error-boundary";
+import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { loadChatHistory } from "@/features/chat-history";
 import { loadProjects } from "@/features/projects";
@@ -69,6 +70,7 @@ function startMainWindow() {
                 <BrowserRouter>
                   <App />
                 </BrowserRouter>
+                <Toaster />
               </TooltipProvider>
             </ThemeProvider>
           </ErrorBoundary>

@@ -134,14 +134,14 @@ export function suggestTasks(files: string[], lang: Lang, max = 4): Suggestion[]
     icon: "template",
     skill: "ใบเสนอราคา",
     title: th ? "ทำใบเสนอราคา" : "Make a quotation",
-    prompt: th ? "ทำใบเสนอราคาให้ลูกค้า: " : "Make a quotation for: ",
+    prompt: th ? "ทำใบเสนอราคาให้ลูกค้า: " : "Make a quotation for: the customer details and product details and price list",
   });
   out.push({
     id: "letter",
     icon: "template",
     skill: "หนังสือราชการ",
     title: th ? "ร่างหนังสือราชการ" : "Draft an official letter",
-    prompt: th ? "ร่างหนังสือเรื่อง " : "Draft an official letter about ",
+    prompt: th ? "ร่างหนังสือเรื่อง " : "Draft an official letter about the subject and the details",
   });
   return out.slice(0, max);
 }

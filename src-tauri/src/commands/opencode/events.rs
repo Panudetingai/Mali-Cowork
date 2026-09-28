@@ -250,7 +250,13 @@ fn tool_activity(part: &Value) -> Option<ChatStreamEvent> {
     if let Some(command) = input["command"].as_str() {
         detail.push(format!("$ {command}"));
     }
+    // A file edit reports its diff, which the chat draws as a PR-style card.
+    let file_diff = matches!(tool, "edit" | "write" | "patch" | "multiedit" | "apply_patch")
+        .then(|| state["metadata"]["diff"].as_str())
+        .flatten()
+        .filter(|d| !d.trim().is_empty());
     match status {
+        "completed" if file_diff.is_some() => detail.push(truncate(file_diff.unwrap_or_default())),
         "completed" => {
             if let Some(output) = state["output"].as_str().filter(|s| !s.trim().is_empty()) {
                 detail.push(truncate(output.trim()));

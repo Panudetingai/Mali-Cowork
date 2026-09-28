@@ -15,7 +15,7 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from "@/components/ui/command";
-import { useChatSessions } from "@/features/chat-history";
+import { isListedChat, useChatSessions } from "@/features/chat-history";
 import { useTranslation, type TranslationKey } from "@/features/i18n";
 import { skillSlug, useInstructions } from "@/features/instructions";
 import { useProjects } from "@/features/projects";
@@ -94,7 +94,7 @@ export function CommandPalette() {
   const chats = useMemo(
     () =>
       sessions
-        .filter((s) => !s.inboxTask && !s.taskFrom)
+        .filter(isListedChat)
         .slice()
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, MAX_CHATS),
