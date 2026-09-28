@@ -27,7 +27,7 @@ use commands::checkpoint::{
     checkpoint_before_text, checkpoint_preview, checkpoint_restore, checkpoint_restore_file,
 };
 use commands::cli::{check_cli, cli_generate};
-use commands::code::{code_detect, code_kill, code_read, code_run, code_scan, code_write};
+use commands::code::{code_delete, code_detect, code_kill, code_read, code_rename, code_run, code_scan, code_write};
 use commands::codex::{codex_abort, codex_check, codex_generate, codex_list_models};
 use commands::cursor::{
     cursor_abort, cursor_check, cursor_generate, cursor_list_models, cursor_login,
@@ -57,7 +57,7 @@ use commands::opencode::{
 };
 use commands::storage::{
     history_import_legacy, history_load, history_save, secrets_load, secrets_save, usage_load, usage_record,
-    skills_dir, skills_export_folder, skills_fetch_url, skills_install, skills_installed,
+    skills_dir, skills_export_folder, skills_fetch_url, skills_install, skills_install_npx, skills_installed,
     skills_read_asset, skills_scan_folder, skills_search_repos, skills_sync, skills_uninstall,
 };
 use commands::usage_remote::{usage_model_prices, usage_provider_account};
@@ -220,6 +220,8 @@ pub fn run() {
             code_scan,
             code_read,
             code_write,
+            code_rename,
+            code_delete,
             code_detect,
             code_run,
             code_kill,
@@ -299,6 +301,7 @@ pub fn run() {
             skills_search_repos,
             skills_dir,
             skills_install,
+            skills_install_npx,
             skills_installed,
             skills_sync,
             skills_uninstall,

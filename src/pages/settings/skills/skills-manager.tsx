@@ -15,9 +15,11 @@ import {
   SKILL_TEMPLATES,
   type Skill,
   type SkillCandidate,
+  type SkillDraft,
 } from "@/features/instructions";
-import { libraryDir, uninstallSkill } from "@/features/skills";
+import { libraryDir, openSkillEditor, uninstallSkill } from "@/features/skills";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useNavigate } from "react-router-dom";
 import { readTextFile } from "@tauri-apps/plugin-fs";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
@@ -36,13 +38,13 @@ import { Notice } from "../ui";
 import { DiscoverSkills } from "./discover-skills";
 import { ImportSkillDialog } from "./import-skill-dialog";
 import { InstallSkillDialog, type InstallChoice } from "./install-skill-dialog";
-import { EMPTY_SKILL, SkillDialog, type SkillDraft } from "./skill-dialog";
+import { EMPTY_SKILL } from "./skill-dialog";
 import { menuClass, menuItemClass, SkillRow } from "./skill-row";
 import { describeInstall, useSkillInstall } from "./use-skill-install";
 
 type Props = {
   skills: Skill[];
-  onSave: (skill: SkillDraft) => void;
+  onSave: (skill: SkillDraft) => string;
   onToggle: (id: string, enabled: boolean) => void;
   onDelete: (id: string) => void;
   /** Offer the built-in templates when they aren't added yet. */
@@ -62,13 +64,19 @@ type Tab = "yours" | "discover";
  * The same component serves a project's own skills, without Discover.
  */
 export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, emptyText, discover }: Props) {
-  const [draft, setDraft] = useState<SkillDraft | null>(null);
+  const navigate = useNavigate();
   const [importing, setImporting] = useState(false);
   const [found, setFound] = useState<SkillCandidate[] | null>(null);
   const [tab, setTab] = useState<Tab>("yours");
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState<{ tone: "info" | "danger"; text: string } | null>(null);
   const { busy, install } = useSkillInstall(onSave, skills);
+
+  const editSkill = (skill: Skill | SkillDraft) =>
+    report(async () => {
+      await openSkillEditor(navigate, skill, onSave);
+      return null;
+    });
 
   const report = async (work: () => Promise<string | null>) => {
     try {
@@ -92,7 +100,8 @@ export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, e
       const name = parts.at(-1) ?? "Skill";
       // `…/my-skill/SKILL.md` is named after its folder.
       const folder = parts.at(-2);
-      setDraft({ ...fromSkillFile(text, /^skill\.md$/i.test(name) && folder ? folder : name), source: path });
+      const draft = { ...fromSkillFile(text, /^skill\.md$/i.test(name) && folder ? folder : name), source: path };
+      await openSkillEditor(navigate, draft, onSave);
       return null;
     });
 
@@ -144,7 +153,7 @@ export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, e
             />
           </div>
         )}
-        <Button type="button" size="sm" className="gap-1.5" onClick={() => setDraft(EMPTY_SKILL)}>
+        <Button type="button" size="sm" className="gap-1.5" onClick={() => void editSkill(EMPTY_SKILL)}>
           <PlusIcon className="size-4" />
           New skill
         </Button>
@@ -219,7 +228,7 @@ export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, e
                     key={skill.id}
                     skill={skill}
                     actions={{
-                      onEdit: () => setDraft(skill),
+                      onEdit: () => editSkill(skill),
                       onToggle: (enabled) => onToggle(skill.id, enabled),
                       onDelete: () => remove(skill),
                       onExport: () =>
@@ -265,7 +274,7 @@ export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, e
                     size="sm"
                     variant="outline"
                     title={template.description}
-                    onClick={() => onSave({ ...template, enabled: true })}
+                    onClick={() => void editSkill({ ...template, enabled: true })}
                   >
                     <PlusIcon className="size-3.5" />
                     {template.name}
@@ -277,7 +286,6 @@ export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, e
         </>
       )}
 
-      <SkillDialog draft={draft} onSave={onSave} onClose={() => setDraft(null)} />
       <ImportSkillDialog open={importing} onFound={setFound} onClose={() => setImporting(false)} />
       <InstallSkillDialog
         candidates={found}

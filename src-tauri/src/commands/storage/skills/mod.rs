@@ -13,6 +13,7 @@
 mod discover;
 mod install;
 mod local;
+mod npm;
 mod remote;
 mod source;
 
@@ -23,6 +24,7 @@ use serde::{Deserialize, Serialize};
 pub use discover::skills_search_repos;
 pub use install::{skills_dir, skills_install, skills_installed, skills_sync, skills_uninstall};
 pub use local::{skills_export_folder, skills_scan_folder};
+pub use npm::skills_install_npx;
 pub use remote::{skills_fetch_url, skills_read_asset};
 
 /// A `SKILL.md` is a short guide; anything bigger is not one.

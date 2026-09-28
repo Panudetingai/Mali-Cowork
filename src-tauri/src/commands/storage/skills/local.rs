@@ -16,6 +16,9 @@ use super::{
 pub struct ExportSkill {
     pub slug: String,
     pub content: String,
+    /// Where the skill already lives on disk; bundled files are copied too.
+    #[serde(default)]
+    pub dir: Option<String>,
 }
 
 fn walk(root: &Path, max_depth: usize) -> impl Iterator<Item = walkdir::DirEntry> {
@@ -30,7 +33,7 @@ fn walk(root: &Path, max_depth: usize) -> impl Iterator<Item = walkdir::DirEntry
         .filter_map(Result::ok)
 }
 
-fn scan_dir(root: &Path) -> Vec<SkillPackage> {
+pub fn scan_dir(root: &Path) -> Vec<SkillPackage> {
     let skills: Vec<PathBuf> = walk(root, MAX_SCAN_DEPTH)
         .filter(|e| e.file_type().is_file() && is_skill_file(&e.file_name().to_string_lossy()))
         .filter(|e| e.metadata().is_ok_and(|m| m.len() as usize <= MAX_SKILL_BYTES))
@@ -108,12 +111,52 @@ pub async fn skills_export_folder(folder: String, skills: Vec<ExportSkill>) -> R
     }
     tokio::task::spawn_blocking(move || {
         for skill in &skills {
-            write_private(&root.join(&skill.slug).join("SKILL.md"), &skill.content)?;
+            let target = root.join(&skill.slug);
+            std::fs::create_dir_all(&target)
+                .map_err(|e| format!("Cannot create {}: {e}", target.display()))?;
+            if let Some(dir) = &skill.dir {
+                copy_skill_contents(PathBuf::from(dir), &target)?;
+            }
+            write_private(&target.join("SKILL.md"), &skill.content)?;
         }
         Ok(skills.len())
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Copy every file from an installed skill folder into an export target,
+/// keeping subdirectories such as `example/` or `scripts/`. The `SKILL.md`
+/// itself is left out because the caller writes the latest content separately.
+fn copy_skill_contents(source: PathBuf, target: &Path) -> Result<(), String> {
+    if !source.is_dir() {
+        return Ok(());
+    }
+    for entry in walkdir::WalkDir::new(&source)
+        .max_depth(MAX_SCAN_DEPTH)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+    {
+        let relative = entry
+            .path()
+            .strip_prefix(&source)
+            .map_err(|e| e.to_string())?;
+        let path = relative.to_string_lossy().replace('\\', "/");
+        if is_skill_file(&path) {
+            continue;
+        }
+        let dest = target.join(relative);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+        }
+        std::fs::copy(entry.path(), &dest).map_err(|e| {
+            format!("Cannot copy {} to {}: {e}", entry.path().display(), dest.display())
+        })?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

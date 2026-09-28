@@ -280,6 +280,47 @@ pub async fn code_write(
     Ok(mtime_ms(&meta))
 }
 
+/// Rename or move a file or folder inside the project.
+#[tauri::command]
+pub async fn code_rename(root: String, old_rel: String, new_rel: String) -> Result<u64, String> {
+    let root = canonical_root(&root)?;
+    let from = resolve(&root, &old_rel)?;
+    let to = resolve(&root, &new_rel)?;
+    if !to.starts_with(&root) {
+        return Err(format!("{new_rel} is outside the project folder"));
+    }
+    if from == to {
+        return Err("The new name is the same as the old one".into());
+    }
+    if to.exists() {
+        return Err(format!("{new_rel} already exists"));
+    }
+    if let Some(parent) = to.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| format!("Can't create folder for {new_rel}: {e}"))?;
+    }
+    tokio::fs::rename(&from, &to)
+        .await
+        .map_err(|e| format!("Can't rename {old_rel} to {new_rel}: {e}"))?;
+    let meta = std::fs::metadata(&to).map_err(|e| e.to_string())?;
+    Ok(mtime_ms(&meta))
+}
+
+/// Delete a file or folder inside the project.
+#[tauri::command]
+pub async fn code_delete(root: String, rel: String) -> Result<(), String> {
+    let root = canonical_root(&root)?;
+    let path = resolve(&root, &rel)?;
+    let meta = tokio::fs::metadata(&path).await.map_err(|e| format!("Can't delete {rel}: {e}"))?;
+    if meta.is_dir() {
+        tokio::fs::remove_dir_all(&path).await.map_err(|e| format!("Can't delete {rel}: {e}"))?;
+    } else {
+        tokio::fs::remove_file(&path).await.map_err(|e| format!("Can't delete {rel}: {e}"))?;
+    }
+    Ok(())
+}
+
 fn task(kind: &str, label: impl Into<String>, command: impl Into<String>, cwd: &str) -> CodeTask {
     let command = command.into();
     CodeTask {

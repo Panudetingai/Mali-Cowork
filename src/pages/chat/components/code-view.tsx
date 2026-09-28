@@ -29,6 +29,7 @@ import {
 import { GitPanel, useGitRepo } from "@/features/git";
 import type { Project } from "@/features/projects";
 import { findGrant, folderName, normalizeFolder, requestFolderAccess, useFolderGrants } from "@/features/workspace";
+import { libraryDir, updateSkillFromFile } from "@/features/skills";
 import { cn } from "@/lib/utils";
 import { useChat, type SendMessage } from "@/pages/chat/hooks/use-chat";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -82,6 +83,8 @@ type Props = {
   /** The project folder: the chat's, or the default for a new chat. */
   root?: string;
   withGit: boolean;
+  /** File (relative to root) to open automatically on mount. */
+  initialOpen?: string;
   onModeChange: (mode: ViewMode) => void;
   onNewChat: (options?: { cwd?: string }) => void;
   onPickDefaultFolder: (path: string) => void;
@@ -164,7 +167,7 @@ function languageTag(rel: string) {
   return rel.split(".").pop()?.toLowerCase() ?? "";
 }
 
-export function CodeView({ chat, chatId, project, root, withGit, onModeChange, onNewChat, onPickDefaultFolder }: Props) {
+export function CodeView({ chat, chatId, project, root, withGit, initialOpen, onModeChange, onNewChat, onPickDefaultFolder }: Props) {
   const {
     session,
     mode,
@@ -192,6 +195,44 @@ export function CodeView({ chat, chatId, project, root, withGit, onModeChange, o
 
   const workspace = useCodeWorkspace(root, isLoading);
   const runner = useCodeRunner(root);
+  const [skillsDir, setSkillsDir] = useState<string>();
+  useEffect(() => {
+    libraryDir().then((dir) => setSkillsDir(normalizeFolder(dir))).catch(() => undefined);
+  }, []);
+
+  const inSkillsLibrary = Boolean(root && skillsDir && normalizeFolder(root) === skillsDir);
+
+  const maybeUpdateSkill = useCallback(
+    async (rel: string, text: string) => {
+      if (!inSkillsLibrary) return;
+      if (!rel.toLowerCase().endsWith("/skill.md")) return;
+      const slug = rel.slice(0, -"/skill.md".length);
+      await updateSkillFromFile(slug, text);
+    },
+    [inSkillsLibrary],
+  );
+
+  const saveFile = useCallback(
+    async (rel: string, overwrite = false): Promise<boolean> => {
+      const file = workspace.files.find((f) => f.rel === rel);
+      const ok = await workspace.save(rel, overwrite);
+      if (ok && file?.status === "ready") await maybeUpdateSkill(rel, file.text);
+      return ok;
+    },
+    [workspace.save, workspace.files, maybeUpdateSkill],
+  );
+
+  const saveAllFiles = useCallback(async (): Promise<boolean> => {
+    const dirty = workspace.files.filter((f) => isDirty(f) && f.status === "ready");
+    const ok = await workspace.saveAll();
+    if (ok) await Promise.all(dirty.map((f) => maybeUpdateSkill(f.rel, f.text)));
+    return ok;
+  }, [workspace.saveAll, workspace.files, maybeUpdateSkill]);
+
+  useEffect(() => {
+    if (initialOpen && root) workspace.open(initialOpen);
+  }, [initialOpen, root, workspace.open]);
+
   const [explorerOpen, setExplorerOpen] = useStoredBool("code_explorer_open", true);
   const [bottomOpen, setBottomOpen] = useStoredBool("code_bottom_open", true);
   const [chatOpen, setChatOpen] = useStoredBool("code_chat_open", true);
@@ -303,7 +344,7 @@ export function CodeView({ chat, chatId, project, root, withGit, onModeChange, o
   const submitInline = async (instruction: string) => {
     if (!inline) return;
     const { rel, anchor } = inline;
-    await workspace.saveAll();
+    await saveAllFiles();
     const lines = anchor.from === anchor.to ? `line ${anchor.from}` : `lines ${anchor.from}–${anchor.to}`;
     const context = [
       "",
@@ -343,7 +384,7 @@ export function CodeView({ chat, chatId, project, root, withGit, onModeChange, o
 
   // The agent works on what's on disk, so the user's edits are saved first.
   const submit = async (payload: SendMessage) => {
-    await workspace.saveAll();
+    await saveAllFiles();
     const context = (payload.context ?? "") + editorContext();
     const sent = await sendMessage({ ...payload, context });
     if (sent) setQuotes([]);
@@ -354,7 +395,7 @@ export function CodeView({ chat, chatId, project, root, withGit, onModeChange, o
     async (attempt?: number, finished: CodeRun | undefined = runner.run) => {
       const run = finished;
       if (!run?.exit) return false;
-      await workspace.saveAll();
+      await saveAllFiles();
       const errors = run.problems.filter((p) => p.severity === "error").length;
       const what = errors ? `${errors} error${errors > 1 ? "s" : ""}` : "the failure";
       const prompt = attempt
@@ -446,7 +487,7 @@ export function CodeView({ chat, chatId, project, root, withGit, onModeChange, o
   const runTask = () => {
     setSkipped(undefined);
     if (runner.running) runner.stop();
-    else void workspace.saveAll().then(() => runner.start());
+    else void saveAllFiles().then(() => runner.start());
   };
 
   const composer = (
@@ -719,6 +760,8 @@ export function CodeView({ chat, chatId, project, root, withGit, onModeChange, o
                     dirty={dirty}
                     reviewing={reviewing}
                     onOpen={workspace.open}
+                    onRename={workspace.rename}
+                    onDelete={workspace.remove}
                   />
                 )}
                 {workspace.truncated && (
@@ -832,7 +875,7 @@ export function CodeView({ chat, chatId, project, root, withGit, onModeChange, o
                   </AnimatePresence>
                   {readOnly && <span className="text-amber-600 dark:text-amber-400">Read-only</span>}
                   {isDirty(activeFile) && !readOnly && (
-                    <Button size="xs" variant="ghost" className="gap-1" onClick={() => void workspace.save(activeFile.rel)}>
+                    <Button size="xs" variant="ghost" className="gap-1" onClick={() => void saveFile(activeFile.rel)}>
                       <SaveIcon className="size-3" />
                       Save
                     </Button>
@@ -881,7 +924,7 @@ export function CodeView({ chat, chatId, project, root, withGit, onModeChange, o
                 <Button size="xs" variant="outline" onClick={() => void workspace.reload(activeFile.rel)}>
                   Use the agent's version
                 </Button>
-                <Button size="xs" variant="ghost" onClick={() => void workspace.save(activeFile.rel, true)}>
+                <Button size="xs" variant="ghost" onClick={() => void saveFile(activeFile.rel, true)}>
                   Keep mine
                 </Button>
               </Banner>
@@ -889,7 +932,7 @@ export function CodeView({ chat, chatId, project, root, withGit, onModeChange, o
             {activeFile?.deleted && !activeFile.conflict && (
               <Banner tone="warning">
                 This file was deleted on disk.
-                <Button size="xs" variant="outline" onClick={() => void workspace.save(activeFile.rel, true)}>
+                <Button size="xs" variant="outline" onClick={() => void saveFile(activeFile.rel, true)}>
                   Save it again
                 </Button>
                 <Button size="xs" variant="ghost" onClick={() => workspace.close(activeFile.rel)}>
@@ -942,7 +985,7 @@ export function CodeView({ chat, chatId, project, root, withGit, onModeChange, o
                   problems={problemsByFile.get(activeFile.rel) ?? []}
                   reveal={reveal?.rel === activeFile.rel ? reveal : undefined}
                   onChange={(text) => workspace.edit(activeFile.rel, text)}
-                  onSave={() => !readOnly && void workspace.save(activeFile.rel)}
+                  onSave={() => !readOnly && void saveFile(activeFile.rel)}
                   onSelection={setSelection}
                   onAddToChat={(lines) => addQuote(activeFile.rel, lines)}
                   onInlineEdit={readOnly ? undefined : (anchor) => openInline(activeFile.rel, anchor)}
@@ -1031,7 +1074,7 @@ export function CodeView({ chat, chatId, project, root, withGit, onModeChange, o
                 {!hasMessages && (
                   <CodeIntro
                     onPick={(prompt) => {
-                      void workspace.saveAll().then(() => sendText(prompt, editorContext()));
+                      void saveAllFiles().then(() => sendText(prompt, editorContext()));
                     }}
                     hasFile={!!activeFile}
                   />

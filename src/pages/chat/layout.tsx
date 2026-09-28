@@ -58,6 +58,7 @@ export default function ChatLayout() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const requested = params.get("mode");
+  const initialOpen = params.get("open") ?? undefined;
   const newChatView: ViewMode =
     requested === "cowork" || requested === "chat" || requested === "code" ? requested : loadViewMode();
   // Code runs the Cowork agent; only the page around it differs.
@@ -194,6 +195,7 @@ export default function ChatLayout() {
             project={project}
             root={coworkFolder}
             withGit={!!gitFolder}
+            initialOpen={initialOpen}
             onModeChange={changeMode}
             onNewChat={startNewChat}
             onPickDefaultFolder={(path) => saveOpencodeSettings({ cwd: path })}

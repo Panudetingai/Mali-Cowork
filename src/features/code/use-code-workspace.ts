@@ -269,6 +269,38 @@ export function useCodeWorkspace(root: string | undefined, agentRunning: boolean
     };
   }, [root, load]);
 
+  const rename = useCallback(
+    async (rel: string, newRel: string) => {
+      if (!root) return;
+      await codeApi.rename(root, rel, newRel);
+      const prefix = `${rel}/`;
+      setFiles((prev) =>
+        prev.map((f) => {
+          if (f.rel === rel) return { ...f, rel: newRel };
+          if (f.rel.startsWith(prefix)) return { ...f, rel: newRel + f.rel.slice(rel.length) };
+          return f;
+        }),
+      );
+      setActive((current) => {
+        if (current === rel) return newRel;
+        if (current?.startsWith(prefix)) return newRel + current.slice(rel.length);
+        return current;
+      });
+    },
+    [root],
+  );
+
+  const remove = useCallback(
+    async (rel: string) => {
+      if (!root) return;
+      await codeApi.delete(root, rel);
+      const prefix = `${rel}/`;
+      setFiles((prev) => prev.filter((f) => f.rel !== rel && !f.rel.startsWith(prefix)));
+      setActive((current) => (current === rel || current?.startsWith(prefix) ? undefined : current));
+    },
+    [root],
+  );
+
   return {
     entries,
     truncated,
@@ -285,6 +317,8 @@ export function useCodeWorkspace(root: string | undefined, agentRunning: boolean
     edit,
     save,
     saveAll,
+    rename,
+    remove,
     reload: (rel: string) => load(rel, true),
   };
 }

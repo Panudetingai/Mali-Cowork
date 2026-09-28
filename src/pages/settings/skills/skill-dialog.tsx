@@ -8,15 +8,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
-import type { Skill } from "@/features/instructions";
+import type { SkillDraft } from "@/features/instructions";
 import { cn } from "@/lib/utils";
 import { BookOpenIcon, SparklesIcon, TerminalIcon } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 import { Field } from "../ui";
 
-export type SkillDraft = Omit<Skill, "id"> & { id?: string };
-
-export const EMPTY_SKILL: SkillDraft = { name: "", description: "", instructions: "", enabled: true };
+export const EMPTY_SKILL: SkillDraft = { name: "new-skill", description: "", instructions: "", enabled: true };
 
 export function SkillDialog({
   draft,

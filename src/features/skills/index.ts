@@ -15,3 +15,4 @@ export * from "./types";
 export * from "./discover";
 export * from "./install";
 export * from "./sync";
+export * from "./open-editor";
