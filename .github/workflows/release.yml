@@ -103,9 +103,9 @@ jobs:
           tauriScript: bun run tauri
           args: ${{ matrix.args }}
 
-  # Mirror installers + release notes to the public Mali-Cowork-Releases repo (no source).
-  sync-public-release:
-    name: Sync release to public repo
+  # tauri-action publishes directly to Panudetingai/Mali-Cowork-Releases; confirm the release is complete.
+  verify-public-release:
+    name: Verify public release
     needs: build-tauri
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -124,23 +124,9 @@ jobs:
             echo "name=v${version}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Download assets from private release
+      - name: Verify Panudetingai/Mali-Cowork-Releases
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag="${{ steps.tag.outputs.name }}"
-          mkdir -p release-assets
-          gh release download "$tag" \
-            --repo "${{ github.repository }}" \
-            --dir release-assets \
-            --clobber
-          ls -la release-assets
-
-      - name: Mirror release to Panudetingai/Mali-Cowork-Releases
-        env:
-          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -148,21 +134,41 @@ jobs:
           public_repo="Panudetingai/Mali-Cowork-Releases"
 
           if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "::error::RELEASES_REPO_TOKEN is not set — see docs/RELEASES_REPO_SETUP.md"
+            echo "::error::RELEASES_TOKEN is not set — see docs/RELEASES_REPO_SETUP.md"
             exit 1
           fi
 
-          body_file="$(mktemp)"
-          gh release view "$tag" --repo "${{ github.repository }}" --json body -q .body > "$body_file"
-
-          if gh release view "$tag" --repo "$public_repo" >/dev/null 2>&1; then
-            gh release edit "$tag" --repo "$public_repo" --notes-file "$body_file"
-          else
-            title=$(gh release view "$tag" --repo "${{ github.repository }}" --json name -q .name)
-            gh release create "$tag" \
-              --repo "$public_repo" \
-              --title "$title" \
-              --notes-file "$body_file"
+          if ! gh release view "$tag" --repo "$public_repo" >/dev/null 2>&1; then
+            echo "::error::Release $tag not found on $public_repo (tauri-action should have created it)"
+            exit 1
           fi
 
-          gh release upload "$tag" --repo "$public_repo" release-assets/* --clobber
+          assets_json="$(gh release view "$tag" --repo "$public_repo" --json assets,name,body)"
+          asset_names="$(echo "$assets_json" | jq -r '.assets[].name')"
+          echo "Public release assets:"
+          echo "$asset_names"
+
+          has_dmg=false
+          has_exe=false
+          has_latest=false
+          while IFS= read -r name; do
+            [[ -z "$name" ]] && continue
+            [[ "$name" == *.dmg ]] && has_dmg=true
+            [[ "$name" == *.exe ]] && has_exe=true
+            [[ "$name" == latest.json ]] && has_latest=true
+          done <<< "$asset_names"
+
+          if [[ "$has_dmg" != true || "$has_exe" != true || "$has_latest" != true ]]; then
+            echo "::error::Expected .dmg, .exe, and latest.json on $public_repo release $tag"
+            echo "Found:"
+            echo "$asset_names"
+            exit 1
+          fi
+
+          body="$(echo "$assets_json" | jq -r '.body // empty')"
+          if [[ -z "$body" ]]; then
+            echo "::warning::Release $tag has empty notes — edit them on $public_repo before users update"
+          fi
+
+          title="$(echo "$assets_json" | jq -r '.name // empty')"
+          echo "Verified public release: $title ($tag)"
