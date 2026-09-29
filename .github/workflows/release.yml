@@ -97,7 +97,7 @@ jobs:
             Built from this tag via GitHub Actions.
           releaseDraft: false
           prerelease: false
-          includeUpdaterJson: true
+          uploadUpdaterJson: true
           # Windows updates through the NSIS installer (see `installMode`).
           updaterJsonPreferNsis: true
           tauriScript: bun run tauri
