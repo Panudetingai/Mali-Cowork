@@ -82,8 +82,8 @@ jobs:
         with:
           owner: Panudetingai
           repo: Mali-Cowork-Releases
-          # Tags the releases repo's own branch: this repo's commits aren't there.
-          commitish: main
+          # Tag is created from this branch on Mali-Cowork-Releases (not this private repo).
+          releaseCommitish: main
           # The pushed tag; a manual run releases the version in tauri.conf.json.
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
           releaseName: Mali Cowork v__VERSION__
