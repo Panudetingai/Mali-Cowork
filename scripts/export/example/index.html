@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Export Example</title>
+  <!--
+    Example scene for scripts/export/export-video.mjs
+    Three.js (scene/camera/light) + GLSL shader background + GSAP timelines.
+
+    It implements the window.__EXPORT__ bridge:
+      list()                         -> { target: { action: durationSec } }
+      prepare({ target, action, … }) -> durationSec
+      seek(timeSec)                  -> render exactly that moment
+
+    Open it in a browser (via any static server) to preview; the exporter
+    drives it frame by frame.
+  -->
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d17; }
+    canvas { display: block; width: 100%; height: 100%; }
+    #title {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; pointer-events: none;
+      font-family: "Inter", "Sarabun", "Thonburi", system-ui, sans-serif; color: #fff;
+    }
+    #title h1 { margin: 0; font-size: 120px; font-weight: 800; letter-spacing: -0.03em; }
+    #title h1 span { display: inline-block; }
+    #title p { margin: 16px 0 0; font-size: 40px; opacity: 0.85; }
+    #preview {
+      position: absolute; top: 12px; left: 12px; display: flex; gap: 8px;
+      font: 14px system-ui, sans-serif;
+    }
+    #preview[hidden] { display: none; }
+    #preview select, #preview button { padding: 6px 10px; border-radius: 6px; border: 0; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "gsap": "https://cdn.jsdelivr.net/npm/gsap@3.12.5/+esm"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+  <div id="title">
+    <h1 id="title-text">Mali Cowork</h1>
+    <p id="title-sub">สร้างวิดีโอด้วยโค้ด · Code-driven video</p>
+  </div>
+  <div id="preview" hidden>
+    <select id="pick"></select>
+    <button id="replay">▶ Replay</button>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { gsap } from 'gsap';
+
+    const params = new URLSearchParams(location.search);
+    const exporting = params.has('export');
+
+    // ---------------------------------------------------------------- scene
+    const canvas = document.getElementById('stage');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(35, 16 / 9, 0.1, 100);
+    camera.position.set(0, 2, 11);
+    camera.lookAt(0, 1.6, 0);
+
+    scene.add(new THREE.HemisphereLight(0xbcd4ff, 0x1a1030, 1.2));
+    const key = new THREE.DirectionalLight(0xffffff, 2.2);
+    key.position.set(4, 6, 5);
+    scene.add(key);
+
+    // GLSL background: time-driven gradient waves (uTime is set from seek()).
+    const bg = new THREE.Mesh(
+      new THREE.PlaneGeometry(2, 2),
+      new THREE.ShaderMaterial({
+        depthWrite: false,
+        depthTest: false,
+        uniforms: { uTime: { value: 0 }, uAspect: { value: 16 / 9 } },
+        vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.9999, 1.0); }`,
+        fragmentShader: `
+          varying vec2 vUv; uniform float uTime; uniform float uAspect;
+          void main(){
+            vec2 p = (vUv - 0.5) * vec2(uAspect, 1.0);
+            float w = sin(p.x * 3.0 + uTime * 0.8) * 0.15 + sin(p.y * 4.0 - uTime * 0.6) * 0.1;
+            float r = length(p + vec2(w, -w));
+            vec3 a = vec3(0.05, 0.06, 0.15), b = vec3(0.35, 0.18, 0.65), c = vec3(0.05, 0.55, 0.75);
+            vec3 col = mix(b, c, smoothstep(0.0, 1.0, vUv.x + w));
+            col = mix(col, a, smoothstep(0.2, 0.95, r));
+            gl_FragColor = vec4(col, 1.0);
+          }`,
+      }),
+    );
+    bg.frustumCulled = false;
+    bg.renderOrder = -1;
+    scene.add(bg);
+
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(2.2, 64), new THREE.MeshStandardMaterial({ color: 0x1b1f3a, roughness: 0.9 }));
+    floor.rotation.x = -Math.PI / 2;
+    scene.add(floor);
+
+    // ---------------------------------------------------------------- robot
+    const mat = (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.2 });
+    const box = (w, h, d, m) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+    const robot = new THREE.Group();
+    const body = box(1.1, 1.2, 0.7, mat(0xf2b134));
+    body.position.y = 1.4;
+    const head = box(0.8, 0.7, 0.7, mat(0xfafafa));
+    head.position.y = 0.95;
+    body.add(head);
+    for (const x of [-0.18, 0.18]) {
+      const eye = box(0.12, 0.12, 0.05, mat(0x222244));
+      eye.position.set(x, 0.05, 0.36);
+      head.add(eye);
+    }
+    const limb = (x, y, len, color) => {
+      const pivot = new THREE.Group();
+      pivot.position.set(x, y, 0);
+      const m = box(0.28, len, 0.28, mat(color));
+      m.position.y = -len / 2;
+      pivot.add(m);
+      return pivot;
+    };
+    const armL = limb(-0.72, 0.45, 0.9, 0xe0e0e0);
+    const armR = limb(0.72, 0.45, 0.9, 0xe0e0e0);
+    const legL = limb(-0.28, -0.6, 0.8, 0x3a3f6b);
+    const legR = limb(0.28, -0.6, 0.8, 0x3a3f6b);
+    body.add(armL, armR, legL, legR);
+    robot.add(body);
+    scene.add(robot);
+
+    // ---------------------------------------------------------------- title (DOM)
+    const titleEl = document.getElementById('title');
+    const h1 = document.getElementById('title-text');
+    h1.innerHTML = [...h1.textContent].map((c) => `<span>${c === ' ' ? '&nbsp;' : c}</span>`).join('');
+    const letters = h1.querySelectorAll('span');
+    const sub = document.getElementById('title-sub');
+
+    // ---------------------------------------------------------------- actions
+    function resetPose() {
+      robot.position.set(0, 0, 0);
+      head.rotation.set(0, 0, 0);
+      robot.rotation.set(0, 0, 0);
+      body.position.set(0, 1.4, 0);
+      body.scale.set(1, 1, 1);
+      for (const l of [armL, armR, legL, legR]) l.rotation.set(0, 0, 0);
+      gsap.set(letters, { clearProps: 'all' });
+      gsap.set(sub, { clearProps: 'all' });
+    }
+
+    // Every action is a paused GSAP timeline: fully deterministic, seekable to any time.
+    const ACTIONS = {
+      robot: {
+        wave: () =>
+          gsap.timeline({ paused: true })
+            .to(armR.rotation, { z: 2.6, duration: 0.5, ease: 'back.out(2)' })
+            .to(armR.rotation, { z: 2.1, duration: 0.25, yoyo: true, repeat: 5, ease: 'sine.inOut' })
+            .to(head.rotation, { z: -0.15, duration: 0.4, ease: 'sine.inOut' }, 0.3)
+            .to(armR.rotation, { z: 0, duration: 0.5, ease: 'power2.inOut' })
+            .to(head.rotation, { z: 0, duration: 0.4 }, '<'),
+        jump: () =>
+          gsap.timeline({ paused: true })
+            .to(body.scale, { y: 0.8, x: 1.12, duration: 0.3, ease: 'power2.in' })
+            .to([armL.rotation, armR.rotation], { z: (i) => (i ? 2.8 : -2.8), duration: 0.3 }, '<')
+            .to(body.scale, { y: 1.1, x: 0.94, duration: 0.2 })
+            .to(robot.position, { y: 1.6, duration: 0.45, ease: 'power2.out' }, '<')
+            .to([legL.rotation, legR.rotation], { x: (i) => (i ? 0.5 : -0.5), duration: 0.3 }, '<')
+            .to(robot.position, { y: 0, duration: 0.4, ease: 'power2.in' })
+            .to([legL.rotation, legR.rotation], { x: 0, duration: 0.3 }, '<')
+            .to(body.scale, { y: 0.82, x: 1.1, duration: 0.12 })
+            .to([armL.rotation, armR.rotation], { z: 0, duration: 0.5, ease: 'back.out(2)' }, '<')
+            .to(body.scale, { y: 1, x: 1, duration: 0.5, ease: 'elastic.out(1, 0.4)' }),
+        spin: () =>
+          gsap.timeline({ paused: true })
+            .to(robot.rotation, { y: Math.PI * 4, duration: 2, ease: 'power3.inOut' })
+            .to([armL.rotation, armR.rotation], { z: (i) => (i ? 1.4 : -1.4), duration: 0.6, ease: 'power2.out' }, 0)
+            .to([armL.rotation, armR.rotation], { z: 0, duration: 0.6, ease: 'power2.in' }, 1.4)
+            .to({}, { duration: 0.3 }),
+      },
+      title: {
+        intro: () =>
+          gsap.timeline({ paused: true })
+            .from(letters, { y: 80, opacity: 0, rotateX: -80, duration: 0.8, stagger: 0.05, ease: 'back.out(1.8)' })
+            .from(sub, { y: 20, opacity: 0, duration: 0.6, ease: 'power2.out' }, '-=0.3')
+            .to({}, { duration: 1.2 })
+            .to([letters, sub], { opacity: 0, y: -30, duration: 0.5, stagger: 0.02, ease: 'power2.in' }),
+      },
+    };
+
+    let tl = null;
+    let current = { target: 'robot', action: 'wave' };
+
+    function prepare({ target, action } = {}) {
+      target = target ?? 'robot';
+      action = action ?? Object.keys(ACTIONS[target])[0];
+      if (!ACTIONS[target]?.[action]) throw new Error(`Unknown ${target}/${action}`);
+      tl?.kill();
+      resetPose();
+      current = { target, action };
+      robot.visible = floor.visible = target === 'robot';
+      titleEl.style.visibility = target === 'title' ? 'visible' : 'hidden';
+      tl = ACTIONS[target][action]();
+      return tl.duration();
+    }
+
+    function resize() {
+      const w = window.innerWidth, h = window.innerHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      bg.material.uniforms.uAspect.value = w / h;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    function draw(time) {
+      bg.material.uniforms.uTime.value = time;
+      renderer.render(scene, camera);
+    }
+
+    // ---------------------------------------------------------------- export bridge
+    window.__EXPORT__ = {
+      list() {
+        const out = {};
+        for (const [t, acts] of Object.entries(ACTIONS)) {
+          out[t] = {};
+          for (const [a, make] of Object.entries(acts)) {
+            const probe = make();
+            out[t][a] = Number(probe.duration().toFixed(3));
+            probe.kill();
+          }
+        }
+        resetPose();
+        return out;
+      },
+      prepare,
+      seek(time) {
+        tl.time(time, false);
+        draw(time);
+      },
+    };
+
+    // ---------------------------------------------------------------- live preview
+    prepare({ target: params.get('target') ?? undefined, action: params.get('action') ?? undefined });
+    if (!exporting) {
+      const pick = document.getElementById('pick');
+      for (const [t, acts] of Object.entries(ACTIONS)) for (const a of Object.keys(acts)) pick.add(new Option(`${t} / ${a}`, `${t}/${a}`));
+      pick.value = `${current.target}/${current.action}`;
+      const play = () => { const [target, action] = pick.value.split('/'); prepare({ target, action }); tl.play(0); };
+      pick.onchange = play;
+      document.getElementById('replay').onclick = play;
+      document.getElementById('preview').hidden = false;
+      tl.play(0);
+      const start = performance.now();
+      renderer.setAnimationLoop(() => draw((performance.now() - start) / 1000));
+    } else {
+      draw(0);
+    }
+  </script>
+</body>
+</html>

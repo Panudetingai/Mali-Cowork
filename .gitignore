@@ -33,3 +33,6 @@ _aisdk-upstream-pr/
 
 # Sidecar staged by scripts/build-sidecar.mjs
 src-tauri/binaries/
+
+# Video exports from scripts/export/export-video.mjs
+/exports/

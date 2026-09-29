@@ -9,6 +9,7 @@
     "build": "tsc && vite build",
     "build:sidecar": "node scripts/build-sidecar.mjs",
     "dev:sidecar": "node scripts/build-sidecar.mjs --debug",
+    "export:video": "node scripts/export/export-video.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "bun test src"
