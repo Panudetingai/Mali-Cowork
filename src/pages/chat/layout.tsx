@@ -215,7 +215,8 @@ export default function ChatLayout() {
             <div
               className={cn(
                 "relative mt-5 min-h-0 flex-1",
-                hasMessages ? "flex min-h-0 flex-col overflow-hidden" : "flex items-center justify-center",
+                // Empty: centred while it fits; on a short window it scrolls instead of running under the bars below.
+                hasMessages ? "flex min-h-0 flex-col overflow-hidden" : "flex flex-col overflow-x-hidden overflow-y-auto",
               )}
             >
               <AnimatePresence initial={false}>
@@ -226,7 +227,7 @@ export default function ChatLayout() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: reduceMotion ? 0 : -6 }}
                     transition={{ duration: 0.2, ease: viewEase }}
-                    className="flex flex-col items-center gap-4"
+                    className="my-auto flex w-full flex-col items-center gap-4 py-2 [@media(max-height:720px)]:gap-2"
                   >
 
                     {/* The bots play around these, never over them. */}
