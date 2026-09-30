@@ -14,6 +14,7 @@ import {
 } from "@/features/opencode";
 import { mediaGenerateStream } from "@/features/media";
 import { requestConfigFor } from "@/features/providers";
+import { beginCliLead, CLI_LEAD_NOTE, endCliLead, maybeReflect, teamActive, teamPayload } from "@/features/team";
 import { recordUsage } from "@/features/usage/ledger";
 import type { AgentUsage } from "../types";
 import {
@@ -117,7 +118,7 @@ export function runModelIdFor(modelId: string, _mode?: WorkMode): string {
 export function runsOnMaliAgent(modelId: string, mode: WorkMode) {
   const api = apiModelOf(modelId);
   if (!api || mediaKindForId(modelId, getOpencodeModels())) return false;
-  return mode === "cowork" || hasHubMcp();
+  return mode === "cowork" || hasHubMcp() || teamActive();
 }
 
 /**
@@ -148,8 +149,13 @@ export async function generateStream(
   const firstToken = () => {
     firstTokenMs ??= performance.now() - started;
   };
+  // Team mode with a CLI lead: the team reaches it through Mali's gateway for this run.
+  const cliLead = await beginCliLead(request, handlers).catch(() => false);
+  const routed = cliLead
+    ? { ...request, instructions: [request.instructions, CLI_LEAD_NOTE].filter(Boolean).join("\n\n") }
+    : request;
   try {
-    await routeStream(request, {
+    await routeStream(routed, {
       ...handlers,
       onChunk: (text) => {
         firstToken();
@@ -176,6 +182,9 @@ export async function generateStream(
     });
   } finally {
     record();
+    if (cliLead) void endCliLead(request.runId);
+    // Team mode: the lead's notebook catches up with what the user works on.
+    if (teamActive()) maybeReflect(request.modelId);
   }
 }
 
@@ -274,6 +283,12 @@ async function routeStream(
         vision: !!getOpencodeModels()
           ?.models.find((m) => m.id === `${api.provider}/${api.model}`)
           ?.input?.includes("image"),
+        // Team mode: this model leads, and hands each job to the bot whose duty it is.
+        ...(await teamPayload(
+          request.mode,
+          request.mode === "cowork" ? request.cwd : undefined,
+          request.mode === "cowork" ? (request.folders ?? []) : [],
+        )),
       },
       handlers,
     );

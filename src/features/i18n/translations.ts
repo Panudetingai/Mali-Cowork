@@ -79,6 +79,8 @@ export const translations = {
     tabMcpDesc: "Apps & MCP tools",
     tabFolders: "Folders",
     tabFoldersDesc: "Disk access",
+    tabTeam: "Team",
+    tabTeamDesc: "Bots the lead works with",
 
     // General Settings
     languageSectionTitle: "Language & Font",
@@ -218,6 +220,8 @@ export const translations = {
     tabMcpDesc: "แอปและเครื่องมือ MCP",
     tabFolders: "โฟลเดอร์",
     tabFoldersDesc: "การเข้าถึงไฟล์ในเครื่อง",
+    tabTeam: "ทีม",
+    tabTeamDesc: "บอทที่หัวหน้าทำงานด้วย",
 
     // General Settings
     languageSectionTitle: "ภาษาและแบบอักษร",

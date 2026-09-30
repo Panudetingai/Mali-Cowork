@@ -6,9 +6,11 @@ import {
   type WorkMode,
 } from "@/features/opencode";
 import { ChildTaskAlerts, useChildTaskRequests } from "@/features/tasks";
+import { ProposalCard, useTeam } from "@/features/team";
 import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
 import type { RefObject } from "react";
+import { useNavigate } from "react-router-dom";
 import type { PermissionRequest, QuestionRequest } from "../api/chat";
 import type { SendMessage } from "../hooks/use-chat";
 import type { AiModel, ContextBudget } from "../models";
@@ -72,6 +74,12 @@ export function ChatComposer({
   // but never over this chat's own (both answer to ⌘↵ / Esc).
   const childWaiting = useChildTaskRequests(session?.id).length > 0 && !hasPermission && !hasQuestion;
   const waiting = hasPermission || hasQuestion || childWaiting;
+  // Team mode: bots the lead proposed in this chat, until the user decides.
+  const navigate = useNavigate();
+  // Bots the notebook suggested wait on a fresh chat.
+  const proposals = useTeam().proposals.filter((p) =>
+    session && p.chatId ? p.chatId === session.id : !!p.fromNotebook && messages.length === 0,
+  );
 
   const replyPermission = async (request: PermissionRequest, reply: PermissionReply) => {
     await onReplyPermission(request, reply);
@@ -94,6 +102,13 @@ export function ChatComposer({
         </div>
       )}
       {childWaiting && <ChildTaskAlerts chatId={session?.id} />}
+      {!waiting && proposals.length > 0 && (
+        <div className="mb-2 flex flex-col gap-2">
+          {proposals.map((p) => (
+            <ProposalCard key={p.id} proposal={p} onReview={() => navigate("/settings?tab=team")} className="bg-background" />
+          ))}
+        </div>
+      )}
       <motion.div
         layout
         transition={{ type: "spring", stiffness: 420, damping: 34 }}

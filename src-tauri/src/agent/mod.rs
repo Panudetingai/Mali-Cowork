@@ -6,6 +6,7 @@
 //! It streams the same [`ChatStreamEvent`]s as the other agents, so the chat,
 //! its steps, the permission cards and the Task Inbox work unchanged.
 
+pub(crate) mod coach;
 mod compact;
 pub(crate) mod images;
 pub(crate) mod paths;
@@ -13,6 +14,8 @@ mod permissions;
 mod provider;
 mod questions;
 mod session;
+pub(crate) mod team;
+pub(crate) mod team_gateway;
 mod tools;
 pub(crate) mod wire;
 
@@ -85,6 +88,26 @@ pub struct AgentRequest {
     /// The model takes pictures: it gets `view_image`, and sees what tools return.
     #[serde(default)]
     pub vision: bool,
+    /// Team mode: this run is the lead, and hands work to `team` (see [`team`]).
+    #[serde(default)]
+    pub lead: bool,
+    #[serde(default)]
+    pub team: Vec<team::Teammate>,
+    /// Titles of the user's recent chats, which tell the lead what they work on.
+    #[serde(default)]
+    pub recent_work: Vec<String>,
+    /// Teammates the lead proposed and the user turned down.
+    #[serde(default)]
+    pub declined: Vec<String>,
+    /// A teammate's run: the file and command tools its role allows.
+    #[serde(skip)]
+    pub tool_scope: Option<team::ToolScope>,
+    /// Team mode: a stronger model that writes and coaches bots for the lead.
+    #[serde(default)]
+    pub coach: Option<coach::CoachModel>,
+    /// Team mode: the lead's notebook — what the user keeps working on.
+    #[serde(default)]
+    pub notebook: Vec<String>,
 }
 
 fn yes() -> bool {
@@ -109,12 +132,13 @@ pub fn abort(run_id: &str) -> bool {
 
 /// Answer a permission card the agent is waiting on.
 pub fn reply_permission(id: &str, reply: &str) -> bool {
-    permissions::reply(id, reply)
+    // A card from an OpenCode teammate is answered in OpenCode.
+    permissions::reply(id, reply) || team::reply_forwarded(id, reply)
 }
 
 /// Answer a question the agent asked; empty answers withdraw it.
 pub fn answer_question(id: &str, answers: Vec<Vec<String>>) -> bool {
-    questions::answer(id, answers)
+    questions::answer(id, answers.clone()) || team::answer_forwarded(id, answers)
 }
 
 /// Used when the app doesn't know the model's window.
@@ -122,6 +146,25 @@ const DEFAULT_CONTEXT: u64 = 128_000;
 
 fn wire_for(provider: &str) -> Wire {
     if provider == "anthropic" { Wire::Anthropic } else { Wire::OpenAi }
+}
+
+/// Everything needed to call one model with the user's key.
+pub(crate) fn target_for(
+    provider: &str,
+    model: &str,
+    api_key: Option<&str>,
+    base_url: Option<&str>,
+    effort: Option<String>,
+) -> Result<ModelTarget, String> {
+    let (base_url, api_key) = crate::ai::endpoint(provider, api_key, base_url)?;
+    Ok(ModelTarget {
+        wire: wire_for(provider),
+        provider: provider.to_string(),
+        model: model.trim().to_string(),
+        base_url,
+        api_key,
+        effort: effort.filter(|e| !e.trim().is_empty()),
+    })
 }
 
 fn os_name() -> &'static str {
@@ -288,7 +331,8 @@ fn usage_event(usage: &Usage) -> AgentUsage {
 }
 
 /// Run one prompt to the end. Errors go out as an `Error` event.
-pub async fn generate(request: AgentRequest, on_event: Channel<ChatStreamEvent>) -> Result<(), String> {
+pub async fn generate(mut request: AgentRequest, on_event: Channel<ChatStreamEvent>) -> Result<(), String> {
+    team::settle(&mut request.team);
     let (tx, mut cancel) = watch::channel(false);
     runs().lock().unwrap().insert(request.run_id.clone(), tx);
     let result = run(&request, &on_event, &mut cancel).await;
@@ -315,16 +359,13 @@ async fn run(
     if prompt.is_empty() {
         return Err("Prompt cannot be empty.".into());
     }
-    let (base_url, api_key) =
-        crate::ai::endpoint(&request.provider, request.api_key.as_deref(), request.base_url.as_deref())?;
-    let target = ModelTarget {
-        wire: wire_for(&request.provider),
-        provider: request.provider.clone(),
-        model: request.model.trim().to_string(),
-        base_url,
-        api_key,
-        effort: request.effort.clone().filter(|e| !e.trim().is_empty()),
-    };
+    let target = target_for(
+        &request.provider,
+        &request.model,
+        request.api_key.as_deref(),
+        request.base_url.as_deref(),
+        request.effort.clone(),
+    )?;
     let scope = if request.cowork() {
         let cwd = request.cwd.as_deref().filter(|c| !c.trim().is_empty()).ok_or("Pick the folder Cowork works in first.")?;
         Some(Scope::new(cwd, &request.folders)?)
@@ -346,8 +387,12 @@ async fn run(
         model: None,
     });
 
+    // A lead doesn't get its teammates' connectors: their work goes to them.
+    let owned = if request.lead { team::owned_connectors(&request.team) } else { Default::default() };
+    let mcp: Vec<McpServerEntry> = request.mcp.iter().filter(|s| !owned.contains(&s.id)).cloned().collect();
+
     // Connectors: Mali's hub reaches them; a first start can take a while.
-    let wants_mcp = request.mcp.iter().any(|s| s.enabled && !mcp_hub::AGENT_ONLY_ELSEWHERE.contains(&s.id.as_str()));
+    let wants_mcp = mcp.iter().any(|s| s.enabled && !mcp_hub::AGENT_ONLY_ELSEWHERE.contains(&s.id.as_str()));
     let (hub_tools, unavailable) = if wants_mcp {
         let t0 = Instant::now();
         let step = |done: bool, detail: Option<String>, duration_ms: Option<u64>| ChatStreamEvent::Activity {
@@ -358,7 +403,7 @@ async fn run(
             done,
             duration_ms,
         };
-        let lookup = mcp_hub::tools(&request.mcp);
+        let lookup = mcp_hub::tools(&mcp);
         tokio::pin!(lookup);
         // Already connected is instant; only a real wait (a first start) shows as a step.
         let mut shown = false;
@@ -386,6 +431,12 @@ async fn run(
     let hub: HashMap<String, &mcp_hub::HubTool> = hub_tools.iter().map(|t| (t.name.clone(), t)).collect();
 
     let mut specs = if scope.is_some() { tools::specs() } else { Vec::new() };
+    if let Some(allowed) = request.tool_scope {
+        specs.retain(|t| allowed.allows(&t.name));
+    }
+    if request.lead {
+        specs.extend(team::specs(request));
+    }
     specs.push(questions::spec());
     if request.vision {
         specs.push(images::spec());
@@ -398,12 +449,14 @@ async fn run(
     let system = match &scope {
         Some(scope) => system_prompt(request, scope),
         None => chat_system_prompt(request),
-    } + &connectors_note(&connected, &unavailable);
+    } + &connectors_note(&connected, &unavailable)
+        + &if request.lead { team::lead_note(request) } else { String::new() };
 
     let mut usage = Usage::default();
     let mut outcome: Result<(), String> = Ok(());
     let mut steps = 0;
     let mut nudges = 0;
+    let mut handoffs = 0;
     loop {
         if *cancel.borrow() {
             break;
@@ -513,9 +566,33 @@ async fn run(
                 });
                 continue;
             }
+            if !specs.iter().any(|t| t.name == call.name) {
+                session.messages.push(Msg::Tool {
+                    call_id: call.id.clone(),
+                    name: call.name.clone(),
+                    content: format!("There is no tool named {} here. Use only the tools you were given.", call.name),
+                    is_error: true,
+                    images: Vec::new(),
+                });
+                continue;
+            }
             let hub_tool = hub.get(&call.name).copied();
+            let mate = (call.name == team::DELEGATE).then(|| team::teammate_of(&request.team, &call.args)).flatten();
+            // A hand-off shows as the teammate's own step.
+            let step_id = match mate {
+                Some(mate) => team::step_id(&mate.id, &call.id),
+                None => call.id.clone(),
+            };
             let title = match (hub_tool, &scope) {
                 _ if call.name == questions::NAME => "Ask: the user".to_string(),
+                _ if call.name == team::DELEGATE => format!("Team: {}", mate.map(|m| m.name.as_str()).unwrap_or("teammate")),
+                _ if call.name == team::PROPOSE => format!(
+                    "Team: propose {}",
+                    call.args["name"].as_str().or(call.args["need"].as_str()).unwrap_or("a teammate")
+                ),
+                _ if call.name == team::COACH => {
+                    format!("Team: coach {}", team::teammate_of(&request.team, &call.args).map(|m| m.name.as_str()).unwrap_or("a teammate"))
+                }
                 _ if call.name == images::NAME => format!(
                     "View: {}",
                     call.args["source"].as_str().map(|s| s.split('?').next().unwrap_or(s)).unwrap_or("picture")
@@ -526,7 +603,7 @@ async fn run(
                 (None, None) => format!("Tool: {}", call.name),
             };
             let _ = on_event.send(ChatStreamEvent::Activity {
-                id: Some(call.id.clone()),
+                id: Some(step_id.clone()),
                 kind: "tool".into(),
                 title: title.clone(),
                 detail: None,
@@ -535,6 +612,33 @@ async fn run(
             });
             let t0 = Instant::now();
             let out = match (hub_tool, &scope) {
+                _ if call.name == team::DELEGATE && handoffs >= team::MAX_DELEGATIONS => tools::Outcome::err(format!(
+                    "That's {} hand-offs for this request, the most allowed. Finish with what the team has, and tell the user what's left.",
+                    team::MAX_DELEGATIONS
+                )),
+                _ if call.name == team::DELEGATE => {
+                    handoffs += 1;
+                    let mut always = std::mem::take(&mut session.always);
+                    let mut sessions = std::mem::take(&mut session.team_sessions);
+                    let out = team::delegate(
+                        call,
+                        team::Handoff {
+                            lead: request,
+                            step: &step_id,
+                            always: &mut always,
+                            sessions: &mut sessions,
+                            usage: &mut usage,
+                            on_event,
+                            cancel: &mut *cancel,
+                        },
+                    )
+                    .await;
+                    session.always = always;
+                    session.team_sessions = sessions;
+                    out
+                }
+                _ if call.name == team::PROPOSE => team::propose(call, request, on_event, &mut usage, &mut *cancel).await,
+                _ if call.name == team::COACH => team::coach(call, request, on_event, &mut usage, &mut *cancel).await,
                 _ if call.name == questions::NAME => {
                     let directory = scope.as_ref().map(|s| s.cwd.to_string_lossy().to_string()).unwrap_or_default();
                     match questions::ask(&call.args, &directory, on_event, cancel).await {
@@ -571,7 +675,7 @@ async fn run(
                 out.content.push_str("\n[A picture came back, but this model can't see pictures.]");
             }
             let _ = on_event.send(ChatStreamEvent::Activity {
-                id: Some(call.id.clone()),
+                id: Some(step_id),
                 kind: "tool".into(),
                 title: if out.is_error { format!("{title} (failed)") } else { title },
                 detail: out.detail,
@@ -714,6 +818,13 @@ mod tests {
             images: vec![],
             context_limit: None,
             vision: false,
+            lead: false,
+            team: vec![],
+            recent_work: vec![],
+            declined: vec![],
+            tool_scope: None,
+            coach: None,
+            notebook: vec![],
             cwd: Some(dir.to_string_lossy().into()),
             folders: vec![],
             instructions: None,
@@ -787,6 +898,13 @@ mod tests {
             images: vec![],
             context_limit: None,
             vision: false,
+            lead: false,
+            team: vec![],
+            recent_work: vec![],
+            declined: vec![],
+            tool_scope: None,
+            coach: None,
+            notebook: vec![],
             cwd: Some(dir.to_string_lossy().into()),
             folders: vec![],
             instructions: None,
@@ -860,6 +978,13 @@ done
             images: vec![],
             context_limit: None,
             vision: false,
+            lead: false,
+            team: vec![],
+            recent_work: vec![],
+            declined: vec![],
+            tool_scope: None,
+            coach: None,
+            notebook: vec![],
             cwd: None,
             folders: vec![],
             instructions: None,
@@ -922,6 +1047,13 @@ done
             images: vec![],
             context_limit: Some(6_000),
             vision: false,
+            lead: false,
+            team: vec![],
+            recent_work: vec![],
+            declined: vec![],
+            tool_scope: None,
+            coach: None,
+            notebook: vec![],
             cwd: Some(dir.to_string_lossy().into()),
             folders: vec![],
             instructions: None,
@@ -962,6 +1094,13 @@ done
             images: vec![],
             context_limit: None,
             vision: false,
+            lead: false,
+            team: vec![],
+            recent_work: vec![],
+            declined: vec![],
+            tool_scope: None,
+            coach: None,
+            notebook: vec![],
             cwd: Some(dir.to_string_lossy().into()),
             folders: vec![],
             instructions: None,
@@ -1018,6 +1157,165 @@ done
         assert!(events.contains("stopped without finishing"), "{events}");
         assert_eq!(seen.lock().unwrap().len(), 1 + MAX_NUDGES);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn teammate(base: &str, id: &str, approved: bool) -> team::Teammate {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "name": id.to_uppercase(), "role": "design in Canva",
+            "provider": "openai", "model": "mate-model", "apiKey": "sk-mate", "baseUrl": base,
+            "tools": "read", "approved": approved
+        }))
+        .unwrap()
+    }
+
+    fn delegate_call(id: &str) -> String {
+        use serde_json::json;
+        let args = json!({"teammate": id, "task": "Make a coffee post", "context": "Brand colours: brown"}).to_string();
+        sse(&[json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_team","function":{"name":"delegate_task","arguments":args}}]}}]})])
+    }
+
+    /// The lead hands a job to a teammate, which runs on its own model and
+    /// tools, and the lead gets its report back.
+    #[tokio::test]
+    async fn the_lead_hands_a_job_to_a_teammate() {
+        use serde_json::json;
+        let dir = std::env::temp_dir().join(format!("mali-team-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let report = sse(&[json!({"choices":[{"delta":{"content":"Designed it: https://canva.example/d/1"}}]})]);
+        let done = sse(&[json!({"choices":[{"delta":{"content":"Momo made the post."}}]})]);
+        let (base, seen) = mock_server(vec![delegate_call("momo"), report, done]).await;
+        let mut request = quiet_request(base.clone(), &dir, "test-team");
+        request.lead = true;
+        request.team = vec![teammate(&base, "momo", true)];
+        let (channel, events) = collect();
+        generate(request, channel).await.unwrap();
+
+        let events = events.lock().unwrap().join("\n");
+        assert!(events.contains("Momo made the post."), "{events}");
+        assert!(events.contains("team:momo:call_team"), "{events}");
+        assert!(events.contains("team:momo:call_team:brief") && events.contains("Brand colours: brown"), "the brief shows: {events}");
+        assert!(!events.contains("\"permission\""), "an approved teammate starts without asking: {events}");
+        let seen = seen.lock().unwrap();
+        let lead: serde_json::Value = serde_json::from_str(&seen[0]).unwrap();
+        let mate: serde_json::Value = serde_json::from_str(&seen[1]).unwrap();
+        let back: serde_json::Value = serde_json::from_str(&seen[2]).unwrap();
+        let tools = |body: &serde_json::Value| body["tools"].to_string();
+        assert!(tools(&lead).contains("delegate_task"));
+        assert_eq!(mate["model"], "mate-model");
+        assert!(!tools(&mate).contains("delegate_task"), "a teammate never hands work on");
+        assert!(!tools(&mate).contains("write_file") && tools(&mate).contains("read_file"), "read scope");
+        assert!(mate["messages"][0]["content"].as_str().unwrap().contains("Your duty: design in Canva"));
+        assert!(back.to_string().contains("Report from MOMO"), "{back}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A teammate that isn't on the chat's team needs the user's OK; without it, it doesn't run.
+    #[tokio::test]
+    async fn a_teammate_off_the_team_waits_for_the_user() {
+        use serde_json::json;
+        let dir = std::env::temp_dir().join(format!("mali-team2-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let done = sse(&[json!({"choices":[{"delta":{"content":"OK, I won't."}}]})]);
+        let (base, seen) = mock_server(vec![delegate_call("momo"), done]).await;
+        let mut request = quiet_request(base.clone(), &dir, "test-team2");
+        request.lead = true;
+        request.team = vec![teammate(&base, "momo", false)];
+        let events = std::sync::Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = events.clone();
+        let channel = Channel::new(move |body| {
+            if let tauri::ipc::InvokeResponseBody::Json(text) = body {
+                let event: serde_json::Value = serde_json::from_str(&text).unwrap();
+                if event["event"] == "permission" {
+                    assert_eq!(event["data"]["permission"], "team");
+                    reply_permission(event["data"]["id"].as_str().unwrap(), "reject");
+                }
+                sink.lock().unwrap().push(text);
+            }
+            Ok(())
+        });
+        generate(request, channel).await.unwrap();
+        let events = events.lock().unwrap().join("\n");
+        assert!(events.contains("OK, I won't."), "{events}");
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2, "the teammate's model was never called");
+        assert!(seen[1].contains("didn't allow MOMO"), "{}", seen[1]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A lead that only knows what's missing asks the coach, a different model, to write the bot.
+    #[tokio::test]
+    async fn the_coach_writes_the_bot_a_weak_lead_asks_for() {
+        use serde_json::json;
+        let dir = std::env::temp_dir().join(format!("mali-coach-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let args = json!({"need": "someone to write IG captions; the user asked in 4 chats"}).to_string();
+        let lead_asks = sse(&[json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_p","function":{"name":"propose_teammate","arguments":args}}]}}]})]);
+        let bot = json!({"name": "Mikan Captions", "role": "Writes Instagram captions.", "instructions": "1. Read the brief.\n2. Write 3 options.",
+            "reason": "You asked for captions in 4 chats.", "tools": "none", "connectors": []}).to_string();
+        let coach_writes = sse(&[json!({"choices":[{"delta":{"content": format!("Here it is:\n```json\n{bot}\n```")}}]})]);
+        let done = sse(&[json!({"choices":[{"delta":{"content":"I proposed a caption bot."}}]})]);
+        let (base, seen) = mock_server(vec![lead_asks, coach_writes, done]).await;
+        let mut request = quiet_request(base.clone(), &dir, "test-coach");
+        request.lead = true;
+        request.coach = Some(serde_json::from_value(json!({"provider": "openai", "model": "coach-model", "apiKey": "sk-c", "baseUrl": base})).unwrap());
+        let (channel, events) = collect();
+        generate(request, channel).await.unwrap();
+
+        let events = events.lock().unwrap().join("\n");
+        assert!(events.contains("teammateProposal") && events.contains("Mikan Captions"), "{events}");
+        assert!(events.contains("2. Write 3 options"), "the coach's instructions reach the card: {events}");
+        let seen = seen.lock().unwrap();
+        let coach: serde_json::Value = serde_json::from_str(&seen[1]).unwrap();
+        assert_eq!(coach["model"], "coach-model");
+        assert!(seen[1].contains("someone to write IG captions"));
+        assert!(seen[2].contains("written by the coach"), "{}", seen[2]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The notebook: patterns with the chats behind them, and what the user removed stays out.
+    #[tokio::test]
+    async fn the_notebook_learns_what_the_user_keeps_doing() {
+        use serde_json::json;
+        let reply = json!([{"pattern": "Coffee promo posts", "evidence": ["IG coffee", "TikTok coffee"], "count": 2}]).to_string();
+        let (base, seen) = mock_server(vec![sse(&[json!({"choices":[{"delta":{"content": reply}}]})])]).await;
+        let model: coach::CoachModel = serde_json::from_value(json!({"provider": "openai", "model": "m", "apiKey": "k", "baseUrl": base})).unwrap();
+        let chats: Vec<coach::ChatDigest> = serde_json::from_value(json!([
+            {"title": "IG coffee", "asked": "make a coffee promo"}, {"title": "TikTok coffee"}
+        ]))
+        .unwrap();
+        let (_tx, mut cancel) = watch::channel(false);
+        let mut usage = Usage::default();
+        let notebook = coach::reflect(&model, &chats, &[], &["Taxes".into()], &mut usage, &mut cancel).await.unwrap();
+        assert_eq!(notebook[0].pattern, "Coffee promo posts");
+        assert_eq!(notebook[0].count, 2);
+        let sent = seen.lock().unwrap()[0].clone();
+        assert!(sent.contains("make a coffee promo") && sent.contains("leave them out: Taxes"), "{sent}");
+    }
+
+    /// Enough of a pattern in the notebook: the coach writes a bot, unless one already does the work.
+    #[tokio::test]
+    async fn the_notebook_turns_into_a_bot_when_there_is_enough_of_it() {
+        use serde_json::json;
+        let bot = json!({"name": "Fah Facebook", "role": "Writes Facebook posts.", "instructions": "1. Read the brief.",
+            "reason": "You wrote Facebook posts in 4 chats.", "tools": "none", "connectors": []}).to_string();
+        let covered = json!({"covered": "Momo Designer"}).to_string();
+        let (base, seen) = mock_server(vec![
+            sse(&[json!({"choices":[{"delta":{"content": bot}}]})]),
+            sse(&[json!({"choices":[{"delta":{"content": covered}}]})]),
+        ])
+        .await;
+        let model: coach::CoachModel = serde_json::from_value(json!({"provider": "openai", "model": "m", "apiKey": "k", "baseUrl": base})).unwrap();
+        let (_tx, mut cancel) = watch::channel(false);
+        let mut usage = Usage::default();
+        let facebook = coach::Insight { pattern: "Facebook posts".into(), evidence: vec!["FB 1".into()], count: 4 };
+        let canva = coach::Insight { pattern: "Canva designs".into(), evidence: vec![], count: 3 };
+        let team: Vec<team::Teammate> = vec![serde_json::from_value(json!({"id": "momo", "name": "Momo Designer", "role": "Designs in Canva"})).unwrap()];
+        let first = coach::suggest_for(&model, &facebook, &team, &["custom-canva — Canva MCP".into()], &mut usage, &mut cancel).await.unwrap();
+        assert_eq!(first.unwrap().name, "Fah Facebook");
+        let second = coach::suggest_for(&model, &canva, &team, &[], &mut usage, &mut cancel).await.unwrap();
+        assert!(second.is_none(), "Momo already covers Canva");
+        let sent = seen.lock().unwrap()[0].clone();
+        assert!(sent.contains("Facebook posts (4 chats") && sent.contains("Momo Designer: Designs in Canva") && sent.contains("custom-canva — Canva MCP"), "{sent}");
     }
 
     #[test]

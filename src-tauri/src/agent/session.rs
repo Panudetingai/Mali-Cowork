@@ -1,7 +1,7 @@
 //! A chat's conversation with the agent, kept on disk so the next prompt —
 //! even after a restart — carries on where the last one ended.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -15,6 +15,9 @@ pub struct Session {
     /// What the user said "Always" to in this chat (see `tools::approval_key`).
     #[serde(default)]
     pub always: BTreeSet<String>,
+    /// A lead's teammates' own sessions in this chat, by teammate id.
+    #[serde(default, rename = "teamSessions")]
+    pub team_sessions: BTreeMap<String, String>,
 }
 
 fn dir() -> PathBuf {

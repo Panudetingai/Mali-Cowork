@@ -39,6 +39,7 @@ import { getProviderConfig } from "@/features/providers";
 import { buildInstructions, getInstructions, skillSlug, skillsInPrompt, type Skill } from "@/features/instructions";
 import { getProject, projectContext } from "@/features/projects";
 import { skillsGrant } from "@/features/skills";
+import { addProposal, leadInstructions, ownedByTeam } from "@/features/team";
 import { findGrant, grantsFor, isWithin, normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import type { HistoryMessage, PermissionRequest, QuestionRequest, StreamMetadata, TodoItem } from "@/pages/chat/api/chat";
 import { generateStream, runModelIdFor, runsOnMaliAgent } from "@/pages/chat/api/router";
@@ -140,7 +141,7 @@ export async function sendTurn(
   // MCP is on, and then keeps an OpenCode session like any OpenCode model.
   const runModelId = runModelIdFor(modelId, chatMode);
   const isOpencode = isOpencodeModel(runModelId);
-  // An API key in Cowork, or in Chat with connectors on, runs on Mali's own agent.
+  // An API key in Cowork, or in Chat with connectors or a team on, runs on Mali's own agent.
   const isMali = runsOnMaliAgent(runModelId, chatMode);
   const isCursor = isCursorModel(runModelId);
   const isCodex = isCodexModel(runModelId);
@@ -247,10 +248,11 @@ export async function sendTurn(
         folders: [...grantsFor(folders), ...(skillGrant ? [skillGrant] : [])],
         attachments,
         instructions: [
-          buildInstructions(undefined, projectContext(project), chatMode === "chat" ? "chat" : "cowork"),
+          // Team mode: skills a bot owns are its duty, not the lead's.
+          buildInstructions(leadInstructions(), projectContext(project), chatMode === "chat" ? "chat" : "cowork"),
           connectorInstructionsFor(),
           chatMode === "chat" ? coworkInstructionsFor(prompt) : "",
-          pickedConnectorInstructions(resend.connectors),
+          pickedConnectorInstructions((resend.connectors ?? []).filter((id) => !ownedByTeam().connectors.has(id))),
         ]
           .filter(Boolean)
           .join("\n\n"),
@@ -265,6 +267,7 @@ export async function sendTurn(
           update((m) => ({ ...m, reasoning: (m.reasoning ?? "") + reasoning })),
         onActivity: (activity) =>
           update((m) => withActivity(m, activity)),
+        onTeammateProposal: (proposal) => addProposal(proposal, chatKey),
         onTodos: (items) =>
           update((m) => withTodos(m, items)),
         onMetadata: (data) => {
@@ -384,8 +387,9 @@ function isMaliRun(chatId: string) {
 }
 
 export async function replyToPermission(chatId: string, request: PermissionRequest, reply: PermissionReply) {
-  if (isMaliRun(chatId)) await agentReplyPermission(request.id, reply);
-  else await opencodeReplyPermission(request.id, request.directory, reply);
+  // A team's cards reach a CLI lead's chat too; Mali's agent says whether one is its own.
+  const handled = await agentReplyPermission(request.id, reply).catch(() => false);
+  if (!handled && !isMaliRun(chatId)) await opencodeReplyPermission(request.id, request.directory, reply);
   updateRun(chatId, (r) => ({
     ...r,
     permissions: r.permissions.filter((p) => p.id !== request.id),
@@ -401,8 +405,8 @@ export async function answerAgentQuestion(chatId: string, request: QuestionReque
   // lingers over the reply looks like the answer didn't register.
   updateRun(chatId, (r) => ({ ...r, questions: r.questions.filter((q) => q.id !== request.id) }));
   try {
-    if (isMaliRun(chatId)) await agentAnswerQuestion(request.id, answers);
-    else await opencodeReplyQuestion(request.id, request.directory, answers);
+    const handled = await agentAnswerQuestion(request.id, answers).catch(() => false);
+    if (!handled && !isMaliRun(chatId)) await opencodeReplyQuestion(request.id, request.directory, answers);
   } catch (error) {
     updateRun(chatId, (r) => ({ ...r, questions: [...r.questions, request] }));
     throw error;
@@ -624,8 +628,11 @@ export function formatChatError(error: unknown): string {
   return raw;
 }
 
-function finalizeActivities(activities: ActivityItem[]) {
-  return activities.map((a) => (a.done ? a : { ...a, done: true }));
+function finalizeActivities(activities: ActivityItem[], incomingId?: string) {
+  // A teammate's steps (`team:<bot>:<call>:…`) arrive while its hand-off is still open.
+  return activities.map((a) =>
+    a.done || (a.id && incomingId?.startsWith(`${a.id}:`)) ? a : { ...a, done: true },
+  );
 }
 
 /**
@@ -654,7 +661,7 @@ function withActivity(message: ChatMessage, incoming: ActivityItem): ChatMessage
     }
     return {
       ...message,
-      activities: [...finalizeActivities(prev), activity],
+      activities: [...finalizeActivities(prev, activity.id), activity],
     };
   }
   const last = prev[prev.length - 1];

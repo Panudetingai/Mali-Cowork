@@ -166,8 +166,9 @@ pub async fn opencode_mcp() -> Option<Value> {
             "url": gw.url(),
             "headers": { "Authorization": gw.authorization() },
             "enabled": true,
-            // Listing can start a connector for the first time (npx, uvx).
-            "timeout": 120_000,
+            // Listing can start a connector for the first time (npx, uvx), and
+            // in team mode a hand-off waits on a teammate's whole job.
+            "timeout": 900_000,
         }),
     );
     Some(Value::Object(mcp))

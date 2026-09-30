@@ -14,6 +14,8 @@ import { Switch } from "@/components/ui/switch";
 import { skillSlug, type Skill } from "@/features/instructions";
 import { applyConnector, McpToolIcon, useInstalledConnectors, useMcpBusy } from "@/features/mcp";
 import type { OpencodeState, WorkMode } from "@/features/opencode";
+import { CoworkBot } from "@/components/anim/cowork-bot";
+import { setOnTeam, setTeamEnabled, useTeam } from "@/features/team";
 import { cn } from "@/lib/utils";
 import {
   BlocksIcon,
@@ -29,6 +31,7 @@ import {
   ScrollTextIcon,
   ShieldCheckIcon,
   TerminalIcon,
+  UsersIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
@@ -87,6 +90,7 @@ export function PromptOptionsMenu({
   const busy = useMcpBusy();
   const isCowork = mode === "cowork";
   const usable = skills.filter((s) => s.enabled);
+  const team = useTeam();
 
   return (
     <DropdownMenu>
@@ -196,6 +200,52 @@ export function PromptOptionsMenu({
                 );
               })}
             </div>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+
+        <DropdownMenuSub>
+          <SubTrigger
+            icon={<UsersIcon className={iconClass} />}
+            count={team.enabled ? team.mates.filter((m) => m.onTeam).length : 0}
+          >
+            Team
+          </SubTrigger>
+          <DropdownMenuSubContent sideOffset={6} alignOffset={-4} className={cn(contentClass, "w-72")}>
+            <ToggleItem
+              icon={<UsersIcon className={iconClass} />}
+              label="Team mode"
+              hint="The chat's model leads: it hands each job to the bot whose duty it is. Needs a model with an API key."
+              checked={team.enabled}
+              onChange={setTeamEnabled}
+            />
+            {team.mates.length > 0 && <DropdownMenuSeparator className={separatorClass} />}
+            <div className="max-h-72 overflow-y-auto">
+              {team.mates.map((mate) => (
+                <DropdownMenuItem
+                  key={mate.id}
+                  className={itemClass}
+                  disabled={!team.enabled}
+                  title={
+                    mate.onTeam
+                      ? `${mate.role}\nOn the team: the lead calls ${mate.name} without asking.`
+                      : `${mate.role}\nOff the team: the lead asks you before calling ${mate.name}.`
+                  }
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setOnTeam(mate.id, !mate.onTeam);
+                  }}
+                >
+                  <CoworkBot bot={mate.mascot} state="done" size={22} />
+                  <span className="min-w-0 flex-1 truncate">{mate.name}</span>
+                  {mate.onTeam && <CheckIcon className="size-4 text-primary" />}
+                </DropdownMenuItem>
+              ))}
+            </div>
+            <DropdownMenuSeparator className={separatorClass} />
+            <DropdownMenuItem className={itemClass} onSelect={() => navigate("/settings?tab=team")}>
+              <BriefcaseIcon className={iconClass} />
+              {team.mates.length ? "Manage team" : "Make your first bot"}
+            </DropdownMenuItem>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
 

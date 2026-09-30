@@ -1,6 +1,6 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TodoItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -11,7 +11,7 @@ pub struct TodoItem {
     pub done: Option<bool>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AgentUsage {
     #[serde(rename = "inputTokens")]
     pub input_tokens: Option<u64>,
@@ -29,8 +29,29 @@ pub struct AgentUsage {
     pub cost: Option<f64>,
 }
 
+/// A teammate the lead would like on the team (see `agent::team`).
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeammateProposal {
+    pub id: String,
+    pub name: String,
+    /// Its duty, which no one else on the team has.
+    pub role: String,
+    pub instructions: String,
+    /// Why the lead wants it: the gap it fills, or the work the user keeps asking for.
+    pub reason: String,
+    /// `none`, `read`, `files` or `all`; the user can widen it when taking it on.
+    pub tools: String,
+    /// Connector ids it would own.
+    #[serde(default)]
+    pub connectors: Vec<String>,
+    /// Set when this is new instructions for a teammate already on the team (the coach's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updates: Option<String>,
+}
+
 /// One choice the agent offers for a question.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QuestionOption {
     pub label: String,
@@ -39,7 +60,7 @@ pub struct QuestionOption {
 }
 
 /// One question the agent is waiting on.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QuestionItem {
     pub question: String,
@@ -52,7 +73,7 @@ pub struct QuestionItem {
     pub custom: bool,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(
     rename_all = "camelCase",
     rename_all_fields = "camelCase",
@@ -101,6 +122,8 @@ pub enum ChatStreamEvent {
     QuestionResolved { id: String },
     /// Agent task plan / todo checklist update.
     Todos { items: Vec<TodoItem> },
+    /// The lead of a Mali team proposed a new teammate; the user takes it on or not.
+    TeammateProposal { proposal: TeammateProposal },
     Done { model_id: String },
     Error { message: String },
 }

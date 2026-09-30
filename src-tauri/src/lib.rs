@@ -11,7 +11,7 @@ mod sandbox;
 mod templates;
 
 use commands::app_cache::{app_cache_size, app_clear_cache};
-use commands::agent::{agent_abort, agent_answer_question, agent_generate, agent_reply_permission};
+use commands::agent::{agent_abort, agent_answer_question, agent_generate, agent_reply_permission, team_lead_begin, team_lead_end, team_reflect, team_suggest};
 use commands::mcp_hub::{mcp_hub_set_servers, mcp_hub_set_workspace, mcp_hub_sign_in, mcp_hub_sign_out, mcp_hub_sync};
 use commands::mcp_bridge::mcp_release_other_apps;
 use commands::templates::{
@@ -188,6 +188,10 @@ pub fn run() {
             agent_generate,
             agent_reply_permission,
             agent_abort,
+            team_lead_begin,
+            team_lead_end,
+            team_reflect,
+            team_suggest,
             agent_answer_question,
             mcp_hub_sync,
             mcp_hub_set_servers,

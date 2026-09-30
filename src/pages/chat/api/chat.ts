@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import type { TeammateProposal } from "@/features/team";
 import type { ActivityItem, AgentUsage } from "../types";
 
 export type HistoryMessage = {
@@ -71,6 +72,7 @@ export type ChatStreamEvent =
   | { event: "reasoning"; data: { reasoning: string } }
   | { event: "activity"; data: ActivityItem }
   | { event: "todos"; data: { items: TodoItem[] } }
+  | { event: "teammateProposal"; data: { proposal: TeammateProposal } }
   | { event: "metadata"; data: StreamMetadata }
   | { event: "permission"; data: PermissionRequest }
   | { event: "permissionResolved"; data: { id: string } }
@@ -85,6 +87,8 @@ export type ChatStreamHandlers = {
   onReasoning?: (reasoning: string) => void;
   onActivity?: (activity: ActivityItem) => void;
   onTodos?: (items: TodoItem[]) => void;
+  /** Team mode: the lead proposed a bot for the team. */
+  onTeammateProposal?: (proposal: TeammateProposal) => void;
   onMetadata?: (data: StreamMetadata) => void;
   onPermission?: (request: PermissionRequest) => void;
   onPermissionResolved?: (id: string) => void;
@@ -113,6 +117,9 @@ export function createStreamChannel(handlers: ChatStreamHandlers) {
         break;
       case "todos":
         handlers.onTodos?.(message.data.items);
+        break;
+      case "teammateProposal":
+        handlers.onTeammateProposal?.(message.data.proposal);
         break;
       case "metadata":
         handlers.onMetadata?.(message.data);
