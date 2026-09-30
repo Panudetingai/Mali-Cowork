@@ -52,12 +52,15 @@ function CommandDialog({
       </DialogHeader>
       <DialogContent
         className={cn(
-          "top-1/3 translate-y-0 overflow-hidden rounded-xl! p-0",
+          // Near the top on a tall window, closer to it on a short one, and
+          // never taller than the window: the list shrinks and scrolls instead.
+          "top-[clamp(0.75rem,15vh,8rem)] flex max-h-[calc(100dvh_-_2*clamp(0.75rem,15vh,8rem))] translate-y-0 flex-col gap-0 overflow-hidden rounded-xl! p-0",
           className
         )}
         showCloseButton={showCloseButton}
       >
-        {children}
+        {/* cmdk's input, list and items read their store from this root. */}
+        <Command className="h-auto min-h-0 flex-1">{children}</Command>
       </DialogContent>
     </Dialog>
   )

@@ -128,7 +128,7 @@ export function CommandPalette() {
       className="sm:max-w-xl"
     >
       <CommandInput placeholder={th ? "ค้นหาแชท หน้า skill หรือคำสั่ง…" : "Search chats, pages, skills, commands…"} />
-      <CommandList className="max-h-[min(26rem,60vh)]">
+      <CommandList className="max-h-[26rem] min-h-0 shrink">
         <CommandEmpty>{th ? "ไม่พบรายการที่ตรงกัน" : "Nothing matches."}</CommandEmpty>
 
         <CommandGroup heading={th ? "เริ่มใหม่" : "Start"}>
@@ -236,7 +236,7 @@ export function CommandPalette() {
           </CommandItem>
         </CommandGroup>
       </CommandList>
-      <div className="flex items-center justify-between border-t border-border/60 px-3 py-2 text-[11px] text-muted-foreground">
+      <div className="flex shrink-0 items-center justify-between border-t border-border/60 px-3 py-2 text-[11px] text-muted-foreground">
         <span>{th ? "↑↓ เลือก · ↵ เปิด · esc ปิด" : "↑↓ to move · ↵ to open · esc to close"}</span>
         <span>{MOD}K</span>
       </div>
