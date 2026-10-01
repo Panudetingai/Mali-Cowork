@@ -8,7 +8,7 @@ import {
   TabPanels,
 } from "@/components/animate-ui/primitives/headless/tabs";
 import { cn } from "@/lib/utils";
-import { BookOpenIcon, FileTextIcon, FolderIcon, GlobeIcon, NotebookPenIcon, ReceiptIcon, SparklesIcon, ZapIcon } from "lucide-react";
+import { BookOpenIcon, FileTextIcon, FolderIcon, GlobeIcon, NotebookPenIcon, ReceiptIcon, SparklesIcon, UsersIcon, ZapIcon } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { Fragment } from "react";
 import { FoldersSettings } from "./folders-settings";
@@ -20,6 +20,7 @@ import { ModelsSettings } from "./models-settings";
 import { QuickSettings } from "./quick-settings";
 import { ReceiptSettings } from "./receipt-settings";
 import { SkillsSettings } from "./skills/skills-settings";
+import { TeamSettings } from "./team/team-settings";
 import { TemplatesSettings } from "./templates-settings";
 import { useTranslation, type TranslationKey } from "@/features/i18n";
 
@@ -34,6 +35,7 @@ const TABS = [
   { id: "models", label: "tabModels", description: "tabModelsDesc", icon: SparklesIcon, group: "settingsGroupAi" },
   { id: "instructions", label: "tabInstructions", description: "tabInstructionsDesc", icon: NotebookPenIcon },
   { id: "skills", label: "tabSkills", description: "tabSkillsDesc", icon: BookOpenIcon },
+  { id: "team", label: "tabTeam", description: "tabTeamDesc", icon: UsersIcon },
   { id: "templates", label: "tabTemplates", description: "tabTemplatesDesc", icon: FileTextIcon },
   { id: "mcp", label: "tabMcp", description: "tabMcpDesc", lobeMcp: true as const, group: "settingsGroupWorkspace" },
   { id: "folders", label: "tabFolders", description: "tabFoldersDesc", icon: FolderIcon },
@@ -143,6 +145,9 @@ export default function SettingsPage() {
             </TabPanel>
             <TabPanel>
               <SkillsSettings />
+            </TabPanel>
+            <TabPanel>
+              <TeamSettings />
             </TabPanel>
             <TabPanel>
               <TemplatesSettings />

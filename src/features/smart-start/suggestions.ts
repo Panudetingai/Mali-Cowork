@@ -13,7 +13,26 @@ export type Suggestion = {
   prompt: string;
   /** A skill to add as a badge, e.g. a document template. */
   skill?: string;
-  icon: "pdf" | "doc" | "sheet" | "image" | "code" | "notes" | "tidy" | "slides" | "template";
+  icon:
+    | "pdf"
+    | "doc"
+    | "sheet"
+    | "image"
+    | "code"
+    | "notes"
+    | "tidy"
+    | "slides"
+    | "template"
+    | "web"
+    | "write"
+    | "design"
+    | "mail"
+    | "plan"
+    | "translate"
+    | "idea"
+    | "learn";
+  /** Fits whatever is in the folder (or no folder): drawn at random to fill the cards. */
+  general?: boolean;
 };
 
 type Lang = "th" | "en";
@@ -144,4 +163,80 @@ export function suggestTasks(files: string[], lang: Lang, max = 4): Suggestion[]
     prompt: th ? "ร่างหนังสือเรื่อง " : "Draft an official letter about the subject and the details",
   });
   return out.slice(0, max);
+}
+
+type Idea = Omit<Suggestion, "title" | "prompt" | "general"> & { th: [title: string, prompt: string]; en: [title: string, prompt: string] };
+
+/** Cowork ideas that need nothing in the folder; the prompt goes to the chat box to finish, never sent. */
+const COWORK_IDEAS: Idea[] = [
+  { id: "g-research", icon: "web", th: ["ค้นข้อมูลจากเว็บแล้วทำรายงาน", "ค้นข้อมูลจากเว็บเรื่อง … แล้วสรุปเป็นรายงานพร้อมแหล่งอ้างอิง บันทึกเป็นไฟล์ Word"], en: ["Research the web and write a report", "Research … on the web and write it up as a report with sources, saved as a Word file."] },
+  { id: "g-promo", icon: "design", th: ["ทำโพสต์โปรโมชันลงโซเชียล", "ทำโพสต์โปรโมชันสำหรับ Instagram เรื่อง … สไตล์สดใส ขนาด 1080×1350 พร้อมแคปชั่น 3 แบบ"], en: ["Create a social media promo post", "Create an Instagram promo post about … — bright style, 1080×1350, with three caption options."] },
+  { id: "g-slides", icon: "slides", th: ["ทำสไลด์นำเสนอ 5 หน้า", "ทำสไลด์นำเสนอ 5 หน้าเรื่อง … มีหน้าปก ประเด็นหลัก และสรุป บันทึกเป็น PowerPoint"], en: ["Build a 5-slide presentation", "Build a 5-slide presentation about … with a cover, the key points and a summary, saved as PowerPoint."] },
+  { id: "g-budget", icon: "sheet", th: ["สร้างตารางงบประมาณรายเดือน", "สร้างไฟล์ Excel งบประมาณรายเดือน มีรายรับ รายจ่ายแยกหมวด และสูตรรวมยอดอัตโนมัติ"], en: ["Make a monthly budget spreadsheet", "Create a monthly budget in Excel: income, spending by category, and totals that add up on their own."] },
+  { id: "g-timeline", icon: "plan", th: ["วางแผนโปรเจกต์เป็น timeline", "วางแผนโปรเจกต์ … เป็น timeline รายสัปดาห์ บอกงาน ผู้รับผิดชอบ และกำหนดส่ง บันทึกเป็น Excel"], en: ["Plan a project as a timeline", "Plan the project … as a week-by-week timeline with tasks, owners and due dates, saved as Excel."] },
+  { id: "g-landing", icon: "code", th: ["สร้างหน้าเว็บ landing page", "สร้างหน้าเว็บ landing page หน้าเดียวสำหรับ … มีหัวข้อ จุดเด่น 3 ข้อ และปุ่มติดต่อ ใช้ HTML ไฟล์เดียว"], en: ["Build a one-page landing site", "Build a one-page landing site for … with a headline, three highlights and a contact button, as a single HTML file."] },
+  { id: "g-minutes", icon: "notes", th: ["เปลี่ยนโน้ตเป็นรายงานการประชุม", "เปลี่ยนโน้ตการประชุมนี้เป็นรายงานการประชุม มีวาระ มติ และงานที่ต้องทำพร้อมผู้รับผิดชอบ: …"], en: ["Turn notes into meeting minutes", "Turn these meeting notes into minutes with the agenda, decisions and action items with owners: …"] },
+  { id: "g-translate", icon: "translate", th: ["แปลเอกสาร ไทย ↔ อังกฤษ", "แปลเอกสาร … เป็นภาษาอังกฤษแบบเป็นทางการ คงรูปแบบเดิมไว้ และบันทึกเป็นไฟล์ใหม่"], en: ["Translate a document Thai ↔ English", "Translate … into formal Thai, keep its layout, and save it as a new file."] },
+  { id: "g-sop", icon: "write", th: ["เขียน SOP ขั้นตอนการทำงาน", "เขียน SOP ขั้นตอนการทำงานเรื่อง … เป็นข้อ ๆ มีจุดตรวจสอบ และบันทึกเป็น Word"], en: ["Write a step-by-step SOP", "Write a step-by-step SOP for … with checkpoints, saved as a Word document."] },
+  { id: "g-email", icon: "mail", th: ["ร่างอีเมลตอบลูกค้า", "ร่างอีเมลตอบลูกค้าอย่างสุภาพและเป็นมืออาชีพ เรื่อง … ให้ 2 แบบ: สั้น และละเอียด"], en: ["Draft a reply to a customer", "Draft a polite, professional reply to a customer about … in two versions: short and detailed."] },
+  { id: "g-script", icon: "code", th: ["เขียนสคริปต์เปลี่ยนชื่อไฟล์จำนวนมาก", "เขียนสคริปต์เปลี่ยนชื่อไฟล์ในโฟลเดอร์นี้ตามรูปแบบ … (แสดงผลลัพธ์ก่อนเปลี่ยนจริง)"], en: ["Write a script to rename many files", "Write a script that renames the files in this folder to the pattern … (show me the result before renaming)."] },
+  { id: "g-checklist", icon: "plan", th: ["ทำ checklist งานประจำวัน", "ทำ checklist งานประจำวันสำหรับ … แบ่งเป็นเช้า กลางวัน เย็น พิมพ์ได้บนกระดาษ A4"], en: ["Make a daily checklist", "Make a daily checklist for … split into morning, afternoon and evening, printable on A4."] },
+  { id: "g-report", icon: "sheet", th: ["ทำกราฟสรุปยอดขาย", "ทำกราฟและสรุปยอดขายจากไฟล์ … แยกตามเดือนและสินค้า พร้อมข้อสังเกต 3 ข้อ"], en: ["Chart the sales numbers", "Chart and summarise the sales in … by month and by product, with three things worth noticing."] },
+  { id: "g-proposal", icon: "doc", th: ["ร่างข้อเสนอโครงการ", "ร่างข้อเสนอโครงการ … มีที่มา วัตถุประสงค์ ขอบเขต งบประมาณ และระยะเวลา บันทึกเป็น Word"], en: ["Draft a project proposal", "Draft a proposal for … with background, goals, scope, budget and timeline, saved as Word."] },
+];
+
+/** Chat ideas: questions that need no files. */
+const CHAT_IDEAS: Idea[] = [
+  { id: "c-explain", icon: "learn", th: ["อธิบายเรื่องยากให้เข้าใจง่าย", "อธิบายเรื่อง … ให้เข้าใจง่ายเหมือนเล่าให้เพื่อนฟัง พร้อมตัวอย่าง"], en: ["Explain something simply", "Explain … simply, like you'd tell a friend, with an example."] },
+  { id: "c-names", icon: "idea", th: ["คิดชื่อแบรนด์", "ช่วยคิดชื่อแบรนด์สำหรับ … 10 ชื่อ พร้อมความหมายสั้น ๆ"], en: ["Brainstorm brand names", "Brainstorm 10 brand names for … with a line on what each means."] },
+  { id: "c-interview", icon: "learn", th: ["ฝึกสัมภาษณ์งาน", "ช่วยฝึกสัมภาษณ์งานตำแหน่ง … ถามทีละข้อ แล้วให้คำแนะนำหลังฉันตอบ"], en: ["Practise a job interview", "Interview me for a … role: one question at a time, with feedback after each answer."] },
+  { id: "c-caption", icon: "write", th: ["เขียนแคปชั่นโซเชียล", "เขียนแคปชั่นโซเชียล 5 แบบสำหรับ … โทนสนุก มีแฮชแท็ก"], en: ["Write social captions", "Write five social captions for … in a fun tone, with hashtags."] },
+  { id: "c-trip", icon: "plan", th: ["วางแผนเที่ยว 3 วัน", "วางแผนเที่ยว … 3 วัน 2 คืน งบ … บาท มีที่กิน ที่เที่ยว และการเดินทาง"], en: ["Plan a 3-day trip", "Plan 3 days in … on a budget of … with places to eat, see and how to get around."] },
+  { id: "c-excel", icon: "sheet", th: ["สอนสูตร Excel", "สอนสูตร Excel สำหรับ … พร้อมตัวอย่างที่ลองตามได้"], en: ["Learn an Excel formula", "Teach me the Excel formula for … with an example I can try."] },
+  { id: "c-menu", icon: "idea", th: ["คิดเมนูอาหารทั้งสัปดาห์", "คิดเมนูอาหารเย็น 7 วัน ทำง่าย ไม่เกิน 30 นาที พร้อมรายการของที่ต้องซื้อ"], en: ["Plan a week of dinners", "Plan 7 easy dinners (30 minutes or less) with a shopping list."] },
+  { id: "c-review", icon: "write", th: ["ช่วยตรวจงานเขียน", "ช่วยตรวจงานเขียนนี้ แก้คำผิด ปรับให้อ่านลื่น และบอกว่าแก้อะไรไป: …"], en: ["Proofread my writing", "Proofread this, make it read smoothly, and tell me what you changed: …"] },
+  { id: "c-plan", icon: "plan", th: ["ทบทวนแผนธุรกิจ", "ช่วยทบทวนแผนธุรกิจ … บอกจุดแข็ง ความเสี่ยง และสิ่งที่ควรทำต่อ"], en: ["Review a business plan", "Review my business plan for … — strengths, risks and next steps."] },
+  { id: "c-reply", icon: "mail", th: ["ช่วยตอบข้อความยาก ๆ", "ช่วยร่างคำตอบข้อความนี้ให้สุภาพแต่ชัดเจน: …"], en: ["Answer a tricky message", "Help me reply to this politely but clearly: …"] },
+];
+
+function fromIdea(idea: Idea, lang: Lang): Suggestion {
+  const [title, prompt] = idea[lang];
+  return { id: idea.id, icon: idea.icon, skill: idea.skill, title, prompt, general: true };
+}
+
+export function coworkIdeas(lang: Lang): Suggestion[] {
+  return COWORK_IDEAS.map((idea) => fromIdea(idea, lang));
+}
+
+export function chatIdeas(lang: Lang): Suggestion[] {
+  return CHAT_IDEAS.map((idea) => fromIdea(idea, lang));
+}
+
+export function shuffle<T>(items: T[], random: () => number = Math.random): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+/**
+ * The cards to show: at most one idea read from the folder (it's the most
+ * relevant), the rest drawn at random from everything else, so each visit
+ * shows something new.
+ */
+export function pickSuggestions<T extends { id: string }>(
+  fromFolder: T[],
+  general: T[],
+  count: number,
+  random: () => number = Math.random,
+): T[] {
+  const [first, ...rest] = shuffle(fromFolder, random);
+  const picked = first ? [first] : [];
+  for (const idea of shuffle([...rest, ...general], random)) {
+    if (picked.length >= count) break;
+    if (!picked.some((p) => p.id === idea.id)) picked.push(idea);
+  }
+  return picked;
 }

@@ -5,6 +5,7 @@
  */
 import type { McpServerEntry } from "@/features/mcp/sync";
 import type { FolderGrantInput, WorkMode } from "@/features/opencode";
+import type { TeamPayload } from "@/features/team";
 import { createStreamChannel, isTauri, type ChatStreamHandlers } from "@/pages/chat/api/chat";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -37,7 +38,7 @@ export type AgentRequest = {
   contextLimit?: number;
   /** The model takes pictures: it can look at files, thumbnails and what tools return. */
   vision: boolean;
-};
+} & Partial<TeamPayload>;
 
 export async function agentGenerateStream(request: AgentRequest, handlers: ChatStreamHandlers) {
   if (!isTauri()) throw new Error("The agent works in the Mali app only.");

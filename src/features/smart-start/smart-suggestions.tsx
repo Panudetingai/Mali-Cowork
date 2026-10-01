@@ -8,20 +8,28 @@ import { cn } from "@/lib/utils";
 import {
   BarChart3Icon,
   BookIcon,
+  CalendarRangeIcon,
   Code2Icon,
   FileTextIcon,
   FolderKanbanIcon,
   FolderTreeIcon,
+  GlobeIcon,
+  GraduationCapIcon,
   ImagesIcon,
   InfoIcon,
+  LanguagesIcon,
+  LightbulbIcon,
   ListTodoIcon,
+  MailIcon,
+  PaletteIcon,
+  PenLineIcon,
   PresentationIcon,
   ScrollTextIcon,
   StampIcon,
 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useState, type ComponentType } from "react";
-import { suggestTasks, type Suggestion } from "./suggestions";
+import { chatIdeas, coworkIdeas, pickSuggestions, suggestTasks, type Suggestion } from "./suggestions";
 import type { WorkMode } from "../opencode";
 
 const ICONS: Record<Suggestion["icon"], typeof FileTextIcon> = {
@@ -34,17 +42,34 @@ const ICONS: Record<Suggestion["icon"], typeof FileTextIcon> = {
   tidy: FolderTreeIcon,
   slides: PresentationIcon,
   template: StampIcon,
+  web: GlobeIcon,
+  write: PenLineIcon,
+  design: PaletteIcon,
+  mail: MailIcon,
+  plan: CalendarRangeIcon,
+  translate: LanguagesIcon,
+  idea: LightbulbIcon,
+  learn: GraduationCapIcon,
 };
 
 const CARD_COUNT = 3;
 /** Brief placeholder so tab switches feel like Cowork folder scan. */
 const CHAT_SHELL_MS = 140;
 
+/** One card on a phone-narrow window, two on a medium one, three from `lg` up. */
 const SUGGESTION_GRID =
-  "grid w-full min-w-0 shrink-0 grid-cols-3 items-stretch gap-4";
+  "grid w-full min-w-0 shrink-0 grid-cols-1 items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4";
+
+/** The cards past what the grid shows at this width. */
+function hiddenAt(index: number) {
+  return index === 1 ? "hidden sm:flex" : index >= 2 ? "hidden lg:flex" : "flex";
+}
 
 /** Match loaded suggestion cards so skeleton ↔ content does not jump. */
-const SUGGESTION_CARD = "flex h-full min-h-28 w-full min-w-0 flex-col";
+const SUGGESTION_CARD = "flex h-full min-h-24 w-full min-w-0 flex-col";
+
+/** A short window keeps the cards to their title. */
+const SHORT_WINDOW_HIDE = "[@media(max-height:720px)]:hidden";
 
 export type SuggestionCardItem = {
   id: string;
@@ -54,20 +79,11 @@ export type SuggestionCardItem = {
   onPick: () => void;
 };
 
-function shuffle<T>(items: T[]): T[] {
-  const out = [...items];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
-}
-
 export function SuggestionCardsSkeleton({ count = CARD_COUNT, className }: { count?: number; className?: string }) {
   return (
     <div className={cn(SUGGESTION_GRID, className)} aria-busy aria-label="Loading suggestions">
       {Array.from({ length: count }, (_, i) => (
-        <Card key={i} className={SUGGESTION_CARD}>
+        <Card key={i} className={cn(SUGGESTION_CARD, hiddenAt(i))}>
           <CardHeader className="w-full">
             <Skeleton className="size-4 rounded-md" />
           </CardHeader>
@@ -113,7 +129,10 @@ export function AnimatedSuggestionCards({
               delay: reduceMotion ? 0 : i * 0.1,
             }}
             onClick={item.onPick}
-            className="flex h-full min-w-0 w-full flex-col gap-1.5 rounded-xl text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            className={cn(
+              "h-full w-full min-w-0 flex-col gap-1.5 rounded-xl text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+              hiddenAt(i),
+            )}
           >
             <Card className={cn(SUGGESTION_CARD, interactive && "transition-colors hover:bg-accent/40")}>
               <CardHeader>
@@ -122,12 +141,10 @@ export function AnimatedSuggestionCards({
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <CardTitle
-                  className={cn("text-sm font-semibold", !interactive && "whitespace-nowrap")}
-                >
-                  {item.title}
-                </CardTitle>
-                <CardDescription className="text-sm text-muted-foreground">{item.description}</CardDescription>
+                <CardTitle className="line-clamp-2 text-sm font-semibold">{item.title}</CardTitle>
+                <CardDescription className={cn("line-clamp-3 text-sm text-muted-foreground", SHORT_WINDOW_HIDE)}>
+                  {item.description}
+                </CardDescription>
               </CardContent>
             </Card>
           </motion.button>
@@ -204,24 +221,33 @@ export function SmartSuggestions({
   const items = useMemo((): SuggestionCardItem[] => {
     if (loading) return [];
 
+    const language = lang === "th" ? "th" : "en";
+    const card = (idea: Suggestion): SuggestionCardItem => ({
+      id: idea.id,
+      title: idea.title,
+      description: idea.prompt,
+      icon: ICONS[idea.icon],
+      onPick: () => requestCompose({ text: idea.prompt }),
+    });
+
     if (mode === "chat") {
-      const pool = CHAT_SUGGESTIONS.map((def) => ({
+      const own = CHAT_SUGGESTIONS.map((def) => ({
         id: def.id,
         title: t(def.titleKey),
         description: t(def.descriptionKey),
         icon: def.icon,
         onPick: () => requestCompose({ text: t(def.promptKey) }),
       }));
-      return shuffle(pool).slice(0, CARD_COUNT);
+      return pickSuggestions([], [...own, ...chatIdeas(language).map(card)], CARD_COUNT);
     }
 
-    if (!folder) return [];
-    const files = entries.filter((e) => !e.isDirectory).map((e) => e.rel);
+    const files = folder ? entries.filter((e) => !e.isDirectory).map((e) => e.rel) : [];
     const usable = new Set(skills.filter((s) => s.enabled).map((s) => s.name));
-    const ideas = suggestTasks(files, lang === "th" ? "th" : "en", 8)
-      .filter((idea) => !idea.skill || usable.has(idea.skill));
-    return shuffle(ideas)
-      .slice(0, CARD_COUNT)
+    const ideas = suggestTasks(files, language, 8).filter((idea) => !idea.skill || usable.has(idea.skill));
+    // What the folder holds leads; the document templates and general ideas fill in at random.
+    const fromFolder = ideas.filter((idea) => !idea.skill);
+    const general = [...ideas.filter((idea) => idea.skill), ...coworkIdeas(language)];
+    return pickSuggestions(fromFolder, general, CARD_COUNT)
       .map((idea: Suggestion) => ({
         id: idea.id,
         title: idea.title,

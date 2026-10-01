@@ -19,12 +19,15 @@ import {
   SearchIcon,
   SparklesIcon,
   TerminalIcon,
+  UsersIcon,
   XIcon,
 } from "lucide-react";
 import { McpToolIcon, mcpToolOf } from "@/features/mcp";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ActivityItem } from "../../types";
 import { DiffCards, isFileEdit, StepDetail } from "./step-detail";
+import { groupTeamSteps } from "./team-steps";
+import { TeamThread } from "./team-thread";
 
 /** A reply cut at its steps: text, the steps run there, more text, … */
 export type ReplySegment =
@@ -76,6 +79,7 @@ function kindIcon(step: ActivityItem): LucideIcon {
   if (/^(write|edit|patch|update|create)/.test(verb)) return PencilIcon;
   if (/^(search|grep)/.test(verb)) return SearchIcon;
   if (/^(fetch|web)/.test(verb)) return GlobeIcon;
+  if (verb === "team") return UsersIcon;
   switch (step.kind) {
     case "permission":
       return LockIcon;
@@ -215,8 +219,32 @@ function summarize(steps: ActivityItem[]) {
   return { kinds, failed, totalMs };
 }
 
-/** The steps an agent ran between two pieces of its reply. */
+/**
+ * The steps an agent ran between two pieces of its reply. In team mode each
+ * hand-off to a bot shows as the team's conversation instead of rows.
+ */
 export function AgentSteps({ steps, runningIndex }: { steps: ActivityItem[]; runningIndex?: number }) {
+  const groups = useMemo(() => groupTeamSteps(steps), [steps]);
+  if (!groups.some((g) => g.type === "team")) return <PlainSteps steps={steps} runningIndex={runningIndex} />;
+  const runningStep = runningIndex !== undefined ? steps[runningIndex] : undefined;
+  return (
+    <>
+      {groups.map((group, index) =>
+        group.type === "team" ? (
+          <TeamThread key={group.key} handoff={group} />
+        ) : (
+          <PlainSteps
+            key={`steps-${index}`}
+            steps={group.steps}
+            runningIndex={runningStep ? group.steps.indexOf(runningStep) : undefined}
+          />
+        ),
+      )}
+    </>
+  );
+}
+
+function PlainSteps({ steps, runningIndex }: { steps: ActivityItem[]; runningIndex?: number }) {
   const [toggled, setToggled] = useState<boolean>();
   const running = runningIndex !== undefined && runningIndex >= 0 && runningIndex < steps.length;
 

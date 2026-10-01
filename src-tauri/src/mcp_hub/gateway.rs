@@ -232,8 +232,11 @@ async fn dispatch(message: &Value) -> Option<Value> {
         "ping" => Ok(json!({})),
         "tools/list" => {
             let (tools, _) = super::tools(&super::current_servers()).await;
+            // Team mode: a teammate's connectors are its own, not the lead's.
+            let hidden = crate::agent::team_gateway::hidden_connectors();
             let mut list: Vec<Value> = tools
                 .iter()
+                .filter(|t| !hidden.contains(&t.server))
                 .map(|t| json!({
                     "name": t.name,
                     "description": if t.description.is_empty() { format!("{} tool {}", t.server, t.tool) } else { t.description.clone() },
@@ -246,7 +249,19 @@ async fn dispatch(message: &Value) -> Option<Value> {
                 "description": t.description,
                 "inputSchema": t.schema,
             })));
+            // Team mode with a CLI lead: hand work to the team.
+            list.extend(crate::agent::team_gateway::specs().into_iter().map(|t| json!({
+                "name": t.name,
+                "description": t.description,
+                "inputSchema": t.schema,
+            })));
             Ok(json!({ "tools": list }))
+        }
+        "tools/call" if crate::agent::team_gateway::is_team_tool(message["params"]["name"].as_str().unwrap_or_default()) => {
+            let name = message["params"]["name"].as_str().unwrap_or_default();
+            let args = message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
+            let out = crate::agent::team_gateway::call(name.to_string(), args).await;
+            Ok(json!({ "content": [{ "type": "text", "text": out.content }], "isError": out.is_error }))
         }
         "tools/call" if crate::templates::tools::is_template_tool(message["params"]["name"].as_str().unwrap_or_default()) => {
             let name = message["params"]["name"].as_str().unwrap_or_default();
@@ -264,8 +279,13 @@ async fn dispatch(message: &Value) -> Option<Value> {
             let name = message["params"]["name"].as_str().unwrap_or_default();
             let args = message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
             let (tools, _) = super::tools(&super::current_servers()).await;
+            let hidden = crate::agent::team_gateway::hidden_connectors();
             match tools.iter().find(|t| t.name == name) {
                 None => Err((-32602, format!("Unknown tool: {name}"))),
+                Some(tool) if hidden.contains(&tool.server) => Ok(json!({
+                    "content": [{ "type": "text", "text": format!("{} belongs to a teammate. Hand this job to that teammate with delegate_task.", tool.server) }],
+                    "isError": true,
+                })),
                 Some(tool) => Ok(match tool.call(args).await {
                     Ok(result) => {
                         // Pictures go back to the CLI as MCP image content, so a model that can see gets them.

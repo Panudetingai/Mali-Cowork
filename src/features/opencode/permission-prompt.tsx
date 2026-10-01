@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useState } from "react";
 import type { PermissionReply } from "./types";
 import { CoworkBot } from "@/components/anim/cowork-bot";
+import { getTeam } from "@/features/team";
 import { ShieldAlertIcon } from "lucide-react";
 
 type Props = {
@@ -64,6 +65,9 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, sh
   const folder = request ? requestedFolder(request) : undefined;
   const { action, target } = splitTitle(request?.title ?? "");
   const { warning, detail } = splitRisk(request?.detail ?? undefined);
+  // Team mode: the lead asks to hand a job to a bot off the chat's team; that bot shows.
+  const teamBot =
+    request?.permission === "team" ? getTeam().mates.find((m) => m.id === request.patterns[0])?.mascot : undefined;
 
   const allowFolder = async (path: string) => {
     if (!request) return;
@@ -129,7 +133,7 @@ export function PermissionPrompt({ requests, onReply, onAllowFolder, stacked, sh
                   transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
                   className="absolute size-10 rounded-full bg-amber-400/40 blur-md"
                 />
-                <CoworkBot state="permission" size={46} />
+                <CoworkBot state="permission" size={46} bot={teamBot} />
               </span>
               <div className="flex min-w-0 flex-1 items-baseline gap-1.5 text-sm">
                 <span className="min-w-0 shrink-0 truncate font-medium text-foreground @max-sm:shrink">{action}</span>
