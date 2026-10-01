@@ -142,6 +142,8 @@ export const useChatRuns = runStore.use;
 /** Every active run by chat id; for code outside React (the Task Inbox queue). */
 export const getRuns = runStore.get;
 export const subscribeToRuns = runStore.subscribe;
+/** Any chat changed, e.g. a streaming reply's steps (the notch pill). */
+export const subscribeToChats = sessionStore.subscribe;
 
 /** Every chat's id, including tasks and throwaway chats. */
 export const getChatIds = () => sessionStore.get().map((s) => s.id);

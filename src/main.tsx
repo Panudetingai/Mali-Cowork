@@ -8,6 +8,7 @@ import { loadChatHistory } from "@/features/chat-history";
 import { loadProjects } from "@/features/projects";
 import { applyQuickConfig, QuickBarRoot, QuickCaptureOverlay } from "@/features/quick";
 import { loadVault } from "@/features/secrets";
+import { NotchRoot } from "@/features/notch";
 import { applyProductionHardening } from "@/lib/production-hardening";
 import { applyWindowChrome } from "@/lib/window-chrome";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -32,6 +33,18 @@ if (windowParam === "quick") {
     <React.StrictMode>
       <ThemeProvider>
         <QuickBarRoot />
+      </ThemeProvider>
+    </React.StrictMode>,
+  );
+} else if (windowParam === "notch") {
+  // The pill mirrors the main window's runs; like the Quick bar it must open
+  // instantly, so it loads no history and draws its own frame.
+  document.documentElement.dataset.window = "notch";
+  root().render(
+    <React.StrictMode>
+      {/* The pill is part of the notch: always dark. */}
+      <ThemeProvider forcedTheme="dark">
+        <NotchRoot />
       </ThemeProvider>
     </React.StrictMode>,
   );

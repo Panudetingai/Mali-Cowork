@@ -47,3 +47,18 @@ export const useCoworkBot = () => botStore.use();
 export function setCoworkBot(bot: CoworkBotId) {
   if (isBotId(bot)) botStore.set({ bot });
 }
+
+// Other windows (the notch pill, the Quick bar) stay loaded while the bot is
+// picked in the main window: follow the pick there too. Only a real change is
+// applied, so windows don't write back and forth.
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key !== "mali_cowork_bot" || !event.newValue) return;
+    try {
+      const bot = (JSON.parse(event.newValue) as { bot?: unknown })?.bot;
+      if (isBotId(bot) && bot !== botStore.get().bot) botStore.set({ bot });
+    } catch {
+      // Unreadable: keep the bot we have.
+    }
+  });
+}

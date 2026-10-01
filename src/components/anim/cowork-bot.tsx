@@ -24,17 +24,21 @@ export function CoworkBot({
   state = "idle",
   className,
   title,
+  theme: themeProp,
 }: {
-  size?: number;
+  /** Pixels, or a CSS length such as "100%" to fill a parent that animates its size. */
+  size?: number | string;
   bot?: CoworkBotId;
   state?: BotState;
   className?: string;
   title?: string;
+  /** Draw for this background whatever the app's theme (the notch is always dark). */
+  theme?: "light" | "dark";
 }) {
   const { bot: stored } = useCoworkBot();
   const bot = botProp ?? stored;
   const { resolvedTheme } = useTheme();
-  const theme = resolvedTheme === "dark" ? "dark" : "light";
+  const theme = themeProp ?? (resolvedTheme === "dark" ? "dark" : "light");
   const frameRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {

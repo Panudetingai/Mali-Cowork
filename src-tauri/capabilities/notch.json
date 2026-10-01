@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "notch",
+  "description": "Notch pill: mirrors the main window's run state, sends Allow / Deny back, and asks on the Quick bar's engine. A file picker for attachments; no file system or clipboard access.",
+  "windows": [
+    "notch"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "opener:default",
+    "dialog:default",
+    "dialog:allow-open"
+  ]
+}

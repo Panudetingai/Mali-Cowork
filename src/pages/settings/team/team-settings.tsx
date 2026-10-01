@@ -43,7 +43,8 @@ import {
 } from "lucide-react";
 import { ModelPicker } from "@/pages/chat/components/model-picker";
 import { findModel } from "@/pages/chat/models";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { EmptyState, SectionHeader, SettingRow, SettingsGroup, SettingsSection, Steps } from "../ui";
 import { TeammateDialog } from "./teammate-dialog";
 
@@ -80,6 +81,25 @@ export function TeamSettings() {
     setDraft(draftFromProposal(proposal, defaultTeamModel(models) ?? ""));
   };
   const unusedTemplates = TEAMMATE_TEMPLATES.filter((t) => !team.mates.some((m) => m.name === t.name));
+
+  // Opened from the notch's "New bot": show the ready-made bots to pick
+  // from, or the form when every one is already on the team. Once.
+  const [params, setParams] = useSearchParams();
+  const wantsNew = params.get("new") === "1";
+  useEffect(() => {
+    if (!wantsNew) return;
+    if (unusedTemplates.length > 0) {
+      requestAnimationFrame(() =>
+        document.getElementById("team-templates")?.scrollIntoView({ behavior: "smooth", block: "center" }),
+      );
+    } else {
+      newBot();
+    }
+    const next = new URLSearchParams(params);
+    next.delete("new");
+    setParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsNew]);
 
   return (
     <div className="flex flex-col gap-10">
@@ -152,6 +172,7 @@ export function TeamSettings() {
 
       {unusedTemplates.length > 0 && (
         <SettingsSection>
+          <div id="team-templates" className="scroll-mt-24" />
           <SettingsGroup title="Start from" description="Pick one, then give it its model and connectors.">
             {unusedTemplates.map((t) => (
               <SettingRow

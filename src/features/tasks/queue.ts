@@ -23,6 +23,8 @@ const store = createStore<TaskRecord[]>([], {
 
 export const useTasks = store.use;
 export const getTasks = store.get;
+/** Any task changed (the notch follows the one it started). */
+export const subscribeToTasks = store.subscribe;
 
 function patch(id: string, fn: (task: TaskRecord) => TaskRecord) {
   store.set((prev) => prev.map((t) => (t.id === id ? fn(t) : t)));

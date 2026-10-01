@@ -16,11 +16,13 @@ import {
   useQuickConfig,
   useQuickStatus,
 } from "@/features/quick";
+import { setNotchEnabled, setNotchSaveChats, useNotchEnabled, useNotchSaveChats } from "@/features/notch";
 import { cn } from "@/lib/utils";
 import { ModelPicker } from "@/pages/chat/components/model-picker";
 import { buildModelCatalog, loadSelectedModelId, OPENCODE_DEFAULT_ID, type AiModel } from "@/pages/chat/models";
 import {
   ClipboardIcon,
+  ActivityIcon,
   HistoryIcon,
   KeyboardIcon,
   MonitorIcon,
@@ -37,6 +39,8 @@ const mac = isMacPlatform();
 
 export function QuickSettings() {
   const config = useQuickConfig();
+  const notchEnabled = useNotchEnabled();
+  const notchSaveChats = useNotchSaveChats();
   const status = useQuickStatus();
   const opencode = useOpencode();
   const cursor = useCursor();
@@ -148,6 +152,20 @@ export function QuickSettings() {
               onCheckedChange={(trayMode) => void setQuickConfig({ trayMode })}
             />
           }
+        />
+        <SettingRow
+          icon={<ActivityIcon />}
+          htmlFor="notch-enabled"
+          label="Show agent status at the top of the screen"
+          description="While Mali is in the background, a small pill shows what the agent is doing and lets you Allow or Deny without switching windows."
+          control={<Switch id="notch-enabled" checked={notchEnabled} onCheckedChange={setNotchEnabled} />}
+        />
+        <SettingRow
+          icon={<HistoryIcon />}
+          htmlFor="notch-save"
+          label="Save what you ask in the notch"
+          description={`Off for quick questions you don't need to keep. In notch mode (the button at the top of the window), ${mac ? "⌥⌘M" : "the shortcut"} or moving the pointer to the top of the screen opens the notch to ask.`}
+          control={<Switch id="notch-save" checked={notchSaveChats} onCheckedChange={setNotchSaveChats} />}
         />
         <SettingRow
           icon={<HistoryIcon />}

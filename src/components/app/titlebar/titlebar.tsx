@@ -4,6 +4,7 @@ import { LanguageToggle } from "@/components/app/titlebar/language-toggle";
 import { useSidebar } from "@/components/animate-ui/components/radix/sidebar";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { goToNotchMode } from "@/features/notch";
 import { cn } from "@/lib/utils";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -11,6 +12,7 @@ import {
     ChevronRight,
     Copy,
     Minus,
+    PanelTop,
     Square,
     X
 } from "lucide-react";
@@ -113,6 +115,17 @@ export function Titlebar() {
       {/* ปุ่มควบคุมหน้าต่าง */}
       <div className="relative z-50 flex shrink-0 items-center border-b border-border bg-background">
         <div className="mr-1 flex items-center gap-1.5 px-1">
+          {isTauri() && (
+            <button
+              type="button"
+              onClick={() => void goToNotchMode().catch((e) => console.warn("[notch]", e))}
+              className="flex size-8 items-center justify-center rounded-sm bg-transparent text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              aria-label="Notch mode"
+              title="Notch mode — put Mali in the notch (⌥⌘M to ask)"
+            >
+              <PanelTop className="size-4" strokeWidth={1.75} />
+            </button>
+          )}
           <LanguageToggle />
           <ThemeToggle />
           <Popover>

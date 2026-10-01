@@ -25,6 +25,7 @@ pub mod smithery;
 pub mod opencode;
 pub mod outputs;
 pub mod process;
+pub mod notch;
 pub mod quick;
 pub mod secure_fs;
 pub mod setup;

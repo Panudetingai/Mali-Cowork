@@ -43,6 +43,11 @@ use commands::mcp::mcp_diagnose;
 use commands::mcp_oauth::mcp_auth_cancel;
 use commands::mcp_registry::{mcp_fetch_icon, mcp_registry_get, mcp_registry_icon, mcp_registry_search};
 use commands::native_alert::native_alert;
+use commands::notch::{
+    notch_capture_at_cursor, notch_capture_pick, notch_enter_mode, notch_exit_mode, notch_geometry, notch_hide,
+    notch_hit_area, notch_mode, notch_open_main, notch_release,
+    notch_resize, notch_show, notch_take_intro, NotchState,
+};
 use commands::outputs::{outputs_stat, outputs_trash};
 use commands::quick::{
     quick_capture_region, quick_capture_screen, quick_configure, quick_hide, quick_open_main,
@@ -150,6 +155,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(commands::quick::shortcut_plugin())
         .manage(QuickState::default())
+        .manage(NotchState::default())
         .on_window_event(commands::quick::on_window_event)
         .menu(app_menu)
         .setup(|app| {
@@ -220,6 +226,19 @@ pub fn run() {
             quick_capture_screen,
             quick_start_capture_overlay,
             quick_capture_region,
+            notch_show,
+            notch_hide,
+            notch_resize,
+            notch_geometry,
+            notch_hit_area,
+            notch_capture_at_cursor,
+            notch_capture_pick,
+            notch_enter_mode,
+            notch_exit_mode,
+            notch_take_intro,
+            notch_mode,
+            notch_release,
+            notch_open_main,
             cli_generate,
             check_cli,
             code_scan,

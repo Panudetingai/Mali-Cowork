@@ -6,6 +6,7 @@ import { OnboardingDialog, openOnboarding, isOnboardingDone, FORCE_ONBOARDING } 
 import { useWeeklyRecapAutoOpen, WeeklyRecapDialog } from "@/features/work-receipt";
 import { watchSkills } from "@/features/skills";
 import { startTaskQueue } from "@/features/tasks";
+import { onOpenTeam, playMainReturn, startNotchRelay } from "@/features/notch";
 import { listenForQuickSaves, onOpenChatRequest, onOpenQuickSettings, serveQuickTheme } from "@/features/quick";
 import { useTheme } from "next-themes";
 import { useEffect, useRef } from "react";
@@ -19,6 +20,7 @@ import ProjectPage from "./pages/projects/project-page";
 import SettingsPage from "./pages/settings";
 import VisualPage from "./pages/visual";
 import ChatBlocksPreviewPage from "./pages/dev/chat-blocks-preview";
+import NotchPreviewPage from "./pages/dev/notch-preview";
 
 function App() {
   useEffect(() => {
@@ -30,6 +32,10 @@ function App() {
 
   // Background Cowork tasks (Inbox): recover after a restart and keep the queue moving.
   useEffect(() => startTaskQueue(), []);
+  // The notch pill shows the agent's step and approvals while this window is away.
+  useEffect(() => startNotchRelay(), []);
+  // Coming back from notch mode, the window drops in from the top.
+  useEffect(() => playMainReturn(), []);
   // Thai work templates (quotation, invoice, official letter…) join the skills once.
   useEffect(() => seedThaiTemplateSkills(getInstructions().skills, saveSkill), []);
   // Connectors belong to Mali: hand them to its hub (the `mali` gateway serves
@@ -52,6 +58,11 @@ function App() {
   // Keep Quick bar threads as chats (this window owns history).
   useEffect(() => listenForQuickSaves(), []);
   useEffect(() => onOpenQuickSettings(() => navigate("/settings?tab=quick")), [navigate]);
+  // "New bot" in the notch: Settings → Team, with the new-bot form open.
+  useEffect(
+    () => onOpenTeam(({ create }) => navigate(`/settings?tab=team${create ? "&new=1" : ""}`)),
+    [navigate],
+  );
 
   // The Quick bar follows this window's theme.
   const { resolvedTheme } = useTheme();
@@ -79,7 +90,10 @@ function App() {
           <Route path="projects/:projectId" element={<ProjectPage />} />
           <Route path="settings" element={<SettingsPage />} />
           {import.meta.env.DEV ? (
-            <Route path="dev/chat-blocks" element={<ChatBlocksPreviewPage />} />
+            <>
+              <Route path="dev/chat-blocks" element={<ChatBlocksPreviewPage />} />
+              <Route path="dev/notch" element={<NotchPreviewPage />} />
+            </>
           ) : null}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

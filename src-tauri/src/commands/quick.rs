@@ -22,7 +22,7 @@ use super::attachments::{attachment_import, Attachment};
 
 pub const QUICK_LABEL: &str = "quick";
 const OVERLAY_LABEL: &str = "quick-capture-overlay";
-const MAIN_LABEL: &str = "main";
+pub const MAIN_LABEL: &str = "main";
 const TRAY_ID: &str = "mali-tray";
 const CAPTURE_DONE: &str = "quick:capture-done";
 const CAPTURE_FAILED: &str = "quick:capture-failed";
@@ -94,7 +94,8 @@ pub fn shortcut_plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri_plugin_global_shortcut::Builder::new()
         .with_handler(|app, _shortcut, event: ShortcutEvent| {
             // Only one shortcut is ever registered, and it's ours.
-            if event.state() == ShortcutState::Pressed {
+            // In notch mode the shortcut opens the notch instead.
+            if event.state() == ShortcutState::Pressed && !super::notch::summon(app) {
                 toggle_quick(app);
             }
         })
@@ -109,6 +110,8 @@ pub fn shortcut_plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
 /// bar vanish while the user is repositioning it.
 pub fn on_window_event<R: Runtime>(window: &tauri::Window<R>, event: &WindowEvent) {
     match (window.label(), event) {
+        // Brought back by the Dock or the tray: notch mode is over.
+        (MAIN_LABEL, WindowEvent::Focused(true)) => super::notch::main_focused(window.app_handle()),
         (MAIN_LABEL, WindowEvent::CloseRequested { api, .. }) => {
             let tray_mode = lock(&window.state::<QuickState>().config).tray_mode;
             if tray_mode {

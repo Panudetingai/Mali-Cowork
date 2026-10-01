@@ -48,6 +48,25 @@ if (typeof window !== "undefined") {
   });
 }
 
+// Other windows (the notch pill, the Quick bar) stay loaded while the
+// language is changed in the main window: follow it there too.
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key !== STORAGE_KEY) return;
+    let mode: LanguageMode = "auto";
+    try {
+      const saved = event.newValue ? (JSON.parse(event.newValue) as { mode?: unknown }) : null;
+      if (isMode(saved?.mode)) mode = saved.mode;
+    } catch {
+      return;
+    }
+    if (mode === store.get().mode) return;
+    const next = settingsFor(mode);
+    applyLanguageToDOM(next.current);
+    store.set(next);
+  });
+}
+
 export const useLanguageSettings = store.use;
 
 export function setLanguageMode(mode: LanguageMode) {
