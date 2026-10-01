@@ -16,6 +16,39 @@ const MATES = 4;
 /** The end of a long answer is the part worth showing in the notch. */
 const REPLY_CHARS = 2400;
 
+/** How much reply growth (chars) triggers a resync while a Cowork run streams. */
+const REPLY_BUCKET = 384;
+
+/**
+ * Stable key for whether the pill needs a new snapshot. Omits streaming reply
+ * text while working unless `streamReply` (the notch's own Cowork task).
+ */
+export function pillSyncKey(snapshot: NotchSnapshot | null, streamReply = false): string {
+  if (!snapshot) return "null";
+  const key = {
+    phase: snapshot.phase,
+    chatId: snapshot.chatId,
+    taskId: snapshot.taskId,
+    title: snapshot.title,
+    waiting: snapshot.waiting,
+    running: snapshot.running,
+    permission: snapshot.permission?.id,
+    command: snapshot.command,
+    asker: snapshot.asker?.id,
+    folder: snapshot.folder,
+    changed: snapshot.changed,
+    steps: snapshot.steps,
+    todos: snapshot.todos,
+    team: snapshot.team,
+  };
+  if (snapshot.phase === "done" || streamReply) {
+    const len = snapshot.reply?.length ?? 0;
+    const replyBucket = snapshot.phase === "done" ? len : Math.floor(len / REPLY_BUCKET);
+    return JSON.stringify({ ...key, replyBucket });
+  }
+  return JSON.stringify(key);
+}
+
 /** A team bot as the pill needs it; the relay looks up its color. */
 export type MateInfo = { id: string; name: string; mascot: CoworkBotId; color: string };
 

@@ -434,35 +434,37 @@ export function NotchRoot() {
       onCapturePick={() => void takeCapture(capturePick)}
       capturing={capturing}
       chat={
-        <NotchChat
-          ref={inputRef}
-          chat={chat}
-          geometry={geometry}
-          input={input}
-          onInput={setInput}
-          bot={picked}
-          onClearBot={() => {
-            if (chat.turns.length) chat.reset();
-            setBotId(undefined);
-            setThreadModel(undefined);
-          }}
-          onClose={() => setOpen(null)}
-          cowork={cowork}
-          folder={folder}
-          onFolder={(path) => {
-            // Another folder (or none) is another conversation.
-            if (path !== folder) cowork.reset();
-            setNotchFolder(path);
-            focusInput();
-          }}
-          modelId={modelId}
-          pickedModel={pickedModel}
-          onPickModel={pickModel}
-          panel={panel}
-          onPanel={setPanel}
-          onOpenChat={(id) => openChatInApp(id)}
-          captured={captured && chat.files.some((f) => f.id === captured.attachment.id) ? captured : undefined}
-        />
+        view === "chat" ? (
+          <NotchChat
+            ref={inputRef}
+            chat={chat}
+            geometry={geometry}
+            input={input}
+            onInput={setInput}
+            bot={picked}
+            onClearBot={() => {
+              if (chat.turns.length) chat.reset();
+              setBotId(undefined);
+              setThreadModel(undefined);
+            }}
+            onClose={() => setOpen(null)}
+            cowork={cowork}
+            folder={folder}
+            onFolder={(path) => {
+              // Another folder (or none) is another conversation.
+              if (path !== folder) cowork.reset();
+              setNotchFolder(path);
+              focusInput();
+            }}
+            modelId={modelId}
+            pickedModel={pickedModel}
+            onPickModel={pickModel}
+            panel={panel}
+            onPanel={setPanel}
+            onOpenChat={(id) => openChatInApp(id)}
+            captured={captured && chat.files.some((f) => f.id === captured.attachment.id) ? captured : undefined}
+          />
+        ) : null
       }
     />
   );

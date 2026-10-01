@@ -3,7 +3,8 @@ import type { ChatRun, ChatSession } from "@/features/chat-history";
 import type { PermissionRequest } from "@/pages/chat/api/chat";
 import type { ActivityItem, ChatMessage } from "@/pages/chat/types";
 import { hitArea, homeCards, mascotFrame, pillWindow, shapeSize, teamSlots, windowSize } from "./layout";
-import { liveSnapshot, type MateInfo } from "./snapshot";
+import { liveSnapshot, pillSyncKey, type MateInfo } from "./snapshot";
+import type { NotchSnapshot } from "./types";
 
 const run = (permissions: PermissionRequest[] = []): ChatRun => ({
   token: "t",
@@ -133,6 +134,27 @@ describe("liveSnapshot", () => {
     const snapshot = liveSnapshot({ ghost: run() }, lookup([]));
     expect(snapshot?.chatId).toBe("ghost");
     expect(snapshot?.title).toBe("");
+  });
+
+  test("pillSyncKey ignores streaming reply text until done or the notch follows Cowork", () => {
+    const base: NotchSnapshot = {
+      phase: "working",
+      chatId: "a",
+      title: "Task",
+      steps: [{ id: "s1", kind: "tool", title: "Read file", done: false }],
+      todos: [],
+      team: [],
+      waiting: 0,
+      running: 1,
+      reply: "hello",
+    };
+    expect(pillSyncKey({ ...base, reply: "hello" })).toBe(pillSyncKey({ ...base, reply: "hello world" }));
+    expect(pillSyncKey({ ...base, phase: "done", reply: "hello world" })).not.toBe(
+      pillSyncKey({ ...base, phase: "done", reply: "hello" }),
+    );
+    expect(pillSyncKey({ ...base, reply: "a".repeat(400) }, true)).not.toBe(
+      pillSyncKey({ ...base, reply: "a".repeat(800) }, true),
+    );
   });
 });
 

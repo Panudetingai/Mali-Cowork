@@ -10,8 +10,9 @@ import { MarkdownSurface } from "@/components/chat/markdown-surface";
 import { useAttachmentPreview, type Attachment } from "@/features/attachments";
 import { quickModelId, type QuickTurn } from "@/features/quick";
 import { cn } from "@/lib/utils";
-import { useNotchCatalog } from "./use-notch-catalog";
-import { chatIssueOf, loadSelectedModelId, OPENCODE_DEFAULT_ID } from "@/pages/chat/models";
+import { ensureOpencodeModels, getOpencodeModels, loadOpencodeSettings } from "@/features/opencode";
+import { normalizeFolder } from "@/features/workspace";
+import { chatIssueOf, loadSelectedModelId, modelMetaFromId, OPENCODE_DEFAULT_ID } from "@/pages/chat/models";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   ArrowUpIcon,
@@ -31,10 +32,10 @@ import {
   XIcon,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { forwardRef, useEffect, useRef, type ClipboardEvent, type KeyboardEvent } from "react";
+import { forwardRef, useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { folderName, useAllowedFolders } from "./folders";
 import { CHAT_BOT, CHAT_INPUT, topRowOf } from "./layout";
-import { NotchModels } from "./notch-models";
+import { NotchModelsPanel } from "./notch-models-panel";
 import type { RosterBot } from "./team";
 import type { NotchCapture } from "./bridge";
 import { useNotchText } from "./text";
@@ -84,23 +85,30 @@ export const NotchChat = forwardRef<HTMLInputElement, Props>(function NotchChat(
   const top = topRowOf(geometry);
   const t = useNotchText();
   const inFolder = !!folder;
-  // Cowork's list includes OpenCode Zen; Chat/Quick bar hide Zen's free tier.
-  const { catalog, loading } = useNotchCatalog("cowork");
+  const [modelsReady, setModelsReady] = useState(!!getOpencodeModels());
+  useEffect(() => {
+    if (modelsReady) return;
+    const cwd = normalizeFolder(loadOpencodeSettings().cwd) || undefined;
+    void ensureOpencodeModels(cwd).finally(() => setModelsReady(true));
+  }, [modelsReady]);
   // What will really answer: the pick here, else the bot's model, else the default for the mode.
   const fallback = inFolder ? loadSelectedModelId("cowork") : quickModelId();
   const answerId = props.modelId ?? ((!inFolder && bot?.modelId) || fallback);
+  const opencode = getOpencodeModels();
+  const answerMeta = useMemo(
+    () => modelMetaFromId(answerId, opencode),
+    [answerId, opencode, modelsReady],
+  );
   const nameOf = (id: string) =>
-    id === OPENCODE_DEFAULT_ID ? "Auto" : (catalog.find((m) => m.id === id)?.name ?? id.split("/").at(-1) ?? id);
-  const answer = catalog.find((m) => m.id === answerId);
+    id === OPENCODE_DEFAULT_ID ? "Auto" : (modelMetaFromId(id, opencode).name ?? id.split("/").at(-1) ?? id);
   const busy = chat.streaming || cowork.running;
   const thread = inFolder ? cowork.turns.length > 0 : chat.turns.length > 0;
 
   const submit = async (ask?: string) => {
     const text = (ask ?? input).trim();
     if (busy || (!text && chat.files.length === 0)) return;
-    const sendMeta = catalog.find((m) => m.id === answerId);
-    if (!inFolder && sendMeta && chatIssueOf(sendMeta)) {
-      chat.setNote(`${sendMeta.name} ตอบได้เมื่อเลือกโฟลเดอร์ — กด Chat แล้วเลือกโฟลเดอร์ก่อนส่ง`);
+    if (!inFolder && chatIssueOf(answerMeta)) {
+      chat.setNote(`${answerMeta.name} ตอบได้เมื่อเลือกโฟลเดอร์ — กด Chat แล้วเลือกโฟลเดอร์ก่อนส่ง`);
       onPanel("folders");
       return;
     }
@@ -142,11 +150,9 @@ export const NotchChat = forwardRef<HTMLInputElement, Props>(function NotchChat(
     <div className="absolute inset-x-3 bottom-3 flex flex-col gap-2" style={{ top: top + 4 }}>
       <AnimatePresence mode="popLayout" initial={false}>
         {panel === "models" ? (
-          <NotchModels
+          <NotchModelsPanel
             key="models"
-            catalog={catalog}
             inFolder={inFolder}
-            loading={loading}
             selected={props.pickedModel}
             defaultName={t("sameAs", { where: inFolder ? t("cowork") : t("quickBar"), name: nameOf(fallback) })}
             onPick={(id) => {
@@ -259,7 +265,7 @@ export const NotchChat = forwardRef<HTMLInputElement, Props>(function NotchChat(
           onClick={() => onPanel(panel === "models" ? null : "models")}
           title={t("answeringWith", { name: nameOf(answerId) })}
         >
-          {answer && <ModelSelectorLogo provider={answer.provider} className="size-3" />}
+          <ModelSelectorLogo provider={answerMeta.provider} className="size-3" />
           <span className="truncate">{nameOf(answerId)}</span>
           <ChevronDownIcon className={cn("size-3 shrink-0 transition-transform", panel === "models" && "rotate-180")} />
         </Chip>

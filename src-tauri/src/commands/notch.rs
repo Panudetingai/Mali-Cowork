@@ -16,7 +16,7 @@
 //! screen opens it, ready to ask. See "notch mode" below.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -240,7 +240,7 @@ pub fn notch_resize<R: Runtime>(app: AppHandle<R>, width: f64, height: f64, focu
 /// lets clicks through to the apps below (`watch_cursor`).
 #[tauri::command]
 pub fn notch_hit_area<R: Runtime>(app: AppHandle<R>, x: f64, y: f64, width: f64, height: f64) {
-    *app.state::<NotchState>().hit.lock().unwrap() = Some(Area { x, y, width, height });
+    *app.state::<NotchState>().hit.write().unwrap() = Some(Area { x, y, width, height });
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -352,7 +352,7 @@ pub struct NotchState {
     /// The last notch read from the screen.
     geometry: Mutex<Option<NotchGeometry>>,
     /// The pill's area in its window; the rest lets clicks through.
-    hit: Mutex<Option<Area>>,
+    hit: RwLock<Option<Area>>,
     /// The cursor is on the pill (it takes clicks) — as last told to the window.
     inside: AtomicBool,
 }
@@ -468,6 +468,15 @@ pub fn main_focused<R: Runtime>(app: &AppHandle<R>) {
 /// told when the cursor enters or leaves (it can't see the mouse itself while
 /// Mali isn't the active app). In notch mode, the cursor at the top of the
 /// screen near the notch brings a hidden pill back.
+/// Cursor poll while the pill is visible and the pointer is on it.
+const POLL_ON_PILL_MS: u64 = 40;
+/// Near the top strip (hover, drag-to-notch).
+const POLL_NEAR_TOP_MS: u64 = 60;
+/// Pill visible but the pointer is elsewhere on the screen.
+const POLL_AWAY_MS: u64 = 120;
+/// Pill hidden; notch mode waits for the pointer at the top edge.
+const POLL_HIDDEN_MODE_MS: u64 = 90;
+
 fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
     if app.state::<NotchState>().watching.swap(true, Ordering::SeqCst) {
         return;
@@ -477,23 +486,31 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
         let mut drags = mac::DragWatch::default();
         let mut dragging = false;
         let mut offered = false;
+        let mut sleep_ms = POLL_NEAR_TOP_MS;
         loop {
-            std::thread::sleep(Duration::from_millis(35));
-            #[cfg(target_os = "macos")]
-            match drags.poll() {
-                Some(mac::Drag::Started) => dragging = true,
-                Some(mac::Drag::Ended) => dragging = false,
-                None => {}
-            }
+            std::thread::sleep(Duration::from_millis(sleep_ms));
             let Some(window) = app.get_webview_window(NOTCH_LABEL) else {
                 if mode_on(&app) {
+                    sleep_ms = POLL_HIDDEN_MODE_MS;
                     continue;
                 }
                 break;
             };
             let visible = window.is_visible().unwrap_or(false);
-            let Ok(cursor) = app.cursor_position() else { continue };
+            let Ok(cursor) = app.cursor_position() else {
+                sleep_ms = POLL_AWAY_MS;
+                continue;
+            };
             let point = (cursor.x, cursor.y);
+            let near_top_strip = cursor_near_top_strip(&app, point);
+            #[cfg(target_os = "macos")]
+            if dragging || near_top_strip || sleep_ms <= POLL_NEAR_TOP_MS {
+                match drags.poll() {
+                    Some(mac::Drag::Started) => dragging = true,
+                    Some(mac::Drag::Ended) => dragging = false,
+                    None => {}
+                }
+            }
             // Files dragged toward the top: open the drop zone while they're
             // still well below the edge, since a drag that reaches the edge
             // makes macOS open Mission Control instead.
@@ -510,6 +527,7 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
                 if !mode_on(&app) {
                     break;
                 }
+                sleep_ms = POLL_HIDDEN_MODE_MS;
                 if at_top(&app, point) {
                     place(&app, &window);
                     show_pill(&window);
@@ -517,15 +535,35 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
                 continue;
             }
             let state = app.state::<NotchState>();
-            let area = *state.hit.lock().unwrap();
+            let area = *state.hit.read().unwrap();
             let now = area.is_some_and(|area| on_pill(&window, area, point));
             if state.inside.swap(now, Ordering::SeqCst) != now {
                 let _ = window.set_ignore_cursor_events(!now);
                 let _ = window.emit(HOVER, now);
             }
+            sleep_ms = if now {
+                POLL_ON_PILL_MS
+            } else if near_top_strip {
+                POLL_NEAR_TOP_MS
+            } else {
+                POLL_AWAY_MS
+            };
         }
         app.state::<NotchState>().watching.store(false, Ordering::SeqCst);
     });
+}
+
+/// The pointer is in the band under the menu bar where hover and drags matter.
+fn cursor_near_top_strip<R: Runtime>(app: &AppHandle<R>, (x, y): (f64, f64)) -> bool {
+    let Some((left, top, span)) = top_edge(app, Some((x, y))) else { return false };
+    let scale = app
+        .monitor_from_point(x, y)
+        .ok()
+        .flatten()
+        .map(|m| m.scale_factor())
+        .unwrap_or(1.0);
+    let center = left as f64 + span as f64 / 2.0;
+    y <= top as f64 + 280.0 * scale && (x - center).abs() <= 540.0 * scale
 }
 
 /// The upper part of the screen around the notch, where a file drag opens the drop zone.

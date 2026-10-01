@@ -27,11 +27,13 @@ import {
   showNotch,
 } from "./bridge";
 import { isNotchEnabled, subscribeToNotchEnabled } from "./settings";
-import { liveSnapshot, replyOf, type MateInfo } from "./snapshot";
+import { liveSnapshot, pillSyncKey, replyOf, type MateInfo } from "./snapshot";
 import type { NotchCoworkRequest, NotchCoworkStarted, NotchSnapshot } from "./types";
 
-/** A streaming reply changes the chat on every chunk; the pill needn't. */
-const THROTTLE_MS = 150;
+/** Run / permission / task changes — pill should react quickly. */
+const RUN_THROTTLE_MS = 150;
+/** Chat store updates on every token; steps/todos need less frequent syncs. */
+const CHAT_THROTTLE_MS = 450;
 
 function teamInfo(): MateInfo[] {
   return getTeam().mates.map((m) => ({
@@ -48,7 +50,8 @@ export function startNotchRelay() {
   let focused = typeof document !== "undefined" && document.hasFocus();
   /** The run on the pill, kept after it ends so it can say it's done. */
   let last: NotchSnapshot | null = null;
-  let throttle: ReturnType<typeof setTimeout> | undefined;
+  let runThrottle: ReturnType<typeof setTimeout> | undefined;
+  let chatThrottle: ReturnType<typeof setTimeout> | undefined;
   let current: NotchSnapshot | null = null;
   let sent = "null";
   let shown = false;
@@ -93,9 +96,11 @@ export function startNotchRelay() {
   }
 
   function push() {
-    throttle = undefined;
+    runThrottle = undefined;
+    chatThrottle = undefined;
     current = compute();
-    const key = JSON.stringify(current);
+    const streamReply = !!follow && current?.phase === "working";
+    const key = pillSyncKey(current, streamReply);
     if (key === sent) return;
     sent = key;
     if (!current) {
@@ -119,17 +124,22 @@ export function startNotchRelay() {
       .catch(warn);
   }
 
-  function schedule() {
-    throttle ??= setTimeout(push, THROTTLE_MS);
+  function scheduleRun() {
+    runThrottle ??= setTimeout(push, RUN_THROTTLE_MS);
+  }
+
+  function scheduleChat() {
+    if (focused || !isNotchEnabled()) return;
+    chatThrottle ??= setTimeout(push, CHAT_THROTTLE_MS);
   }
 
   const onFocus = () => {
     focused = true;
-    schedule();
+    scheduleRun();
   };
   const onBlur = () => {
     focused = false;
-    schedule();
+    scheduleRun();
   };
   window.addEventListener("focus", onFocus);
   window.addEventListener("blur", onBlur);
@@ -166,15 +176,15 @@ export function startNotchRelay() {
       void startCowork(request)
         .catch((error): NotchCoworkStarted => ({ id: request.id, error: String(error) }))
         .then((answer) => {
-          schedule();
+          scheduleRun();
           return sendCoworkStarted(answer);
         })
         .catch(warn);
     }),
-    subscribeToTasks(schedule),
-    subscribeToRuns(schedule),
-    subscribeToChats(schedule),
-    subscribeToNotchEnabled(schedule),
+    subscribeToTasks(scheduleRun),
+    subscribeToRuns(scheduleRun),
+    subscribeToChats(scheduleChat),
+    subscribeToNotchEnabled(scheduleRun),
     onNotchReady(() => void sendNotchState(current).catch(warn)),
     onNotchReply(({ chatId, id, reply }) => {
       const request = getRun(chatId)?.permissions.find((p) => p.id === id);
@@ -182,12 +192,13 @@ export function startNotchRelay() {
       void replyToPermission(chatId, request, reply).catch(warn);
     }),
   ];
-  schedule();
+  scheduleRun();
 
   return () => {
     window.removeEventListener("focus", onFocus);
     window.removeEventListener("blur", onBlur);
     stops.forEach((stop) => stop());
-    clearTimeout(throttle);
+    clearTimeout(runThrottle);
+    clearTimeout(chatThrottle);
   };
 }
