@@ -1,7 +1,7 @@
 {
   "name": "mali_cowork",
   "private": true,
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Desktop coworking app for AI chat and agent-assisted work on your files (Tauri + React + Rust).",
   "type": "module",
   "scripts": {
