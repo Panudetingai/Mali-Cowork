@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   captureAtCursor,
   capturePick,
+  dropOut,
   exitNotchMode,
   getNotchMode,
   openTeamInApp,
@@ -28,27 +29,36 @@ import {
   onNotchIntro,
   onNotchDrag,
   onNotchMode,
+  onNotchMoved,
   onNotchSummon,
+  onOpenApp,
   openMainFromNotch,
   resizeNotch,
   sendNotchReply,
   setNotchHitArea,
+  setNotchScreen,
   takeNotchIntro,
   type NotchCapture,
-  type NotchPoint,
+  type NotchDropTarget,
+  type NotchIntro as Intro,
 } from "./bridge";
 import { hitArea, pillWindow, shapeSize } from "./layout";
+import { NotchOutro } from "./notch-outro";
 import { setNotchFolder, useNotchFolder } from "./folders";
 import { NotchChat, type ChatPanel } from "./notch-chat";
 import { NotchIntro } from "./notch-intro";
 import { NotchPill, type ActiveBot } from "./notch-pill";
 import { useTeamRoster } from "./team";
 import type { NotchGeometry, NotchSnapshot, NotchView } from "./types";
-import { setNotchModelId, useNotchModelId } from "./settings";
+import { setNotchModelId, useNotchModelId, useNotchScreen } from "./settings";
 import { useNotchChat } from "./use-notch-chat";
 import { useNotchCowork } from "./use-notch-cowork";
 
-const NO_GEOMETRY: NotchGeometry = { hasNotch: false, notchWidth: 0, barHeight: 0 };
+const NO_GEOMETRY: NotchGeometry = {
+  hasNotch: false,
+  notchWidth: 0,
+  barHeight: 0,
+};
 /** Hover opens the pill after a beat, so passing the mouse over doesn't. */
 const OPEN_DELAY_MS = 120;
 const CLOSE_DELAY_MS = 380;
@@ -57,10 +67,14 @@ const CLICK_DELAY_MS = 220;
 /** The welcome: thinking this long, then waiting for work; it closes after the rest. */
 const WAKE_MS = 1800;
 const WELCOME_MS = 4600;
+/** A finished run with something to see stays open this long on its own. */
+const DONE_MS = 9000;
 /** Long enough for a web view's resize to draw (it's blank meanwhile). */
 const RESIZE_SETTLE_MS = 350;
 /** "Got it!" after a drop, before the ask box takes over. */
 const CATCH_MS = 700;
+/** Opening the app: the pill folds to its wings before the drop forms under them. */
+const FOLD_MS = 260;
 
 /** Notch mode with nothing running: the bot on its wing, ready to ask. */
 const IDLE: NotchSnapshot = {
@@ -74,14 +88,25 @@ const IDLE: NotchSnapshot = {
   running: 0,
 };
 
-type Open = "home" | "chat" | "welcome" | null;
+type Open = "home" | "chat" | "welcome" | "done" | null;
 
 export function NotchRoot() {
   const [snapshot, setSnapshot] = useState<NotchSnapshot | null>(null);
   const [geometry, setGeometry] = useState<NotchGeometry>(NO_GEOMETRY);
   const [mode, setMode] = useState(false);
   const [booted, setBooted] = useState(false);
-  const [intro, setIntro] = useState<NotchPoint | null>(null);
+  const [intro, setIntro] = useState<Intro | null>(null);
+  /** Opening the app: the drop falling into it, and the chat to open there. */
+  const [outro, setOutro] = useState<{
+    id: number;
+    target: NotchDropTarget;
+    chatId?: string;
+  }>();
+  const leaving = useRef(false);
+  /** The drop that last opened the app: each one opens it once, never again later. */
+  const landed = useRef(0);
+  const stage = useRef<HTMLDivElement>(null);
+  const screen = useNotchScreen();
   const [open, setOpen] = useState<Open>(null);
   const [drop, setDrop] = useState<"over" | "taken">();
   /** Rust saw files dragged near the top: keep the drop zone open until the drag moves off. */
@@ -99,7 +124,10 @@ export function NotchRoot() {
   const [panel, setPanel] = useState<ChatPanel>(null);
   const folder = useNotchFolder();
   const notchModel = useNotchModelId();
-  const [answered, setAnswered] = useState<{ id: string; reply: "once" | "reject" }>();
+  const [answered, setAnswered] = useState<{
+    id: string;
+    reply: "once" | "reject";
+  }>();
   const { bot: lead } = useCoworkBot();
   const roster = useTeamRoster();
   const chat = useNotchChat();
@@ -109,25 +137,56 @@ export function NotchRoot() {
 
   useEffect(() => listenForNotchState(setSnapshot), []);
   useEffect(() => listenForNotchGeometry(setGeometry), []);
+  // Which screen the pill lives on (Settings → Notch): Rust learns it from here.
+  useEffect(() => {
+    if (isTauri()) void setNotchScreen(screen).catch(() => undefined);
+  }, [screen]);
+  // Moved to another screen: arrive there rather than just appear.
+  useEffect(
+    () =>
+      onNotchMoved(() => {
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        stage.current?.animate(
+          [
+            {
+              opacity: 0,
+              transform: "translateY(-12px) scale(0.9)",
+              filter: "blur(4px)",
+            },
+            { opacity: 1, transform: "none", filter: "none" },
+          ],
+          { duration: 380, easing: "cubic-bezier(0.2, 0.9, 0.25, 1.1)" },
+        );
+      }),
+    [],
+  );
 
   // Whether we're in notch mode, and a fly-in to play, before the first resize.
   useEffect(() => {
     if (!isTauri()) return setBooted(true);
     void Promise.all([getNotchMode(), takeNotchIntro()])
-      .then(([on, from]) => {
+      .then(([on, intro]) => {
         setMode(on);
-        if (from) setIntro(from);
+        if (intro) setIntro(intro);
       })
       .catch(() => undefined)
       .finally(() => setBooted(true));
+    // Back in notch mode: a drop left over from opening the app is done with.
+    // (It stalls while the window is hidden; finishing later, it would open
+    // the app again — the pill bounced straight back to the app.)
+    const forgetDrop = () => {
+      setOutro(undefined);
+      leaving.current = false;
+    };
     const stopMode = onNotchMode((on) => {
       setMode(on);
       if (!on) setOpen(null);
+      else forgetDrop();
     });
     const stopIntro = onNotchIntro(() => {
-      void takeNotchIntro().then((from) => {
-        if (!from) return;
-        setIntro(from);
+      forgetDrop();
+      void takeNotchIntro().then((intro) => {
+        if (intro) setIntro(intro);
       });
     });
     return () => {
@@ -139,7 +198,29 @@ export function NotchRoot() {
   const shown = snapshot ?? (mode ? IDLE : null);
   const phase = shown?.phase;
   const permission = phase === "permission" ? shown?.permission : undefined;
-  const view: NotchView = permission ? "permission" : drop ? "drop" : (open ?? "collapsed");
+  // "Done" shows what a finished run made; once another run starts, it's Home again.
+  const made = phase === "done" && !!shown?.showcase?.length;
+  const opened = open === "done" && !made ? "home" : open;
+  const view: NotchView = permission ? "permission" : drop ? "drop" : (opened ?? "collapsed");
+
+  // A run that finished with something to see opens the pill on it, the
+  // bot pleased with itself; it folds away again unless you're looking.
+  const announced = useRef<string>(undefined);
+  const doneTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(doneTimer.current), []);
+  useEffect(() => {
+    if (!snapshot || snapshot.phase !== "done" || !snapshot.showcase?.length) return;
+    const key = `${snapshot.chatId}:${snapshot.showcase.map((s) => s.items.length).join(",")}`;
+    if (announced.current === key) return;
+    announced.current = key;
+    // Asking in the notch, or looking at something else there: the thread shows it.
+    if (open === "chat" || open === "welcome" || leaving.current) return;
+    setOpen("done");
+    clearTimeout(doneTimer.current);
+    doneTimer.current = setTimeout(() => {
+      if (!hovered.current) setOpen((o) => (o === "done" ? null : o));
+    }, DONE_MS);
+  }, [snapshot, open]);
 
   // ── who's in the main spot ──
   const leadName = BOTS.find((b) => b.id === lead)?.name ?? "Mali";
@@ -170,7 +251,8 @@ export function NotchRoot() {
   // pill animates inside it, and only its own area takes clicks.
   const frame = pillWindow(geometry);
   const focusable = view === "permission" || view === "chat";
-  const sizing = booted && !intro && !!shown;
+  // The fly-in and the drop into the app have the window meanwhile.
+  const sizing = booted && !intro && !outro && !!shown;
   useEffect(() => {
     if (!sizing) return;
     void resizeNotch(frame.width, frame.height, focusable).catch(() => undefined);
@@ -178,8 +260,8 @@ export function NotchRoot() {
   const area = hitArea(frame, shape);
   useEffect(() => {
     if (!sizing) return;
-    void setNotchHitArea(area).catch(() => undefined);
-  }, [sizing, area.x, area.y, area.width, area.height]);
+    void setNotchHitArea(area, view !== "collapsed").catch(() => undefined);
+  }, [sizing, area.x, area.y, area.width, area.height, view]);
 
   // ── opening and closing ──
   const sticky = () =>
@@ -309,21 +391,23 @@ export function NotchRoot() {
   const reply = (choice: "once" | "reject") => {
     if (!shown || !permission || answering) return;
     setAnswered({ id: permission.id, reply: choice });
-    void sendNotchReply({ chatId: shown.chatId, id: permission.id, reply: choice }).catch(() =>
-      setAnswered(undefined),
-    );
+    void sendNotchReply({
+      chatId: shown.chatId,
+      id: permission.id,
+      reply: choice,
+    }).catch(() => setAnswered(undefined));
   };
   const replyRef = useRef(reply);
   replyRef.current = reply;
 
   // Y allows, N or Esc denies — only while an approval is on the pill.
+  // Physical key codes (not `event.key`) so Thai / other IMEs still work.
   useEffect(() => {
     if (!permission) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-      const key = event.key.toLowerCase();
-      if (key === "y") replyRef.current("once");
-      else if (key === "n" || key === "escape") replyRef.current("reject");
+      if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.code === "KeyY") replyRef.current("once");
+      else if (event.code === "KeyN" || event.key === "Escape") replyRef.current("reject");
       else return;
       event.preventDefault();
     };
@@ -331,11 +415,55 @@ export function NotchRoot() {
     return () => window.removeEventListener("keydown", onKey);
   }, [permission]);
 
+  // ── opening the app ──
+  // The pill folds to its wings, a drop forms under them and falls into the
+  // middle of the main window, which opens out of it as it lands.
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const openApp = (chatId?: string) => {
+    if (leaving.current) return;
+    leaving.current = true;
+    const direct = () => {
+      leaving.current = false;
+      void (modeRef.current ? exitNotchMode(chatId) : openMainFromNotch(chatId)).catch(() => undefined);
+    };
+    const folding = open !== null || !!panel;
+    setOpen(null);
+    setTimeout(
+      () =>
+        void dropOut()
+          .catch(() => null)
+          .then((target) => (target ? setOutro({ id: Date.now(), target, chatId }) : direct())),
+      folding ? FOLD_MS : 0,
+    );
+  };
+  const openAppRef = useRef(openApp);
+  openAppRef.current = openApp;
+  // The Dock or the tray asked for the app: drop into it.
+  useEffect(() => onOpenApp(() => openAppRef.current()), []);
+
   const color = BOTS.find((b) => b.id === lead)?.color ?? "#3aa3f5";
+  const outroView = outro && (
+    <NotchOutro
+      key={outro.id}
+      target={outro.target}
+      color={color}
+      top={shape.height}
+      onLanded={() => {
+        if (landed.current >= outro.id) return;
+        landed.current = outro.id;
+        void (modeRef.current ? exitNotchMode(outro.chatId) : openMainFromNotch(outro.chatId)).catch(() => undefined);
+      }}
+      onDone={() => {
+        setOutro(undefined);
+        leaving.current = false;
+      }}
+    />
+  );
   if (intro) {
     return (
       <NotchIntro
-        from={intro}
+        from={intro.from}
         color={color}
         onDone={() => {
           // Back from the fly-in's full-screen window to the pill's: let that
@@ -354,17 +482,26 @@ export function NotchRoot() {
       />
     );
   }
-  if (!shown) return null;
+  if (!shown) {
+    // Notch mode just ended: the splash plays out over the opening app.
+    // Same tree as below, so the drop isn't mounted afresh (and played again).
+    return outroView ? (
+      <div ref={stage} className="relative size-full origin-top">
+        {null}
+        {outroView}
+      </div>
+    ) : null;
+  }
 
-  const openChatInApp = (id?: string) =>
-    void (mode ? exitNotchMode(id) : openMainFromNotch(id)).catch(() => undefined);
+  const openChatInApp = (id?: string) => openApp(id);
   const openRunChat = () =>
     openChatInApp(view === "chat" ? (folder ? cowork.chatId : chat.savedChatId()) : shown.chatId || undefined);
   const press = () => {
     clearTimeout(pressTimer.current);
     pressTimer.current = setTimeout(() => {
       // A finished run (outside notch mode) opens its chat; otherwise the pill opens.
-      if (phase === "done" && !mode) openRunChat();
+      if (made) setOpen("done");
+      else if (phase === "done" && !mode) openRunChat();
       else setOpen("home");
     }, CLICK_DELAY_MS);
   };
@@ -395,77 +532,80 @@ export function NotchRoot() {
   };
 
   return (
-    <NotchPill
-      snapshot={shown}
-      view={view}
-      geometry={geometry}
-      shape={shape}
-      lead={lead}
-      active={active}
-      roster={roster}
-      answering={answering}
-      onReply={reply}
-      onOpenChat={openRunChat}
-      onPress={press}
-      onEnter={enter}
-      onLeave={leave}
-      onSettled={() => undefined}
-      onDismiss={dismiss}
-      onHome={() => setOpen("home")}
-      onChat={openChat}
-      onNewChat={() => {
-        chat.reset();
-        cowork.reset();
-        setBotId(undefined);
-        setThreadModel(undefined);
-        openChat();
-      }}
-      onPickBot={pickBot}
-      chatBusy={chat.streaming || cowork.running}
-      welcomeState={welcomeState}
-      drop={drop}
-      onBotDropped={() => void takeCapture(captureAtCursor)}
-      onAddBot={() => {
-        // The app makes bots (ready-made ones to pick, or your own); bring it up there.
-        void openTeamInApp(true)
-          .then(() => (mode ? exitNotchMode() : openMainFromNotch()))
-          .catch(() => undefined);
-      }}
-      onCapturePick={() => void takeCapture(capturePick)}
-      capturing={capturing}
-      chat={
-        view === "chat" ? (
-          <NotchChat
-            ref={inputRef}
-            chat={chat}
-            geometry={geometry}
-            input={input}
-            onInput={setInput}
-            bot={picked}
-            onClearBot={() => {
-              if (chat.turns.length) chat.reset();
-              setBotId(undefined);
-              setThreadModel(undefined);
-            }}
-            onClose={() => setOpen(null)}
-            cowork={cowork}
-            folder={folder}
-            onFolder={(path) => {
-              // Another folder (or none) is another conversation.
-              if (path !== folder) cowork.reset();
-              setNotchFolder(path);
-              focusInput();
-            }}
-            modelId={modelId}
-            pickedModel={pickedModel}
-            onPickModel={pickModel}
-            panel={panel}
-            onPanel={setPanel}
-            onOpenChat={(id) => openChatInApp(id)}
-            captured={captured && chat.files.some((f) => f.id === captured.attachment.id) ? captured : undefined}
-          />
-        ) : null
-      }
-    />
+    <div ref={stage} className="relative size-full origin-top">
+      <NotchPill
+        snapshot={shown}
+        view={view}
+        geometry={geometry}
+        shape={shape}
+        lead={lead}
+        active={active}
+        roster={roster}
+        answering={answering}
+        onReply={reply}
+        onOpenChat={openRunChat}
+        onPress={press}
+        onEnter={enter}
+        onLeave={leave}
+        onSettled={() => undefined}
+        onDismiss={dismiss}
+        onHome={() => setOpen("home")}
+        onChat={openChat}
+        onNewChat={() => {
+          chat.reset();
+          cowork.reset();
+          setBotId(undefined);
+          setThreadModel(undefined);
+          openChat();
+        }}
+        onPickBot={pickBot}
+        chatBusy={chat.streaming || cowork.running}
+        welcomeState={welcomeState}
+        drop={drop}
+        onBotDropped={() => void takeCapture(captureAtCursor)}
+        onAddBot={() => {
+          // The app makes bots (ready-made ones to pick, or your own); bring it up there.
+          void openTeamInApp(true)
+            .then(() => openApp())
+            .catch(() => undefined);
+        }}
+        onCapturePick={() => void takeCapture(capturePick)}
+        capturing={capturing}
+        chat={
+          view === "chat" ? (
+            <NotchChat
+              ref={inputRef}
+              chat={chat}
+              geometry={geometry}
+              input={input}
+              onInput={setInput}
+              bot={picked}
+              onClearBot={() => {
+                if (chat.turns.length) chat.reset();
+                setBotId(undefined);
+                setThreadModel(undefined);
+              }}
+              onClose={() => setOpen(null)}
+              cowork={cowork}
+              folder={folder}
+              onFolder={(path) => {
+                // Another folder (or none) is another conversation.
+                if (path !== folder) cowork.reset();
+                setNotchFolder(path);
+                focusInput();
+              }}
+              modelId={modelId}
+              pickedModel={pickedModel}
+              onPickModel={pickModel}
+              panel={panel}
+              onPanel={setPanel}
+              onOpenChat={(id) => openChatInApp(id)}
+              captured={captured && chat.files.some((f) => f.id === captured.attachment.id) ? captured : undefined}
+            />
+          ) : null
+        }
+      />
+      {outroView}
+    </div>
   );
 }

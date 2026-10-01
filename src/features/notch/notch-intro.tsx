@@ -2,7 +2,8 @@
  * Going into notch mode: the main window has shrunk to a dot where it was;
  * the dot floats up to the notch, a line of light runs along the top edge,
  * then the pill opens. The window covers the screen down to the dot while
- * this plays and lets clicks through (`notch_enter_mode`).
+ * this plays and lets clicks through (`notch_enter_mode`). Without a dot
+ * (Mali started at login), only the light plays.
  */
 import { motion } from "motion/react";
 import { useLayoutEffect, useRef, useState } from "react";
@@ -10,14 +11,14 @@ import type { NotchPoint } from "./bridge";
 
 const DOT = 26;
 
-export function NotchIntro({ from, color, onDone }: { from: NotchPoint; color: string; onDone: () => void }) {
-  const [stage, setStage] = useState<"fly" | "glow">("fly");
+export function NotchIntro({ from, color, onDone }: { from: NotchPoint | null; color: string; onDone: () => void }) {
+  const [stage, setStage] = useState<"fly" | "glow">(from ? "fly" : "glow");
   const box = useRef<HTMLDivElement>(null);
   const [cx, setCx] = useState<number>();
   useLayoutEffect(() => setCx((box.current?.offsetWidth ?? window.innerWidth) / 2), []);
   return (
     <div ref={box} className="pointer-events-none absolute inset-0 overflow-hidden">
-      {cx !== undefined && stage === "fly" && (
+      {cx !== undefined && from && stage === "fly" && (
         <motion.div
           className="absolute rounded-full bg-white"
           style={{

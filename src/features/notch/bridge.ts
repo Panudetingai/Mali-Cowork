@@ -28,9 +28,39 @@ export function resizeNotch(width: number, height: number, focusable: boolean) {
   return invoke<void>("notch_resize", { width, height, focusable });
 }
 
-/** Where the pill is in its window; the rest of the window lets clicks through. */
-export function setNotchHitArea(area: { x: number; y: number; width: number; height: number }) {
-  return invoke<void>("notch_hit_area", area);
+/**
+ * Where the pill is in its window; the rest of the window lets clicks
+ * through. `open`: more than the wings shows, so the pill stays on its screen.
+ */
+export function setNotchHitArea(area: { x: number; y: number; width: number; height: number }, open: boolean) {
+  return invoke<void>("notch_hit_area", { ...area, open });
+}
+
+/** Which screen the pill lives on: the pointer's, the Mac's own, or the main one. */
+export type NotchScreen = "follow" | "builtin" | "main";
+
+export function setNotchScreen(pref: NotchScreen) {
+  return invoke<void>("notch_set_screen", { pref });
+}
+
+/** Mali starts at login, in the notch. */
+export function getNotchLoginItem() {
+  return invoke<boolean>("notch_login_item");
+}
+
+export function setNotchLoginItem(on: boolean) {
+  return invoke<void>("notch_set_login_item", { on });
+}
+
+/** The main window, where the drop lands, in the pill's window. */
+export type NotchDropTarget = { x: number; y: number; width: number; height: number };
+
+/**
+ * Ready the drop into the app: the pill's window covers the screen down to
+ * the main window. `null` when the main window is up already.
+ */
+export function dropOut() {
+  return invoke<NotchDropTarget | null>("notch_drop_out");
 }
 
 /** Hide the pill and bring the main window up on that chat. */
@@ -87,12 +117,14 @@ const HOVER = "notch:hover";
 const INTRO = "notch:intro";
 const MAIN_RETURN = "notch:main-return";
 
-/** A point in physical screen pixels (where the main window shrank to) or in the pill's window. */
+/** A point in the pill's window, in logical pixels. */
 export type NotchPoint = { x: number; y: number };
+/** How the pill appears: a dot flying up from `from`, or (none) the light along the top edge. */
+export type NotchIntro = { from: NotchPoint | null };
 
 /** Put the main window away and keep the pill at the top. */
-export function enterNotchMode(from?: NotchPoint) {
-  return invoke<NotchGeometry>("notch_enter_mode", { from: from ?? null });
+export function enterNotchMode() {
+  return invoke<NotchGeometry>("notch_enter_mode");
 }
 
 /** Back to the app, on `chatId` if given. */
@@ -104,9 +136,9 @@ export function getNotchMode() {
   return invoke<boolean>("notch_mode");
 }
 
-/** Where the fly-in starts, in the pill's window; once. */
+/** The fly-in to play; once. */
 export function takeNotchIntro() {
-  return invoke<NotchPoint | null>("notch_take_intro");
+  return invoke<NotchIntro | null>("notch_take_intro");
 }
 
 /** Relay: nothing to show. Hides the pill unless notch mode keeps it up. */
@@ -126,6 +158,10 @@ export const onNotchSummon = (handler: () => void) => on<null>(SUMMON, handler);
 /** The cursor entered or left the pill (watched from Rust: works while Mali is in the background). */
 export const onNotchHover = (handler: (inside: boolean) => void) => on<boolean>(HOVER, handler);
 export const onNotchIntro = (handler: () => void) => on<null>(INTRO, handler);
+/** The pill moved to another screen. */
+export const onNotchMoved = (handler: () => void) => on<null>("notch:moved", handler);
+/** The app was asked for (the Dock, the tray): drop into it. */
+export const onOpenApp = (handler: () => void) => on<null>("notch:open-app", handler);
 /** Main window: notch mode ended, play the way back in. */
 export const onMainReturn = (handler: () => void) => on<null>(MAIN_RETURN, handler);
 
@@ -159,6 +195,15 @@ export function requestCowork(request: NotchCoworkRequest): Promise<NotchCoworkS
       .catch((error) => finish({ id: request.id, error: String(error) }));
   });
 }
+
+/** Pill → main: stop this work (a queued task is dropped, a running one stopped). */
+export function requestStop(target: { chatId?: string; taskId?: string }) {
+  return emitTo("main", "notch:stop", target);
+}
+
+/** Main window: the notch asked to stop work. */
+export const onNotchStop = (handler: (target: { chatId?: string; taskId?: string }) => void) =>
+  on<{ chatId?: string; taskId?: string }>("notch:stop", handler);
 
 /** Main window: work the notch asks for. */
 export const onNotchCowork = (handler: (request: NotchCoworkRequest) => void) => on<NotchCoworkRequest>(COWORK, handler);

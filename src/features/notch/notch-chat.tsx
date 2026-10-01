@@ -38,6 +38,7 @@ import { CHAT_BOT, CHAT_INPUT, topRowOf } from "./layout";
 import { NotchModelsPanel } from "./notch-models-panel";
 import type { RosterBot } from "./team";
 import type { NotchCapture } from "./bridge";
+import { Showcase } from "./notch-showcase";
 import { useNotchText } from "./text";
 import type { NotchGeometry } from "./types";
 import type { NotchChat as Chat } from "./use-notch-chat";
@@ -269,10 +270,10 @@ export const NotchChat = forwardRef<HTMLInputElement, Props>(function NotchChat(
           <span className="truncate">{nameOf(answerId)}</span>
           <ChevronDownIcon className={cn("size-3 shrink-0 transition-transform", panel === "models" && "rotate-180")} />
         </Chip>
-        {chat.streaming ? (
+        {chat.streaming || (inFolder && cowork.running) ? (
           <motion.button
             type="button"
-            onClick={chat.stop}
+            onClick={inFolder ? cowork.stop : chat.stop}
             whileTap={{ scale: 0.92 }}
             title={t("stop")}
             className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/[0.14] text-white"
@@ -448,72 +449,178 @@ function Thread({ turns, answeredBy }: { turns: QuickTurn[]; answeredBy: Record<
   );
 }
 
-/** Work in a folder: what was asked, the steps as they run, the answer, and what changed. */
+/**
+ * Work in a folder: what was asked, the steps as they run, the answer as
+ * it's written, and what changed. The folder is on the chip below and the
+ * chat opens from "Open Mali" above, so the turns don't repeat them: only
+ * the latest says it's done, and a turn that changed files keeps its review.
+ */
 function CoworkThread({ turns, onOpenChat }: { turns: CoworkTurn[]; onOpenChat: (chatId: string) => void }) {
-  const t = useNotchText();
   const last = turns.at(-1);
-  const ref = useFollow(`${turns.length}:${last?.reply?.length}:${last?.steps.length}:${last?.status}`);
+  const pages = last?.showcase?.reduce((n, s) => n + s.items.length, 0) ?? 0;
+  const ref = useFollow(`${turns.length}:${last?.reply?.length}:${last?.steps.length}:${last?.status}:${pages}`);
   return (
     <motion.div ref={ref} className={THREAD} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-4">
         {turns.map((turn) => (
-          <div key={turn.id} className="flex flex-col gap-2">
-            <Asked text={turn.prompt} files={turn.files} />
-            <span className="flex items-center gap-1 text-[11px] text-emerald-300/70">
-              <FolderIcon className="size-3" />
-              {folderName(turn.folder)}
-            </span>
-            {turn.status === "starting" && <Waiting text={t("checkingFolder")} />}
-            {turn.status === "queued" && (
-              <p className="flex items-center gap-2 text-[12px] text-white/50">
-                <ClockIcon className="size-3.5" /> {t("queued")}
-              </p>
-            )}
-            {turn.status === "running" && (
-              <div className="flex flex-col gap-1">
-                {turn.steps.slice(-3).map((step) => (
-                  <p key={step.id} className="flex min-w-0 items-center gap-2 text-[12px] text-white/50">
-                    {step.done ? (
-                      <CheckIcon className="size-3 shrink-0" />
-                    ) : (
-                      <Loader2Icon className="size-3 shrink-0 animate-spin" />
-                    )}
-                    <span className="truncate">{step.title}</span>
-                  </p>
-                ))}
-                {turn.phase === "permission" && (
-                  <p className="text-[12px] text-amber-200/80">{t("waitingOk")}</p>
-                )}
-                {!turn.steps.length && <Waiting text={t("starting")} />}
-              </div>
-            )}
-            {turn.reply && <Answer text={turn.reply} streaming={turn.status === "running"} />}
-            {turn.status === "error" && <Failed text={turn.error} />}
-            {turn.status === "done" && turn.chatId && (
-              <div className="flex items-center gap-2 text-[12px]">
-                <span className="flex items-center gap-1 text-emerald-300/80">
-                  <CheckIcon className="size-3.5" />
-                  {turn.changed
-                    ? turn.changed === 1
-                      ? t("fileChanged")
-                      : t("filesChanged", { n: turn.changed })
-                    : t("done")}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onOpenChat(turn.chatId!)}
-                  className="ml-auto flex items-center gap-1 rounded-full bg-white/[0.08] px-2.5 py-0.5 text-white/70 hover:bg-white/[0.16] hover:text-white"
-                >
-                  {turn.changed ? t("reviewUndo") : t("openInMali")}
-                  <ArrowUpRightIcon className="size-3" />
-                </button>
-              </div>
-            )}
-          </div>
+          <CoworkTurnView key={turn.id} turn={turn} latest={turn === last} onOpenChat={onOpenChat} onGrow={ref} />
         ))}
       </div>
     </motion.div>
   );
+}
+
+function CoworkTurnView({
+  turn,
+  latest,
+  onOpenChat,
+  onGrow,
+}: {
+  turn: CoworkTurn;
+  latest: boolean;
+  onOpenChat: (chatId: string) => void;
+  onGrow: React.RefObject<HTMLDivElement | null>;
+}) {
+  const t = useNotchText();
+  const live = turn.status === "running";
+  const writing = live && !!turn.reply;
+  const step = turn.steps.at(-1);
+  // Just finished: the answer may have come whole with the finish; write it out still.
+  const fresh = live || (latest && !!turn.endedAt && Date.now() - turn.endedAt < FRESH_MS);
+  return (
+    <div className="flex flex-col gap-2">
+      <Asked text={turn.prompt} files={turn.files} />
+      {turn.status === "starting" && <Waiting text={t("checkingFolder")} />}
+      {turn.status === "queued" && (
+        <p className="flex items-center gap-2 text-[12px] text-white/50">
+          <ClockIcon className="size-3.5" /> {t("queued")}
+        </p>
+      )}
+      {live && (
+        // While it works: what it's doing now, one line that rolls on; the
+        // answer takes over below as soon as it starts.
+        <div className="flex min-w-0 items-center gap-2 text-[12px] text-white/45">
+          <Loader2Icon className="size-3 shrink-0 animate-spin" />
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.span
+              key={turn.phase === "permission" ? "permission" : (step?.id ?? "start")}
+              className={cn("truncate", turn.phase === "permission" && "text-amber-200/80")}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+            >
+              {turn.phase === "permission"
+                ? t("waitingOk")
+                : step && !step.done
+                  ? step.title
+                  : writing
+                    ? t("writing")
+                    : (step?.title ?? t("starting"))}
+            </motion.span>
+          </AnimatePresence>
+        </div>
+      )}
+      {turn.reply && <TypedAnswer text={turn.reply} live={fresh} onGrow={onGrow} />}
+      {/* What it made: pages join the strip as the agent makes them. */}
+      {turn.showcase?.map((showcase, i) => (
+        <Showcase key={`${showcase.url ?? showcase.source ?? "pictures"}-${i}`} showcase={showcase} className="mt-1" />
+      ))}
+      {turn.status === "error" && <Failed text={turn.error} />}
+      {turn.status === "stopped" && (
+        <p className="flex items-center gap-1.5 text-[11.5px] text-white/40">
+          <SquareIcon className="size-2.5 fill-current" />
+          {t("stopped")}
+        </p>
+      )}
+      {turn.status === "done" && turn.chatId && (turn.changed || latest) && (
+        <div className="flex items-center gap-2 text-[11.5px]">
+          <span className="flex items-center gap-1 text-emerald-300/70">
+            <CheckIcon className="size-3.5" />
+            {turn.changed
+              ? turn.changed === 1
+                ? t("fileChanged")
+                : t("filesChanged", { n: turn.changed })
+              : t("done")}
+          </span>
+          {!!turn.changed && (
+            <button
+              type="button"
+              onClick={() => onOpenChat(turn.chatId!)}
+              className="flex items-center gap-1 rounded-full bg-white/[0.08] px-2.5 py-0.5 text-white/70 hover:bg-white/[0.16] hover:text-white"
+            >
+              {t("reviewUndo")}
+              <ArrowUpRightIcon className="size-3" />
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The answer, written out as it arrives rather than in jumps (it comes from the app in pieces). */
+function TypedAnswer({
+  text,
+  live,
+  onGrow,
+}: {
+  text: string;
+  live: boolean;
+  onGrow: React.RefObject<HTMLDivElement | null>;
+}) {
+  const shown = useTypewriter(text, live);
+  const typing = shown.length < text.length;
+  // Keep the newest words in view as they're written.
+  useEffect(() => {
+    const thread = onGrow.current;
+    if (thread && typing) thread.scrollTop = thread.scrollHeight;
+  }, [shown, typing, onGrow]);
+  return <Answer text={shown} streaming={live || typing} />;
+}
+
+/** A turn this recently finished still writes its answer out. */
+const FRESH_MS = 1500;
+/** Characters a second it writes at, and how fast it catches up when far behind. */
+const TYPE_RATE = 90;
+const CATCH_UP = 3;
+/** Redraw at most this often: each draw lays out the answer's markdown again. */
+const TYPE_FRAME_MS = 33;
+
+/**
+ * Text that writes itself out: an answer already done when it appears shows
+ * whole; one being written grows smoothly toward what has arrived, faster
+ * the further behind it is, so it never lags far.
+ */
+function useTypewriter(text: string, live: boolean) {
+  const [count, setCount] = useState(() => (live ? 0 : text.length));
+  const counted = useRef(count);
+  useEffect(() => {
+    if (counted.current >= text.length) {
+      counted.current = Math.min(counted.current, text.length);
+      return;
+    }
+    let frame = 0;
+    let last = performance.now();
+    let drawn = last;
+    let carry = 0;
+    const tick = (now: number) => {
+      const behind = text.length - counted.current;
+      carry += ((now - last) / 1000) * Math.max(TYPE_RATE, behind * CATCH_UP);
+      last = now;
+      const step = Math.floor(carry);
+      carry -= step;
+      counted.current = Math.min(text.length, counted.current + step);
+      const done = counted.current >= text.length;
+      if (done || now - drawn >= TYPE_FRAME_MS) {
+        drawn = now;
+        setCount(counted.current);
+      }
+      if (!done) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [text]);
+  return text.slice(0, Math.min(count, text.length));
 }
 
 function Asked({ text, files }: { text: string; files: Attachment[] }) {

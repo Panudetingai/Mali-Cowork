@@ -229,21 +229,24 @@ html[lang="th"] {
  */
 .chat-markdown {
   color: var(--foreground);
-  line-height: 1.65;
+  line-height: 1.7;
+  /* Figures line up in columns and don't jitter as they stream in. */
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
   /* Long unbroken tokens (URLs, hashes) wrap instead of blowing the layout. */
   overflow-x: clip;
 }
 .chat-markdown p {
-  margin-block: 0.55em;
+  margin-block: 0.6em;
   color: inherit;
+  text-wrap: pretty;
 }
 .chat-markdown strong {
   font-weight: 600;
 }
 .chat-markdown :is([data-streamdown^="heading-"]) {
-  margin-top: 1.25em;
-  margin-bottom: 0.4em;
+  margin-top: 1.5em;
+  margin-bottom: 0.45em;
   font-weight: 650;
   line-height: 1.35;
   letter-spacing: -0.01em;
@@ -254,8 +257,22 @@ html[lang="th"] {
   padding-bottom: 0.3em;
   border-bottom: 1px solid var(--border);
 }
-.chat-markdown [data-streamdown="heading-2"] { font-size: 1.125em; }
-.chat-markdown [data-streamdown="heading-3"] { font-size: 1.0625em; }
+.chat-markdown [data-streamdown="heading-2"] { font-size: 1.2em; }
+/* Sub-sections read as labels: smaller, a quiet accent bar beside them. */
+.chat-markdown [data-streamdown="heading-3"] {
+  font-size: 1em;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+.chat-markdown [data-streamdown="heading-3"]::before {
+  content: "";
+  width: 3px;
+  height: 0.95em;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--primary) 70%, var(--muted-foreground));
+  flex-shrink: 0;
+}
 .chat-markdown :is([data-streamdown="heading-4"], [data-streamdown="heading-5"], [data-streamdown="heading-6"]) {
   font-size: 1em;
   color: var(--muted-foreground);
@@ -269,11 +286,20 @@ html[lang="th"] {
 .chat-markdown [data-streamdown="ordered-list"] { list-style-type: decimal; }
 /* Nested lists sit closer to their parent item. */
 .chat-markdown [data-streamdown="list-item"] :is([data-streamdown="unordered-list"], [data-streamdown="ordered-list"]) {
-  margin-block: 0.25em;
+  margin-block: 0.15em 0.3em;
 }
 .chat-markdown [data-streamdown="list-item"] {
-  margin-block: 0.25em;
-  padding-left: 0.15em;
+  margin-block: 0.3em;
+  /* Streamdown pads each item too; the margin alone spaces them. */
+  padding-block: 0 !important;
+  padding-left: 0.2em;
+}
+.chat-markdown [data-streamdown="list-item"] [data-streamdown="list-item"] {
+  margin-block: 0.1em;
+}
+.chat-markdown [data-streamdown="ordered-list"] > [data-streamdown="list-item"]::marker {
+  font-weight: 600;
+  font-size: 0.92em;
 }
 .chat-markdown [data-streamdown="list-item"]::marker {
   color: var(--muted-foreground);
@@ -281,13 +307,22 @@ html[lang="th"] {
 .chat-markdown [data-streamdown="list-item"] > p {
   margin-block: 0;
 }
-/* Task lists: align the checkbox with the first line. */
+/* Task lists: the checkbox is the marker (no bullet beside it); done items fade. */
+.chat-markdown [data-streamdown="list-item"]:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -1.25em;
+}
 .chat-markdown [data-streamdown="list-item"] > input[type="checkbox"] {
-  margin-right: 0.5em;
+  margin-right: 0.55em;
   accent-color: var(--primary);
   width: 0.95em;
   height: 0.95em;
-  vertical-align: -0.1em;
+  vertical-align: -0.12em;
+}
+.chat-markdown [data-streamdown="list-item"]:has(> input[type="checkbox"]:checked) {
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--muted-foreground) 60%, transparent);
 }
 .chat-markdown [data-streamdown="inline-code"] {
   padding: 0.12em 0.38em;
@@ -315,13 +350,15 @@ html[lang="th"] {
   font-size: 0.78em;
   font-weight: 500;
 }
+/* Quotes read as a callout: a note to stop at, not dimmed-out text. */
 .chat-markdown [data-streamdown="blockquote"] {
-  margin-block: 0.6em;
-  padding: 0.35em 0.9em 0.35em 1em;
-  border-left: 3px solid var(--ring);
-  border-radius: 0 0.5em 0.5em 0;
-  background: var(--muted);
-  color: var(--muted-foreground);
+  margin-block: 0.85em;
+  padding: 0.6em 1em 0.6em 1.05em;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--primary) 65%, var(--ring));
+  border-radius: 0.4em 0.75em 0.75em 0.4em;
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+  color: color-mix(in srgb, var(--foreground) 85%, var(--muted-foreground));
   font-style: normal;
 }
 .chat-markdown [data-streamdown="blockquote"] > :first-child { margin-top: 0; }
@@ -361,10 +398,12 @@ html[lang="th"] {
  * and adds row dividers — we collapse that into one shell and horizontal rules only.
  */
 .chat-markdown [data-streamdown="table-wrapper"] {
-  margin-block: 0.85em !important;
-  gap: 0.35rem;
-  padding: 0.45rem 0.5rem 0.55rem !important;
-  font-size: 0.8125em;
+  position: relative;
+  margin-block: 0.9em !important;
+  gap: 0;
+  padding: 0 !important;
+  overflow: hidden;
+  font-size: 0.875em;
   line-height: 1.5;
   border: 1px solid color-mix(in srgb, var(--border) 85%, transparent) !important;
   border-radius: 0.75em !important;
@@ -386,7 +425,7 @@ html[lang="th"] {
   line-height: 1.5;
 }
 .chat-markdown [data-streamdown="table-header"] {
-  background: color-mix(in srgb, var(--muted) 55%, transparent);
+  background: color-mix(in srgb, var(--muted) 70%, transparent);
 }
 .chat-markdown [data-streamdown="table-body"] {
   --tw-divide-y-reverse: 0;
@@ -400,23 +439,30 @@ html[lang="th"] {
 .chat-markdown [data-streamdown="table-body"] > [data-streamdown="table-row"]:last-child {
   border-bottom: none;
 }
-.chat-markdown [data-streamdown="table-body"] > [data-streamdown="table-row"]:nth-child(even) {
-  background: color-mix(in srgb, var(--muted) 28%, transparent);
+.chat-markdown [data-streamdown="table-body"] > [data-streamdown="table-row"] {
+  transition: background-color 120ms ease;
+}
+.chat-markdown [data-streamdown="table-body"] > [data-streamdown="table-row"]:hover {
+  background: color-mix(in srgb, var(--muted) 40%, transparent);
 }
 .chat-markdown [data-streamdown="table-header"] [data-streamdown="table-row"] {
   border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
 }
 .chat-markdown :is([data-streamdown="table-header-cell"], [data-streamdown="table-cell"]) {
-  padding: 0.55em 0.7em;
+  padding: 0.6em 0.9em;
   vertical-align: top;
   border: none !important;
 }
 .chat-markdown [data-streamdown="table-header-cell"] {
   font-weight: 600;
-  font-size: 0.92em;
-  letter-spacing: 0.01em;
-  color: color-mix(in srgb, var(--foreground) 88%, var(--muted-foreground));
+  font-size: 0.95em;
+  color: var(--muted-foreground);
   white-space: nowrap;
+}
+/* A last row in bold is a total: set it apart. */
+.chat-markdown [data-streamdown="table-body"] > [data-streamdown="table-row"]:last-child:has(> [data-streamdown="table-cell"]:first-child > strong) {
+  border-top: 1px solid var(--border) !important;
+  background: color-mix(in srgb, var(--muted) 35%, transparent);
 }
 .chat-markdown [data-streamdown="table-cell"] {
   white-space: normal;
@@ -433,8 +479,22 @@ html[lang="th"] {
 .chat-markdown [data-streamdown="table-cell"] :is(a, [data-streamdown="link"]):hover {
   text-decoration-color: color-mix(in srgb, var(--primary) 70%, transparent);
 }
+/* The table's copy / download / full-screen buttons float over its corner
+   and show on hover, instead of taking a row of their own. */
 .chat-markdown [data-streamdown="table-wrapper"] > div:first-child:not(:has(> table)) {
-  padding: 0 0.1rem 0.15rem;
+  position: absolute;
+  top: 0.3rem;
+  right: 0.35rem;
+  z-index: 1;
+  padding: 0.1rem;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--background) 85%, transparent);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+.chat-markdown [data-streamdown="table-wrapper"]:is(:hover, :focus-within) > div:first-child:not(:has(> table)) {
+  opacity: 1;
 }
 .chat-markdown [data-streamdown="link"] {
   font-weight: 500;
@@ -506,4 +566,37 @@ html[lang="th"] {
   .animate-\[voice-bar_0\.9s_ease-in-out_infinite\] {
     animation: none;
   }
+}
+
+/*
+ * The notch pill's small loops (busy dots, the equalizer, a breathing glow):
+ * opacity and transform only, so the compositor plays them with no script
+ * and no layout while the pill sits on screen all day.
+ */
+@keyframes notch-dim {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+@keyframes notch-fade {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+@keyframes notch-beat {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+@keyframes notch-shrink {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(0.7); }
+}
+@keyframes notch-bar {
+  0%, 100% { transform: scaleY(0.35); }
+  50% { transform: scaleY(1); }
+}
+@keyframes notch-breathe {
+  0%, 100% { opacity: 0.28; }
+  50% { opacity: 0.5; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .notch-loop { animation: none !important; }
 }

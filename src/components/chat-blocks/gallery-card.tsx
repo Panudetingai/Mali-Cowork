@@ -5,6 +5,7 @@ import { connectorFor, McpToolIcon, useCustomMcps } from "@/features/mcp";
 import { cn } from "@/lib/utils";
 import { Figma, Github, Google, Notion } from "@lobehub/icons";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { ChevronLeftIcon, ChevronRightIcon, ExternalLinkIcon, ImageOffIcon, LayoutGridIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { MediaPreviewDialog } from "./media-preview-dialog";
@@ -43,7 +44,8 @@ const SOURCES: Record<string, { label: string; icon: ReactNode }> = {
   github: { label: "GitHub", icon: <Github size={18} /> },
 };
 
-function sourceOf(source: string | undefined) {
+/** The app a gallery lives in: its name and mark (also used by the notch). */
+export function sourceOf(source: string | undefined) {
   const key = (source ?? "").replace(/[\s_]+/g, "-");
   const known = SOURCES[key];
   if (known) return known;
@@ -60,11 +62,12 @@ const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in 
  * session so scrolling back doesn't refetch.
  */
 const fetched = new Map<string, Promise<string>>();
-function loadImage(url: string): Promise<string> {
+export function loadImage(url: string): Promise<string> {
   if (!isTauri()) return Promise.resolve(url);
   let pending = fetched.get(url);
   if (!pending) {
-    pending = invoke<string>("mcp_fetch_icon", { url });
+    // Kept on disk once loaded (the links expire), with Canva's fallback link tried too.
+    pending = invoke<string>("preview_image", { url });
     // A failure isn't kept: the next render may try again.
     pending.catch(() => fetched.delete(url));
     fetched.set(url, pending);
@@ -93,11 +96,17 @@ function Tile({
   index,
   onOpen,
   onLoaded,
+  source,
+  href,
 }: {
   item: GalleryItem;
   index: number;
   onOpen: () => void;
   onLoaded: (index: number, src: string) => void;
+  /** The app's name, for "Open in Canva" when the picture can't load. */
+  source: string;
+  /** Opens this page (or the whole design) in its app. */
+  href?: string;
 }) {
   const remote = useRemoteImage(item.image);
   // A picture that loaded as data but won't draw counts as failed too.
@@ -116,13 +125,15 @@ function Tile({
   return (
     <button
       type="button"
-      onClick={onOpen}
-      disabled={!src}
+      // A picture whose link expired opens the design in its app instead.
+      onClick={src ? onOpen : failed && href ? () => void openUrl(href) : undefined}
+      disabled={!src && !(failed && href)}
       title={item.title ?? `Page ${index + 1}`}
       style={{ width, height: TILE_HEIGHT }}
       className={cn(
         "group/tile relative shrink-0 snap-start overflow-hidden rounded-xl border border-border/60 bg-muted/40 shadow-xs transition",
-        src && "hover:-translate-y-0.5 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+        (src || (failed && href)) &&
+          "hover:-translate-y-0.5 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
       )}
     >
       {src ? (
@@ -140,7 +151,17 @@ function Tile({
       ) : failed ? (
         <span className="flex size-full flex-col items-center justify-center gap-1.5 px-3 text-center text-[11px] text-muted-foreground">
           <ImageOffIcon className="size-4" />
-          Preview unavailable
+          {href ? (
+            <>
+              <span>The preview link expired</span>
+              <span className="flex items-center gap-1 font-medium text-foreground/80 group-hover/tile:text-foreground">
+                Open in {source}
+                <ExternalLinkIcon className="size-3" />
+              </span>
+            </>
+          ) : (
+            "Preview unavailable"
+          )}
         </span>
       ) : (
         <span className="block size-full animate-pulse bg-muted" />
@@ -269,6 +290,8 @@ export function GalleryCard({ gallery }: { gallery: GalleryBlock }) {
               index={index}
               onLoaded={onLoaded}
               onOpen={() => setOpenAt(index)}
+              source={source.label}
+              href={item.url ?? gallery.url}
             />
           ))}
         </div>

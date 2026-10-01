@@ -44,11 +44,12 @@ use commands::mcp_oauth::mcp_auth_cancel;
 use commands::mcp_registry::{mcp_fetch_icon, mcp_registry_get, mcp_registry_icon, mcp_registry_search};
 use commands::native_alert::native_alert;
 use commands::notch::{
-    notch_capture_at_cursor, notch_capture_pick, notch_enter_mode, notch_exit_mode, notch_geometry, notch_hide,
-    notch_hit_area, notch_mode, notch_open_main, notch_release,
-    notch_resize, notch_show, notch_take_intro, NotchState,
+    notch_capture_at_cursor, notch_capture_pick, notch_drop_out, notch_enter_mode, notch_exit_mode, notch_geometry,
+    notch_hide, notch_hit_area, notch_login_item, notch_mode, notch_open_main, notch_release, notch_resize,
+    notch_set_login_item, notch_set_screen, notch_show, notch_take_intro, NotchState,
 };
 use commands::outputs::{outputs_stat, outputs_trash};
+use commands::preview_image::preview_image;
 use commands::quick::{
     quick_capture_region, quick_capture_screen, quick_configure, quick_hide, quick_open_main,
     quick_start_capture_overlay, quick_take_context, QuickState,
@@ -160,6 +161,13 @@ pub fn run() {
         .menu(app_menu)
         .setup(|app| {
             supervisor::exit_on_signals();
+            // The main window starts hidden: at login (the login item passes
+            // `--notch`) Mali stays in the notch until the app is opened.
+            if commands::notch::started_in_notch() {
+                commands::notch::start_in_notch(app.handle());
+            } else {
+                commands::quick::show_main(app.handle());
+            }
             // So a system notification carries the app's name and icon.
             commands::native_alert::init(&app.config().identifier);
             // Agent Arena was removed; its worktree copies go with it.
@@ -239,6 +247,11 @@ pub fn run() {
             notch_mode,
             notch_release,
             notch_open_main,
+            notch_drop_out,
+            notch_set_screen,
+            notch_login_item,
+            notch_set_login_item,
+            preview_image,
             cli_generate,
             check_cli,
             code_scan,
@@ -344,9 +357,9 @@ pub fn run() {
         .run(|app, event| match event {
             // Stop opencode, running agents and the MCP servers they started.
             tauri::RunEvent::Exit => supervisor::shutdown_all(),
-            // Dock click after tray mode hid the main window.
+            // Dock click after tray mode or notch mode hid the main window.
             #[cfg(target_os = "macos")]
-            tauri::RunEvent::Reopen { .. } => commands::quick::show_main(app),
+            tauri::RunEvent::Reopen { .. } => commands::notch::reopen(app),
             _ => {}
         });
 }

@@ -32,12 +32,35 @@ function normalizeUrl(raw: string): string {
   return u.trim();
 }
 
-function isOAuthish(label: string, url: string): boolean {
-  const blob = `${label} ${url}`.toLowerCase();
+/** Design / asset links agents paste beside a real sign-in prompt — not OAuth. */
+function isProductContentUrl(url: string): boolean {
+  const u = url.toLowerCase();
   return (
-    /authorize|sign[\s-]?in|oauth|consent|gmail|google|ยืนยัน|เข้าสู่ระบบ|ลงชื่อ|ลิงก์นี้/.test(blob) ||
-    /accounts\.google|oauth|authorize|consent|login\.microsoft|github\.com\/login|\/auth\?/i.test(url)
+    /canva\.com\/design\//.test(u) ||
+    /(^|[/?&])edit(?:\/|\?|$)/.test(u) ||
+    /media\.canva\.com|static\.canva\.com|\.canva\.com\/(?:v2|_)/.test(u) ||
+    /figma\.com\/(?:file|design|proto)\//.test(u) ||
+    /notion\.so\/[^/?#]+-[a-f0-9]{32}/.test(u)
   );
+}
+
+function urlLooksLikeOAuth(url: string): boolean {
+  if (isProductContentUrl(url)) return false;
+  const u = url.toLowerCase();
+  return /accounts\.google|oauth|authorize|consent|login\.microsoft|github\.com\/login|\/auth(?:\/|\?|$)|mcp\.notion\.com\/authorize/.test(
+    u,
+  );
+}
+
+function labelLooksLikeOAuth(label: string): boolean {
+  const blob = label.toLowerCase();
+  return /authorize|sign[\s-]?in|oauth|consent|gmail|google|ยืนยัน|เข้าสู่ระบบ|ลงชื่อ|ลิงก์นี้/.test(blob);
+}
+
+/** True when a link should become a sign-in card, not a normal preview link. */
+function isOAuthish(label: string, url: string): boolean {
+  if (isProductContentUrl(url)) return false;
+  return urlLooksLikeOAuth(url) || labelLooksLikeOAuth(label);
 }
 
 function pushAuth(
@@ -229,10 +252,19 @@ function dedupeMedia(items: MediaPreviewBlock[]) {
 
 function dedupeAuth(actions: AuthActionBlock[]) {
   const seen = new Set<string>();
+  const seenHost = new Set<string>();
   return actions.filter((a) => {
     const key = a.connectorId ?? a.url;
     if (seen.has(key)) return false;
     seen.add(key);
+    if (a.connectorId) return true;
+    try {
+      const host = new URL(a.url).host.toLowerCase();
+      if (seenHost.has(host)) return false;
+      seenHost.add(host);
+    } catch {
+      // keep entries with bad urls
+    }
     return true;
   });
 }
@@ -270,18 +302,19 @@ function extractAuthFromProse(text: string, authActions: AuthActionBlock[]): str
     return full;
   });
 
-  // Plain URL on its own line when message mentions Gmail / authorize (Thai agent copy)
-  if (/gmail|authorize|ยืนยัน|ลิงก์นี้|oauth/i.test(text)) {
-    text = text.replace(/(https?:\/\/[^\s<>"')\]]+)/g, (full, url: string) => {
-      if (isOAuthish(text, url)) {
-        const before = text.slice(0, text.indexOf(full));
-        const lead = before.split(/[\n。！!]/).pop();
-        pushAuth(authActions, url, "Authorize", lead);
+  // Plain URLs only on lines that themselves mention sign-in (not every link in the message).
+  text = text
+    .split("\n")
+    .map((line) => {
+      if (!/gmail|authorize|ยืนยัน|ลิงก์นี้|oauth|sign[\s-]?in|เข้าสู่ระบบ/i.test(line)) return line;
+      return line.replace(/(https?:\/\/[^\s<>"')\]]+)/g, (full, url: string) => {
+        if (!isOAuthish(line, url)) return full;
+        const lead = line.slice(0, line.indexOf(full)).trim();
+        pushAuth(authActions, url, "Authorize", lead || undefined);
         return "";
-      }
-      return full;
-    });
-  }
+      });
+    })
+    .join("\n");
 
   // Remember Thai lead-in before colon for the next auth link on the same paragraph
   const leadMatch = /([^\n]+(?:Gmail|gmail|ยืนยัน)[^\n]*[：:])\s*/.exec(text);
@@ -356,5 +389,5 @@ export function extractChatBlocks(content: string): {
 
 /** True when a URL should open immediately (OAuth), not only on hover preview. */
 export function isOAuthUrl(url: string): boolean {
-  return isOAuthish("", url);
+  return urlLooksLikeOAuth(url);
 }

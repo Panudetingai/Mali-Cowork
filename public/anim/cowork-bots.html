@@ -1011,15 +1011,25 @@ document.getElementById("bot").contentWindow
   }
 
   // ---------- shared animation loop ----------
+  // At most 60 frames a second (a 120 Hz screen would draw twice as often
+  // for no visible gain), and none while the host pauses it (a bot it hides).
   var bots = [];
   var last = performance.now();
+  var paused = false, pending = 0, MIN_MS = 1000/60 - 4;
   function frame(now){
+    pending = 0;
+    if (paused) return;
+    if (now - last < MIN_MS){ pending = requestAnimationFrame(frame); return; }
     var dt = Math.min(0.05, (now - last)/1000); last = now;
     var f = dt*60;
     for (var i=0; i<bots.length; i++) bots[i].update(dt, f);
-    requestAnimationFrame(frame);
+    pending = requestAnimationFrame(frame);
   }
-  requestAnimationFrame(frame);
+  function setPaused(p){
+    paused = p;
+    if (!paused && !pending){ last = performance.now(); pending = requestAnimationFrame(frame); }
+  }
+  pending = requestAnimationFrame(frame);
 
   // ---------- demo sequence ----------
   var SEQ = [["idle",2500],["welcome",6200],["thinking",8000],["tool",6000],["working",9000],
@@ -1108,8 +1118,9 @@ document.getElementById("bot").contentWindow
   }
   window.addEventListener("message", function(e){
     var d = e.data; if (!d) return;
-    if (typeof d === "string") apply("all", d);
-    else if (d.state) apply(d.bot || "all", d.state);
+    if (typeof d === "string") return apply("all", d);
+    if (typeof d.paused === "boolean") setPaused(d.paused);
+    if (d.state) apply(d.bot || "all", d.state);
   });
   window.CoworkBots = {
     set: function(botKey, s){ if (s === undefined){ s = botKey; botKey = "all"; } apply(botKey, s); },

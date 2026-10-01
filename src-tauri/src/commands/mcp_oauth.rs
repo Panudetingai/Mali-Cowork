@@ -19,7 +19,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -609,6 +609,27 @@ fn pkce() -> (String, String) {
     (verifier, challenge)
 }
 
+/// Why the token endpoint gave no token.
+#[derive(Debug)]
+struct TokenError {
+    /// The server turned the grant down for good (revoked, expired, or the
+    /// app's registration is gone): only signing in again helps. Otherwise it
+    /// couldn't be asked (offline, a server error), and asking later may work.
+    refused: bool,
+    message: String,
+}
+
+impl From<TokenError> for String {
+    fn from(error: TokenError) -> Self {
+        error.message
+    }
+}
+
+/// OAuth answers a dead grant with 400 (`invalid_grant`) or 401 (`invalid_client`).
+fn grant_refused(status: reqwest::StatusCode) -> bool {
+    status == reqwest::StatusCode::BAD_REQUEST || status == reqwest::StatusCode::UNAUTHORIZED
+}
+
 /// Post to the token endpoint the way the client registered to authenticate.
 async fn token_request(
     client: &reqwest::Client,
@@ -617,7 +638,7 @@ async fn token_request(
     client_secret: Option<&str>,
     auth_method: Option<&str>,
     mut form: Vec<(&str, String)>,
-) -> Result<Value, String> {
+) -> Result<Value, TokenError> {
     let mut request = client.post(endpoint).header("Accept", "application/json");
     match (client_secret, auth_method) {
         (Some(secret), Some("client_secret_basic")) => {
@@ -629,12 +650,18 @@ async fn token_request(
         }
         (None, _) => form.push(("client_id", client_id.to_string())),
     }
-    let response = request.form(&form).send().await.map_err(|e| format!("Couldn't reach the sign-in server: {e}"))?;
+    let response = request.form(&form).send().await.map_err(|e| TokenError {
+        refused: false,
+        message: format!("Couldn't reach the sign-in server: {e}"),
+    })?;
     let status = response.status();
     let body: Value = response.json().await.unwrap_or(Value::Null);
     if !status.is_success() || body["access_token"].as_str().is_none() {
         let why = body["error_description"].as_str().or_else(|| body["error"].as_str()).unwrap_or("no token in the answer");
-        return Err(format!("The server didn't hand out a token ({status}): {why}"));
+        return Err(TokenError {
+            refused: grant_refused(status),
+            message: format!("The server didn't hand out a token ({status}): {why}"),
+        });
     }
     Ok(body)
 }
@@ -648,7 +675,20 @@ fn tokens_from(body: &Value, previous_refresh: Option<String>, base: Tokens) -> 
     }
 }
 
-/// A token for the hub to call a remote server with, refreshed when it's about to expire.
+/// After a refresh that failed but may work later, the next try waits this long.
+const RETRY_REFRESH: Duration = Duration::from_secs(60);
+
+/// When each server's last refresh failed for a passing reason.
+fn failed_refreshes() -> &'static Mutex<HashMap<String, Instant>> {
+    static FAILED: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+    FAILED.get_or_init(Default::default)
+}
+
+/// A token for the hub to call a remote server with, refreshed when it's
+/// about to expire. A grant the service revoked (the app was disconnected
+/// there, or it expired) is dropped, so the connector reads "needs sign-in"
+/// instead of retrying the dead grant on every call; a refresh that failed
+/// for a passing reason waits a minute before the next try.
 pub async fn access_token(id: &str, url: &str) -> Option<String> {
     let saved = tokens().lock().unwrap_or_else(|p| p.into_inner()).get(id).cloned()?;
     if !same_url(&saved.server_url, url) {
@@ -659,6 +699,10 @@ pub async fn access_token(id: &str, url: &str) -> Option<String> {
         return Some(saved.access_token);
     }
     let refresh = saved.refresh_token.clone()?;
+    let waited = failed_refreshes().lock().unwrap_or_else(|p| p.into_inner()).get(id).copied();
+    if waited.is_some_and(|at| at.elapsed() < RETRY_REFRESH) {
+        return None;
+    }
     let client = client().ok()?;
     let form = vec![
         ("grant_type", "refresh_token".to_string()),
@@ -676,6 +720,7 @@ pub async fn access_token(id: &str, url: &str) -> Option<String> {
     .await
     {
         Ok(body) => {
+            failed_refreshes().lock().unwrap_or_else(|p| p.into_inner()).remove(id);
             let updated = tokens_from(&body, Some(refresh), saved);
             let token = updated.access_token.clone();
             let mut map = tokens().lock().unwrap_or_else(|p| p.into_inner());
@@ -683,8 +728,17 @@ pub async fn access_token(id: &str, url: &str) -> Option<String> {
             let _ = save_tokens(&map);
             Some(token)
         }
+        Err(e) if e.refused => {
+            eprintln!("[mcp-oauth] {id}: the service ended Mali's access ({}); sign in again in Connectors", e.message);
+            failed_refreshes().lock().unwrap_or_else(|p| p.into_inner()).remove(id);
+            if let Err(save) = sign_out(id) {
+                eprintln!("[mcp-oauth] {id}: couldn't forget the dead sign-in: {save}");
+            }
+            None
+        }
         Err(e) => {
-            eprintln!("[mcp-oauth] {id}: refresh failed: {e}");
+            eprintln!("[mcp-oauth] {id}: refresh failed, trying again in a minute: {}", e.message);
+            failed_refreshes().lock().unwrap_or_else(|p| p.into_inner()).insert(id.to_string(), Instant::now());
             None
         }
     }
@@ -787,6 +841,17 @@ pub async fn sign_in(app: &tauri::AppHandle, id: &str, server_url: &str) -> Resu
 #[cfg(test)]
 mod native_tests {
     use super::*;
+
+    /// A grant the service revoked or let expire is gone for good; a server
+    /// error or a timeout is worth asking again later.
+    #[test]
+    fn a_revoked_grant_is_told_from_a_passing_failure() {
+        use reqwest::StatusCode;
+        assert!(grant_refused(StatusCode::BAD_REQUEST));
+        assert!(grant_refused(StatusCode::UNAUTHORIZED));
+        assert!(!grant_refused(StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(!grant_refused(StatusCode::TOO_MANY_REQUESTS));
+    }
 
     #[test]
     fn pkce_challenge_is_s256_of_the_verifier() {

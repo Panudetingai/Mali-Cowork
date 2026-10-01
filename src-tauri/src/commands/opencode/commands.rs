@@ -1,10 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::collections::VecDeque;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use futures::StreamExt;
-use serde_json::Value;
+use serde_json::{json, Value};
 use tauri::ipc::Channel;
 
 use crate::chat_stream::ChatStreamEvent;
@@ -19,6 +19,7 @@ use super::{
     providers::{overlay_model_ids, APP_PROVIDERS},
     schema::{self, Unsupported},
     server::{ensure_server, not_found_message, restart},
+    stream::{self, Event},
     OpencodeCheckResult, OpencodeModel, OpencodeModelsResult, OpencodeProvider, OpencodeRequest,
     FolderGrant, PermissionReplyRequest, QuestionReplyRequest, SetAuthRequest,
 };
@@ -26,6 +27,8 @@ use super::{
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Silence on the event stream after which the server is checked.
 const STREAM_IDLE: Duration = Duration::from_secs(90);
+/// After Stop, how long the agent has to say it stopped before the reply ends anyway.
+const STOP_GRACE: Duration = Duration::from_secs(3);
 
 /// `opencode --version`, for messages that tell the user which one they have.
 async fn cli_version(bin: &str) -> Option<String> {
@@ -339,6 +342,38 @@ impl Drop for ActivePrompt {
     }
 }
 
+/// Stop for a running prompt, by session. OpenCode is asked to abort, but a
+/// tool that won't quit (a hung command) keeps it from ever saying it
+/// stopped; the reply then ends anyway after [`STOP_GRACE`], so Stop always
+/// stops — in the chat, the Inbox and the notch.
+struct StopSignal(String);
+
+impl StopSignal {
+    fn registry() -> &'static Mutex<HashMap<String, Arc<tokio::sync::Notify>>> {
+        static STOPS: OnceLock<Mutex<HashMap<String, Arc<tokio::sync::Notify>>>> = OnceLock::new();
+        STOPS.get_or_init(Default::default)
+    }
+
+    fn register(session_id: &str) -> (Self, Arc<tokio::sync::Notify>) {
+        let signal = Arc::new(tokio::sync::Notify::new());
+        Self::registry().lock().unwrap().insert(session_id.to_string(), signal.clone());
+        (Self(session_id.to_string()), signal)
+    }
+
+    fn raise(session_id: &str) {
+        if let Some(signal) = Self::registry().lock().unwrap().get(session_id) {
+            // Kept until awaited, so a Stop that lands between two events still counts.
+            signal.notify_one();
+        }
+    }
+}
+
+impl Drop for StopSignal {
+    fn drop(&mut self) {
+        Self::registry().lock().unwrap().remove(&self.0);
+    }
+}
+
 #[tauri::command]
 pub async fn opencode_abort(
     session_id: String,
@@ -346,6 +381,8 @@ pub async fn opencode_abort(
     mode: Option<String>,
 ) -> Result<(), String> {
     let directory = session_dir(mode.as_deref(), cwd.as_deref());
+    // The reply ends even if the server never answers the abort.
+    StopSignal::raise(&session_id);
     ensure_server()
         .await?
         .abort(&path_str(&directory), &session_id)
@@ -359,7 +396,12 @@ pub async fn opencode_generate(
     on_event: Channel<ChatStreamEvent>,
 ) -> Result<(), String> {
     if let Err(message) = run_prompt(&request, &on_event).await {
-        let message = crate::http_body::clarify_reqwest(&message).unwrap_or(message);
+        // A body that broke off here is the connection to OpenCode, not a key or an address.
+        let message = if message.contains("error decoding response body") {
+            DROPPED.to_string()
+        } else {
+            message
+        };
         let _ = on_event.send(ChatStreamEvent::Error { message });
     }
     Ok(())
@@ -396,10 +438,7 @@ async fn run_prompt(
     }
 
     // Subscribe before prompting so no early event is missed.
-    let mut events = SseStream::new(client.events(&directory).await?);
-    tokio::time::timeout(CONNECT_TIMEOUT, events.wait_for("server.connected"))
-        .await
-        .map_err(|_| "Timed out connecting to the opencode event stream".to_string())??;
+    let mut events = stream::subscribe(&client, &directory, CONNECT_TIMEOUT).await?;
 
     emit(on_event, ChatStreamEvent::Started)?;
     emit(
@@ -415,6 +454,12 @@ async fn run_prompt(
     let grants: &[FolderGrant] = if request.is_chat() { &[] } else { &request.folders };
     let policy: SharedPolicy = Arc::new(Mutex::new(FolderPolicy::new(&cwd, grants)));
     let _active = ActivePrompt::register(&session_id, policy.clone());
+    let (_stoppable, stop) = StopSignal::register(&session_id);
+    // Set once Stop was pressed: the reply ends by then, confirmed or not.
+    let mut stopping: Option<Instant> = None;
+    let done = || ChatStreamEvent::Done {
+        model_id: model.map(|m| format!("opencode:{m}")).unwrap_or_else(|| "opencode:default".into()),
+    };
     let rules = policy.lock().unwrap().rules();
     if !rules.is_empty() {
         client.set_permissions(&directory, &session_id, rules).await?;
@@ -459,9 +504,12 @@ async fn run_prompt(
         &skip,
     );
     options.files = file_parts(&request.files)?;
+    let mut turn_started = now_ms();
     client
         .prompt_async(&directory, &session_id, prompt, &options)
         .await?;
+    // Events caught up after the stream dropped, read before the stream's own.
+    let mut pending: VecDeque<Event> = VecDeque::new();
 
     let auto_approve = request.auto_approve.unwrap_or(false);
     let mut translator = EventTranslator::new(session_id.clone(), request.thinking.unwrap_or(false));
@@ -476,20 +524,33 @@ async fn run_prompt(
             // A fresh subscription first: the refused turn's own trailing
             // `session.idle` is still in the stream, and reading it against
             // the new turn would end the reply before it had started.
-            events = SseStream::new(client.events(&directory).await?);
-            tokio::time::timeout(CONNECT_TIMEOUT, events.wait_for("server.connected"))
-                .await
-                .map_err(|_| "Timed out connecting to the opencode event stream".to_string())??;
+            events = stream::subscribe(&client, &directory, CONNECT_TIMEOUT).await?;
+            pending.clear();
             translator = EventTranslator::new(session_id.clone(), request.thinking.unwrap_or(false));
+            turn_started = now_ms();
             client
                 .prompt_async(&directory, &session_id, prompt, &options)
                 .await?;
         }
-        let event = match tokio::time::timeout(STREAM_IDLE, events.next()).await {
-            Ok(next) => match next? {
-                Some(event) => event,
-                None => break,
+        let wait = stopping.map_or(STREAM_IDLE, |by| by.saturating_duration_since(Instant::now()));
+        let next = match pending.pop_front() {
+            Some(event) => Ok(Some(event)),
+            None => tokio::select! {
+                _ = stop.notified(), if stopping.is_none() => {
+                    stopping = Some(Instant::now() + STOP_GRACE);
+                    continue;
+                }
+                next = tokio::time::timeout(wait, events.next()) => next,
             },
+        };
+        let event = match next {
+            Ok(Some(event)) => event,
+            Ok(None) => break,
+            // Stopped, and the agent didn't say so in time (a tool that won't quit): end here.
+            Err(_) if stopping.is_some() => {
+                eprintln!("[opencode] {session_id} didn't confirm the stop; ending the reply");
+                return emit(on_event, done());
+            }
             // Quiet for a while: a long tool call is fine, a hung server is not.
             Err(_) if client.alive().await => {
                 // A question whose event never reached the window (a reload, a
@@ -516,6 +577,18 @@ async fn run_prompt(
                 return Err("opencode stopped responding. Send the message again to retry.".into());
             }
         };
+        match event["type"].as_str().unwrap_or_default() {
+            // The stream dropped and came back: pick up what was missed.
+            stream::RECONNECTED => {
+                pending.extend(catch_up(&client, &directory, &session_id, turn_started).await);
+                continue;
+            }
+            stream::LOST => {
+                let _ = client.abort(&directory, &session_id).await;
+                return Err(DROPPED.into());
+            }
+            _ => {}
+        }
         for outcome in translator.handle(&event) {
             let sent = match outcome {
                 Outcome::Emit(ev) => emit(on_event, ev),
@@ -569,16 +642,7 @@ async fn run_prompt(
                         questions: ask.questions,
                     },
                 ),
-                Outcome::Idle => {
-                    return emit(
-                        on_event,
-                        ChatStreamEvent::Done {
-                            model_id: model
-                                .map(|m| format!("opencode:{m}"))
-                                .unwrap_or_else(|| "opencode:default".into()),
-                        },
-                    );
-                }
+                Outcome::Idle => return emit(on_event, done()),
                 // The provider threw the whole request out over a tool it was
                 // offered, so the message was never read. Send it again with
                 // the connector tools left out rather than answering nothing.
@@ -616,6 +680,53 @@ async fn run_prompt(
     }
 
     Err("opencode event stream closed before the reply finished".into())
+}
+
+/// Shown when the connection to OpenCode broke off and didn't come back.
+const DROPPED: &str = "The connection to OpenCode dropped before the reply finished. Send the message again to retry.";
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+}
+
+/// What a turn missed while its stream was down: its parts as they stand
+/// now (the translator sends only what it hasn't yet), then how the turn
+/// ended if it ended meanwhile.
+async fn catch_up(client: &OpencodeClient, directory: &str, session_id: &str, since_ms: u64) -> Vec<Event> {
+    let Ok(messages) = client.session_messages(directory, session_id).await else {
+        return Vec::new();
+    };
+    missed_events(&messages, session_id, since_ms, client.session_busy(directory, session_id).await)
+}
+
+/// The turn's messages (created since it started, give or take a clock
+/// tick) as the events that would have told of them.
+fn missed_events(messages: &[Value], session_id: &str, since_ms: u64, busy: Option<bool>) -> Vec<Event> {
+    let turn: Vec<&Value> = messages
+        .iter()
+        .filter(|m| m["info"]["time"]["created"].as_u64().unwrap_or(0) + 2000 >= since_ms)
+        .filter(|m| m["info"]["role"] == "assistant")
+        .collect();
+    let mut events: Vec<Event> = turn
+        .iter()
+        .flat_map(|m| m["parts"].as_array().cloned().unwrap_or_default())
+        .map(|part| Arc::new(json!({ "type": "message.part.updated", "properties": { "part": part } })))
+        .collect();
+    let Some(last) = turn.last().map(|m| &m["info"]) else { return events };
+    if !last["error"].is_null() {
+        events.push(Arc::new(json!({
+            "type": "session.error",
+            "properties": { "sessionID": session_id, "error": last["error"] },
+        })));
+        return events;
+    }
+    // Without a status from the server: a finished last message that isn't
+    // handing over to a tool ends the turn.
+    let busy = busy.unwrap_or_else(|| last["time"]["completed"].is_null() || last["finish"] == "tool-calls");
+    if !busy {
+        events.push(Arc::new(json!({ "type": "session.idle", "properties": { "sessionID": session_id } })));
+    }
+    events
 }
 
 /// Reuse the given session when it still exists, otherwise start a new one.
@@ -995,53 +1106,55 @@ fn path_str(path: &std::path::Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// Minimal server-sent-events reader: yields the JSON payload of each `data:` line.
-struct SseStream {
-    body: futures::stream::BoxStream<'static, reqwest::Result<Vec<u8>>>,
-    buffer: Vec<u8>,
-}
-
-impl SseStream {
-    fn new(response: reqwest::Response) -> Self {
-        Self {
-            body: response.bytes_stream().map(|r| r.map(|b| b.to_vec())).boxed(),
-            buffer: Vec::new(),
-        }
-    }
-
-    async fn next(&mut self) -> Result<Option<Value>, String> {
-        loop {
-            while let Some(pos) = self.buffer.iter().position(|&b| b == b'\n') {
-                let line: Vec<u8> = self.buffer.drain(..=pos).collect();
-                let line = String::from_utf8_lossy(&line);
-                if let Some(data) = line.trim().strip_prefix("data:") {
-                    if let Ok(value) = serde_json::from_str(data.trim()) {
-                        return Ok(Some(value));
-                    }
-                }
-            }
-            match self.body.next().await {
-                Some(chunk) => self.buffer.extend_from_slice(&chunk.map_err(|e| e.to_string())?),
-                None => return Ok(None),
-            }
-        }
-    }
-
-    async fn wait_for(&mut self, event_type: &str) -> Result<(), String> {
-        while let Some(event) = self.next().await? {
-            if event["type"] == event_type {
-                return Ok(());
-            }
-        }
-        Err("opencode event stream closed".into())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::commands::supervisor::shutdown_all as shutdown;
     use super::*;
     use serde_json::json;
+
+    fn message(role: &str, created: u64, info: Value, parts: Value) -> Value {
+        let mut message = json!({ "info": { "role": role, "time": { "created": created } }, "parts": parts });
+        for (key, value) in info.as_object().unwrap() {
+            message["info"][key] = value.clone();
+        }
+        message
+    }
+
+    /// After the stream drops, the turn's answer is read back whole (the
+    /// translator sends only what it hadn't), and a turn that ended meanwhile ends.
+    #[test]
+    fn a_dropped_stream_catches_up_on_the_turn() {
+        let earlier = message("assistant", 1_000, json!({}), json!([{ "id": "old", "type": "text", "text": "before" }]));
+        let asked = message("user", 50_000, json!({}), json!([{ "id": "q", "type": "text", "text": "hi" }]));
+        let answer = message(
+            "assistant",
+            50_100,
+            json!({ "time": { "created": 50_100, "completed": 51_000 }, "finish": "stop" }),
+            json!([{ "id": "a", "type": "text", "text": "hello there" }]),
+        );
+        let events = missed_events(&[earlier, asked, answer], "ses_1", 50_000, None);
+        let types: Vec<&str> = events.iter().map(|e| e["type"].as_str().unwrap()).collect();
+        assert_eq!(types, ["message.part.updated", "session.idle"]);
+        assert_eq!(events[0]["properties"]["part"]["id"], "a");
+
+        // Still working (the server says so, or the message hands over to a tool): no end yet.
+        let working = message("assistant", 50_100, json!({}), json!([]));
+        assert!(missed_events(std::slice::from_ref(&working), "ses_1", 50_000, Some(true)).is_empty());
+        let tooling = message(
+            "assistant",
+            50_100,
+            json!({ "time": { "created": 50_100, "completed": 51_000 }, "finish": "tool-calls" }),
+            json!([]),
+        );
+        assert!(missed_events(&[tooling], "ses_1", 50_000, None).is_empty());
+    }
+
+    #[test]
+    fn a_turn_that_failed_meanwhile_says_why() {
+        let failed = message("assistant", 50_100, json!({ "error": { "name": "APIError", "data": { "message": "quota" } } }), json!([]));
+        let events = missed_events(&[failed], "ses_1", 50_000, Some(false));
+        assert_eq!(events.last().unwrap()["type"], "session.error");
+    }
 
     /// The levels a model actually accepts, in the order a slider should show
     /// them — not the order the map happened to come back in.
@@ -1181,7 +1294,7 @@ mod tests {
         eprintln!("server ready in {:?}", started.elapsed());
 
         let session = client.create_session(&directory).await.unwrap();
-        let mut events = SseStream::new(client.events(&directory).await.unwrap());
+        let mut events = stream::SseStream::new(client.events(&directory).await.unwrap());
         events.wait_for("server.connected").await.unwrap();
 
         let prompt = format!("Run this exact bash command: rm {}", victim.display());

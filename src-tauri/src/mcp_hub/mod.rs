@@ -8,6 +8,7 @@
 
 pub mod client;
 pub mod gateway;
+mod patience;
 
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
@@ -177,8 +178,24 @@ pub struct HubTool {
 }
 
 impl HubTool {
+    /// Call the tool. Arguments it turns down come back with its schema, and
+    /// a call asking after a long job waits for it (`patience.rs`).
     pub async fn call(&self, args: Value) -> Result<client::ToolResult, String> {
-        self.conn.call(&self.tool, args).await
+        let result = match self.conn.call(&self.tool, args.clone()).await {
+            Ok(result) => result,
+            Err(e) if patience::bad_arguments(&e) => return Err(patience::with_schema(&e, &self.schema)),
+            Err(e) => return Err(e),
+        };
+        if result.is_error && patience::bad_arguments(&result.text) {
+            let text = patience::with_schema(&result.text, &self.schema);
+            return Ok(client::ToolResult { text, ..result });
+        }
+        let (conn, tool) = (self.conn.clone(), self.tool.clone());
+        patience::wait_for_job(&self.tool, args, result, move |args| {
+            let (conn, tool) = (conn.clone(), tool.clone());
+            async move { conn.call(&tool, args).await }
+        })
+        .await
     }
 }
 

@@ -242,7 +242,7 @@ fn set_tray<R: Runtime>(app: &AppHandle<R>, on: bool) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
-            "tray-open" => show_main(app),
+            "tray-open" => super::notch::reopen(app),
             "tray-quick" => open_quick(app),
             "tray-quit" => app.exit(0),
             _ => {}

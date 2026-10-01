@@ -10,9 +10,31 @@ export type NotchPhase = "working" | "permission" | "done" | "idle";
 /**
  * The pill's shape; the page sizes the window to it. `home` is the run (or a
  * greeting) and the team, `chat` asking in the notch, `drop` files dragged
- * over it, `welcome` the first open after going into notch mode.
+ * over it, `welcome` the first open after going into notch mode, `done` a
+ * run that finished with something to see (it opens by itself).
  */
-export type NotchView = "collapsed" | "home" | "chat" | "permission" | "drop" | "welcome";
+export type NotchView = "collapsed" | "home" | "chat" | "permission" | "drop" | "welcome" | "done";
+
+/** A page, slide or picture the agent made, to preview in the notch. */
+export type NotchShowcaseItem = {
+  /** An https thumbnail, or a path on this computer when `local`. */
+  image: string;
+  local?: boolean;
+  title?: string;
+  /** Pixel size, so a page keeps its shape before it loads. */
+  width?: number;
+  height?: number;
+};
+
+/** What a run made in another app (a Canva design's pages) or on disk (pictures). */
+export type NotchShowcase = {
+  /** The app it lives in: `canva`, `notion`, `figma`, …; none for plain pictures. */
+  source?: string;
+  title?: string;
+  /** Opens it in its app. */
+  url?: string;
+  items: NotchShowcaseItem[];
+};
 
 /** A step the agent ran, newest last. */
 export type NotchStep = { id: string; kind: string; title: string; done: boolean };
@@ -51,6 +73,8 @@ export type NotchSnapshot = {
   folder?: string;
   /** Files the run changed (known once it ends; Undo is in the app). */
   changed?: number;
+  /** What it made, to preview: taken out of the reply whole, however long the reply. */
+  showcase?: NotchShowcase[];
   /** Set when this is the Cowork task the notch started (`notch:cowork`). */
   taskId?: string;
   /** Approvals waiting across every run, this one included. */

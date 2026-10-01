@@ -131,3 +131,39 @@ test("a gallery still being written is hidden, not shown as code", () => {
   expect(out.text).toBe("Done!");
   expect(out.galleries).toHaveLength(0);
 });
+
+test("Canva design links are not turned into sign-in cards when the reply mentions Authorize", () => {
+  const out = extractChatBlocks(
+    [
+      "กรุณา Authorize Canva ก่อนใช้งาน",
+      "",
+      "ดีไซน์ทั้ง 3:",
+      "(1) pop art https://canva.link/aaa111",
+      "(2) คริสต์มาส https://canva.link/bbb222",
+      "(3) อื่น ๆ https://canva.link/ccc333",
+    ].join("\n"),
+  );
+  expect(out.authActions).toHaveLength(0);
+  expect(out.text).toContain("canva.link/aaa111");
+});
+
+test("a real OAuth URL on an authorize line becomes one sign-in card", () => {
+  const out = extractChatBlocks(
+    "Authorize Gmail: https://accounts.google.com/o/oauth2/v2/auth?client_id=x",
+  );
+  expect(out.authActions).toHaveLength(1);
+  expect(out.authActions[0]?.url).toContain("accounts.google.com");
+});
+
+test("multiple canva.link authorize links on one line collapse to one card", () => {
+  const out = extractChatBlocks(
+    "Authorize: https://canva.link/oauth1 and backup https://canva.link/oauth2",
+  );
+  expect(out.authActions).toHaveLength(1);
+});
+
+test("markdown Authorize label still extracts canva.link sign-in", () => {
+  const out = extractChatBlocks("[Authorize](https://canva.link/signinabc)");
+  expect(out.authActions).toHaveLength(1);
+  expect(out.text).toBe("");
+});

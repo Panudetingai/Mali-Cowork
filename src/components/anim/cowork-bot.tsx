@@ -12,7 +12,7 @@ import { CheckIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useRef } from "react";
 
-const EMBED_VERSION = "9";
+const EMBED_VERSION = "10";
 
 /**
  * The selected cowork bot, rendered from public/anim/cowork-bots.html
@@ -25,6 +25,7 @@ export function CoworkBot({
   className,
   title,
   theme: themeProp,
+  paused = false,
 }: {
   /** Pixels, or a CSS length such as "100%" to fill a parent that animates its size. */
   size?: number | string;
@@ -34,6 +35,8 @@ export function CoworkBot({
   title?: string;
   /** Draw for this background whatever the app's theme (the notch is always dark). */
   theme?: "light" | "dark";
+  /** Stop drawing (a bot kept mounted but hidden): its animation loop rests. */
+  paused?: boolean;
 }) {
   const { bot: stored } = useCoworkBot();
   const bot = botProp ?? stored;
@@ -44,6 +47,9 @@ export function CoworkBot({
   useEffect(() => {
     frameRef.current?.contentWindow?.postMessage({ state }, "*");
   }, [state, bot]);
+  useEffect(() => {
+    frameRef.current?.contentWindow?.postMessage({ paused }, "*");
+  }, [paused, bot]);
 
   return (
     <div
@@ -70,7 +76,7 @@ export function CoworkBot({
         title={title ?? "Cowork bot"}
         scrolling="no"
         tabIndex={-1}
-        onLoad={() => frameRef.current?.contentWindow?.postMessage({ state }, "*")}
+        onLoad={() => frameRef.current?.contentWindow?.postMessage({ state, paused }, "*")}
         style={{
           width: "100%",
           height: "100%",

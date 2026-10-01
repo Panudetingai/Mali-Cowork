@@ -1,4 +1,6 @@
 import { createStore } from "@/lib/local-store";
+import { isTauri } from "@tauri-apps/api/core";
+import { setNotchScreen, type NotchScreen } from "./bridge";
 
 const ENABLED_KEY = "mali.notch.enabled";
 
@@ -45,3 +47,31 @@ const modelStore = createStore<string | null>(null, { key: MODEL_KEY });
 
 export const useNotchModelId = modelStore.use;
 export const setNotchModelId = (id: string | null) => modelStore.set(id);
+
+const SCREEN_KEY = "mali.notch.screen";
+
+/**
+ * Settings → Notch: which screen the pill lives on with more than one — the
+ * one the pointer is on (it follows you), the Mac's own display (with the
+ * notch), or the main display. Each window tells Rust when it changes.
+ */
+const screenStore = createStore<NotchScreen>("follow", { key: SCREEN_KEY });
+
+export const useNotchScreen = screenStore.use;
+export const getNotchScreen = screenStore.get;
+
+export function setNotchScreenPref(pref: NotchScreen) {
+  screenStore.set(pref);
+  if (isTauri()) void setNotchScreen(pref).catch(() => undefined);
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key !== SCREEN_KEY || !event.newValue) return;
+    try {
+      screenStore.set(JSON.parse(event.newValue) as NotchScreen);
+    } catch {
+      // Not ours to fix; the next change writes it again.
+    }
+  });
+}

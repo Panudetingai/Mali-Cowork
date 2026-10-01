@@ -3,10 +3,11 @@
  * Pure, so the choice is tested without a window.
  */
 import type { ChatRun, ChatSession } from "@/features/chat-history";
+import { extractChatBlocks } from "@/features/chat-blocks";
 import type { CoworkBotId } from "@/features/cowork-bot";
 import { groupTeamSteps } from "@/pages/chat/components/message/team-steps";
 import type { ActivityItem } from "@/pages/chat/types";
-import type { NotchMate, NotchSnapshot, NotchStep } from "./types";
+import type { NotchMate, NotchShowcase, NotchSnapshot, NotchStep } from "./types";
 
 /** How many recent steps the pill keeps; it shows three at a time. */
 const STEPS = 4;
@@ -16,12 +17,10 @@ const MATES = 4;
 /** The end of a long answer is the part worth showing in the notch. */
 const REPLY_CHARS = 2400;
 
-/** How much reply growth (chars) triggers a resync while a Cowork run streams. */
-const REPLY_BUCKET = 384;
-
 /**
  * Stable key for whether the pill needs a new snapshot. Omits streaming reply
- * text while working unless `streamReply` (the notch's own Cowork task).
+ * text while working unless `streamReply` (the notch's own Cowork task, whose
+ * answer the notch writes out as it comes).
  */
 export function pillSyncKey(snapshot: NotchSnapshot | null, streamReply = false): string {
   if (!snapshot) return "null";
@@ -37,14 +36,14 @@ export function pillSyncKey(snapshot: NotchSnapshot | null, streamReply = false)
     asker: snapshot.asker?.id,
     folder: snapshot.folder,
     changed: snapshot.changed,
+    // Pages and pictures arrive as the answer is written: each one counts.
+    showcase: snapshot.showcase?.map((s) => s.items.length),
     steps: snapshot.steps,
     todos: snapshot.todos,
     team: snapshot.team,
   };
   if (snapshot.phase === "done" || streamReply) {
-    const len = snapshot.reply?.length ?? 0;
-    const replyBucket = snapshot.phase === "done" ? len : Math.floor(len / REPLY_BUCKET);
-    return JSON.stringify({ ...key, replyBucket });
+    return JSON.stringify({ ...key, reply: snapshot.reply?.length ?? 0 });
   }
   return JSON.stringify(key);
 }
@@ -92,15 +91,44 @@ export function liveSnapshot(
   };
 }
 
-/** The reply's text, the folder, and the files the turn changed. */
-export function replyOf(chat: ChatSession | undefined): Pick<NotchSnapshot, "reply" | "folder" | "changed"> {
+/**
+ * The reply's text, what it made, the folder, and the files the turn
+ * changed. Galleries and pictures come out of the whole reply before its
+ * text is cut to its end, so a long answer keeps its previews.
+ */
+export function replyOf(
+  chat: ChatSession | undefined,
+): Pick<NotchSnapshot, "reply" | "folder" | "changed" | "showcase"> {
   const reply = chat?.messages.filter((m) => m.role === "assistant").at(-1);
-  const text = reply?.content.trim() ?? "";
+  const blocks = extractChatBlocks(reply?.content ?? "");
+  const text = blocks.text.trim();
+  const showcase = showcaseOf(blocks);
   return {
     reply: text.length > REPLY_CHARS ? `…${text.slice(-REPLY_CHARS)}` : text || undefined,
     folder: chat?.cwd,
     changed: reply?.turn && reply.turn.state === "applied" ? reply.turn.changes.length : undefined,
+    showcase: showcase.length ? showcase : undefined,
   };
+}
+
+/** Galleries as they are; pictures (made or found) together as one more. */
+export function showcaseOf({
+  galleries,
+  mediaPreviews,
+}: Pick<ReturnType<typeof extractChatBlocks>, "galleries" | "mediaPreviews">): NotchShowcase[] {
+  const shown: NotchShowcase[] = galleries
+    .filter((g) => g.items.length > 0)
+    .map((g) => ({
+      source: g.source ?? g.connector,
+      title: g.title,
+      url: g.url,
+      items: g.items.map((item) => ({ image: item.image, title: item.title, width: item.width, height: item.height })),
+    }));
+  const pictures = mediaPreviews
+    .filter((m) => m.kind === "image")
+    .map((m) => ({ image: m.thumbnail ?? m.url, local: m.local, title: m.title }));
+  if (pictures.length) shown.push({ items: pictures });
+  return shown;
 }
 
 /** The lead's own steps; a bot's steps show on its chip instead. */

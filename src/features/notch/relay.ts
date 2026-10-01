@@ -11,16 +11,17 @@ import { isTauri } from "@tauri-apps/api/core";
 import { getChat, getRun, getRuns, subscribeToChats, subscribeToRuns } from "@/features/chat-history";
 import { BOTS } from "@/features/cowork-bot";
 import { getTeam } from "@/features/team";
-import { enqueueTask, getTasks, subscribeToTasks } from "@/features/tasks";
+import { cancelTask, enqueueTask, getTasks, subscribeToTasks } from "@/features/tasks";
 import { getOpencodeModels } from "@/features/opencode";
 import { normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import { coworkResend } from "@/pages/chat/move-to-cowork";
 import { resendSettingsFor } from "@/pages/chat/models";
-import { replyToPermission, sendTurn, type TurnInput } from "@/pages/chat/turn";
+import { replyToPermission, sendTurn, stopRun, type TurnInput } from "@/pages/chat/turn";
 import {
   onNotchCowork,
   onNotchReady,
   onNotchReply,
+  onNotchStop,
   releaseNotch,
   sendCoworkStarted,
   sendNotchState,
@@ -34,6 +35,8 @@ import type { NotchCoworkRequest, NotchCoworkStarted, NotchSnapshot } from "./ty
 const RUN_THROTTLE_MS = 150;
 /** Chat store updates on every token; steps/todos need less frequent syncs. */
 const CHAT_THROTTLE_MS = 450;
+/** The notch's own Cowork task: its answer streams into the notch, so it syncs often. */
+const STREAM_THROTTLE_MS = 120;
 
 function teamInfo(): MateInfo[] {
   return getTeam().mates.map((m) => ({
@@ -99,12 +102,15 @@ export function startNotchRelay() {
     runThrottle = undefined;
     chatThrottle = undefined;
     current = compute();
-    const streamReply = !!follow && current?.phase === "working";
+    const streamReply = !!follow && current?.phase === "working" && current.chatId === followedChat();
     const key = pillSyncKey(current, streamReply);
     if (key === sent) return;
     sent = key;
     if (!current) {
       shown = false;
+      // Cleared too, not only hidden: notch mode keeps the pill up, and it
+      // would go on showing the last step of work that has stopped.
+      void sendNotchState(null).catch(warn);
       void releaseNotch().catch(warn);
       return;
     }
@@ -130,7 +136,8 @@ export function startNotchRelay() {
 
   function scheduleChat() {
     if (focused || !isNotchEnabled()) return;
-    chatThrottle ??= setTimeout(push, CHAT_THROTTLE_MS);
+    const streaming = !!follow && !!getRun(followedChat() ?? "");
+    chatThrottle ??= setTimeout(push, streaming ? STREAM_THROTTLE_MS : CHAT_THROTTLE_MS);
   }
 
   const onFocus = () => {
@@ -186,6 +193,11 @@ export function startNotchRelay() {
     subscribeToChats(scheduleChat),
     subscribeToNotchEnabled(scheduleRun),
     onNotchReady(() => void sendNotchState(current).catch(warn)),
+    // Stop from the notch: a task by its Inbox entry (queued or running), else the chat's run.
+    onNotchStop(({ chatId, taskId }) => {
+      const stopping = taskId && getTasks().some((t) => t.id === taskId) ? cancelTask(taskId) : chatId ? stopRun(chatId) : undefined;
+      void stopping?.catch(warn).finally(scheduleRun);
+    }),
     onNotchReply(({ chatId, id, reply }) => {
       const request = getRun(chatId)?.permissions.find((p) => p.id === id);
       if (!request) return;

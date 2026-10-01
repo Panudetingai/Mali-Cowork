@@ -8,15 +8,28 @@ import {
   TabPanels,
 } from "@/components/animate-ui/primitives/headless/tabs";
 import { cn } from "@/lib/utils";
-import { BookOpenIcon, FileTextIcon, FolderIcon, GlobeIcon, NotebookPenIcon, ReceiptIcon, SparklesIcon, UsersIcon, ZapIcon } from "lucide-react";
+import {
+  BookOpenIcon,
+  FileTextIcon,
+  FolderIcon,
+  GlobeIcon,
+  NotebookPenIcon,
+  PanelTopIcon,
+  ReceiptIcon,
+  SparklesIcon,
+  UsersIcon,
+  ZapIcon,
+} from "lucide-react";
+import { motion } from "motion/react";
 import { useSearchParams } from "react-router-dom";
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import { FoldersSettings } from "./folders-settings";
 import { GeneralSettings } from "./general-settings";
 import { InstructionsSettings } from "./instructions-settings";
 import { McpTabIcon } from "./mcp/mcp-icon";
 import { McpSettings } from "./mcp/mcp-settings";
 import { ModelsSettings } from "./models-settings";
+import { NotchSettings } from "./notch-settings";
 import { QuickSettings } from "./quick-settings";
 import { ReceiptSettings } from "./receipt-settings";
 import { SkillsSettings } from "./skills/skills-settings";
@@ -28,6 +41,7 @@ import { useTranslation, type TranslationKey } from "@/features/i18n";
 const TABS = [
   { id: "general", label: "tabGeneral", description: "tabGeneralDesc", icon: GlobeIcon, group: "settingsGroupApp" },
   { id: "quick", label: "tabQuick", description: "tabQuickDesc", icon: ZapIcon },
+  { id: "notch", label: "tabNotch", description: "tabNotchDesc", icon: PanelTopIcon },
   { id: "receipt", label: "tabReceipt", description: "tabReceiptDesc", icon: ReceiptIcon },
   // Providers and CLI agents are one page: both answer "where do the models
   // in the chat box come from", and split across two tabs the same key had
@@ -50,7 +64,7 @@ const TABS = [
 type TabId = (typeof TABS)[number]["id"];
 
 const TAB = cn(
-  "flex min-h-9 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium text-muted-foreground transition-colors",
+  "flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] font-medium text-muted-foreground transition-colors",
   "hover:text-foreground",
   "data-active:text-foreground",
 );
@@ -69,15 +83,12 @@ export default function SettingsPage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:py-10">
-      <TabGroup selectedIndex={selectedIndex} onChange={goTo} className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-12">
+      <TabGroup selectedIndex={selectedIndex} onChange={goTo} className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-10">
         {/* Pinned while the section on the right scrolls (the app layout is the scroller). */}
-        <aside className="flex w-full shrink-0 flex-col gap-6 lg:sticky lg:top-10 lg:w-56 xl:w-60">
-          <header className="flex flex-col gap-1">
-            <h1 className="text-2xl font-semibold tracking-tight">{t("settingsTitle")}</h1>
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              {t("settingsSubtitle")}
-            </p>
-          </header>
+        <aside className="flex w-full shrink-0 flex-col gap-4 lg:sticky lg:top-10 lg:w-48 xl:w-52">
+          <h1 className="px-2.5 text-xl font-semibold tracking-tight" title={t("settingsSubtitle")}>
+            {t("settingsTitle")}
+          </h1>
 
           <nav aria-label={t("settingsSections")} className="scroll-hidden -mx-1 overflow-x-auto px-1 lg:mx-0 lg:overflow-visible lg:px-0">
             {/* `inset-0`: without it the highlight collapses to a dot. */}
@@ -91,26 +102,21 @@ export default function SettingsPage() {
                       {group && (
                         <p
                           className={cn(
-                            "hidden px-3 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground/80 uppercase lg:block",
-                            index > 0 && "mt-3 border-t border-border/60 pt-4",
+                            "hidden px-2.5 pb-1 text-[10.5px] font-semibold tracking-wider text-muted-foreground/70 uppercase lg:block",
+                            index > 0 && "mt-4",
                           )}
                         >
                           {t(group)}
                         </p>
                       )}
                       <TabHighlightItem index={index} className="lg:w-full">
-                        <Tab index={index} className={cn(TAB, "lg:justify-start")}>
+                        <Tab index={index} className={cn(TAB, "lg:justify-start")} title={t(item.description)}>
                           {"lobeMcp" in item && item.lobeMcp ? (
                             <McpTabIcon />
                           ) : (
                             Icon && <Icon className="size-4 shrink-0" />
                           )}
-                          <span className="flex min-w-0 flex-col items-start leading-tight">
-                            <span className="truncate">{t(item.label)}</span>
-                            <span className="hidden text-[11px] font-normal text-muted-foreground lg:block">
-                              {t(item.description)}
-                            </span>
-                          </span>
+                          <span className="truncate">{t(item.label)}</span>
                         </Tab>
                       </TabHighlightItem>
                     </Fragment>
@@ -129,38 +135,77 @@ export default function SettingsPage() {
 
           <TabPanels mode="layout" style={{ overflow: "auto !important" }}>
             <TabPanel>
-              <GeneralSettings />
+              <Enter>
+                <GeneralSettings />
+              </Enter>
             </TabPanel>
             <TabPanel>
-              <QuickSettings />
+              <Enter>
+                <QuickSettings />
+              </Enter>
             </TabPanel>
             <TabPanel>
-              <ReceiptSettings />
+              <Enter>
+                <NotchSettings />
+              </Enter>
             </TabPanel>
             <TabPanel>
-              <ModelsSettings />
+              <Enter>
+                <ReceiptSettings />
+              </Enter>
             </TabPanel>
             <TabPanel>
-              <InstructionsSettings />
+              <Enter>
+                <ModelsSettings />
+              </Enter>
             </TabPanel>
             <TabPanel>
-              <SkillsSettings />
+              <Enter>
+                <InstructionsSettings />
+              </Enter>
             </TabPanel>
             <TabPanel>
-              <TeamSettings />
+              <Enter>
+                <SkillsSettings />
+              </Enter>
             </TabPanel>
             <TabPanel>
-              <TemplatesSettings />
+              <Enter>
+                <TeamSettings />
+              </Enter>
             </TabPanel>
             <TabPanel>
-              <McpSettings />
+              <Enter>
+                <TemplatesSettings />
+              </Enter>
             </TabPanel>
             <TabPanel>
-              <FoldersSettings />
+              <Enter>
+                <McpSettings />
+              </Enter>
+            </TabPanel>
+            <TabPanel>
+              <Enter>
+                <FoldersSettings />
+              </Enter>
             </TabPanel>
           </TabPanels>
         </div>
       </TabGroup>
     </div>
+  );
+}
+
+/** Each page slides in softly as you switch to it. */
+function Enter({ children }: { children: ReactNode }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10, filter: "blur(3px)" }}
+      // Nothing left behind once in: a filter or transform would trap fixed and sticky parts inside.
+      animate={{ opacity: 1, y: 0, filter: "blur(0px)", transitionEnd: { filter: "none", transform: "none" } }}
+      transition={{ duration: 0.28, ease: [0.2, 0.8, 0.2, 1] }}
+    >
+      {children}
+    </motion.div>
   );
 }

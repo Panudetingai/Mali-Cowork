@@ -23,7 +23,7 @@ const ISLAND_WIDTH = 300;
 /** Inset of the open pill's cards from its edges. */
 export const PAD = 12;
 /** Height of the open pill's body under the top row, per view. */
-const BODY = { home: 168, welcome: 150, drop: 150, permission: 136 } as const;
+const BODY = { home: 168, welcome: 150, drop: 150, permission: 136, done: 200 } as const;
 
 /** Height of the chat's input bar, the file row above it, and the thread above that. */
 export const CHAT_INPUT = 52;
@@ -90,7 +90,7 @@ export function shapeSize(view: NotchView, geometry: NotchGeometry, fill?: ChatF
  * what flickered. Outside the pill, clicks go through (`hitArea`).
  */
 export function pillWindow(geometry: NotchGeometry): Size {
-  const views: NotchView[] = ["home", "welcome", "drop", "permission"];
+  const views: NotchView[] = ["home", "welcome", "drop", "permission", "done"];
   const tallest = shapeSize("chat", geometry, { thread: true, files: true });
   const widest = Math.max(tallest.width, ...views.map((v) => shapeSize(v, geometry).width));
   return { width: widest + 2 * SHADOW, height: tallest.height + SHADOW };
@@ -177,6 +177,10 @@ export function mascotFrame(view: NotchView, geometry: NotchGeometry, shape: Siz
     case "permission": {
       const size = 76;
       return { x: 26, y: top + (body - size) / 2 - 8, size };
+    }
+    case "done": {
+      const size = 72;
+      return { x: PAD + 14, y: top + 12, size };
     }
     case "chat":
       return { x: PAD + 4, y: shape.height - PAD - CHAT_INPUT + (CHAT_INPUT - CHAT_BOT) / 2, size: CHAT_BOT };

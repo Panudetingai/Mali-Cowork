@@ -6,7 +6,7 @@ import { OnboardingDialog, openOnboarding, isOnboardingDone, FORCE_ONBOARDING } 
 import { useWeeklyRecapAutoOpen, WeeklyRecapDialog } from "@/features/work-receipt";
 import { watchSkills } from "@/features/skills";
 import { startTaskQueue } from "@/features/tasks";
-import { onOpenTeam, playMainReturn, startNotchRelay } from "@/features/notch";
+import { onOpenTeam, playMainReturn, startNotchRelay, useMainAwake } from "@/features/notch";
 import { listenForQuickSaves, onOpenChatRequest, onOpenQuickSettings, serveQuickTheme } from "@/features/quick";
 import { useTheme } from "next-themes";
 import { useEffect, useRef } from "react";
@@ -21,6 +21,7 @@ import SettingsPage from "./pages/settings";
 import VisualPage from "./pages/visual";
 import ChatBlocksPreviewPage from "./pages/dev/chat-blocks-preview";
 import NotchPreviewPage from "./pages/dev/notch-preview";
+import MarkdownPreviewPage from "./pages/dev/markdown-preview";
 
 function App() {
   useEffect(() => {
@@ -34,7 +35,7 @@ function App() {
   useEffect(() => startTaskQueue(), []);
   // The notch pill shows the agent's step and approvals while this window is away.
   useEffect(() => startNotchRelay(), []);
-  // Coming back from notch mode, the window drops in from the top.
+  // Coming back from notch mode, the window opens out of the drop.
   useEffect(() => playMainReturn(), []);
   // Thai work templates (quotation, invoice, official letter…) join the skills once.
   useEffect(() => seedThaiTemplateSkills(getInstructions().skills, saveSkill), []);
@@ -76,6 +77,8 @@ function App() {
   }, []);
   useEffect(() => pushTheme.current(), [resolvedTheme]);
 
+  // Started at login in the notch: nothing to draw until the window is opened.
+  if (!useMainAwake()) return null;
   return (
     <>
       <Routes>
@@ -93,6 +96,7 @@ function App() {
             <>
               <Route path="dev/chat-blocks" element={<ChatBlocksPreviewPage />} />
               <Route path="dev/notch" element={<NotchPreviewPage />} />
+              <Route path="dev/markdown" element={<MarkdownPreviewPage />} />
             </>
           ) : null}
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -104,10 +108,11 @@ function App() {
 }
 
 export default function AppWithOnboarding() {
+  const awake = useMainAwake();
   return (
     <>
-      <OnboardingDialog />
-      <UpdateDialog />
+      {awake && <OnboardingDialog />}
+      {awake && <UpdateDialog />}
       <App />
     </>
   );

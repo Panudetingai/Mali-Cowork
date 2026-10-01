@@ -76,7 +76,7 @@ export default function NotchPreviewPage() {
     done: i < count - 1,
   }));
   const snapshot: NotchSnapshot = {
-    phase: view === "permission" ? "permission" : phase,
+    phase: view === "permission" ? "permission" : view === "done" ? "done" : phase,
     chatId: "preview",
     title: "Quote for Atelier Brun",
     steps,
@@ -93,6 +93,18 @@ export default function NotchPreviewPage() {
         ? { id: "p", directory: "/repo", permission: "bash", patterns: ["git push origin main"], title: "git push origin main" }
         : undefined,
     command: "git push origin main",
+    showcase: [
+      {
+        source: "canva",
+        title: "Launch posts",
+        url: "https://www.canva.com/",
+        items: [1, 2, 3, 4].map((n) => ({
+          image: `https://picsum.photos/seed/mali-post-${n}/540/675`,
+          width: 1080,
+          height: 1350,
+        })),
+      },
+    ],
     waiting: 1,
     running: 1,
   };
@@ -111,7 +123,7 @@ export default function NotchPreviewPage() {
         <Group label="Screen" options={Object.keys(SCREENS)} value={screen} onChange={setScreen} />
         <Group
           label="View"
-          options={["collapsed", "home", "chat", "permission", "drop", "welcome"]}
+          options={["collapsed", "home", "chat", "permission", "drop", "welcome", "done"]}
           value={view}
           onChange={(v) => setView(v as NotchView)}
         />

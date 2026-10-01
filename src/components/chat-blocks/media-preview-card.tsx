@@ -51,7 +51,7 @@ const MIME: Record<string, string> = {
  * from an app page, so generated media is read through the file API — the
  * same route attachment previews take.
  */
-function useLocalMedia(path: string | undefined) {
+export function useLocalMedia(path: string | undefined) {
   const [state, setState] = useState<{ url?: string; failed?: boolean }>({});
 
   useEffect(() => {

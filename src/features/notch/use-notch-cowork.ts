@@ -6,16 +6,18 @@
  */
 import type { Attachment } from "@/features/attachments";
 import { useEffect, useRef, useState } from "react";
-import { requestCowork } from "./bridge";
-import type { NotchPhase, NotchSnapshot, NotchStep } from "./types";
+import { requestCowork, requestStop } from "./bridge";
+import type { NotchPhase, NotchShowcase, NotchSnapshot, NotchStep } from "./types";
 
 export type CoworkTurn = {
   id: string;
   prompt: string;
   folder: string;
   files: Attachment[];
-  /** Waiting for the folder question, waiting for the folder, at work, or ended. */
-  status: "starting" | "queued" | "running" | "done" | "error";
+  /** Waiting for the folder question, waiting for the folder, at work, or ended (or stopped). */
+  status: "starting" | "queued" | "running" | "done" | "error" | "stopped";
+  /** Its Inbox task, when it went through the queue. */
+  taskId?: string;
   error?: string;
   /** The chat it runs in, once the main window says. */
   chatId?: string;
@@ -24,6 +26,10 @@ export type CoworkTurn = {
   reply?: string;
   phase?: NotchPhase;
   changed?: number;
+  /** What it made, to preview under the answer; grows as pages arrive. */
+  showcase?: NotchShowcase[];
+  /** When it finished: an answer that lands whole with the finish still writes itself out. */
+  endedAt?: number;
 };
 
 export function useNotchCowork(snapshot: NotchSnapshot | null) {
@@ -38,11 +44,14 @@ export function useNotchCowork(snapshot: NotchSnapshot | null) {
     update(key, (t) => ({
       ...t,
       chatId: snapshot.chatId,
-      status: snapshot.phase === "done" ? "done" : "running",
+      // A stopped turn stays stopped, whatever the run says on its way out.
+      status: t.status === "stopped" ? "stopped" : snapshot.phase === "done" ? "done" : "running",
+      endedAt: snapshot.phase === "done" ? (t.endedAt ?? Date.now()) : undefined,
       phase: snapshot.phase,
       steps: snapshot.steps.length ? snapshot.steps : t.steps,
       reply: snapshot.reply ?? t.reply,
       changed: snapshot.changed ?? t.changed,
+      showcase: snapshot.showcase ?? t.showcase,
     }));
   }, [snapshot]);
 
@@ -67,15 +76,29 @@ export function useNotchCowork(snapshot: NotchSnapshot | null) {
       context: previous?.chatId ? undefined : conversationOf(earlier),
     });
     if (answer.error) update(id, (t) => ({ ...t, status: "error", error: answer.error }));
-    else update(id, (t) => ({ ...t, chatId: answer.chatId ?? t.chatId, status: t.status === "starting" ? (answer.taskId ? "queued" : "running") : t.status }));
+    else
+      update(id, (t) => ({
+        ...t,
+        chatId: answer.chatId ?? t.chatId,
+        taskId: answer.taskId,
+        status: t.status === "starting" ? (answer.taskId ? "queued" : "running") : t.status,
+      }));
   };
 
   const reset = () => setTurns([]);
 
+  /** Stop the turn at work (or drop it from the queue); the app keeps what it did. */
+  const stop = () => {
+    const turn = turnsRef.current.filter((t) => t.status === "queued" || t.status === "running").at(-1);
+    if (!turn || (!turn.taskId && !turn.chatId)) return;
+    update(turn.id, (t) => ({ ...t, status: "stopped" }));
+    void requestStop({ taskId: turn.taskId, chatId: turn.chatId }).catch(() => undefined);
+  };
+
   /** The chat to open in the app: the latest one this thread ran in. */
   const chatId = turns.filter((t) => t.chatId).at(-1)?.chatId;
 
-  return { turns, running, send, reset, chatId };
+  return { turns, running, send, reset, stop, chatId };
 }
 
 function conversationOf(turns: CoworkTurn[]) {

@@ -25,6 +25,7 @@ mod policy;
 mod providers;
 mod schema;
 mod server;
+mod stream;
 
 use instances::lease as lease_instance;
 

@@ -223,8 +223,21 @@ function summarize(steps: ActivityItem[]) {
  * The steps an agent ran between two pieces of its reply. In team mode each
  * hand-off to a bot shows as the team's conversation instead of rows.
  */
-export function AgentSteps({ steps, runningIndex }: { steps: ActivityItem[]; runningIndex?: number }) {
-  const groups = useMemo(() => groupTeamSteps(steps), [steps]);
+export function AgentSteps({
+  steps,
+  runningIndex,
+  flat,
+}: {
+  steps: ActivityItem[];
+  runningIndex?: number;
+  /**
+   * Rows only, never a team conversation: a bot's own steps (inside its
+   * conversation) carry team ids too, and grouping them again drew the
+   * conversation inside itself.
+   */
+  flat?: boolean;
+}) {
+  const groups = useMemo(() => (flat ? [] : groupTeamSteps(steps)), [steps, flat]);
   if (!groups.some((g) => g.type === "team")) return <PlainSteps steps={steps} runningIndex={runningIndex} />;
   const runningStep = runningIndex !== undefined ? steps[runningIndex] : undefined;
   return (

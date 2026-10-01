@@ -618,6 +618,16 @@ const MAX_CUSTOM_ICON_BYTES: usize = 8 * 1024 * 1024;
 #[tauri::command]
 pub async fn mcp_fetch_icon(url: String) -> Result<String, String> {
     let url = https_url(&url).ok_or("Use a public https:// link")?;
+    fetch_image(url).await
+}
+
+/// A public https link (not loopback or the local network), parsed.
+pub(crate) fn public_https(raw: &str) -> Option<reqwest::Url> {
+    https_url(raw)
+}
+
+/// Download a picture from a public https link as a data URL; a failure says why.
+pub(crate) async fn fetch_image(url: reqwest::Url) -> Result<String, String> {
     let client = reqwest::Client::builder()
         // Some image hosts turn away clients that don't look like a browser.
         .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15")

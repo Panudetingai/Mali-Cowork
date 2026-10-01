@@ -26,6 +26,7 @@ pub mod opencode;
 pub mod outputs;
 pub mod process;
 pub mod notch;
+pub mod preview_image;
 pub mod quick;
 pub mod secure_fs;
 pub mod setup;

@@ -130,6 +130,37 @@ describe("liveSnapshot", () => {
     expect(snapshot!.reply!.length).toBeLessThan(long.length);
   });
 
+  test("what a reply made comes out whole, before a long reply is cut", () => {
+    const gallery = {
+      source: "canva",
+      title: "Launch posts",
+      url: "https://www.canva.com/design/x/edit",
+      items: [
+        { image: "https://cdn.example/p1.png", width: 1080, height: 1350 },
+        { image: "https://cdn.example/p2.png", width: 1080, height: 1350 },
+      ],
+    };
+    const content = ["```gallery", JSON.stringify(gallery), "```", "x".repeat(3000)].join("\n");
+    const snapshot = liveSnapshot({ a: run() }, lookup([chat("a", 1, [reply({ content })])]));
+    expect(snapshot?.showcase).toEqual([
+      {
+        source: "canva",
+        title: "Launch posts",
+        url: "https://www.canva.com/design/x/edit",
+        items: gallery.items.map((i) => ({ ...i, title: undefined })),
+      },
+    ]);
+    // The block itself never shows as text.
+    expect(snapshot?.reply).not.toContain("```gallery");
+  });
+
+  test("a gallery still being written isn't shown, nor its half", () => {
+    const content = 'Here it is\n```gallery\n{"source": "canva", "items": [{"image": "https://cdn.example/p1';
+    const snapshot = liveSnapshot({ a: run() }, lookup([chat("a", 1, [reply({ content })])]));
+    expect(snapshot?.showcase).toBeUndefined();
+    expect(snapshot?.reply).toBe("Here it is");
+  });
+
   test("a run whose chat isn't loaded still shows", () => {
     const snapshot = liveSnapshot({ ghost: run() }, lookup([]));
     expect(snapshot?.chatId).toBe("ghost");
@@ -152,9 +183,8 @@ describe("liveSnapshot", () => {
     expect(pillSyncKey({ ...base, phase: "done", reply: "hello world" })).not.toBe(
       pillSyncKey({ ...base, phase: "done", reply: "hello" }),
     );
-    expect(pillSyncKey({ ...base, reply: "a".repeat(400) }, true)).not.toBe(
-      pillSyncKey({ ...base, reply: "a".repeat(800) }, true),
-    );
+    // The notch's own task streams: every bit of its answer counts.
+    expect(pillSyncKey({ ...base, reply: "hello" }, true)).not.toBe(pillSyncKey({ ...base, reply: "hello world" }, true));
   });
 });
 

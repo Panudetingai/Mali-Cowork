@@ -50,6 +50,7 @@ import {
   type Size,
 } from "./layout";
 import { setNotchSaveChats, useNotchSaveChats } from "./settings";
+import { Showcase, ShowcaseViewerHost } from "./notch-showcase";
 import { useNotchText, type NotchText } from "./text";
 import type { RosterBot } from "./team";
 import type { NotchGeometry, NotchMate, NotchSnapshot, NotchStep, NotchView } from "./types";
@@ -133,41 +134,50 @@ export function NotchPill(props: Props) {
             }}
             onClick={view === "collapsed" ? props.onPress : undefined}
           >
-            <AnimatePresence initial={false}>
-              {view === "permission" && <PermissionGlow key="glow" />}
-              {view === "drop" && <DropGlow key="drop-glow" geometry={geometry} />}
-            </AnimatePresence>
-            <AnimatePresence initial={false}>
-              {view === "collapsed" && (
-                <Fade key="collapsed">
-                  <Collapsed {...props} />
-                </Fade>
+            <ShowcaseViewerHost resetKey={view}>
+              <AnimatePresence initial={false}>
+                {view === "permission" && <PermissionGlow key="glow" />}
+                {view === "drop" && <DropGlow key="drop-glow" geometry={geometry} />}
+              </AnimatePresence>
+              <AnimatePresence initial={false}>
+                {view === "collapsed" && (
+                  <Fade key="collapsed">
+                    <Collapsed {...props} />
+                  </Fade>
+                )}
+                {view === "home" && (
+                  <Fade key="home">
+                    <Home {...props} />
+                  </Fade>
+                )}
+                {view === "welcome" && (
+                  <Fade key="welcome">
+                    <Welcome {...props} />
+                  </Fade>
+                )}
+                {view === "drop" && (
+                  <Fade key="drop">
+                    <Drop {...props} />
+                  </Fade>
+                )}
+                {view === "chat" && <Fade key="chat">{props.chat}</Fade>}
+                {view === "done" && (
+                  <Fade key="done">
+                    <Done {...props} />
+                  </Fade>
+                )}
+                {view === "permission" && snapshot.permission && (
+                  <Fade key="permission">
+                    <Permission {...props} />
+                  </Fade>
+                )}
+              </AnimatePresence>
+              {/* Above the content, so the bots sit on their cards and chips. */}
+              <Mascots {...props} />
+              {(view === "home" || view === "chat" || view === "welcome" || view === "drop" || view === "done") && (
+                <TopBar {...props} />
               )}
-              {view === "home" && (
-                <Fade key="home">
-                  <Home {...props} />
-                </Fade>
-              )}
-              {view === "welcome" && (
-                <Fade key="welcome">
-                  <Welcome {...props} />
-                </Fade>
-              )}
-              {view === "drop" && (
-                <Fade key="drop">
-                  <Drop {...props} />
-                </Fade>
-              )}
-              {view === "chat" && <Fade key="chat">{props.chat}</Fade>}
-              {view === "permission" && snapshot.permission && (
-                <Fade key="permission">
-                  <Permission {...props} />
-                </Fade>
-              )}
-            </AnimatePresence>
-            {/* Above the content, so the bots sit on their cards and chips. */}
-            <Mascots {...props} />
-            {(view === "home" || view === "chat" || view === "welcome" || view === "drop") && <TopBar {...props} />}
+            </ShowcaseViewerHost>
           </motion.div>
         </motion.div>
       </div>
@@ -209,7 +219,18 @@ function Fade({ children }: { children: ReactNode }) {
 // ── top bar ──
 
 /** Home, Chat and a new question on the left; keeping chats and the app on the right. */
-function TopBar({ view, geometry, shape, snapshot, onHome, onChat, onNewChat, onOpenChat, onCapturePick, capturing }: Props) {
+function TopBar({
+  view,
+  geometry,
+  shape,
+  snapshot,
+  onHome,
+  onChat,
+  onNewChat,
+  onOpenChat,
+  onCapturePick,
+  capturing,
+}: Props) {
   const top = topRowOf(geometry);
   const side = sideOf(geometry, shape);
   const save = useNotchSaveChats();
@@ -241,7 +262,9 @@ function TopBar({ view, geometry, shape, snapshot, onHome, onChat, onNewChat, on
             title={save ? t("savedHint") : t("notSavedHint")}
             className={cn(
               "flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors",
-              save ? "bg-white/[0.08] text-white/70 hover:bg-white/[0.14]" : "bg-amber-400/15 text-amber-200 hover:bg-amber-400/25",
+              save
+                ? "bg-white/[0.08] text-white/70 hover:bg-white/[0.14]"
+                : "bg-amber-400/15 text-amber-200 hover:bg-amber-400/25",
             )}
           >
             <HistoryIcon className="size-3" />
@@ -261,7 +284,17 @@ function TopBar({ view, geometry, shape, snapshot, onHome, onChat, onNewChat, on
   );
 }
 
-function Tab({ title, on, onClick, children }: { title: string; on?: boolean; onClick: () => void; children: ReactNode }) {
+function Tab({
+  title,
+  on,
+  onClick,
+  children,
+}: {
+  title: string;
+  on?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
   return (
     <button
       type="button"
@@ -285,6 +318,7 @@ type Spot = { key: string; bot: CoworkBotId; frame: Frame; state: BotState; main
 
 function mainState({ snapshot, view, chatBusy, welcomeState, drop, active }: Props): BotState {
   if (view === "permission") return "permission";
+  if (view === "done") return "done";
   if (view === "welcome") return welcomeState ?? "idle";
   if (view === "drop") return drop === "taken" ? "done" : "welcome";
   if (view === "chat") return chatBusy ? "thinking" : "idle";
@@ -345,7 +379,14 @@ function Mascots(props: Props) {
         <motion.div
           key={spot.key}
           className={cn("absolute top-0 left-0 z-10", spot.main ? "cursor-pointer" : "pointer-events-none")}
-          initial={{ opacity: 0, scale: 0.6, x: spot.frame.x, y: spot.frame.y, width: spot.frame.size, height: spot.frame.size }}
+          initial={{
+            opacity: 0,
+            scale: 0.6,
+            x: spot.frame.x,
+            y: spot.frame.y,
+            width: spot.frame.size,
+            height: spot.frame.size,
+          }}
           animate={{
             opacity: spot.visible ? 1 : 0,
             scale: spot.visible ? 1 : 0.6,
@@ -367,7 +408,15 @@ function Mascots(props: Props) {
           title={spot.main ? "Double-click to hide" : undefined}
         >
           {spot.main && <Glow {...props} bot={spot.bot} />}
-          <CoworkBot size="100%" bot={spot.bot} state={spot.state} theme="dark" className="relative" />
+          <CoworkBot
+            size="100%"
+            bot={spot.bot}
+            state={spot.state}
+            theme="dark"
+            className="relative"
+            // Hidden bots stay mounted (no reload flicker) but rest.
+            paused={!spot.visible}
+          />
           {spot.main && <Badges {...props} />}
           {spot.main && props.view !== "permission" && <BotHandle {...props} bot={spot.bot} />}
         </motion.div>
@@ -495,18 +544,25 @@ function fallbackImage(color: string) {
 /** A soft light behind the main bot; it breathes while there's work. */
 function Glow({ snapshot, view, bot, drop }: Props & { bot: CoworkBotId }) {
   const big = view !== "collapsed" && view !== "chat";
-  const color =
-    view === "permission" ? AMBER : view === "drop" || snapshot.phase === "done" ? GREEN : colorOf(bot);
+  const color = view === "permission" ? AMBER : view === "drop" || snapshot.phase === "done" ? GREEN : colorOf(bot);
   const breathing = big && (snapshot.phase === "working" || view === "welcome" || (view === "drop" && drop === "over"));
   return (
     <motion.div
       aria-hidden
-      className="absolute -inset-[45%] rounded-full blur-2xl"
-      style={{ background: color }}
+      className="absolute -inset-[45%]"
       initial={false}
-      animate={big ? { opacity: breathing ? [0.28, 0.5, 0.28] : 0.4, scale: 1 } : { opacity: 0, scale: 0.6 }}
-      transition={breathing ? { opacity: { duration: 2.4, repeat: Infinity, ease: "easeInOut" } } : { duration: 0.3 }}
-    />
+      animate={big ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.6 }}
+      transition={{ duration: 0.3 }}
+    >
+      <div
+        className={cn("size-full rounded-full blur-2xl", breathing && "notch-loop")}
+        style={{
+          background: color,
+          opacity: 0.4,
+          animation: breathing ? "notch-breathe 2.4s ease-in-out infinite" : undefined,
+        }}
+      />
+    </motion.div>
   );
 }
 
@@ -547,11 +603,10 @@ function Dots() {
   return (
     <span className="flex items-center gap-[2px]">
       {[0, 1, 2].map((i) => (
-        <motion.span
+        <span
           key={i}
-          className="size-[3px] rounded-full bg-white"
-          animate={{ opacity: [0.35, 1, 0.35] }}
-          transition={{ duration: 1, repeat: Infinity, delay: i * 0.18 }}
+          className="notch-loop size-[3px] rounded-full bg-white"
+          style={{ animation: `notch-dim 1s ease-in-out ${i * 0.18}s infinite` }}
         />
       ))}
     </span>
@@ -628,14 +683,12 @@ function Indicator({ snapshot, chatBusy }: { snapshot: NotchSnapshot; chatBusy?:
           </span>
         )}
         {kind === "ask" && (
-          <motion.span
-            className="flex size-[18px] items-center justify-center rounded-full text-[11px] font-bold text-black"
-            style={{ background: AMBER }}
-            animate={{ scale: [1, 1.12, 1] }}
-            transition={{ duration: 1.2, repeat: Infinity }}
+          <span
+            className="notch-loop flex size-[18px] items-center justify-center rounded-full text-[11px] font-bold text-black"
+            style={{ background: AMBER, animation: "notch-beat 1.2s ease-in-out infinite" }}
           >
             !
-          </motion.span>
+          </span>
         )}
         {kind === "team" && <TeamDots mates={snapshot.team} />}
         {kind === "todos" && <Ring todos={snapshot.todos} />}
@@ -651,12 +704,14 @@ function TeamDots({ mates }: { mates: NotchMate[] }) {
   return (
     <div className="grid grid-cols-2 gap-[3px]">
       {mates.slice(0, 4).map((mate, i) => (
-        <motion.span
+        <span
           key={mate.id}
-          className="size-[8px] rounded-full"
-          style={{ background: mate.color, opacity: mate.done ? 0.45 : 1 }}
-          animate={mate.done ? { scale: 1 } : { scale: [1, 0.7, 1] }}
-          transition={mate.done ? undefined : { duration: 1.1, repeat: Infinity, delay: i * 0.15 }}
+          className={cn("size-[8px] rounded-full", !mate.done && "notch-loop")}
+          style={{
+            background: mate.color,
+            opacity: mate.done ? 0.45 : 1,
+            animation: mate.done ? undefined : `notch-shrink 1.1s ease-in-out ${i * 0.15}s infinite`,
+          }}
         />
       ))}
     </div>
@@ -700,11 +755,11 @@ function Bars() {
   return (
     <span className="flex h-3.5 items-end gap-[2px]">
       {[0, 1, 2].map((i) => (
-        <motion.span
+        // Scaled, not resized: the compositor plays it without layout or script.
+        <span
           key={i}
-          className="w-[3px] rounded-full bg-white/80"
-          animate={{ height: ["35%", "100%", "35%"] }}
-          transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.15, ease: "easeInOut" }}
+          className="notch-loop h-full w-[3px] origin-bottom rounded-full bg-white/80"
+          style={{ animation: `notch-bar 0.9s ease-in-out ${i * 0.15}s infinite` }}
         />
       ))}
     </span>
@@ -772,10 +827,9 @@ function RunLines(props: Props) {
   return (
     <div className="absolute inset-y-0 right-3 left-[120px] flex flex-col justify-center gap-2">
       <div className="flex min-w-0 items-center gap-2">
-        <motion.span
-          className="size-1.5 shrink-0 rounded-full bg-white"
-          animate={snapshot.phase === "working" ? { opacity: [1, 0.3, 1] } : { opacity: 1 }}
-          transition={snapshot.phase === "working" ? { duration: 1.4, repeat: Infinity } : undefined}
+        <span
+          className={cn("size-1.5 shrink-0 rounded-full bg-white", snapshot.phase === "working" && "notch-loop")}
+          style={{ animation: snapshot.phase === "working" ? "notch-fade 1.4s ease-in-out infinite" : undefined }}
         />
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.span
@@ -1006,7 +1060,10 @@ function Todos({ todos }: { todos: TodoItem[] }) {
               <CircleIcon className="size-3.5 shrink-0 text-white/25" />
             )}
             <span
-              className={cn("truncate", finished ? "text-white/35 line-through" : active ? "text-white" : "text-white/60")}
+              className={cn(
+                "truncate",
+                finished ? "text-white/35 line-through" : active ? "text-white" : "text-white/60",
+              )}
             >
               {todo.text}
             </span>
@@ -1020,16 +1077,51 @@ function Todos({ todos }: { todos: TodoItem[] }) {
 // ── welcome ──
 
 /** The first open after going into notch mode: the bot wakes up, then waits for work. */
+/**
+ * A run finished with something to see: the pill opens on it by itself —
+ * the bot pleased with itself, and the first thing it made, page by page.
+ */
+function Done({ snapshot, geometry }: Props) {
+  const t = useNotchText();
+  const top = topRowOf(geometry);
+  const [first, ...rest] = snapshot.showcase ?? [];
+  const more = rest.reduce((n, s) => n + s.items.length, 0);
+  return (
+    <>
+      <div className="absolute rounded-[22px] bg-white/[0.05]" style={{ left: PAD, right: PAD, top, bottom: PAD }} />
+      <div
+        className="absolute flex min-w-0 flex-col gap-2.5"
+        style={{ left: PAD + 14 + 72 + 16, right: PAD + 14, top: top + 12, bottom: PAD + 10 }}
+      >
+        <motion.div
+          className="flex min-w-0 items-center gap-2 text-[13px]"
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.12 }}
+        >
+          <span
+            className="flex size-[18px] shrink-0 items-center justify-center rounded-full"
+            style={{ background: GREEN }}
+          >
+            <CheckIcon className="size-3 text-black" strokeWidth={3} />
+          </span>
+          <span className="shrink-0 font-semibold">{t("madeIt")}</span>
+          {snapshot.title && <span className="min-w-0 truncate text-white/45">· {snapshot.title}</span>}
+          {more > 0 && <span className="ml-auto shrink-0 text-[11px] text-white/40">{t("more", { n: more })}</span>}
+        </motion.div>
+        {first && <Showcase showcase={first} height={100} />}
+      </div>
+    </>
+  );
+}
+
 function Welcome({ geometry, shape, welcomeState, active }: Props) {
   const t = useNotchText();
   const top = topRowOf(geometry);
   const ready = welcomeState !== "thinking";
   return (
     <>
-      <div
-        className="absolute rounded-[22px] bg-white/[0.05]"
-        style={{ left: PAD, right: PAD, top, bottom: PAD }}
-      />
+      <div className="absolute rounded-[22px] bg-white/[0.05]" style={{ left: PAD, right: PAD, top, bottom: PAD }} />
       <div className="absolute inset-x-0 flex justify-center" style={{ top: shape.height - PAD - 30 }}>
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.p
@@ -1058,7 +1150,8 @@ function DropGlow({ geometry }: { geometry: NotchGeometry }) {
       className="pointer-events-none absolute inset-x-0 bottom-0"
       style={{
         top,
-        background: "radial-gradient(60% 90% at 50% 100%, rgba(52,199,123,0.42), rgba(52,199,123,0.08) 55%, transparent 80%)",
+        background:
+          "radial-gradient(60% 90% at 50% 100%, rgba(52,199,123,0.42), rgba(52,199,123,0.08) 55%, transparent 80%)",
       }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -1097,15 +1190,15 @@ function Drop({ geometry, drop }: Props) {
           {t("kinds")
             .split(",")
             .map((kind, i) => (
-            <motion.span
-              key={kind}
-              className="rounded-full bg-white/[0.08] px-2.5 py-0.5 text-[11px] text-white/55"
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0, transition: { delay: 0.12 + i * 0.05 } }}
-            >
-              {kind}
-            </motion.span>
-          ))}
+              <motion.span
+                key={kind}
+                className="rounded-full bg-white/[0.08] px-2.5 py-0.5 text-[11px] text-white/55"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0, transition: { delay: 0.12 + i * 0.05 } }}
+              >
+                {kind}
+              </motion.span>
+            ))}
         </div>
       </div>
     </>
@@ -1159,10 +1252,9 @@ function Permission(props: Props) {
       <PermissionTop {...props} />
       <div className="absolute right-6 bottom-5 left-[124px] flex flex-col justify-center gap-2.5" style={{ top }}>
         <div className="flex min-w-0 items-center gap-2 text-[15px]">
-          <motion.span
-            className="size-2 shrink-0 rounded-full bg-white"
-            animate={{ opacity: [1, 0.35, 1] }}
-            transition={{ duration: 1.4, repeat: Infinity }}
+          <span
+            className="notch-loop size-2 shrink-0 rounded-full bg-white"
+            style={{ animation: "notch-fade 1.4s ease-in-out infinite" }}
           />
           <span className="truncate font-semibold">{snapshot.asker?.name ?? active.name}</span>
           <span className="shrink-0 text-white/50">{t("needsPermission")}</span>
@@ -1233,7 +1325,9 @@ function ReplyButton({
       )}
     >
       {label}
-      <span className={cn("flex size-5 items-center justify-center rounded-md border text-[11px] font-medium", keyClass)}>
+      <span
+        className={cn("flex size-5 items-center justify-center rounded-md border text-[11px] font-medium", keyClass)}
+      >
         {busy ? <Loader2Icon className="size-3 animate-spin" /> : hotkey}
       </span>
     </motion.button>

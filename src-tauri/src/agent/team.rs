@@ -261,6 +261,10 @@ things no teammate's duty covers, do yourself with your own tools.
 - When a teammate reports a problem, decide the next step: give it what it was missing, pass the part it \
 couldn't do to the teammate whose duty it is, or ask the user with ask_user. Don't send the same job back \
 unchanged more than once.
+- Put everything the job needs in one brief (size, style, wording, where it goes), so it's done right the first \
+time. A teammate's report is its work: trust it. Don't send a job back to be checked, redone or verified (and \
+never ask for checks by downloading or cropping files); send more only for a change the user asked for or a \
+problem the report names.
 - When the work is done, tell the user what each teammate did and where the results are, in the user's language.",
         );
     }
@@ -318,8 +322,21 @@ and for whom. Don't ask the user things the lead gave you; ask with ask_user onl
 End with a short report for the lead: what you did, the results (links, ids and file paths exactly as the tools \
 gave them), and any problem or open question.",
     );
+    note.push_str(CONNECTOR_WORK);
     note
 }
+
+/// How to use connector tools without wasting the user's time (also in the
+/// app's connector instructions for the lead, `agent-install.ts`).
+const CONNECTOR_WORK: &str = "\n\n# Working with connectors
+- A connector job that takes a while (a Canva design being generated, an export): call its status tool right \
+after starting it. The status tool waits for the job itself and answers when it's ready (or tells you to call it \
+again). Never wait with `sleep`, shell loops or timers, and never start the same job again because it's slow.
+- Check your work with the connector's own tools (the design's pages, thumbnails, content), never by downloading, \
+cropping or measuring files with curl, python, sips or other shell commands.
+- When a tool turns your arguments down, the error shows the schema they must follow: fix them once and call \
+again. Don't repeat a call that failed the same way.
+- Make it right the first time: pick the size and type when you create it rather than resizing after.";
 
 /// A teammate's own instructions and its place on the team.
 fn own_instructions(mate: &Teammate, team: &[Teammate]) -> String {

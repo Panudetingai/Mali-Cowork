@@ -36,9 +36,9 @@ pub fn clarify_reqwest(raw: &str) -> Option<String> {
         return None;
     }
     Some(
-        "Mali couldn't read a reply from the server (empty body, wrong address, or blocked network). \
-         Check Settings → Models: API key and base URL. If you use OpenCode or several connectors, \
-         restart Mali and try again — or turn connectors off one at a time to see which one breaks the reply."
+        "The reply broke off before it finished — the connection dropped, or the server sent \
+         something that isn't a reply. Send the message again; if it keeps happening, check the \
+         API key and base URL in Settings → Models."
             .into(),
     )
 }

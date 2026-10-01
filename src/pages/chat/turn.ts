@@ -21,6 +21,7 @@ import {
 import { agentAbort, agentAnswerQuestion, agentReplyPermission } from "@/features/agent";
 import type { Attachment } from "@/features/attachments";
 import { addCheckpointFolder, beginCheckpoint, finishCheckpoint, type TurnFiles } from "@/features/checkpoints";
+import { keepPreviews } from "@/features/chat-blocks";
 import { codexAbort } from "@/features/codex";
 import { cursorAbort, requestCursorLogin } from "@/features/cursor";
 import { antigravityAbort } from "@/features/antigravity";
@@ -168,6 +169,8 @@ export async function sendTurn(
   const finish = () => {
     update((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
     endRun(chatKey, runToken);
+    // Pictures of what it made expire within minutes: keep them now.
+    keepPreviews(getChat(chatKey)?.messages.find((m) => m.id === assistantId)?.content ?? "");
   };
 
   const handleError = (content: string) => {
@@ -340,11 +343,30 @@ export async function sendTurn(
   return true;
 }
 
+/** A stopped run that hasn't ended by then is ended here. */
+const STOP_SETTLE_MS = 6000;
+
 /** Stop a chat's run, whichever backend it is on. */
 export async function stopRun(chatId: string) {
-  const chat = getChat(chatId);
   const activeRun = getRun(chatId);
   if (!activeRun) return;
+  try {
+    await abortRun(chatId, activeRun);
+  } finally {
+    // The backend may never say it stopped (a command that won't quit, a
+    // reply that dropped): Stop still stops, so the chat, the Inbox and the
+    // notch don't show it working for good.
+    const { token } = activeRun;
+    setTimeout(() => {
+      if (getRun(chatId)?.token !== token) return;
+      updateChatMessages(chatId, (prev) => prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)));
+      endRun(chatId, token);
+    }, STOP_SETTLE_MS);
+  }
+}
+
+async function abortRun(chatId: string, activeRun: NonNullable<ReturnType<typeof getRun>>) {
+  const chat = getChat(chatId);
   // Cursor, Codex and Antigravity run as child processes keyed by the chat.
   if (isCursorModel(activeRun.modelId)) return cursorAbort(chatId);
   if (isCodexModel(activeRun.modelId)) return codexAbort(chatId);

@@ -145,6 +145,32 @@ impl OpencodeClient {
         Self::send(req).await.map(|_| ())
     }
 
+    /// Where the server listens; a restarted server has a new one.
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    /// `GET /session/status`: whether the session is still working. `None`
+    /// when this OpenCode doesn't say.
+    pub async fn session_busy(&self, directory: &str, session_id: &str) -> Option<bool> {
+        let req = self
+            .request(Method::GET, "/session/status", Some(directory))
+            .timeout(SHORT_TIMEOUT);
+        let body = Self::json(req, "OpenCode (session status)").await.ok()?;
+        let sessions = body.as_object()?;
+        // Idle sessions are left out, or listed as idle.
+        Some(sessions.get(session_id).is_some_and(|s| s["type"] != "idle"))
+    }
+
+    /// `GET /session/{id}/message`: the session's messages, each with its parts.
+    pub async fn session_messages(&self, directory: &str, session_id: &str) -> Result<Vec<Value>, String> {
+        let req = self
+            .request(Method::GET, &format!("/session/{session_id}/message"), Some(directory))
+            .timeout(SHORT_TIMEOUT);
+        let body = Self::json(req, "OpenCode (session messages)").await?;
+        Ok(body.as_array().cloned().unwrap_or_default())
+    }
+
     /// Returns true if the session exists in this directory.
     pub async fn session_exists(&self, directory: &str, session_id: &str) -> bool {
         let req = self

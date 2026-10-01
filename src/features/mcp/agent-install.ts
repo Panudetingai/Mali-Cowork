@@ -43,9 +43,16 @@ When you create or change something with pages or slides in another app (a Canva
 - \`source\`: the app, lowercase (\`canva\`, \`notion\`, \`figma\`, \`google-slides\`, …). \`connector\`: the id of the connector whose tools you used (the part of the tool name before \`_\`, e.g. \`custom-canva\`), so the app shows its icon. \`url\`: the link that opens it in that app.
 - \`items\`: one per page, in order; \`image\` is the https thumbnail exactly as the tool returned it, with \`width\` and \`height\` when the tool gives them. Never invent an image URL; if no thumbnail is available, leave the block out and just give the link.`;
 
+/** The same rules teammates get (`CONNECTOR_WORK` in team.rs): connector jobs done quickly, in one go. */
+const WORK_BLOCK = `# Working with connectors
+- A connector job that takes a while (a Canva design being generated, an export): call its status tool right after starting it. The status tool waits for the job itself and answers when it's ready (or tells you to call it again). Never wait with \`sleep\`, shell loops or timers, and never start the same job again because it's slow.
+- Check your work with the connector's own tools (the design's pages, thumbnails, content), never by downloading, cropping or measuring files with curl, python, sips or other shell commands.
+- When a tool turns your arguments down, the error shows the schema they must follow: fix them once and call again. Don't repeat a call that failed the same way.
+- Make it right the first time: pick the size and type when you create it rather than resizing after.`;
+
 /** System instructions so the model knows when and how to suggest MCP connectors. */
 export function connectorInstructionsFor(_prompt?: string) {
-  return `${BASE}\n\n${SUGGEST_BLOCK}\n\n${GALLERY_BLOCK}`;
+  return `${BASE}\n\n${SUGGEST_BLOCK}\n\n${GALLERY_BLOCK}\n\n${WORK_BLOCK}`;
 }
 
 const BLOCK = /```connector[^\S\n]*\n([\s\S]*?)```/g;
