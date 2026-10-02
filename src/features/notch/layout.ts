@@ -7,6 +7,7 @@
  * and a little either side of it, since the housing's corners curve. The
  * collapsed pill's step text drops to a row under the camera instead.
  */
+import type { QuestionItem, QuestionRequest } from "@/pages/chat/api/chat";
 import type { NotchGeometry, NotchPeek, NotchView } from "./types";
 
 /** Each side of the notch the collapsed pill reaches out by. */
@@ -42,6 +43,8 @@ export const CHAT_INPUT = 92;
 /** Thumbnails of the attached files sit above the input. */
 const CHAT_FILES = 60;
 const CHAT_THREAD = 280;
+/** The thread makes room when a question sits under it. */
+const CHAT_THREAD_ASKED = 150;
 /** The bot in the composer's corner. */
 export const CHAT_BOT = 30;
 /** Hint under the file row when send or attach fails (includes gap above the input). */
@@ -50,6 +53,30 @@ const CHAT_NOTE = 32;
 export type Size = { width: number; height: number };
 export type Frame = { x: number; y: number; size: number };
 export type Box = { x: number; y: number; width: number; height: number };
+
+/** The agent's question card: one question at a time, its options a row each; past the cap it scrolls. */
+export const QUESTION = { pad: 12, header: 24, line: 19, chars: 56, option: 34, gap: 4, custom: 34, footer: 32, max: 300 } as const;
+/** Options shown before the list scrolls. */
+const QUESTION_ROWS = 5;
+/** The question view: the bot on the left, the card beside it. */
+export const QUESTION_LEFT = 116;
+
+function questionItemHeight(item: QuestionItem) {
+  const q = QUESTION;
+  const lines = Math.min(3, Math.max(1, Math.ceil(item.question.length / q.chars)));
+  const rows = Math.min(item.options.length, QUESTION_ROWS);
+  const options = rows ? rows * q.option + (rows - 1) * q.gap + 8 : 0;
+  const custom = item.custom || item.options.length === 0 ? q.custom + 8 : 0;
+  return lines * q.line + 8 + options + custom;
+}
+
+/** The question card's height: its tallest question, so stepping through them doesn't jump. */
+export function questionHeight(request: QuestionRequest | undefined) {
+  if (!request?.questions.length) return 0;
+  const q = QUESTION;
+  const tallest = Math.max(...request.questions.map(questionItemHeight));
+  return Math.min(q.max, 2 * q.pad + q.header + 6 + tallest + q.footer);
+}
 
 /** What a view holds that changes its size: the chat's thread and files, a peek's kind, the list's length, the team. */
 export type ChatFill = {
@@ -63,6 +90,8 @@ export type ChatFill = {
   /** Bots on the team, and whether Home shows them all. */
   team?: number;
   teamOpen?: boolean;
+  /** The agent's question card (its height): under the thread in the chat, the body of the question view. */
+  question?: number;
 };
 
 /** The collapsed pill matches the menu bar (the notch's height on a notched Mac). */
@@ -98,15 +127,19 @@ export function shapeSize(view: NotchView, geometry: NotchGeometry, fill?: ChatF
         height: barOf(geometry) + (geometry.hasNotch ? UNDER_NOTCH : 0),
       };
     case "chat": {
+      const asked = fill?.question ?? 0;
       const body =
         4 +
         CHAT_INPUT +
         (fill?.files ? CHAT_FILES : 0) +
-        (fill?.thread ? CHAT_THREAD : 0) +
+        (fill?.thread ? (asked ? CHAT_THREAD_ASKED : CHAT_THREAD) : 0) +
+        (asked ? asked + 8 : 0) +
         (fill?.note ? CHAT_NOTE : 0) +
         PAD;
       return { width: openWidth(geometry, 640), height: top + body };
     }
+    case "question":
+      return { width: openWidth(geometry, 640), height: top + Math.max(BODY.permission, (fill?.question ?? 0) + PAD) };
     case "permission":
       return { width: openWidth(geometry, 600), height: top + BODY.permission };
     case "peek":
@@ -140,6 +173,8 @@ export function shapeSize(view: NotchView, geometry: NotchGeometry, fill?: ChatF
 export function pillWindow(geometry: NotchGeometry): Size {
   const shapes = [
     shapeSize("chat", geometry, { thread: true, files: true, note: true }),
+    shapeSize("chat", geometry, { thread: true, files: true, note: true, question: QUESTION.max }),
+    shapeSize("question", geometry, { question: QUESTION.max }),
     shapeSize("home", geometry, { team: TEAM_SHOWN, teamOpen: true }),
     shapeSize("sessions", geometry, { sessions: SESSION_ROWS }),
     shapeSize("recap", geometry, { models: 4 }),
@@ -238,6 +273,11 @@ export function mascotFrame(view: NotchView, geometry: NotchGeometry, shape: Siz
     case "permission": {
       const size = 76;
       return { x: 26, y: top + (body - size) / 2 - 8, size };
+    }
+    case "question": {
+      // Level with the question's first lines; a long card doesn't push it down.
+      const size = 72;
+      return { x: (QUESTION_LEFT - size) / 2, y: top + Math.min((body - size) / 2 - 8, 26), size };
     }
     case "done": {
       const size = 72;

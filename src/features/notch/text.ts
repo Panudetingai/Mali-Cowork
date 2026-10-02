@@ -185,6 +185,21 @@ const en = {
   rateCreated: "/new file",
   rateEdited: "/edit",
   rateCommand: "/command",
+  // The agent's question
+  asks: "{name} asks",
+  questionStep: "{n} of {total}",
+  pickOne: "Pick one",
+  pickAny: "Pick any",
+  orWrite: "Or write your own…",
+  typeAnswer: "Type your answer…",
+  skip: "Skip",
+  skipHint: "Skip — let the agent decide",
+  back: "Back",
+  sendAnswer: "Send",
+  keysHint: "1–{n} to pick",
+  waitingAnswer: "Waiting for your answer",
+  hasQuestion: "Has a question for you",
+  askingYou: "Asking you",
 };
 
 type Key = keyof typeof en;
@@ -360,6 +375,20 @@ const th: Record<Key, string> = {
   rateCreated: "/ไฟล์ใหม่",
   rateEdited: "/ไฟล์ที่แก้",
   rateCommand: "/คำสั่ง",
+  asks: "{name} ถาม",
+  questionStep: "ข้อ {n}/{total}",
+  pickOne: "เลือก 1 ข้อ",
+  pickAny: "เลือกได้หลายข้อ",
+  orWrite: "หรือพิมพ์คำตอบเอง…",
+  typeAnswer: "พิมพ์คำตอบ…",
+  skip: "ข้าม",
+  skipHint: "ข้าม — ให้ agent ตัดสินใจเอง",
+  back: "ย้อนกลับ",
+  sendAnswer: "ส่งคำตอบ",
+  keysHint: "กด 1–{n} เพื่อเลือก",
+  waitingAnswer: "รอคำตอบจากคุณ",
+  hasQuestion: "มีคำถามถึงคุณ",
+  askingYou: "ถามคุณอยู่",
 };
 
 export type NotchText = (key: Key, params?: Record<string, string | number>) => string;

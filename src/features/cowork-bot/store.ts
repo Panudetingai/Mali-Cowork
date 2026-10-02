@@ -17,7 +17,8 @@ export type BotState =
   | "welcome"
   | "tool"
   | "connection"
-  | "permission";
+  | "permission"
+  | "question";
 
 export const BOTS: { id: CoworkBotId; name: string; color: string; hint: string }[] = [
   { id: "mochi", name: "Mochi", color: "#f5c518", hint: "ลูกเจี๊ยบ · เด้งคลื่น" },

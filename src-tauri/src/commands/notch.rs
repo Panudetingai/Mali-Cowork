@@ -495,21 +495,30 @@ pub struct BackdropRect {
 /// `rect`; "black" or no rect takes it away. The page can only blur itself,
 /// so the system's blur of what's behind the window sits under the web view
 /// and follows the pill's shape. False where there's no such blur.
+///
+/// macOS: `from` is where it grows out of when it comes into view (the
+/// collapsed pill), and "black" with a `rect` shrinks it there as it fades,
+/// so the glass opens and folds with the pill instead of popping.
 #[tauri::command]
-pub async fn notch_backdrop<R: Runtime>(app: AppHandle<R>, look: String, rect: Option<BackdropRect>) -> bool {
+pub async fn notch_backdrop<R: Runtime>(
+    app: AppHandle<R>,
+    look: String,
+    rect: Option<BackdropRect>,
+    from: Option<BackdropRect>,
+) -> bool {
     #[cfg(target_os = "macos")]
     {
         let Some(window) = app.get_webview_window(NOTCH_LABEL) else { return false };
-        let want = match (look.as_str(), rect) {
-            ("glass", Some(rect)) => Some((false, rect)),
-            ("light", Some(rect)) => Some((true, rect)),
+        let light = match look.as_str() {
+            "glass" => Some(false),
+            "light" => Some(true),
             _ => None,
         };
         let (tx, rx) = tokio::sync::oneshot::channel();
         let ns = window.clone();
         if window
             .run_on_main_thread(move || {
-                let _ = tx.send(mac::set_backdrop(&ns, want));
+                let _ = tx.send(mac::set_backdrop(&ns, light, rect, from));
             })
             .is_err()
         {
@@ -520,6 +529,8 @@ pub async fn notch_backdrop<R: Runtime>(app: AppHandle<R>, look: String, rect: O
     #[cfg(windows)]
     {
         use window_vibrancy::{apply_acrylic, apply_mica, clear_acrylic, clear_mica};
+        // The region slides from where it last was; it needs no start.
+        let _ = from;
         let Some(window) = app.get_webview_window(NOTCH_LABEL) else {
             return false;
         };
@@ -549,7 +560,7 @@ pub async fn notch_backdrop<R: Runtime>(app: AppHandle<R>, look: String, rect: O
     }
     #[cfg(not(any(target_os = "macos", windows)))]
     {
-        let _ = (app, look, rect);
+        let _ = (app, look, rect, from);
         false
     }
 }
@@ -1677,13 +1688,57 @@ mod mac {
     const PIN_TOP: usize = 8;
     /// The layer's bottom corners (minY is the bottom in a non-flipped layer).
     const BOTTOM_CORNERS: usize = 1 | 2;
-    /// About the page's spring, so the blur keeps up with the shape.
-    const FOLLOW_S: f64 = 0.3;
+    /// The page's spring (stiffness 420, damping 34, mass 0.9) as a curve:
+    /// fitted to it, so the blur keeps up with the shape all the way.
+    const FOLLOW_S: f64 = 0.32;
+    const FOLLOW_CURVE: [f32; 4] = [0.4, 0.65, 0.15, 1.0];
 
-    /// The system's blur under the web view, shaped like the open pill; or
-    /// hidden (`want` none). Views are found and changed by message, so no
-    /// AppKit feature has to be compiled in for them.
-    pub fn set_backdrop<R: Runtime>(window: &WebviewWindow<R>, want: Option<(bool, super::BackdropRect)>) -> bool {
+    /// The view's frame for a rect in the page's coordinates (top-left origin).
+    unsafe fn frame_in(content: &AnyObject, rect: super::BackdropRect) -> NSRect {
+        use objc2::msg_send;
+        let bounds: NSRect = msg_send![content, bounds];
+        let flipped: bool = msg_send![content, isFlipped];
+        let y = if flipped { rect.y } else { bounds.size.height - rect.y - rect.height };
+        NSRect::new(NSPoint::new(rect.x, y), NSSize::new(rect.width, rect.height))
+    }
+
+    /// Moves `effect` to `frame` and `alpha` along the page's spring.
+    unsafe fn follow(effect: *mut AnyObject, frame: NSRect, alpha: f64) {
+        use objc2::msg_send;
+        use objc2::runtime::{AnyClass, MessageReceiver};
+        use objc2::sel;
+        let Some(animation) = AnyClass::get(c"NSAnimationContext") else {
+            let _: () = msg_send![effect, setFrame: frame];
+            let _: () = msg_send![effect, setAlphaValue: alpha];
+            return;
+        };
+        let _: () = msg_send![animation, beginGrouping];
+        let context: *mut AnyObject = msg_send![animation, currentContext];
+        let _: () = msg_send![context, setDuration: FOLLOW_S];
+        if let Some(timing) = AnyClass::get(c"CAMediaTimingFunction") {
+            let [a, b, c, d] = FOLLOW_CURVE;
+            let curve: *mut AnyObject = timing.send_message(sel!(functionWithControlPoints::::), (a, b, c, d));
+            if !curve.is_null() {
+                let _: () = msg_send![context, setTimingFunction: curve];
+            }
+        }
+        let animator: *mut AnyObject = msg_send![effect, animator];
+        let _: () = msg_send![animator, setFrame: frame];
+        let _: () = msg_send![animator, setAlphaValue: alpha];
+        let _: () = msg_send![animation, endGrouping];
+    }
+
+    /// The system's blur under the web view, shaped like the open pill
+    /// (`light`: which glass), growing out of `from` when it comes into view.
+    /// Taken away (`light` none), it shrinks into `rect` as it fades, or
+    /// hides at once without one. Views are found and changed by message, so
+    /// no AppKit feature has to be compiled in for them.
+    pub fn set_backdrop<R: Runtime>(
+        window: &WebviewWindow<R>,
+        light: Option<bool>,
+        rect: Option<super::BackdropRect>,
+        from: Option<super::BackdropRect>,
+    ) -> bool {
         use objc2::msg_send;
         use objc2::runtime::AnyClass;
         let Some(ns_window) = ns_window(window) else { return false };
@@ -1708,9 +1763,17 @@ mod mac {
                     }
                 }
             }
-            let Some((light, rect)) = want else {
-                if !effect.is_null() {
-                    let _: () = msg_send![effect, setHidden: true];
+            let (Some(light), Some(rect)) = (light, rect) else {
+                if effect.is_null() {
+                    return true;
+                }
+                let hidden: bool = msg_send![effect, isHidden];
+                match rect {
+                    // Folding back into the notch: shrink with the pill and fade under its black.
+                    Some(to) if !hidden => follow(effect, frame_in(content, to), 0.0),
+                    _ => {
+                        let _: () = msg_send![effect, setHidden: true];
+                    }
                 }
                 return true;
             };
@@ -1740,10 +1803,7 @@ mod mac {
                 let appearance: *mut AnyObject = msg_send![appearances, appearanceNamed: &*name];
                 let _: () = msg_send![effect, setAppearance: appearance];
             }
-            let bounds: NSRect = msg_send![content, bounds];
-            let flipped: bool = msg_send![content, isFlipped];
-            let y = if flipped { rect.y } else { bounds.size.height - rect.y - rect.height };
-            let frame = NSRect::new(NSPoint::new(rect.x, y), NSSize::new(rect.width, rect.height));
+            let frame = frame_in(content, rect);
             let layer: *mut AnyObject = msg_send![effect, layer];
             if !layer.is_null() {
                 let _: () = msg_send![layer, setCornerRadius: rect.radius];
@@ -1752,18 +1812,24 @@ mod mac {
             }
             let hidden: bool = msg_send![effect, isHidden];
             if hidden || fresh {
-                // Coming into view: in place at once, the page fades its tint in over it.
-                let _: () = msg_send![effect, setFrame: frame];
-                let _: () = msg_send![effect, setHidden: false];
-            } else if let Some(animation) = AnyClass::get(c"NSAnimationContext") {
-                let _: () = msg_send![animation, beginGrouping];
-                let context: *mut AnyObject = msg_send![animation, currentContext];
-                let _: () = msg_send![context, setDuration: FOLLOW_S];
-                let animator: *mut AnyObject = msg_send![effect, animator];
-                let _: () = msg_send![animator, setFrame: frame];
-                let _: () = msg_send![animation, endGrouping];
+                // Coming into view: out of the collapsed pill, growing with the
+                // page's shape; without a start, in place at once.
+                match from {
+                    Some(from) => {
+                        let _: () = msg_send![effect, setFrame: frame_in(content, from)];
+                        let _: () = msg_send![effect, setAlphaValue: 0.0f64];
+                        let _: () = msg_send![effect, setHidden: false];
+                        follow(effect, frame, 1.0);
+                    }
+                    None => {
+                        let _: () = msg_send![effect, setFrame: frame];
+                        let _: () = msg_send![effect, setAlphaValue: 1.0f64];
+                        let _: () = msg_send![effect, setHidden: false];
+                    }
+                }
             } else {
-                let _: () = msg_send![effect, setFrame: frame];
+                // Changing shape, or opened again while folding away: from where it is now.
+                follow(effect, frame, 1.0);
             }
         }
         true

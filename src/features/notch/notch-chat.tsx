@@ -5,6 +5,8 @@
  * steps and the answer as they come.
  */
 import { ModelSelectorLogo } from "@/components/ai-elements/model-selector";
+import { CoworkBot } from "@/components/anim/cowork-bot";
+import type { BotState } from "@/features/cowork-bot";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { MarkdownSurface } from "@/components/chat/markdown-surface";
 import { useAttachmentPreview, type Attachment } from "@/features/attachments";
@@ -18,6 +20,7 @@ import {
   ArrowUpIcon,
   ArrowUpRightIcon,
   CheckIcon,
+  CircleHelpIcon,
   CornerDownLeftIcon,
   ChevronDownIcon,
   CircleAlertIcon,
@@ -29,20 +32,34 @@ import {
   Loader2Icon,
   MessageCircleIcon,
   PlusIcon,
+  ShieldAlertIcon,
+  SparklesIcon,
   SquareIcon,
   XIcon,
+  type LucideIcon,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { forwardRef, useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
-import { EditLines } from "./notch-pill";
+import {
+  forwardRef,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type CSSProperties,
+  type KeyboardEvent,
+} from "react";
+import type { QuestionRequest } from "@/pages/chat/api/chat";
+import { EditLines, iconOf } from "./notch-pill";
 import { folderName, useAllowedFolders } from "./folders";
-import { CHAT_BOT, CHAT_INPUT, topRowOf } from "./layout";
+import { CHAT_BOT, CHAT_INPUT, questionHeight, topRowOf } from "./layout";
+import { NotchQuestion } from "./notch-question";
 import { NotchModelsPanel } from "./notch-models-panel";
 import type { RosterBot } from "./team";
 import type { NotchCapture } from "./bridge";
 import { Showcase } from "./notch-showcase";
 import { useNotchText } from "./text";
-import type { NotchGeometry, NotchSession } from "./types";
+import type { NotchGeometry, NotchSession, NotchStep } from "./types";
 import type { NotchChat as Chat } from "./use-notch-chat";
 import type { CoworkTurn, useNotchCowork } from "./use-notch-cowork";
 
@@ -76,6 +93,11 @@ type Props = {
   /** A chat picked from the session list: what's asked here carries it on. */
   session?: NotchSession;
   onLeaveSession?: () => void;
+  /** The agent asked this conversation something: the card sits under the thread. */
+  question?: QuestionRequest;
+  questionAsker?: string;
+  questionBusy?: boolean;
+  onAnswer?: (answers: string[][]) => void;
 };
 
 /** One tap after a capture or a file: what people most often want done with it, in the app's language. */
@@ -200,6 +222,28 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
             <Thread key="thread" turns={chat.turns} answeredBy={chat.answeredBy} />
           )
         ) : null}
+      </AnimatePresence>
+      <AnimatePresence initial={false}>
+        {props.question && !panel && (
+          <motion.div
+            key={props.question.id}
+            className="flex shrink-0"
+            style={{ height: questionHeight(props.question) }}
+            initial={{ opacity: 0, y: 14, scale: 0.97, filter: "blur(4px)" }}
+            animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+            exit={{ opacity: 0, y: 8, scale: 0.98, filter: "blur(4px)" }}
+            transition={{ type: "spring", stiffness: 380, damping: 32 }}
+          >
+            <NotchQuestion
+              request={props.question}
+              asker={props.questionAsker ?? "Mali"}
+              busy={!!props.questionBusy}
+              onAnswer={(answers) => props.onAnswer?.(answers)}
+              keys
+              className="flex-1"
+            />
+          </motion.div>
+        )}
       </AnimatePresence>
       <AnimatePresence initial={false}>
         {(chat.files.length > 0 || chat.importing > 0) && (
@@ -584,7 +628,6 @@ function CoworkTurnView({
   const t = useNotchText();
   const live = turn.status === "running";
   const writing = live && !!turn.reply;
-  const step = turn.steps.at(-1);
   // Just finished: the answer may have come whole with the finish; write it out still.
   const fresh = live || (latest && !!turn.endedAt && Date.now() - turn.endedAt < FRESH_MS);
   return (
@@ -596,30 +639,8 @@ function CoworkTurnView({
           <ClockIcon className="size-3.5" /> {t("queued")}
         </p>
       )}
-      {live && (
-        // While it works: what it's doing now, one line that rolls on; the
-        // answer takes over below as soon as it starts.
-        <div className="flex min-w-0 items-center gap-2 text-[12px] text-white/45">
-          <Loader2Icon className="size-3 shrink-0 animate-spin" />
-          <AnimatePresence mode="popLayout" initial={false}>
-            <motion.span
-              key={turn.phase === "permission" ? "permission" : (step?.id ?? "start")}
-              className={cn("truncate", turn.phase === "permission" && "text-amber-200/80")}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-            >
-              {turn.phase === "permission"
-                ? t("waitingOk")
-                : step && !step.done
-                  ? step.title
-                  : writing
-                    ? t("writing")
-                    : (step?.title ?? t("starting"))}
-            </motion.span>
-          </AnimatePresence>
-        </div>
-      )}
+      {/* While it works: its last few steps, each with what it touched; new ones roll in under. */}
+      {live && <StepTrail turn={turn} writing={writing} />}
       {turn.reply && <TypedAnswer text={turn.reply} live={fresh} onGrow={onGrow} />}
       {/* What it wrote, as diffs: a few lines of each file. */}
       {turn.edits?.map((edit) => (
@@ -667,6 +688,141 @@ function CoworkTurnView({
         </div>
       )}
     </div>
+  );
+}
+
+const STEP_BLUE = "#3aa3f5";
+const STEP_ASK = "#0a84ff";
+const STEP_AMBER = "#f5a524";
+
+type TrailRow = {
+  key: string;
+  icon: LucideIcon;
+  verb: string;
+  /** What it worked on: a path, a command, a query. */
+  rest?: string;
+  state: "done" | "running" | "asking" | "waiting";
+};
+
+/** "bash npm test" → "Bash" and "npm test". */
+function splitStep(title: string) {
+  const [verb = "", ...rest] = title.trim().split(/\s+/);
+  return { verb: verb.charAt(0).toUpperCase() + verb.slice(1), rest: rest.join(" ") || undefined };
+}
+
+function trailOf(turn: CoworkTurn, writing: boolean, t: ReturnType<typeof useNotchText>): TrailRow[] {
+  const rows: TrailRow[] = turn.steps.map((step: NotchStep) => {
+    // The question tool reads as what it is: the agent waiting on you.
+    if (/^(question|ask)\b/i.test(step.title.trim())) {
+      const state = step.done ? "done" : turn.question ? "asking" : "running";
+      return { key: step.id, icon: CircleHelpIcon, verb: t("askingYou"), state };
+    }
+    return { key: step.id, icon: iconOf(step), ...splitStep(step.title), state: step.done ? "done" : "running" };
+  });
+  if (turn.question && !rows.some((row) => row.state === "asking")) {
+    rows.push({ key: `question:${turn.question.id}`, icon: CircleHelpIcon, verb: t("waitingAnswer"), state: "asking" });
+  } else if (turn.phase === "permission") {
+    rows.push({ key: "permission", icon: ShieldAlertIcon, verb: t("waitingOk"), state: "waiting" });
+  } else if (!rows.some((row) => row.state !== "done")) {
+    const verb = writing ? t("writing") : t("starting");
+    rows.push({ key: writing ? "writing" : "starting", icon: SparklesIcon, verb, state: "running" });
+  }
+  return rows.slice(-4);
+}
+
+/** A trail row's height and the gap under it; the bot steps down by both. */
+const TRAIL_ROW = 24;
+const TRAIL_GAP = 4;
+/** The bot on the step at work, a little bigger than the icons. */
+const TRAIL_BOT = 30;
+
+/** What the bot does on the step at work. */
+function poseOf(row: TrailRow): BotState {
+  if (row.state === "asking") return "question";
+  if (row.state === "waiting") return "permission";
+  // At work, the bot always: "thinking" and "working" fold it into three dots now and then, a spinner again.
+  return "tool";
+}
+
+/**
+ * The steps a run is taking, as a short trail: done ones dim, a question in
+ * blue. The bot stands on the step at work in place of a spinner; it's one
+ * bot that moves down as steps come (an animation each would reload).
+ */
+function StepTrail({ turn, writing }: { turn: CoworkTurn; writing: boolean }) {
+  const t = useNotchText();
+  const rows = trailOf(turn, writing, t);
+  let at = rows.length - 1;
+  while (at >= 0 && rows[at].state === "done") at--;
+  const live = rows[at];
+  return (
+    <div className="relative flex flex-col" style={{ gap: TRAIL_GAP }}>
+      {/* The thread joining the steps. */}
+      <span aria-hidden className="absolute top-3 bottom-3 left-[9.5px] w-px bg-white/[0.08]" />
+      <AnimatePresence mode="popLayout" initial={false}>
+        {rows.map((row, i) => (
+          <StepRow key={row.key} row={row} latest={i === rows.length - 1} bot={i === at} />
+        ))}
+      </AnimatePresence>
+      {live && (
+        <motion.div
+          className="pointer-events-none absolute top-0 z-10"
+          style={{ left: (20 - TRAIL_BOT) / 2 }}
+          initial={false}
+          animate={{ y: at * (TRAIL_ROW + TRAIL_GAP) + (TRAIL_ROW - TRAIL_BOT) / 2 }}
+          transition={{ type: "spring", stiffness: 380, damping: 30 }}
+        >
+          <CoworkBot size={TRAIL_BOT} state={poseOf(live)} theme="dark" />
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+function StepRow({ row, latest, bot }: { row: TrailRow; latest: boolean; bot: boolean }) {
+  const done = row.state === "done";
+  const tint = row.state === "asking" ? STEP_ASK : row.state === "waiting" ? STEP_AMBER : STEP_BLUE;
+  const chip: CSSProperties = done
+    ? { background: "#26262d", color: "rgba(255,255,255,0.6)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)" }
+    : { background: `color-mix(in srgb, ${tint} 22%, #1c1c22)`, color: tint, boxShadow: `inset 0 0 0 1px ${tint}55` };
+  return (
+    <motion.div
+      layout
+      className="relative flex min-w-0 items-center gap-2 text-[12px]"
+      style={{ height: TRAIL_ROW }}
+      title={row.rest ? `${row.verb} ${row.rest}` : row.verb}
+      initial={{ opacity: 0, y: 10, filter: "blur(4px)" }}
+      animate={{ opacity: done && !latest ? 0.5 : 1, y: 0, filter: "blur(0px)" }}
+      exit={{ opacity: 0, y: -8, filter: "blur(4px)" }}
+      transition={{ type: "spring", stiffness: 420, damping: 34 }}
+    >
+      {bot ? (
+        // The bot stands here (`StepTrail`).
+        <span className="size-5 shrink-0" />
+      ) : (
+        <span className="relative flex size-5 shrink-0 items-center justify-center rounded-[7px]" style={chip}>
+          <row.icon className="size-3" />
+        </span>
+      )}
+      <span
+        className={cn("shrink-0 font-medium", done ? "text-white/70" : "text-white/90")}
+        // A question or an approval says so in its color.
+        style={row.state === "asking" || row.state === "waiting" ? { color: tint } : undefined}
+      >
+        {row.verb}
+      </span>
+      {row.rest && <span className="min-w-0 truncate font-mono text-[11px] text-white/40">{row.rest}</span>}
+      <span className="ml-auto flex shrink-0 items-center pl-2">
+        {done ? (
+          <CheckIcon className="size-3 text-emerald-300/70" />
+        ) : row.state === "running" ? null : (
+          <span
+            className="notch-loop size-1.5 rounded-full"
+            style={{ background: tint, animation: "notch-fade 1.4s ease-in-out infinite" }}
+          />
+        )}
+      </span>
+    </motion.div>
   );
 }
 
@@ -760,10 +916,12 @@ function Answer({ text, streaming }: { text: string; streaming: boolean }) {
   );
 }
 
+/** Not answering yet: the bot at work, in place of a spinner. */
 function Waiting({ text }: { text: string }) {
   return (
     <div className="flex items-center gap-2 text-[12px] text-white/50">
-      <Loader2Icon className="size-3.5 animate-spin" /> {text}
+      <CoworkBot size={TRAIL_BOT} state="tool" theme="dark" className="-my-1 -ml-1" />
+      {text}
     </div>
   );
 }

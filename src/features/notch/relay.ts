@@ -25,8 +25,9 @@ import { getOpencodeModels } from "@/features/opencode";
 import { normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import { coworkResend } from "@/pages/chat/move-to-cowork";
 import { loadSelectedModelId, resendSettingsFor } from "@/pages/chat/models";
-import { replyToPermission, sendTurn, stopRun, type TurnInput } from "@/pages/chat/turn";
+import { answerAgentQuestion, replyToPermission, sendTurn, stopRun, type TurnInput } from "@/pages/chat/turn";
 import {
+  onNotchAnswer,
   onNotchCowork,
   onNotchReady,
   onNotchReply,
@@ -71,7 +72,7 @@ export function startNotchRelay() {
   let current: NotchSnapshot | null = null;
   let sent = "null";
   let shown = false;
-  /** The approval the pill last took focus for; each one takes it once. */
+  /** The approval or question the pill last took focus for; each one takes it once. */
   let focusedFor: string | undefined;
   /** The Cowork work the notch asked for last: by its request, then its task or chat. */
   let follow: { key: string; taskId?: string; chatId?: string } | undefined;
@@ -122,6 +123,7 @@ export function startNotchRelay() {
         ...last,
         phase: "done",
         permission: undefined,
+        question: undefined,
         command: undefined,
         asker: undefined,
         team: last.team.map((m) => ({ ...m, done: true, status: "Done" })),
@@ -154,7 +156,8 @@ export function startNotchRelay() {
       return;
     }
     const snapshot = current;
-    const asking = snapshot.permission?.id;
+    // An approval or a question wants keys: Y / N, or a number to pick.
+    const asking = snapshot.permission?.id ?? snapshot.question?.id;
     const focus = !!asking && asking !== focusedFor;
     focusedFor = asking;
     if (shown && !focus) {
@@ -275,6 +278,11 @@ export function startNotchRelay() {
     onNotchStop(({ chatId, taskId }) => {
       const stopping = taskId && getTasks().some((t) => t.id === taskId) ? cancelTask(taskId) : chatId ? stopRun(chatId) : undefined;
       void stopping?.catch(warn).finally(scheduleRun);
+    }),
+    onNotchAnswer(({ chatId, id, answers }) => {
+      const request = getRun(chatId)?.questions.find((q) => q.id === id);
+      if (!request) return;
+      void answerAgentQuestion(chatId, request, answers).catch(warn);
     }),
     onNotchReply(({ chatId, id, reply }) => {
       const request = getRun(chatId)?.permissions.find((p) => p.id === id);

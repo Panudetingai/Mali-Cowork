@@ -5,6 +5,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import type {
+  NotchAnswer,
   NotchCoworkRequest,
   NotchCoworkStarted,
   NotchGeometry,
@@ -18,6 +19,7 @@ const NOTCH = "notch";
 const STATE = "notch:state";
 const READY = "notch:ready";
 const REPLY = "notch:reply";
+const ANSWER = "notch:answer";
 const GEOMETRY = "notch:geometry";
 
 // ── window commands (notch.rs) ──
@@ -95,6 +97,12 @@ export function onNotchReply(handler: (reply: NotchReply) => void) {
   return () => void stop.then((unlisten) => unlisten());
 }
 
+export function onNotchAnswer(handler: (answer: NotchAnswer) => void) {
+  if (!isTauri()) return () => {};
+  const stop = listen<NotchAnswer>(ANSWER, (event) => handler(event.payload));
+  return () => void stop.then((unlisten) => unlisten());
+}
+
 // ── pill side ──
 
 export function listenForNotchState(handler: (snapshot: NotchSnapshot | null) => void) {
@@ -115,6 +123,11 @@ export function listenForNotchGeometry(handler: (geometry: NotchGeometry) => voi
 
 export function sendNotchReply(reply: NotchReply) {
   return emitTo("main", REPLY, reply);
+}
+
+/** The agent's question, answered in the notch. */
+export function sendNotchAnswer(answer: NotchAnswer) {
+  return emitTo("main", ANSWER, answer);
 }
 
 // ── notch mode ──
@@ -275,14 +288,15 @@ export const onNotchSessions = (handler: (overview: NotchOverview) => void) => o
 
 // ── look ──
 
+export type BackdropRect = { x: number; y: number; width: number; height: number; radius: number };
+
 /**
  * The frosted backdrop behind the open pill (macOS): `rect` is the pill in
- * its window, with its bottom corners' radius. `black` (or no rect) takes it
- * away. Resolves false where the system can't blur behind a window.
+ * its window, with its bottom corners' radius; coming into view it grows out
+ * of `from` (the collapsed pill). `black` takes it away: with a rect it
+ * shrinks there as it fades, without one at once. Resolves false where the
+ * system can't blur behind a window.
  */
-export function setNotchBackdrop(
-  look: NotchLook,
-  rect?: { x: number; y: number; width: number; height: number; radius: number },
-) {
-  return invoke<boolean>("notch_backdrop", { look, rect: rect ?? null });
+export function setNotchBackdrop(look: NotchLook, rect?: BackdropRect, from?: BackdropRect) {
+  return invoke<boolean>("notch_backdrop", { look, rect: rect ?? null, from: from ?? null });
 }

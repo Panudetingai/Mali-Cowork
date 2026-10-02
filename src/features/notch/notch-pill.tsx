@@ -33,6 +33,7 @@ import {
   PlusIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  CircleHelpIcon,
   SearchIcon,
   ZapIcon,
   SparklesIcon,
@@ -40,7 +41,7 @@ import {
   XIcon,
   type LucideIcon,
 } from "lucide-react";
-import { AnimatePresence, motion, MotionConfig, type Transition } from "motion/react";
+import { AnimatePresence, motion, MotionConfig, useAnimate, type Transition } from "motion/react";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   barOf,
@@ -48,6 +49,7 @@ import {
   homeCards,
   mascotFrame,
   PAD,
+  QUESTION_LEFT,
   RECAP,
   radiusOf,
   SESSION_HEADER,
@@ -74,6 +76,7 @@ import {
 } from "./settings";
 import { onNotchWheel } from "./bridge";
 import { minutesSaved } from "./recap";
+import { NotchQuestion } from "./notch-question";
 import { Showcase, ShowcaseViewerHost } from "./notch-showcase";
 import { useNotchText, type NotchText } from "./text";
 import type { RosterBot } from "./team";
@@ -114,6 +117,9 @@ type Props = {
   /** An answer was sent and the main window hasn't confirmed it yet. */
   answering: "once" | "reject" | undefined;
   onReply: (reply: "once" | "reject") => void;
+  /** The agent's question, answered (`view` "question"); the answer is on its way. */
+  onAnswer?: (answers: string[][]) => void;
+  questionBusy?: boolean;
   onOpenChat: () => void;
   onPress: () => void;
   onEnter: () => void;
@@ -222,6 +228,7 @@ export function NotchPill(outer: Props) {
               <div className="absolute inset-0">
                 <AnimatePresence initial={false}>
                   {view === "permission" && <PermissionGlow key="glow" />}
+                  {view === "question" && <PermissionGlow key="question-glow" color={BLUE} />}
                   {view === "drop" && <DropGlow key="drop-glow" geometry={geometry} />}
                 </AnimatePresence>
                 <AnimatePresence initial={false}>
@@ -269,6 +276,11 @@ export function NotchPill(outer: Props) {
                   {view === "permission" && snapshot.permission && (
                     <Fade key="permission">
                       <Permission {...props} />
+                    </Fade>
+                  )}
+                  {view === "question" && snapshot.question && (
+                    <Fade key={`question:${snapshot.question.id}`}>
+                      <QuestionView {...props} />
                     </Fade>
                   )}
                 </AnimatePresence>
@@ -525,6 +537,7 @@ function Tab({
 
 function mainState({ snapshot, view, chatBusy, welcomeState, drop, active, peek }: Props): BotState {
   if (view === "permission") return "permission";
+  if (view === "question") return "question";
   if (view === "done") return "done";
   if (view === "welcome") return welcomeState ?? "idle";
   if (view === "drop") return drop === "taken" ? "done" : "welcome";
@@ -616,7 +629,7 @@ function Mascots(props: Props) {
               paused={!on}
             />
             {on && <Badges {...props} />}
-            {on && view !== "permission" && <BotHandle {...props} bot={bot} />}
+            {on && view !== "permission" && view !== "question" && <BotHandle {...props} bot={bot} />}
           </motion.div>
         );
       })}
@@ -907,11 +920,13 @@ function Glow({ snapshot, view, bot, drop, peek }: Props & { bot: CoworkBotId })
   const color =
     view === "permission"
       ? AMBER
-      : view === "peek" && peek
-        ? TONE[peek.tone]
-        : view === "drop" || snapshot.phase === "done"
-          ? GREEN
-          : colorOf(bot);
+      : view === "question"
+        ? BLUE
+        : view === "peek" && peek
+          ? TONE[peek.tone]
+          : view === "drop" || snapshot.phase === "done"
+            ? GREEN
+            : colorOf(bot);
   const breathing = big && (snapshot.phase === "working" || view === "welcome" || (view === "drop" && drop === "over"));
   return (
     <motion.div
@@ -938,6 +953,11 @@ function Badges({ snapshot, view, peek }: Props) {
   const tone = view === "peek" ? peek?.tone : undefined;
   return (
     <AnimatePresence>
+      {view === "question" && (
+        <Badge key="question" color={BLUE}>
+          <span className="text-[13px] leading-none font-bold text-white">?</span>
+        </Badge>
+      )}
       {big && snapshot.phase === "permission" && (
         <Badge key="alert" color={AMBER}>
           <span className="text-[13px] leading-none font-bold text-black">!</span>
@@ -1012,6 +1032,7 @@ function stepText(snapshot: NotchSnapshot, t: NotchText) {
   if (snapshot.phase === "idle") return t("askMali");
   if (snapshot.phase === "done") return t("done");
   if (snapshot.phase === "permission") return t("needsPermissionShort");
+  if (snapshot.question) return t("hasQuestion");
   return snapshot.steps[currentStepIndex(snapshot.steps)]?.title ?? t("working");
 }
 
@@ -1056,6 +1077,7 @@ function indicatorOf(snapshot: NotchSnapshot, chatBusy?: boolean) {
   if (snapshot.phase === "idle") return chatBusy ? "busy" : "idle";
   if (snapshot.phase === "done") return "done";
   if (snapshot.phase === "permission") return "ask";
+  if (snapshot.question) return "question";
   if (snapshot.team.some((m) => !m.done)) return "team";
   if (snapshot.todos.length) return "todos";
   return "busy";
@@ -1083,6 +1105,14 @@ function Indicator({ snapshot, chatBusy }: { snapshot: NotchSnapshot; chatBusy?:
             style={{ background: AMBER, animation: "notch-beat 1.2s ease-in-out infinite" }}
           >
             !
+          </span>
+        )}
+        {kind === "question" && (
+          <span
+            className="notch-loop flex size-[18px] items-center justify-center rounded-full text-[11px] font-bold text-white"
+            style={{ background: BLUE, animation: "notch-beat 1.2s ease-in-out infinite" }}
+          >
+            ?
           </span>
         )}
         {kind === "team" && <TeamDots mates={snapshot.team} />}
@@ -1189,9 +1219,49 @@ function Home(props: Props) {
 const PAGES = ["main", "usage", "settings", "recap"] as const;
 /** The dot of the page in view, like a slide deck's. */
 const PAGE_DOT = "#0a84ff";
-/** One wheel / trackpad gesture → one page (native scroll + snap can skip several). */
-const WHEEL_STEP_COOLDOWN_MS = 480;
-const WHEEL_STEP_THRESHOLD = 36;
+/** Pages glide on the compositor (a transform), settling without a bounce. */
+const PAGE_SPRING: Transition = { type: "spring", stiffness: 340, damping: 34, mass: 0.85 };
+/** How far a turn has to go before it turns the page (px of wheel / trackpad). */
+const WHEEL_STEP_THRESHOLD = 28;
+/** A pause this long ends a gesture: the next turn is a new one. */
+const WHEEL_GESTURE_GAP_MS = 160;
+/** A fresh swipe can rise out of the last one's momentum only after this long. */
+const WHEEL_MIN_TURN_MS = 260;
+
+/**
+ * One wheel / trackpad gesture turns one page, however long its momentum
+ * runs on. A gesture ends with a pause, or when a fresh swipe rises out of
+ * the dying momentum (its deltas grow again).
+ */
+function wheelPager(step: (dir: -1 | 1) => void) {
+  let sum = 0;
+  let last = 0;
+  let lastSize = 0;
+  let turnedAt = 0;
+  let locked = false;
+  return (deltaY: number) => {
+    const now = performance.now();
+    const gap = now - last;
+    const size = Math.abs(deltaY);
+    const rising = now - turnedAt > WHEEL_MIN_TURN_MS && size > 8 && size > lastSize * 1.6;
+    last = now;
+    lastSize = size;
+    if (gap > WHEEL_GESTURE_GAP_MS || (locked && rising)) {
+      locked = false;
+      sum = 0;
+    }
+    if (locked) return;
+    // Turning back mid-gesture starts the count over.
+    if (Math.sign(deltaY) !== Math.sign(sum)) sum = 0;
+    sum += deltaY;
+    if (Math.abs(sum) < WHEEL_STEP_THRESHOLD) return;
+    const dir = sum > 0 ? 1 : -1;
+    locked = true;
+    turnedAt = now;
+    sum = 0;
+    step(dir);
+  };
+}
 
 /**
  * Home's left card as pages to scroll through, one at a time: the run (or
@@ -1201,45 +1271,39 @@ const WHEEL_STEP_THRESHOLD = 36;
  */
 function LeftPager(props: Props) {
   const { snapshot, slide = 0, onSlide } = props;
-  const scroller = useRef<HTMLDivElement>(null);
+  const card = useRef<HTMLDivElement>(null);
+  const [edge, animateEdge] = useAnimate<HTMLDivElement>();
   const slideRef = useRef(slide);
   slideRef.current = slide;
-  const go = (page: number) => {
-    const el = scroller.current;
-    if (el) el.scrollTo({ top: page * el.clientHeight, behavior: "smooth" });
-  };
-  const step = (dir: -1 | 1) => {
-    const next = Math.max(0, Math.min(PAGES.length - 1, slideRef.current + dir));
-    if (next === slideRef.current) return;
-    onSlide?.(next);
-    go(next);
-  };
+  const onSlideRef = useRef(onSlide);
+  onSlideRef.current = onSlide;
   useEffect(() => {
-    const el = scroller.current;
+    const el = card.current;
     if (!el) return;
-    let pending = 0;
-    let lastStep = 0;
     let hovered = false;
-    const turn = (deltaY: number) => {
-      const now = Date.now();
-      if (now - lastStep < WHEEL_STEP_COOLDOWN_MS) return;
-      pending += deltaY;
-      if (Math.abs(pending) < WHEEL_STEP_THRESHOLD) return;
-      const dir = pending > 0 ? 1 : -1;
-      lastStep = now;
-      pending = 0;
-      step(dir);
-    };
+    const turn = wheelPager((dir) => {
+      const next = slideRef.current + dir;
+      if (next < 0 || next >= PAGES.length) {
+        // Past the first or last page: a little give, then back.
+        if (edge.current) {
+          void animateEdge(edge.current, { y: [0, -dir * 10, 0] }, { duration: 0.42, ease: [0.3, 0.7, 0.4, 1] });
+        }
+        return;
+      }
+      slideRef.current = next;
+      onSlideRef.current?.(next);
+    });
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
-      turn(event.deltaY);
+      // Lines (some mice) to pixels, so the threshold means the same.
+      turn(event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY);
     };
     const onEnter = () => (hovered = true);
     const onLeave = () => (hovered = false);
     el.addEventListener("wheel", onWheel, { passive: false });
     el.addEventListener("pointerenter", onEnter);
     el.addEventListener("pointerleave", onLeave);
-    // Windows: the same turn may come from Rust too; the cooldown takes it once.
+    // Windows: the same turn may come from Rust too; one gesture still turns once.
     const stopWheel = onNotchWheel((deltaY) => hovered && turn(deltaY));
     return () => {
       el.removeEventListener("wheel", onWheel);
@@ -1247,26 +1311,33 @@ function LeftPager(props: Props) {
       el.removeEventListener("pointerleave", onLeave);
       stopWheel();
     };
-  }, [onSlide]);
+  }, [edge, animateEdge]);
   return (
     <>
-      <div
-        ref={scroller}
-        className="absolute inset-0 snap-y snap-mandatory overflow-y-auto overscroll-contain"
-        onScroll={(event) => {
-          const el = event.currentTarget;
-          const page = Math.round(el.scrollTop / Math.max(1, el.clientHeight));
-          if (page !== slideRef.current) onSlide?.(page);
-        }}
-      >
-        {PAGES.map((page, i) => (
-          <section key={page} className="relative h-full snap-start snap-always" aria-hidden={i !== slide}>
-            {page === "main" && (snapshot.phase === "idle" ? <Greeting {...props} /> : <RunLines {...props} />)}
-            {page === "usage" && <UsagePage {...props} />}
-            {page === "settings" && <SettingsPage />}
-            {page === "recap" && <RecapPage {...props} />}
-          </section>
-        ))}
+      <div ref={card} className="absolute inset-0 overflow-hidden">
+        <div ref={edge} className="absolute inset-0">
+          <motion.div
+            className="absolute inset-0 will-change-transform"
+            initial={false}
+            animate={{ y: `${-slide * 100}%` }}
+            transition={PAGE_SPRING}
+          >
+            {PAGES.map((page, i) => (
+              <section
+                key={page}
+                className="absolute inset-x-0 h-full"
+                style={{ top: `${i * 100}%` }}
+                aria-hidden={i !== slide}
+                inert={i !== slide}
+              >
+                {page === "main" && (snapshot.phase === "idle" ? <Greeting {...props} /> : <RunLines {...props} />)}
+                {page === "usage" && <UsagePage {...props} />}
+                {page === "settings" && <SettingsPage />}
+                {page === "recap" && <RecapPage {...props} />}
+              </section>
+            ))}
+          </motion.div>
+        </div>
       </div>
       <div className="absolute top-1/2 right-[9px] flex -translate-y-1/2 flex-col gap-[7px]">
         {PAGES.map((page, i) => (
@@ -1274,16 +1345,20 @@ function LeftPager(props: Props) {
             key={page}
             type="button"
             title={page}
-            onClick={() => {
-              onSlide?.(i);
-              go(i);
-            }}
-            className="size-[7px] rounded-full transition-[background,transform] duration-200"
-            style={{
-              background: i === slide ? PAGE_DOT : "rgba(255,255,255,0.18)",
-              transform: i === slide ? "scale(1.15)" : undefined,
-            }}
-          />
+            onClick={() => onSlide?.(i)}
+            className="relative size-[7px] rounded-full"
+            style={{ background: "rgba(255,255,255,0.18)" }}
+          >
+            {i === slide && (
+              // One dot slides between the pages, like the pages themselves.
+              <motion.span
+                layoutId="notch-page-dot"
+                className="absolute -inset-[0.5px] rounded-full"
+                style={{ background: PAGE_DOT }}
+                transition={PAGE_SPRING}
+              />
+            )}
+          </button>
         ))}
       </div>
     </>
@@ -1828,9 +1903,11 @@ function StatusChip({ snapshot }: { snapshot: NotchSnapshot }) {
   const [label, color] =
     snapshot.phase === "permission"
       ? [t("needsYou"), AMBER]
-      : snapshot.phase === "done"
-        ? [snapshot.failed ? t("failedShort") : t("done"), snapshot.failed ? RED : GREEN]
-        : [elapsed !== undefined ? `${t("workingShort")} · ${spoken(elapsed)}` : t("workingShort"), BLUE];
+      : snapshot.question
+        ? [t("needsYou"), BLUE]
+        : snapshot.phase === "done"
+          ? [snapshot.failed ? t("failedShort") : t("done"), snapshot.failed ? RED : GREEN]
+          : [elapsed !== undefined ? `${t("workingShort")} · ${spoken(elapsed)}` : t("workingShort"), BLUE];
   return (
     <span
       className="mt-0.5 w-fit rounded-full px-2.5 py-0.5 text-[11.5px] font-medium tabular-nums"
@@ -1841,8 +1918,9 @@ function StatusChip({ snapshot }: { snapshot: NotchSnapshot }) {
   );
 }
 
-function iconOf(step: { kind: string; title: string }): LucideIcon {
+export function iconOf(step: { kind: string; title: string }): LucideIcon {
   const verb = step.title.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+  if (/^(question|ask)/.test(verb)) return CircleHelpIcon;
   if (/^(run|bash|shell|exec|command)/.test(verb)) return TerminalIcon;
   if (/^(read|list|find|glob|open)/.test(verb)) return FileTextIcon;
   if (/^(write|edit|patch|update|create|copy|save)/.test(verb)) return PencilIcon;
@@ -1869,6 +1947,10 @@ function rowsOf(snapshot: NotchSnapshot, t: NotchText): Row[] {
     return rows;
   }
   const now = steps[at];
+  if (snapshot.question) {
+    rows.push({ key: `question:${snapshot.question.id}`, title: t("askingYou"), icon: CircleHelpIcon, tone: "now" });
+    return rows;
+  }
   rows.push(
     now
       ? { key: now.id, title: now.title, icon: iconOf(now), tone: "now", spin: !now.done }
@@ -2611,12 +2693,13 @@ function Drop({ geometry, drop }: Props) {
 
 // ── permission ──
 
-function PermissionGlow() {
+/** A light from the bot's side: amber for an approval, blue for a question. */
+function PermissionGlow({ color = AMBER }: { color?: string }) {
   return (
     <motion.div
       aria-hidden
       className="pointer-events-none absolute inset-0"
-      style={{ background: `radial-gradient(120% 140% at 8% 70%, ${AMBER}55 0%, ${AMBER}1f 32%, transparent 62%)` }}
+      style={{ background: `radial-gradient(120% 140% at 8% 70%, ${color}55 0%, ${color}1f 32%, transparent 62%)` }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -2694,6 +2777,28 @@ function Permission(props: Props) {
             keyClass="border-black/20 text-black/60"
           />
         </div>
+      </div>
+    </>
+  );
+}
+
+/** The agent's question: the bot on the left, the card beside it; the chat's title and the app above. */
+function QuestionView(props: Props) {
+  const { snapshot, geometry, active, onAnswer, questionBusy } = props;
+  const top = topRowOf(geometry);
+  if (!snapshot.question) return null;
+  return (
+    <>
+      <PermissionTop {...props} />
+      <div className="absolute right-3 bottom-3 flex" style={{ top, left: QUESTION_LEFT }}>
+        <NotchQuestion
+          request={snapshot.question}
+          asker={snapshot.asker?.name ?? active.name}
+          busy={!!questionBusy}
+          onAnswer={(answers) => onAnswer?.(answers)}
+          keys
+          className="flex-1"
+        />
       </div>
     </>
   );

@@ -172,7 +172,8 @@ document.getElementById("bot").contentWindow
   var PILL = "M-9.3 -11.3A9.3 9.3 0 0 1 0 -20.6L0 -20.6A9.3 9.3 0 0 1 9.3 -11.3L9.3 11.3A9.3 9.3 0 0 1 0 20.6L0 20.6A9.3 9.3 0 0 1 -9.3 11.3Z";
   var HAPPY = "M-11 4Q0 -10 11 4";
   var LABELS = { idle:"รอคำสั่ง", thinking:"กำลังคิด…", working:"กำลังทำงาน…", done:"เสร็จแล้ว!",
-                 alert:"แจ้งเตือน!", welcome:"สวัสดี!", tool:"กำลังใช้เครื่องมือ…", connection:"รอเชื่อมต่อใหม่…", permission:"รออนุญาตคำสั่ง…" };
+                 alert:"แจ้งเตือน!", welcome:"สวัสดี!", tool:"กำลังใช้เครื่องมือ…", connection:"รอเชื่อมต่อใหม่…", permission:"รออนุญาตคำสั่ง…",
+                 question:"รอคำตอบ…" };
 
   // alert: blink between deep red and bright red
   var ALERT_DEEP   = ["#ff9a9a","#e53935","#b71c1c","#5c0808"];
@@ -627,9 +628,10 @@ document.getElementById("bot").contentWindow
     }
 
     // permission: tilt the head, ask with a lock bubble, knock-knock hop, wait
+    // (a question: the same tilt and knock, without the lock)
     function permLoop(){
       ambient=false; blinkOK=true; happy.t=0; eyeOpen.t=1.05; squint.t=0.7; lookX.t=0; lookY.t=2;
-      bodyS.t=1; morph.t=0.1; permOn.t=1;
+      bodyS.t=1; morph.t=0.1; permOn.t = state === "permission" ? 1 : 0;
       after(900,  function(){ headTilt.t=9; lookX.t=3; });
       after(2500, function(){ headTilt.t=-6; lookX.t=-3; });
       after(3900, function(){ headTilt.t=0; lookX.t=0; hopY.t=-6; bodyS.t=1.04; });
@@ -675,6 +677,9 @@ document.getElementById("bot").contentWindow
         ensureFace(connLoop);
       } else if (s === "permission"){
         colorRate = 0.08; permOn.t = 1;
+        ensureFace(permLoop);
+      } else if (s === "question"){
+        colorRate = 0.08;
         ensureFace(permLoop);
       }
     }

@@ -46,6 +46,7 @@ export function pillSyncKey(snapshot: NotchSnapshot | null, streamReply = false)
     waiting: snapshot.waiting,
     running: snapshot.running,
     permission: snapshot.permission?.id,
+    question: snapshot.question?.id,
     command: snapshot.command,
     asker: snapshot.asker?.id,
     folder: snapshot.folder,
@@ -69,8 +70,9 @@ export function pillSyncKey(snapshot: NotchSnapshot | null, streamReply = false)
 export type MateInfo = { id: string; name: string; mascot: CoworkBotId; color: string };
 
 /**
- * An approval comes first, oldest run first, since the agent is stuck on it.
- * Otherwise the run whose chat changed last: that's the one moving.
+ * An approval comes first, oldest run first, since the agent is stuck on it;
+ * then a question the agent asked. Otherwise the run whose chat changed
+ * last: that's the one moving.
  */
 export function liveSnapshot(
   runs: Record<string, ChatRun>,
@@ -81,10 +83,13 @@ export function liveSnapshot(
 ): NotchSnapshot | null {
   const ids = Object.keys(runs);
   if (ids.length === 0) return null;
-  const waiting = ids.reduce((n, id) => n + runs[id].permissions.length, 0);
+  const waiting = ids.reduce((n, id) => n + runs[id].permissions.length + (runs[id].questions?.length ?? 0), 0);
   const asking = ids.find((id) => runs[id].permissions.length > 0);
+  // The run the notch follows first, if it's the one asking.
+  const questioning = [...(prefer ? [prefer] : []), ...ids].find((id) => (runs[id]?.questions?.length ?? 0) > 0);
   const chatId =
     asking ??
+    questioning ??
     (prefer && runs[prefer] ? prefer : undefined) ??
     ids.reduce((latest, id) => ((chatOf(id)?.updatedAt ?? 0) > (chatOf(latest)?.updatedAt ?? 0) ? id : latest));
   const chat = chatOf(chatId);
@@ -92,6 +97,7 @@ export function liveSnapshot(
   const activities = reply?.activities ?? [];
   const permission = asking ? runs[asking].permissions[0] : undefined;
   const asked = permission ? askedBy(permission.title, mates) : undefined;
+  const question = permission ? undefined : runs[chatId]?.questions?.[0];
   return {
     phase: asking ? "permission" : "working",
     chatId,
@@ -101,6 +107,7 @@ export function liveSnapshot(
     team: teamOf(activities, mates),
     startedAt: startOf(chat),
     permission,
+    question,
     command: permission ? commandOf(permission.patterns, asked?.rest ?? permission.title) : undefined,
     asker: asked?.mate ? { id: asked.mate.id, name: asked.mate.name, mascot: asked.mate.mascot } : undefined,
     ...replyOf(chat),

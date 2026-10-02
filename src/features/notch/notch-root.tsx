@@ -35,6 +35,7 @@ import {
   onOpenApp,
   openMainFromNotch,
   resizeNotch,
+  sendNotchAnswer,
   sendNotchReply,
   setNotchBackdrop,
   setNotchHitArea,
@@ -45,7 +46,7 @@ import {
   type NotchDropTarget,
   type NotchIntro as Intro,
 } from "./bridge";
-import { hitArea, pillWindow, radiusOf, shapeSize } from "./layout";
+import { hitArea, pillWindow, questionHeight, radiusOf, shapeSize } from "./layout";
 import { NotchOutro } from "./notch-outro";
 import { setNotchFolder, useNotchFolder } from "./folders";
 import { NotchChat, type ChatPanel } from "./notch-chat";
@@ -82,6 +83,8 @@ const FOLD_MS = 260;
 /** A peek stays open this long (a diff a little longer), then folds back. */
 const PEEK_MS = 3600;
 const PEEK_EDIT_MS = 4800;
+/** An answer to the agent's question that hasn't landed by now can be sent again. */
+const ANSWER_WAIT_MS = 8000;
 
 /** Notch mode with nothing running: the bot on its wing, ready to ask. */
 const IDLE: NotchSnapshot = {
@@ -224,6 +227,10 @@ export function NotchRoot() {
   const shown = snapshot ?? (mode ? IDLE : null);
   const phase = shown?.phase;
   const permission = phase === "permission" ? shown?.permission : undefined;
+  const question = permission ? undefined : shown?.question;
+  // The notch's own conversation asked: the card sits in its thread, under what the agent said.
+  const questionHere =
+    !!question && !!shown?.chatId && cowork.turns.some((turn) => turn.chatId === shown.chatId);
   // "Done" shows what a finished run made; once another run starts, it's Home again.
   const made = phase === "done" && !!shown?.showcase?.length;
   const opened = open === "done" && !made ? "home" : open;
@@ -231,7 +238,28 @@ export function NotchRoot() {
     ? "permission"
     : drop
       ? "drop"
-      : (opened ?? (peek ? "peek" : "collapsed"));
+      : question
+        ? questionHere
+          ? "chat"
+          : "question"
+        : (opened ?? (peek ? "peek" : "collapsed"));
+  // Asked in the notch's own thread: the ask box opens on it and stays once it's answered.
+  useEffect(() => {
+    if (question && questionHere) setOpen("chat");
+  }, [question?.id, questionHere]);
+  /** The question just answered, until the main window takes it away. */
+  const [answeredQuestion, setAnsweredQuestion] = useState<string>();
+  const answerTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(answerTimer.current), []);
+  const questionBusy = !!question && answeredQuestion === question.id;
+  const answerQuestion = (answers: string[][]) => {
+    if (!shown || !question || questionBusy) return;
+    setAnsweredQuestion(question.id);
+    // If the answer never lands, the card takes answers again.
+    clearTimeout(answerTimer.current);
+    answerTimer.current = setTimeout(() => setAnsweredQuestion(undefined), ANSWER_WAIT_MS);
+    void sendNotchAnswer({ chatId: shown.chatId, id: question.id, answers }).catch(() => setAnsweredQuestion(undefined));
+  };
 
   // A run that finished with something to see opens the pill on it, the
   // bot pleased with itself; it folds away again unless you're looking.
@@ -272,7 +300,7 @@ export function NotchRoot() {
   // News in a snapshot opens the collapsed pill out for a moment: the run
   // finished or failed, a team bot took over or finished, a file was written.
   const quiet = useRef(true);
-  quiet.current = open !== null || !!permission || !!drop || !!intro || !!outro || leaving.current;
+  quiet.current = open !== null || !!permission || !!question || !!drop || !!intro || !!outro || leaving.current;
   const showPeek = (next: NotchPeek) => {
     if (quiet.current) return;
     clearTimeout(peekTimer.current);
@@ -357,8 +385,8 @@ export function NotchRoot() {
   }, [snapshot]);
   // Opening the pill (or an approval) puts a peek away.
   useEffect(() => {
-    if (open !== null || permission) setPeek(undefined);
-  }, [open, permission]);
+    if (open !== null || permission || question) setPeek(undefined);
+  }, [open, permission, question]);
   useEffect(() => () => clearTimeout(peekTimer.current), []);
 
   // ── window size ──
@@ -379,11 +407,12 @@ export function NotchRoot() {
     models: overview?.recap.models.length,
     team: roster.length,
     teamOpen: teamShown,
+    question: view === "question" || (view === "chat" && questionHere) ? questionHeight(question) : undefined,
   });
   // One window size for every view (it changes only with the screen); the
   // pill animates inside it, and only its own area takes clicks.
   const frame = pillWindow(geometry);
-  const focusable = view === "permission" || view === "chat";
+  const focusable = view === "permission" || view === "question" || view === "chat";
   // The fly-in and the drop into the app have the window meanwhile.
   const sizing = booted && !intro && !outro && !!shown;
   useEffect(() => {
@@ -397,20 +426,45 @@ export function NotchRoot() {
   }, [sizing, area.x, area.y, area.width, area.height, view]);
 
   // The frosted backdrop follows the open pill; the collapsed one is the notch's black.
+  // It grows out of the collapsed pill and folds back into it, along with the shape.
   const frosted = sizing && look !== "black" && view !== "collapsed";
   const radius = radiusOf(view, geometry);
   const backdropX = (frame.width - shape.width) / 2;
+  const folded = shapeSize("collapsed", geometry);
+  const foldedRadius = radiusOf("collapsed", geometry);
   const wasFrosted = useRef(false);
   useEffect(() => {
     if (!isTauri()) return;
     // Black all along: nothing to take away.
     if (!frosted && !wasFrosted.current) return;
     wasFrosted.current = frosted;
-    const rect = frosted ? { x: backdropX, y: 0, width: shape.width, height: shape.height, radius } : undefined;
-    void setNotchBackdrop(frosted ? look : "black", rect)
+    const rect = { x: backdropX, y: 0, width: shape.width, height: shape.height, radius };
+    const notch = {
+      x: (frame.width - folded.width) / 2,
+      y: 0,
+      width: folded.width,
+      height: folded.height,
+      radius: foldedRadius,
+    };
+    // Still sized for the pill: fold into it; mid fly-in or drop-out, just go.
+    const away = sizing ? notch : undefined;
+    void (frosted ? setNotchBackdrop(look, rect, notch) : setNotchBackdrop("black", away))
       .then((ok) => setBlur(ok))
       .catch(() => setBlur(false));
-  }, [frosted, look, glassBlur, backdropX, shape.width, shape.height, radius]);
+  }, [
+    frosted,
+    look,
+    glassBlur,
+    backdropX,
+    shape.width,
+    shape.height,
+    radius,
+    sizing,
+    frame.width,
+    folded.width,
+    folded.height,
+    foldedRadius,
+  ]);
 
   // The overview (sessions, usage, the week's recap) is worked out by the
   // main window only while Home or the list is on screen.
@@ -433,6 +487,7 @@ export function NotchRoot() {
   const sticky = () =>
     open === "chat" &&
     (!!panel ||
+      (!!question && questionHere) ||
       cowork.running ||
       !!input.trim() ||
       chat.files.length > 0 ||
@@ -735,6 +790,8 @@ export function NotchRoot() {
         roster={roster}
         answering={answering}
         onReply={reply}
+        onAnswer={answerQuestion}
+        questionBusy={questionBusy}
         onOpenChat={openRunChat}
         onPress={press}
         onEnter={enter}
@@ -813,6 +870,10 @@ export function NotchRoot() {
               onOpenChat={(id) => openChatInApp(id)}
               captured={captured && chat.files.some((f) => f.id === captured.attachment.id) ? captured : undefined}
               session={session}
+              question={questionHere ? question : undefined}
+              questionAsker={shown.asker?.name ?? active.name}
+              questionBusy={questionBusy}
+              onAnswer={answerQuestion}
               onLeaveSession={() => {
                 setSession(undefined);
                 focusInput();
