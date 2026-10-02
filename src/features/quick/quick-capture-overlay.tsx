@@ -22,6 +22,7 @@ export function QuickCaptureOverlay() {
   const params = new URLSearchParams(window.location.search);
   const monitorX = Number(params.get("x") || 0);
   const monitorY = Number(params.get("y") || 0);
+  const pickNotch = params.get("pick") === "notch";
   const containerRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ start: { x: number; y: number }; current: { x: number; y: number } } | null>(null);
 
@@ -66,7 +67,7 @@ export function QuickCaptureOverlay() {
     const scale = window.devicePixelRatio || 1;
     try {
       // Rust hides this window, captures, then destroys it.
-      await invoke("quick_capture_region", {
+      await invoke(pickNotch ? "notch_capture_region" : "quick_capture_region", {
         rect: {
           x: Math.round(monitorX + rect.x * scale),
           y: Math.round(monitorY + rect.y * scale),
@@ -77,7 +78,7 @@ export function QuickCaptureOverlay() {
     } catch {
       void getCurrentWebviewWindow().close();
     }
-  }, [drag, monitorX, monitorY]);
+  }, [drag, monitorX, monitorY, pickNotch]);
 
   const onContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault();

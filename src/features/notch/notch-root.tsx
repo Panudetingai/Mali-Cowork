@@ -410,7 +410,7 @@ export function NotchRoot() {
     void setNotchBackdrop(frosted ? look : "black", rect)
       .then((ok) => setBlur(ok))
       .catch(() => setBlur(false));
-  }, [frosted, look, backdropX, shape.width, shape.height, radius]);
+  }, [frosted, look, glassBlur, backdropX, shape.width, shape.height, radius]);
 
   // The overview (sessions, usage, the week's recap) is worked out by the
   // main window only while Home or the list is on screen.

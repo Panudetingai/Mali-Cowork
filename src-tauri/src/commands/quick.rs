@@ -465,7 +465,7 @@ pub async fn quick_capture_region<R: Runtime>(app: AppHandle<R>, rect: CaptureRe
 }
 
 /// `rect` is in physical desktop pixels, the same space as `display_info`.
-fn crop_region(rect: CaptureRect) -> Result<Attachment, String> {
+pub(crate) fn crop_region(rect: CaptureRect) -> Result<Attachment, String> {
     let screens = screenshots::Screen::all().map_err(|e| format!("Cannot access screens: {e}"))?;
     let screen = find_screen_by_cursor(&screens, Some((rect.x as f64, rect.y as f64))).ok_or("No screen found")?;
 

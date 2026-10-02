@@ -514,7 +514,23 @@ pub async fn notch_backdrop<R: Runtime>(app: AppHandle<R>, look: String, rect: O
         }
         rx.await.unwrap_or(false)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        use window_vibrancy::{apply_acrylic, clear_acrylic};
+        let Some(window) = app.get_webview_window(NOTCH_LABEL) else {
+            return false;
+        };
+        let want = matches!(look.as_str(), "glass" | "light") && rect.is_some();
+        if want {
+            let light = look == "light";
+            let tint = if light { (245, 245, 247, 200) } else { (12, 12, 16, 165) };
+            apply_acrylic(&window, Some(tint)).is_ok()
+        } else {
+            let _ = clear_acrylic(&window);
+            true
+        }
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         let _ = (app, look, rect);
         false
@@ -618,24 +634,96 @@ pub async fn notch_capture_at_cursor<R: Runtime>(app: AppHandle<R>) -> Result<Op
             .ok_or("macOS didn't capture the window — allow Mali in System Settings → Privacy → Screen Recording")?;
         Ok(Some(Capture { attachment, app: under.app, title: under.title }))
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        let window = app.get_webview_window(NOTCH_LABEL).ok_or("The notch isn't open")?;
+        let under = win::window_at_cursor(&window).ok_or("There's no window there to capture")?;
+        let _ = capture_name(&under.app, &under.title);
+        let _ = window.hide();
+        tokio::time::sleep(std::time::Duration::from_millis(180)).await;
+        let attachment = match win::capture_screen_rect(&under.rect).await {
+            Ok(a) => a,
+            Err(e) => {
+                let _ = window.show();
+                return Err(e);
+            }
+        };
+        let _ = window.show();
+        Ok(Some(Capture { attachment, app: under.app, title: under.title }))
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         let _ = app;
-        Err("Capturing a window by dropping the bot works on macOS for now".into())
+        Err("Capturing a window by dropping the bot works on macOS and Windows for now".into())
     }
 }
 
 /// The camera button: pick a window (Space switches to a region), Esc cancels.
 #[tauri::command]
-pub async fn notch_capture_pick() -> Result<Option<Capture>, String> {
+pub async fn notch_capture_pick<R: Runtime>(app: AppHandle<R>) -> Result<Option<Capture>, String> {
     #[cfg(target_os = "macos")]
     {
+        let _ = app;
         let attachment =
             screencapture(&["-i".into(), "-W".into(), "-x".into(), "-o".into()], &capture_name("", "")).await?;
         Ok(attachment.map(|attachment| Capture { attachment, app: String::new(), title: String::new() }))
     }
-    #[cfg(not(target_os = "macos"))]
-    Err("Picking a window works on macOS for now; use the Quick bar's capture".into())
+    #[cfg(windows)]
+    {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        *app.state::<NotchState>().pick_capture.lock().unwrap() = Some(tx);
+        if let Err(e) = win::open_capture_overlay(&app).await {
+            *app.state::<NotchState>().pick_capture.lock().unwrap() = None;
+            return Err(e);
+        }
+        match rx.await {
+            Ok(result) => result,
+            Err(_) => Ok(None),
+        }
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        let _ = app;
+        Err("Picking a window works on macOS and Windows for now".into())
+    }
+}
+
+/// Region picker for the notch (Windows): crop, return a capture, reopen the pill.
+#[tauri::command]
+pub async fn notch_capture_region<R: Runtime>(app: AppHandle<R>, rect: super::quick::CaptureRect) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        if let Some(overlay) = app.get_webview_window(win::CAPTURE_OVERLAY) {
+            let _ = overlay.hide();
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        let result = tokio::task::spawn_blocking(move || super::quick::crop_region(rect))
+            .await
+            .map_err(|e| format!("Capture task failed: {e}"))
+            .and_then(|r| r)
+            .map(|attachment| Capture { attachment, app: String::new(), title: String::new() });
+
+        let reply = match &result {
+            Ok(capture) => Ok(Some(capture.clone())),
+            Err(message) => Err(message.clone()),
+        };
+        if let Some(tx) = app.state::<NotchState>().pick_capture.lock().unwrap().take() {
+            let _ = tx.send(reply);
+        }
+        if let Some(notch) = app.get_webview_window(NOTCH_LABEL) {
+            let _ = notch.show();
+        }
+        if let Some(overlay) = app.get_webview_window(win::CAPTURE_OVERLAY) {
+            let _ = overlay.destroy();
+        }
+        result.map(|_| ())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, rect);
+        Err("Notch region capture is only used on Windows".into())
+    }
 }
 
 // ── notch mode ──
@@ -666,6 +754,8 @@ pub struct NotchState {
     /// The pill wants Y / N while an approval is showing (`notch_resize`).
     keys: AtomicBool,
     placed: Mutex<Placed>,
+    /// Windows region picker: `notch_capture_pick` waits on this.
+    pick_capture: Mutex<Option<tokio::sync::oneshot::Sender<Result<Option<Capture>, String>>>>,
 }
 
 /// Where the pill's window is.
@@ -1127,6 +1217,8 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
     std::thread::spawn(move || {
         #[cfg(target_os = "macos")]
         let mut drags = mac::DragWatch::default();
+        #[cfg(windows)]
+        let mut drags = win::DragWatch::default();
         let mut dragging = false;
         let mut offered = false;
         let mut sleep_ms = POLL_NEAR_TOP_MS;
@@ -1136,6 +1228,7 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
         let mut away: Option<(u64, Instant)> = None;
         // The pointer at the top of a screen, since when.
         let mut topped: Option<(u64, Instant)> = None;
+        let mut accept_events = false;
         loop {
             std::thread::sleep(Duration::from_millis(sleep_ms));
             let Some(window) = app.get_webview_window(NOTCH_LABEL) else {
@@ -1188,6 +1281,14 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
                 match drags.poll() {
                     Some(mac::Drag::Started) => dragging = true,
                     Some(mac::Drag::Ended) => dragging = false,
+                    None => {}
+                }
+            }
+            #[cfg(windows)]
+            if dragging || near_strip || sleep_ms <= POLL_NEAR_TOP_MS {
+                match drags.poll(point) {
+                    Some(win::Drag::Started) => dragging = true,
+                    Some(win::Drag::Ended) => dragging = false,
                     None => {}
                 }
             }
@@ -1248,12 +1349,17 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
             }
             let area = *state.hit.read().unwrap();
             let unit = placed.screen.map_or(1.0, |s| s.unit);
-            let now = area.is_some_and(|area| pill_rect(placed.frame, unit, area).contains(point));
-            if state.inside.swap(now, Ordering::SeqCst) != now {
-                let _ = window.set_ignore_cursor_events(!now);
-                let _ = window.emit(HOVER, now);
+            let on_pill = area.is_some_and(|area| pill_rect(placed.frame, unit, area).contains(point));
+            if state.inside.swap(on_pill, Ordering::SeqCst) != on_pill {
+                let _ = window.emit(HOVER, on_pill);
             }
-            sleep_ms = if now {
+            // The open ask box needs drag-and-drop on Windows; the hit area alone is easy to miss while dragging.
+            let want_events = on_pill || state.open.load(Ordering::SeqCst);
+            if accept_events != want_events {
+                accept_events = want_events;
+                let _ = window.set_ignore_cursor_events(!want_events);
+            }
+            sleep_ms = if on_pill {
                 POLL_ON_PILL_MS
             } else if near_strip {
                 POLL_NEAR_TOP_MS
@@ -1670,6 +1776,193 @@ mod mac {
             screen.auxiliaryTopRightArea().size.width,
             menu_bar,
         ))
+    }
+}
+
+#[cfg(windows)]
+mod win {
+    use super::NOTCH_LABEL;
+    use super::super::quick::CaptureRect;
+    use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, Position, Runtime, Size, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+    use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
+    use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetAncestor, GetCursorPos, GetWindowRect, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
+        WindowFromPoint, GA_ROOT,
+    };
+
+    pub const CAPTURE_OVERLAY: &str = "notch-capture-overlay";
+
+    pub struct Under {
+        pub app: String,
+        pub title: String,
+        pub rect: RECT,
+    }
+
+    fn window_title(hwnd: HWND) -> String {
+        unsafe {
+            let len = GetWindowTextLengthW(hwnd);
+            if len <= 0 {
+                return String::new();
+            }
+            let mut buf = vec![0u16; (len + 1) as usize];
+            let read = GetWindowTextW(hwnd, buf.as_mut_ptr(), len + 1);
+            String::from_utf16_lossy(&buf[..read.max(0) as usize])
+        }
+    }
+
+    /// The front-most visible window under the cursor, not one of Mali's own.
+    pub fn window_at_cursor<R: Runtime>(notch: &WebviewWindow<R>) -> Option<Under> {
+        unsafe {
+            let mut pt = POINT { x: 0, y: 0 };
+            if GetCursorPos(&mut pt) == 0 {
+                return None;
+            }
+            let mut hwnd = WindowFromPoint(pt);
+            if hwnd.is_null() {
+                return None;
+            }
+            let root = GetAncestor(hwnd, GA_ROOT);
+            if !root.is_null() {
+                hwnd = root;
+            }
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            if pid == GetCurrentProcessId() {
+                return None;
+            }
+            if IsWindowVisible(hwnd) == 0 {
+                return None;
+            }
+            let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+            if GetWindowRect(hwnd, &mut rect) == 0 {
+                return None;
+            }
+            let title = window_title(hwnd);
+            let app = title.split(" - ").next().unwrap_or("Window").trim().to_string();
+            let _ = notch;
+            Some(Under { app, title, rect })
+        }
+    }
+
+    pub async fn capture_screen_rect(rect: &RECT) -> Result<super::super::attachments::Attachment, String> {
+        let capture = CaptureRect {
+            x: rect.left,
+            y: rect.top,
+            width: (rect.right - rect.left).max(0) as u32,
+            height: (rect.bottom - rect.top).max(0) as u32,
+        };
+        if capture.width == 0 || capture.height == 0 {
+            return Err("That window has no size to capture".into());
+        }
+        tokio::task::spawn_blocking(move || super::super::quick::crop_region(capture))
+            .await
+            .map_err(|e| format!("Capture task failed: {e}"))?
+    }
+
+    pub async fn open_capture_overlay<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+        if let Some(notch) = app.get_webview_window(NOTCH_LABEL) {
+            let _ = notch.hide();
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+
+        let cursor = app.cursor_position().ok().map(|p| (p.x, p.y));
+        let infos = tokio::task::spawn_blocking(|| {
+            screenshots::Screen::all().map(|screens| {
+                screens
+                    .into_iter()
+                    .map(|s| {
+                        let info = s.display_info;
+                        (info.x, info.y, info.width, info.height)
+                    })
+                    .collect::<Vec<_>>()
+            })
+        })
+        .await
+        .map_err(|e| format!("Screen listing failed: {e}"))?
+        .map_err(|e| format!("Cannot access screens: {e}"))?;
+
+        let target = infos
+            .iter()
+            .find(|(x, y, w, h)| {
+                if let Some((cx, cy)) = cursor {
+                    cx >= *x as f64
+                        && cx <= (*x as f64 + *w as f64)
+                        && cy >= *y as f64
+                        && cy <= (*y as f64 + *h as f64)
+                } else {
+                    false
+                }
+            })
+            .or_else(|| infos.first())
+            .ok_or("No screen found")?;
+
+        let (x, y, w, h) = *target;
+        if let Some(stale) = app.get_webview_window(CAPTURE_OVERLAY) {
+            let _ = stale.destroy();
+        }
+        let url = format!("index.html?window=quick-capture-overlay&pick=notch&x={x}&y={y}");
+        let window = WebviewWindowBuilder::new(app, CAPTURE_OVERLAY, WebviewUrl::App(url.into()))
+            .title("Capture region")
+            .decorations(false)
+            .transparent(true)
+            .background_color(tauri::window::Color(0, 0, 0, 0))
+            .shadow(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .visible(false)
+            .build()
+            .map_err(|e| format!("Cannot open capture overlay: {e}"))?;
+        let _ = window.set_position(Position::Physical(PhysicalPosition { x, y }));
+        let _ = window.set_size(Size::Physical(PhysicalSize { width: w, height: h }));
+        let _ = window.show();
+        let _ = window.set_focus();
+        Ok(())
+    }
+
+    /// File drags and other drags toward the top: left button down and moved enough.
+    #[derive(Default)]
+    pub struct DragWatch {
+        origin: Option<(f64, f64)>,
+        active: bool,
+    }
+
+    pub enum Drag {
+        Started,
+        Ended,
+    }
+
+    impl DragWatch {
+        pub fn poll(&mut self, point: (f64, f64)) -> Option<Drag> {
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_LBUTTON;
+            let down = unsafe { GetAsyncKeyState(VK_LBUTTON as i32) as u16 & 0x8000 != 0 };
+            if !down {
+                self.origin = None;
+                if self.active {
+                    self.active = false;
+                    return Some(Drag::Ended);
+                }
+                return None;
+            }
+            if self.active {
+                return None;
+            }
+            if self.origin.is_none() {
+                self.origin = Some(point);
+                return None;
+            }
+            let Some(origin) = self.origin else {
+                return None;
+            };
+            let moved = (point.0 - origin.0).hypot(point.1 - origin.1) > 10.0;
+            if moved {
+                self.active = true;
+                return Some(Drag::Started);
+            }
+            None
+        }
     }
 }
 
