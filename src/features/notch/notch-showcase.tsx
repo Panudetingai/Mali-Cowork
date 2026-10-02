@@ -6,6 +6,7 @@
  */
 import { loadImage, sourceOf } from "@/components/chat-blocks/gallery-card";
 import { useLocalMedia } from "@/components/chat-blocks/media-preview-card";
+import { connectorFor, McpToolIcon, useCustomMcps } from "@/features/mcp";
 import { cn } from "@/lib/utils";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ChevronLeftIcon, ChevronRightIcon, ExternalLinkIcon, ImageOffIcon, ImagesIcon, XIcon } from "lucide-react";
@@ -71,8 +72,18 @@ function useItemImage(item: NotchShowcaseItem) {
   return item.local ? { src: local.url, failed: local.failed } : remote;
 }
 
-function labelOf(showcase: NotchShowcase, picturesLabel: string) {
-  if (!showcase.source) return { label: picturesLabel, icon: <ImagesIcon className="size-3.5 text-white/60" /> };
+/**
+ * The app it lives in: the connector the user installed wins, with its own
+ * icon and name (as in the chat's gallery and the step rows); the built-in
+ * marks are only a fallback.
+ */
+function useLabel(showcase: NotchShowcase, picturesLabel: string) {
+  useCustomMcps();
+  if (!showcase.source && !showcase.connector)
+    return { label: picturesLabel, icon: <ImagesIcon className="size-3.5 text-white/60" /> };
+  const connector = connectorFor(showcase.source, showcase.connector);
+  if (connector)
+    return { label: connector.serverName, icon: <McpToolIcon mcp={connector} size={16} className="rounded" /> };
   return sourceOf(showcase.source);
 }
 
@@ -88,7 +99,7 @@ export function Showcase({
 }) {
   const t = useNotchText();
   const view = useContext(ViewerContext);
-  const source = labelOf(showcase, t("pictures"));
+  const source = useLabel(showcase, t("pictures"));
   const count = showcase.items.length;
   return (
     <div className={cn("flex min-w-0 flex-col gap-2", className)}>
@@ -220,7 +231,7 @@ function Viewer({
   const count = showcase.items.length;
   const item = showcase.items[Math.min(index, count - 1)];
   const image = useItemImage(item);
-  const source = labelOf(showcase, t("pictures"));
+  const source = useLabel(showcase, t("pictures"));
   const [direction, setDirection] = useState(1);
   const go = (step: number) => {
     const next = index + step;

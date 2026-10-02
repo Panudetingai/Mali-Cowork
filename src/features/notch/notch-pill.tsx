@@ -106,12 +106,12 @@ import type {
   NotchView,
 } from "./types";
 
-/** Dynamic Island–like: quick, with a little overshoot. */
+/** Dynamic Island–like: quick open/close, minimal bounce. */
 const SPRING: Transition = {
   type: "spring",
-  stiffness: 420,
-  damping: 34,
-  mass: 0.9,
+  stiffness: 340,
+  damping: 36,
+  mass: 1,
 };
 const AMBER = "#f5a524";
 const GREEN = "#34c77b";
@@ -338,6 +338,11 @@ const LIGHT_VARS = {
   "--color-white": "#16161b",
   "--color-black": "#ffffff",
   color: "#16161b",
+  /* Notch stays on forced dark theme; remap ink so `.chat-markdown` reads on white. */
+  "--foreground": "oklch(0.153 0.006 107.1)",
+  "--muted-foreground": "oklch(0.45 0.02 107.1)",
+  "--border": "oklch(0 0 0 / 12%)",
+  "--primary": "oklch(0.554 0.135 66.442)",
 } as CSSProperties;
 /** Back to the notch's own whites, for what stays dark in every look (a peek's card, a diff). */
 const DARK_VARS = {

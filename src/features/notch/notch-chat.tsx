@@ -38,9 +38,11 @@ import {
   XIcon,
   type LucideIcon,
 } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, type Transition } from "motion/react";
 import {
+  createContext,
   forwardRef,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -56,10 +58,10 @@ import { CHAT_BOT, CHAT_INPUT, questionHeight, topRowOf } from "./layout";
 import { NotchQuestion } from "./notch-question";
 import { NotchModelsPanel } from "./notch-models-panel";
 import type { RosterBot } from "./team";
-import type { NotchCapture } from "./bridge";
+import { whilePicking, type NotchCapture } from "./bridge";
 import { Showcase } from "./notch-showcase";
 import { useNotchText } from "./text";
-import type { NotchGeometry, NotchSession, NotchStep } from "./types";
+import type { NotchGeometry, NotchLook, NotchSession, NotchStep } from "./types";
 import type { NotchChat as Chat } from "./use-notch-chat";
 import type { CoworkTurn, useNotchCowork } from "./use-notch-cowork";
 
@@ -98,7 +100,66 @@ type Props = {
   questionAsker?: string;
   questionBusy?: boolean;
   onAnswer?: (answers: string[][]) => void;
+  /** Open pill look; light uses dark ink on pale surfaces. */
+  look?: NotchLook;
 };
+
+function chatInk(look?: NotchLook) {
+  const light = look === "light";
+  return {
+    thread: cn("min-h-0 flex-1 overflow-y-auto rounded-[20px] px-4 py-3", light ? "bg-black/[0.04]" : "bg-white/[0.04]"),
+    panel: light ? "bg-black/[0.03]" : "bg-white/[0.04]",
+    border: light ? "border-black/[0.08]" : "border-white/[0.06]",
+    prose: light
+      ? "text-[14px] text-[#16161b]/90 [&_.text-foreground]:text-[#16161b]/90 [&.chat-markdown]:text-[#16161b]/90"
+      : "text-[14px] text-white/90",
+    userBubble: light
+      ? "rounded-2xl bg-black/[0.07] px-3 py-1.5 text-[13px] whitespace-pre-wrap text-[#16161b]/90"
+      : "rounded-2xl bg-white/[0.1] px-3 py-1.5 text-[13px] whitespace-pre-wrap text-white/90",
+    muted: light ? "text-[#16161b]/50" : "text-white/50",
+    faint: light ? "text-[#16161b]/35" : "text-white/35",
+    softer: light ? "text-[#16161b]/40" : "text-white/40",
+    soft: light ? "text-[#16161b]/70" : "text-white/70",
+    input: light ? "text-[#16161b] placeholder:text-[#16161b]/35" : "text-white placeholder:text-white/35",
+    composer: light
+      ? "rounded-[22px] bg-black/[0.05] ring-1 ring-black/[0.08] focus-within:ring-black/15"
+      : "rounded-[22px] bg-white/[0.07] ring-1 ring-white/[0.07] focus-within:ring-white/20",
+    chipOn: light ? "bg-black/[0.12] text-[#16161b]" : "bg-white/[0.16] text-white",
+    chipOff: light
+      ? "bg-black/[0.06] text-[#16161b]/60 hover:bg-black/[0.1] hover:text-[#16161b]"
+      : "bg-white/[0.06] text-white/60 hover:bg-white/[0.12] hover:text-white",
+    rowActive: light ? "bg-black/[0.08] text-[#16161b]" : "bg-white/[0.1] text-white",
+    rowIdle: light
+      ? "text-[#16161b]/75 hover:bg-black/[0.04] hover:text-[#16161b]"
+      : "text-white/75 hover:bg-white/[0.06] hover:text-white",
+    rowIcon: light ? "text-[#16161b]/55" : "text-white/60",
+    done: light ? "text-emerald-700/80" : "text-emerald-300/70",
+    quickAsk: light
+      ? "bg-black/[0.07] text-[#16161b]/80 hover:bg-black/[0.12] hover:text-[#16161b]"
+      : "bg-white/[0.1] text-white/80 hover:bg-white/[0.18] hover:text-white",
+    hintNote: light ? "text-amber-900/90" : "text-amber-100/90",
+    hintIcon: light ? "text-amber-700" : "text-amber-300/90",
+    sessionBadge: light ? "bg-black/[0.07] text-[#16161b]/75" : "bg-white/[0.08] text-white/75",
+    iconBtn: light ? "text-[#16161b]/55 hover:bg-black/[0.08] hover:text-[#16161b]" : "text-white/60 hover:bg-white/[0.1] hover:text-white",
+    stopBtn: light ? "bg-black/[0.1] text-[#16161b]" : "bg-white/[0.14] text-white",
+    composerHint: light ? "text-[#16161b]/30" : "text-white/30",
+    trailLine: light ? "bg-black/[0.1]" : "bg-white/[0.08]",
+    stepDone: light ? "text-[#16161b]/65" : "text-white/70",
+    stepLive: light ? "text-[#16161b]/90" : "text-white/90",
+    stepRest: light ? "text-[#16161b]/40" : "text-white/40",
+    botTheme: (light ? "light" : "dark") as "light" | "dark",
+  };
+}
+
+type ChatInk = ReturnType<typeof chatInk>;
+const ChatLookCtx = createContext<ChatInk>(chatInk());
+function useChatInk() {
+  return useContext(ChatLookCtx);
+}
+
+/** Step trail + panels: ease instead of bouncy springs (reads smoother while streaming). */
+const FLOW: Transition = { duration: 0.38, ease: [0.22, 1, 0.36, 1] };
+const FLOW_SPRING: Transition = { type: "spring", stiffness: 280, damping: 32, mass: 1.05 };
 
 /** One tap after a capture or a file: what people most often want done with it, in the app's language. */
 const QUICK_ASKS = [
@@ -140,6 +201,7 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
   const thread = session ? true : inFolder ? cowork.turns.length > 0 : chat.turns.length > 0;
   const needsFolder = !inFolder && !!chatIssueOf(answerMeta);
   const inputNote = chat.note && panel !== "folders";
+  const ink = chatInk(props.look);
 
   const submit = async (ask?: string) => {
     const text = (ask ?? input).trim();
@@ -187,12 +249,13 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
   };
 
   const pick = async () => {
-    const picked = await open({ multiple: true }).catch(() => null);
+    const picked = await whilePicking(() => open({ multiple: true })).catch(() => null);
     const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
     if (paths.length) void chat.addFiles(paths);
   };
 
   return (
+    <ChatLookCtx.Provider value={ink}>
     <div className="absolute inset-x-3 bottom-3 flex flex-col gap-2" style={{ top: top + 4 }}>
       <AnimatePresence mode="popLayout" initial={false}>
         {panel === "models" ? (
@@ -232,7 +295,7 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
             initial={{ opacity: 0, y: 14, scale: 0.97, filter: "blur(4px)" }}
             animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
             exit={{ opacity: 0, y: 8, scale: 0.98, filter: "blur(4px)" }}
-            transition={{ type: "spring", stiffness: 380, damping: 32 }}
+            transition={FLOW}
           >
             <NotchQuestion
               request={props.question}
@@ -258,9 +321,9 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
                 <FileThumb key={file.id} file={file} onRemove={() => chat.removeFile(file.id)} />
               ))}
             </AnimatePresence>
-            {chat.importing > 0 && <Loader2Icon className="size-3.5 shrink-0 animate-spin text-white/50" />}
+            {chat.importing > 0 && <Loader2Icon className={cn("size-3.5 shrink-0 animate-spin", ink.muted)} />}
             {props.captured && (
-              <span className="shrink-0 truncate text-[11px] text-white/40" title={props.captured.title}>
+              <span className={cn("shrink-0 truncate text-[11px]", ink.softer)} title={props.captured.title}>
                 {props.captured.app ? `📸 ${props.captured.app}` : `📸 ${t("captured")}`}
               </span>
             )}
@@ -272,7 +335,7 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
                     type="button"
                     whileTap={{ scale: 0.94 }}
                     onClick={() => void submit(t(q.prompt))}
-                    className="h-7 rounded-full bg-white/[0.1] px-2.5 text-[12px] text-white/80 transition-colors hover:bg-white/[0.18] hover:text-white"
+                    className={cn("h-7 rounded-full px-2.5 text-[12px] transition-colors", ink.quickAsk)}
                   >
                     {t(q.label)}
                   </motion.button>
@@ -291,16 +354,13 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
             exit={{ opacity: 0, y: 4 }}
             className="flex shrink-0 items-start gap-1.5 rounded-xl bg-amber-400/10 px-2.5 py-1.5 ring-1 ring-amber-400/20"
           >
-            <CircleAlertIcon className="mt-px size-3.5 shrink-0 text-amber-300/90" />
-            <p className="line-clamp-2 text-[11px] leading-snug text-amber-100/90">{chat.note}</p>
+            <CircleAlertIcon className={cn("mt-px size-3.5 shrink-0", ink.hintIcon)} />
+            <p className={cn("line-clamp-2 text-[11px] leading-snug", ink.hintNote)}>{chat.note}</p>
           </motion.div>
         )}
       </AnimatePresence>
       {/* The composer: the words on top (the bot sits in its corner), the buttons under them. */}
-      <div
-        className="flex shrink-0 flex-col justify-between rounded-[22px] bg-white/[0.07] px-2 pt-2 pb-2 ring-1 ring-white/[0.07] transition-shadow focus-within:ring-white/20"
-        style={{ height: CHAT_INPUT }}
-      >
+      <div className={cn("flex shrink-0 flex-col justify-between px-2 pt-2 pb-2 transition-shadow", ink.composer)} style={{ height: CHAT_INPUT }}>
         <textarea
           ref={inputRef}
           rows={1}
@@ -319,7 +379,7 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
                     ? t("placeholderBot", { name: bot.name })
                     : t("placeholder")
           }
-          className="h-[34px] w-full resize-none bg-transparent py-1.5 pr-2 text-[14.5px] leading-snug text-white outline-none placeholder:text-white/35"
+          className={cn("h-[34px] w-full resize-none bg-transparent py-1.5 pr-2 text-[14.5px] leading-snug outline-none", ink.input)}
           style={{ paddingLeft: CHAT_BOT + 12 }}
           spellCheck={false}
         />
@@ -329,7 +389,7 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
           </IconButton>
           {session ? (
             <span
-              className="flex h-7 max-w-52 min-w-0 shrink items-center gap-1 rounded-full bg-white/[0.08] pr-1 pl-2.5 text-[12px] text-white/75"
+              className={cn("flex h-7 max-w-52 min-w-0 shrink items-center gap-1 rounded-full pr-1 pl-2.5 text-[12px]", ink.sessionBadge)}
               title={t("continuing", { title: session.title })}
             >
               <CornerDownLeftIcon className="size-3 shrink-0" />
@@ -338,7 +398,7 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
                 type="button"
                 onClick={props.onLeaveSession}
                 title={t("leaveSession")}
-                className="rounded-full p-0.5 text-white/50 hover:bg-white/10 hover:text-white"
+                className={cn("rounded-full p-0.5", ink.muted, "hover:bg-black/[0.06] hover:opacity-100")}
               >
                 <XIcon className="size-3" />
               </button>
@@ -365,7 +425,7 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
                 type="button"
                 onClick={onClearBot}
                 title={t("askMaliInstead")}
-                className="rounded-full p-0.5 text-white/50 hover:bg-white/10 hover:text-white"
+                className={cn("rounded-full p-0.5", ink.muted, "hover:bg-black/[0.06] hover:opacity-100")}
               >
                 <XIcon className="size-3" />
               </button>
@@ -380,14 +440,14 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
             <span className="truncate">{nameOf(answerId)}</span>
             <ChevronDownIcon className={cn("size-3 shrink-0 transition-transform", panel === "models" && "rotate-180")} />
           </Chip>
-          <span className="ml-auto min-w-0 truncate pl-2 text-right text-[11px] text-white/30">{t("composerHint")}</span>
+          <span className={cn("ml-auto min-w-0 truncate pl-2 text-right text-[11px]", ink.composerHint)}>{t("composerHint")}</span>
           {chat.streaming || (inFolder && cowork.running) ? (
             <motion.button
               type="button"
               onClick={inFolder ? cowork.stop : chat.stop}
               whileTap={{ scale: 0.92 }}
               title={t("stop")}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/[0.14] text-white"
+              className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", ink.stopBtn)}
             >
               <SquareIcon className="size-3 fill-current" />
             </motion.button>
@@ -410,6 +470,7 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
         </div>
       </div>
     </div>
+    </ChatLookCtx.Provider>
   );
 });
 
@@ -426,6 +487,7 @@ function Chip({
   onClick: () => void;
   children: React.ReactNode;
 }) {
+  const ink = useChatInk();
   return (
     <button
       type="button"
@@ -433,7 +495,7 @@ function Chip({
       title={title}
       className={cn(
         "flex h-7 max-w-36 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[12px] transition-colors",
-        on ? "bg-white/[0.16] text-white" : "bg-white/[0.06] text-white/60 hover:bg-white/[0.12] hover:text-white",
+        on ? ink.chipOn : ink.chipOff,
       )}
       style={tint && !on ? { background: `${tint}22`, color: `${tint}` } : undefined}
     >
@@ -456,8 +518,9 @@ function Folders({
 }) {
   const allowed = useAllowedFolders();
   const t = useNotchText();
+  const ink = useChatInk();
   const choose = async () => {
-    const picked = await open({ directory: true, multiple: false }).catch(() => null);
+    const picked = await whilePicking(() => open({ directory: true, multiple: false })).catch(() => null);
     if (typeof picked === "string") {
       onFolder(picked);
       onClose();
@@ -469,16 +532,17 @@ function Folders({
   };
   return (
     <motion.div
-      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] bg-white/[0.04]"
-      initial={{ opacity: 0, y: 8, filter: "blur(4px)" }}
-      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-      exit={{ opacity: 0, y: 8, filter: "blur(4px)" }}
+      className={cn("flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px]", ink.panel)}
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 6 }}
+      transition={FLOW}
     >
-      <div className="shrink-0 border-b border-white/[0.06] px-4 py-2.5">
-        <p className="text-[12px] text-white/50">{t("foldersIntro")}</p>
+      <div className={cn("shrink-0 border-b px-4 py-2.5", ink.border)}>
+        <p className={cn("text-[12px]", ink.muted)}>{t("foldersIntro")}</p>
         {hint && (
-          <p className="mt-1.5 flex items-start gap-1.5 text-[11px] leading-snug text-amber-200/90">
-            <CircleAlertIcon className="mt-px size-3.5 shrink-0 text-amber-300/90" />
+          <p className={cn("mt-1.5 flex items-start gap-1.5 text-[11px] leading-snug", ink.hintNote)}>
+            <CircleAlertIcon className={cn("mt-px size-3.5 shrink-0", ink.hintIcon)} />
             <span>{hint}</span>
           </p>
         )}
@@ -486,15 +550,15 @@ function Folders({
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         <Row icon={<MessageCircleIcon className="size-3.5" />} active={!folder} onClick={() => pickFolder(null)}>
           <span className="flex-1">{t("chatOnly")}</span>
-          <span className="text-[11px] text-white/35">{t("noFiles")}</span>
+          <span className={cn("text-[11px]", ink.faint)}>{t("noFiles")}</span>
         </Row>
         {allowed.map((f) => (
           <Row key={f.path} icon={<FolderIcon className="size-3.5" />} active={folder === f.path} onClick={() => pickFolder(f.path)}>
             <span className="min-w-0 flex-1 truncate" title={f.path}>
               {f.name}
-              <span className="ml-2 text-[11px] text-white/30">{f.path}</span>
+              <span className={cn("ml-2 text-[11px]", ink.faint)}>{f.path}</span>
             </span>
-            <span className="shrink-0 text-[11px] text-white/35">{f.access === "write" ? t("readWrite") : t("readOnly")}</span>
+            <span className={cn("shrink-0 text-[11px]", ink.faint)}>{f.access === "write" ? t("readWrite") : t("readOnly")}</span>
           </Row>
         ))}
         <Row icon={<FolderOpenIcon className="size-3.5" />} active={false} onClick={() => void choose()}>
@@ -516,18 +580,19 @@ function Row({
   onClick: () => void;
   children: React.ReactNode;
 }) {
+  const ink = useChatInk();
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
         "flex w-full items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left text-[13px] transition-colors",
-        active ? "bg-white/[0.1] text-white" : "text-white/75 hover:bg-white/[0.06] hover:text-white",
+        active ? ink.rowActive : ink.rowIdle,
       )}
     >
-      <span className="shrink-0 text-white/60">{icon}</span>
+      <span className={cn("shrink-0", ink.rowIcon)}>{icon}</span>
       {children}
-      {active && <CheckIcon className="size-3.5 shrink-0 text-white/80" />}
+      {active && <CheckIcon className={cn("size-3.5 shrink-0", ink.soft)} />}
     </button>
   );
 }
@@ -541,14 +606,13 @@ function useFollow(dep: unknown) {
   return ref;
 }
 
-const THREAD = "min-h-0 flex-1 overflow-y-auto rounded-[20px] bg-white/[0.04] px-4 py-3";
-
 function Thread({ turns, answeredBy }: { turns: QuickTurn[]; answeredBy: Record<string, RosterBot> }) {
   const t = useNotchText();
+  const ink = useChatInk();
   const last = turns.at(-1);
   const ref = useFollow(`${turns.length}:${last?.answer.length}`);
   return (
-    <motion.div ref={ref} className={THREAD} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+    <motion.div ref={ref} className={ink.thread} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <div className="flex flex-col gap-3">
         {turns.map((turn) => (
           <div key={turn.id} className="flex flex-col gap-2">
@@ -564,7 +628,7 @@ function Thread({ turns, answeredBy }: { turns: QuickTurn[]; answeredBy: Record<
               <Waiting text={t("thinking")} />
             ) : null}
             {turn.status === "error" && <Failed text={turn.error} />}
-            {turn.status === "stopped" && <p className="text-[11px] text-white/35">{t("stopped")}</p>}
+            {turn.status === "stopped" && <p className={cn("text-[11px]", ink.faint)}>{t("stopped")}</p>}
           </div>
         ))}
       </div>
@@ -588,6 +652,7 @@ function CoworkThread({
   session?: NotchSession;
 }) {
   const t = useNotchText();
+  const ink = useChatInk();
   // A picked session shows only what was asked in it here.
   const turns = session ? all.filter((turn) => turn.chatId === session.id) : all;
   const last = turns.at(-1);
@@ -596,14 +661,14 @@ function CoworkThread({
     `${turns.length}:${last?.reply?.length}:${last?.steps.length}:${last?.status}:${pages}:${last?.edits?.length}`,
   );
   return (
-    <motion.div ref={ref} className={THREAD} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+    <motion.div ref={ref} className={ink.thread} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <div className="flex flex-col gap-4">
         {session && (session.asked || session.answer) && (
           // Where the session left off, so the next question reads in place.
-          <div className="flex flex-col gap-1.5 border-b border-white/[0.06] pb-3 opacity-60">
-            <span className="text-[10.5px] font-medium tracking-wide text-white/40 uppercase">{t("earlier")}</span>
+          <div className={cn("flex flex-col gap-1.5 border-b pb-3 opacity-60", ink.border)}>
+            <span className={cn("text-[10.5px] font-medium tracking-wide uppercase", ink.softer)}>{t("earlier")}</span>
             {session.asked && <Asked text={session.asked} files={[]} />}
-            {session.answer && <p className="line-clamp-4 text-[12.5px] leading-relaxed text-white/70">{session.answer}</p>}
+            {session.answer && <p className={cn("line-clamp-4 text-[12.5px] leading-relaxed", ink.soft)}>{session.answer}</p>}
           </div>
         )}
         {turns.map((turn) => (
@@ -626,6 +691,7 @@ function CoworkTurnView({
   onGrow: React.RefObject<HTMLDivElement | null>;
 }) {
   const t = useNotchText();
+  const ink = useChatInk();
   const live = turn.status === "running";
   const writing = live && !!turn.reply;
   // Just finished: the answer may have come whole with the finish; write it out still.
@@ -635,7 +701,7 @@ function CoworkTurnView({
       <Asked text={turn.prompt} files={turn.files} />
       {turn.status === "starting" && <Waiting text={t("checkingFolder")} />}
       {turn.status === "queued" && (
-        <p className="flex items-center gap-2 text-[12px] text-white/50">
+        <p className={cn("flex items-center gap-2 text-[12px]", ink.muted)}>
           <ClockIcon className="size-3.5" /> {t("queued")}
         </p>
       )}
@@ -660,14 +726,14 @@ function CoworkTurnView({
       ))}
       {turn.status === "error" && <Failed text={turn.error} />}
       {turn.status === "stopped" && (
-        <p className="flex items-center gap-1.5 text-[11.5px] text-white/40">
+        <p className="flex items-center gap-1.5 text-[11.5px] text-primary">
           <SquareIcon className="size-2.5 fill-current" />
           {t("stopped")}
         </p>
       )}
       {turn.status === "done" && turn.chatId && (turn.changed || latest) && (
         <div className="flex items-center gap-2 text-[11.5px]">
-          <span className="flex items-center gap-1 text-emerald-300/70">
+          <span className={cn("flex items-center gap-1", ink.done)}>
             <CheckIcon className="size-3.5" />
             {turn.changed
               ? turn.changed === 1
@@ -679,7 +745,7 @@ function CoworkTurnView({
             <button
               type="button"
               onClick={() => onOpenChat(turn.chatId!)}
-              className="flex items-center gap-1 rounded-full bg-white/[0.08] px-2.5 py-0.5 text-white/70 hover:bg-white/[0.16] hover:text-white"
+              className={cn("flex items-center gap-1 rounded-full px-2.5 py-0.5", ink.sessionBadge, "hover:opacity-100")}
             >
               {t("reviewUndo")}
               <ArrowUpRightIcon className="size-3" />
@@ -751,6 +817,7 @@ function poseOf(row: TrailRow): BotState {
  */
 function StepTrail({ turn, writing }: { turn: CoworkTurn; writing: boolean }) {
   const t = useNotchText();
+  const ink = useChatInk();
   const rows = trailOf(turn, writing, t);
   let at = rows.length - 1;
   while (at >= 0 && rows[at].state === "done") at--;
@@ -758,7 +825,7 @@ function StepTrail({ turn, writing }: { turn: CoworkTurn; writing: boolean }) {
   return (
     <div className="relative flex flex-col" style={{ gap: TRAIL_GAP }}>
       {/* The thread joining the steps. */}
-      <span aria-hidden className="absolute top-3 bottom-3 left-[9.5px] w-px bg-white/[0.08]" />
+      <span aria-hidden className={cn("absolute top-3 bottom-3 left-[9.5px] w-px", ink.trailLine)} />
       <AnimatePresence mode="popLayout" initial={false}>
         {rows.map((row, i) => (
           <StepRow key={row.key} row={row} latest={i === rows.length - 1} bot={i === at} />
@@ -770,9 +837,9 @@ function StepTrail({ turn, writing }: { turn: CoworkTurn; writing: boolean }) {
           style={{ left: (20 - TRAIL_BOT) / 2 }}
           initial={false}
           animate={{ y: at * (TRAIL_ROW + TRAIL_GAP) + (TRAIL_ROW - TRAIL_BOT) / 2 }}
-          transition={{ type: "spring", stiffness: 380, damping: 30 }}
+          transition={FLOW_SPRING}
         >
-          <CoworkBot size={TRAIL_BOT} state={poseOf(live)} theme="dark" />
+          <CoworkBot size={TRAIL_BOT} state={poseOf(live)} theme={ink.botTheme} />
         </motion.div>
       )}
     </div>
@@ -780,6 +847,7 @@ function StepTrail({ turn, writing }: { turn: CoworkTurn; writing: boolean }) {
 }
 
 function StepRow({ row, latest, bot }: { row: TrailRow; latest: boolean; bot: boolean }) {
+  const ink = useChatInk();
   const done = row.state === "done";
   const tint = row.state === "asking" ? STEP_ASK : row.state === "waiting" ? STEP_AMBER : STEP_BLUE;
   const chip: CSSProperties = done
@@ -791,10 +859,10 @@ function StepRow({ row, latest, bot }: { row: TrailRow; latest: boolean; bot: bo
       className="relative flex min-w-0 items-center gap-2 text-[12px]"
       style={{ height: TRAIL_ROW }}
       title={row.rest ? `${row.verb} ${row.rest}` : row.verb}
-      initial={{ opacity: 0, y: 10, filter: "blur(4px)" }}
-      animate={{ opacity: done && !latest ? 0.5 : 1, y: 0, filter: "blur(0px)" }}
-      exit={{ opacity: 0, y: -8, filter: "blur(4px)" }}
-      transition={{ type: "spring", stiffness: 420, damping: 34 }}
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: done && !latest ? 0.5 : 1, y: 0 }}
+      exit={{ opacity: 0, y: -4 }}
+      transition={FLOW}
     >
       {bot ? (
         // The bot stands here (`StepTrail`).
@@ -805,16 +873,16 @@ function StepRow({ row, latest, bot }: { row: TrailRow; latest: boolean; bot: bo
         </span>
       )}
       <span
-        className={cn("shrink-0 font-medium", done ? "text-white/70" : "text-white/90")}
+        className={cn("shrink-0 font-medium", done ? ink.stepDone : ink.stepLive)}
         // A question or an approval says so in its color.
         style={row.state === "asking" || row.state === "waiting" ? { color: tint } : undefined}
       >
         {row.verb}
       </span>
-      {row.rest && <span className="min-w-0 truncate font-mono text-[11px] text-white/40">{row.rest}</span>}
+      {row.rest && <span className={cn("min-w-0 truncate font-mono text-[11px]", ink.stepRest)}>{row.rest}</span>}
       <span className="ml-auto flex shrink-0 items-center pl-2">
         {done ? (
-          <CheckIcon className="size-3 text-emerald-300/70" />
+          <CheckIcon className={cn("size-3", ink.done)} />
         ) : row.state === "running" ? null : (
           <span
             className="notch-loop size-1.5 rounded-full"
@@ -852,7 +920,7 @@ const FRESH_MS = 1500;
 const TYPE_RATE = 90;
 const CATCH_UP = 3;
 /** Redraw at most this often: each draw lays out the answer's markdown again. */
-const TYPE_FRAME_MS = 33;
+const TYPE_FRAME_MS = 48;
 
 /**
  * Text that writes itself out: an answer already done when it appears shows
@@ -892,6 +960,7 @@ function useTypewriter(text: string, live: boolean) {
 }
 
 function Asked({ text, files }: { text: string; files: Attachment[] }) {
+  const ink = useChatInk();
   return (
     <div className="ml-auto flex max-w-[80%] flex-col items-end gap-1">
       {files.length > 0 && (
@@ -901,15 +970,16 @@ function Asked({ text, files }: { text: string; files: Attachment[] }) {
           ))}
         </div>
       )}
-      <p className="rounded-2xl bg-white/[0.1] px-3 py-1.5 text-[13px] whitespace-pre-wrap text-white/90">{text}</p>
+      <p className={ink.userBubble}>{text}</p>
     </div>
   );
 }
 
 function Answer({ text, streaming }: { text: string; streaming: boolean }) {
+  const ink = useChatInk();
   return (
     <MarkdownSurface>
-      <MessageResponse className="text-[14px] text-white/90" isAnimating={streaming}>
+      <MessageResponse className={ink.prose} isAnimating={streaming} animated={false}>
         {text}
       </MessageResponse>
     </MarkdownSurface>
@@ -918,9 +988,10 @@ function Answer({ text, streaming }: { text: string; streaming: boolean }) {
 
 /** Not answering yet: the bot at work, in place of a spinner. */
 function Waiting({ text }: { text: string }) {
+  const ink = useChatInk();
   return (
-    <div className="flex items-center gap-2 text-[12px] text-white/50">
-      <CoworkBot size={TRAIL_BOT} state="tool" theme="dark" className="-my-1 -ml-1" />
+    <div className={cn("flex items-center gap-2 text-[12px]", ink.muted)}>
+      <CoworkBot size={TRAIL_BOT} state="tool" theme={ink.botTheme} className="-my-1 -ml-1" />
       {text}
     </div>
   );
@@ -986,15 +1057,13 @@ function IconButton({
   big?: boolean;
   children: React.ReactNode;
 }) {
+  const ink = useChatInk();
   return (
     <button
       type="button"
       title={title}
       onClick={onClick}
-      className={cn(
-        "flex shrink-0 items-center justify-center rounded-full text-white/60 transition-colors hover:bg-white/[0.1] hover:text-white",
-        big ? "size-9" : "size-6",
-      )}
+      className={cn("flex shrink-0 items-center justify-center rounded-full transition-colors", ink.iconBtn, big ? "size-9" : "size-6")}
     >
       {children}
     </button>

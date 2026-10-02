@@ -16,19 +16,27 @@ const GROW_WAIT_MS = 450;
 export function NotchIntro({ from, color, onDone }: { from: NotchPoint | null; color: string; onDone: () => void }) {
   const [stage, setStage] = useState<"wait" | "fly" | "glow">(from ? "wait" : "glow");
   const box = useRef<HTMLDivElement>(null);
-  const [cx, setCx] = useState<number>();
-  useLayoutEffect(() => setCx((box.current?.offsetWidth ?? window.innerWidth) / 2), []);
-  // Fly once the window reaches down to the dot (or soon anyway), so the
-  // dot isn't drawn into a window that's still the pill's small one.
+  // The middle of the screen comes from the app (`from.x`): measuring the
+  // page read the pill's old, narrow width while the window was still
+  // growing, and the dot rose off to one side, cut off at that old edge.
+  const [measured, setMeasured] = useState<number>();
+  const cx = from?.x ?? measured;
+  useLayoutEffect(() => {
+    if (from) return;
+    const measure = () => setMeasured((box.current?.offsetWidth ?? window.innerWidth) / 2);
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [from]);
+  // Fly once the window covers the dot's whole way (wide and tall enough, or
+  // soon anyway), so the dot isn't drawn into the pill's small window.
   useEffect(() => {
     if (stage !== "wait" || !from) return;
-    const go = () => {
-      setCx((box.current?.offsetWidth ?? window.innerWidth) / 2);
-      setStage("fly");
-    };
-    if (window.innerHeight >= from.y + DOT) return go();
+    const go = () => setStage("fly");
+    const covered = () => window.innerHeight >= from.y + DOT && window.innerWidth >= from.x + DOT;
+    if (covered()) return go();
     const onResize = () => {
-      if (window.innerHeight >= from.y + DOT) go();
+      if (covered()) go();
     };
     window.addEventListener("resize", onResize);
     const timer = setTimeout(go, GROW_WAIT_MS);

@@ -379,6 +379,7 @@ export function showcaseOf({
     .filter((g) => g.items.length > 0)
     .map((g) => ({
       source: g.source ?? g.connector,
+      connector: g.connector,
       title: g.title,
       url: g.url,
       items: g.items.map((item) => ({ image: item.image, title: item.title, width: item.width, height: item.height })),

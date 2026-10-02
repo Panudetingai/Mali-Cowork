@@ -47,7 +47,7 @@ use commands::notch::{
     notch_backdrop, notch_capture_at_cursor, notch_capture_pick, notch_capture_region, notch_drop_out, notch_enter_mode,
     notch_exit_mode, notch_geometry,
     notch_hide, notch_hit_area, notch_login_item, notch_mode, notch_open_main, notch_release, notch_resize,
-    notch_set_login_item, notch_set_screen, notch_show, notch_take_intro, NotchState,
+    notch_set_login_item, notch_set_screen, notch_show, notch_intro_done, notch_take_intro, NotchState,
 };
 use commands::outputs::{outputs_stat, outputs_trash};
 use commands::preview_image::preview_image;
@@ -247,6 +247,7 @@ pub fn run() {
             notch_enter_mode,
             notch_exit_mode,
             notch_take_intro,
+            notch_intro_done,
             notch_mode,
             notch_release,
             notch_open_main,

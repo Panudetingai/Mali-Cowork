@@ -43,6 +43,8 @@ const DRAG: &str = "notch:drag";
 /// The mouse wheel turned over the pill (Windows): its `deltaY`, as a page would see it.
 #[cfg(windows)]
 const WHEEL: &str = "notch:wheel";
+/// A click landed off the open pill (anywhere on screen): the pill folds away at once.
+const CLICK_AWAY: &str = "notch:click-away";
 /// The pill moved to another screen: the page plays its arrival.
 const MOVED: &str = "notch:moved";
 /// The app was asked for (the Dock, the tray): the pill drops into it.
@@ -310,6 +312,7 @@ fn put<R: Runtime>(window: &WebviewWindow<R>, screen: Screen) {
         placed.screen = Some(screen);
         placed.frame = frame_on(&screen, placed.size);
         placed.stretched = false;
+        placed.intro_until = None;
         placed.frame
     };
     apply_frame(window, frame);
@@ -500,6 +503,10 @@ pub fn notch_resize<R: Runtime>(
             return;
         }
         placed.size = (width, height);
+        if placed.stretched && placed.intro_until.is_some_and(|until| Instant::now() < until) {
+            // The fly-in has the window; this size is put on when it ends.
+            return;
+        }
         placed.screen
     };
     if let Some(screen) = screen.or_else(|| home_now(&app)) {
@@ -903,6 +910,10 @@ struct Placed {
     size: (f64, f64),
     /// An animation (`stretch`) has the window; the pill's frame comes back after.
     stretched: bool,
+    /// The fly-in is playing until then (or until the page says it's done):
+    /// the page's resizes wait, or they'd pull the window back to the pill's
+    /// frame mid-flight and cut the dot off to one side.
+    intro_until: Option<Instant>,
 }
 
 impl Default for Placed {
@@ -912,6 +923,7 @@ impl Default for Placed {
             frame: Rect::default(),
             size: START_SIZE,
             stretched: false,
+            intro_until: None,
         }
     }
 }
@@ -981,6 +993,8 @@ const GLOW_HEIGHT: f64 = 140.0;
 /// Where the dot starts without the main window on this screen (at login,
 /// or from another screen): this far down, as a share of the screen.
 const DOT_START: f64 = 0.42;
+/// Longest the fly-in holds the window, should the page never say it's done.
+const INTRO_HOLD: Duration = Duration::from_millis(4000);
 
 /// Cover the top of `screen` for the intro. The dot always rises from the
 /// middle of the screen, straight up into the notch: from the height the
@@ -996,7 +1010,12 @@ fn play_intro<R: Runtime>(window: &WebviewWindow<R>, screen: Screen, from: Optio
         .unwrap_or(height * DOT_START)
         .clamp(GLOW_HEIGHT, height * 0.7);
     let cover = (start + 80.0).max(GLOW_HEIGHT);
-    window.state::<NotchState>().placed.lock().unwrap().screen = Some(screen);
+    {
+        let state = window.state::<NotchState>();
+        let mut placed = state.placed.lock().unwrap();
+        placed.screen = Some(screen);
+        placed.intro_until = Some(Instant::now() + INTRO_HOLD);
+    }
     stretch(
         window,
         Rect {
@@ -1054,6 +1073,16 @@ pub fn start_in_notch<R: Runtime>(app: &AppHandle<R>) {
         play_intro(&window, screen, None);
     }
     show_pill(&window);
+}
+
+/// The fly-in is over: the window goes back to the pill's own frame.
+#[tauri::command]
+pub fn notch_intro_done<R: Runtime>(app: AppHandle<R>) {
+    let Some(window) = app.get_webview_window(NOTCH_LABEL) else {
+        return;
+    };
+    app.state::<NotchState>().placed.lock().unwrap().intro_until = None;
+    unstretch(&window);
 }
 
 /// The fly-in to play, once; the page asks when it loads or is told.
@@ -1424,6 +1453,10 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
         // The pointer at the top of a screen, since when.
         let mut topped: Option<(u64, Instant)> = None;
         let mut accept_events = false;
+        #[cfg(target_os = "macos")]
+        let mut clicks = mac::ClickWatch::default();
+        #[cfg(windows)]
+        let mut clicks = win::ClickWatch::default();
         loop {
             std::thread::sleep(Duration::from_millis(sleep_ms));
             let Some(window) = app.get_webview_window(NOTCH_LABEL) else {
@@ -1446,6 +1479,11 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
                 }
             }
             let visible = state.visible.load(Ordering::SeqCst);
+            // Looked at every pass, so a click from before the pill opened isn't news.
+            #[cfg(any(target_os = "macos", windows))]
+            let clicked = clicks.poll();
+            #[cfg(not(any(target_os = "macos", windows)))]
+            let clicked = false;
             let Some(point) = cursor(&app) else {
                 sleep_ms = POLL_AWAY_MS;
                 continue;
@@ -1554,13 +1592,19 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
             if state.inside.swap(on_pill, Ordering::SeqCst) != on_pill {
                 let _ = window.emit(HOVER, on_pill);
             }
+            let open = state.open.load(Ordering::SeqCst);
+            // A click off the open pill (the desktop, another app) folds it right away.
+            if clicked && open && !on_pill && !dragging {
+                let _ = window.emit(CLICK_AWAY, ());
+            }
             // The open ask box needs drag-and-drop on Windows; the hit area alone is easy to miss while dragging.
             let want_events = on_pill || state.open.load(Ordering::SeqCst);
             if accept_events != want_events {
                 accept_events = want_events;
                 let _ = window.set_ignore_cursor_events(!want_events);
             }
-            sleep_ms = if on_pill {
+            // Open, a click away should fold it without a wait.
+            sleep_ms = if on_pill || open {
                 POLL_ON_PILL_MS
             } else if near_strip {
                 POLL_NEAR_TOP_MS
@@ -1651,6 +1695,7 @@ mod mac {
         fn CGMainDisplayID() -> u32;
         fn CGEventCreate(source: *const c_void) -> *mut c_void;
         fn CGEventGetLocation(event: *const c_void) -> NSPoint;
+        fn CGEventSourceSecondsSinceLastEventType(state: i32, kind: u32) -> f64;
     }
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
@@ -1698,6 +1743,37 @@ mod mac {
         let at = unsafe { CGEventGetLocation(event) };
         unsafe { CFRelease(event) };
         Some((at.x, at.y))
+    }
+
+    /// Clicks anywhere on screen, seen from the time since the last button
+    /// press: a press too quick for the poll to see held down still counts.
+    #[derive(Default)]
+    pub struct ClickWatch {
+        last: Option<std::time::Instant>,
+    }
+
+    impl ClickWatch {
+        /// A press since the last look.
+        pub fn poll(&mut self) -> bool {
+            // Combined session state; left, right and other mouse down.
+            let since = [1u32, 3, 25]
+                .iter()
+                .map(|&kind| unsafe { CGEventSourceSecondsSinceLastEventType(0, kind) })
+                .fold(f64::INFINITY, f64::min);
+            if !since.is_finite() || since < 0.0 {
+                return false;
+            }
+            let Some(at) = std::time::Instant::now().checked_sub(std::time::Duration::from_secs_f64(since)) else {
+                return false;
+            };
+            let fresh = self
+                .last
+                .is_some_and(|last| at > last + std::time::Duration::from_millis(20));
+            if self.last.is_none() || fresh {
+                self.last = Some(at);
+            }
+            fresh
+        }
     }
 
     /// Cocoa frames start at the bottom left of the main display; CoreGraphics
@@ -2419,6 +2495,23 @@ mod win {
             }
         }
         CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam)
+    }
+
+    /// Clicks anywhere on screen: a mouse button that went down since the last look.
+    #[derive(Default)]
+    pub struct ClickWatch {
+        down: bool,
+    }
+
+    impl ClickWatch {
+        pub fn poll(&mut self) -> bool {
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
+            let held = |key: u16| unsafe { GetAsyncKeyState(key as i32) as u16 & 0x8000 != 0 };
+            let down = held(VK_LBUTTON) || held(VK_RBUTTON);
+            let pressed = down && !self.down;
+            self.down = down;
+            pressed
+        }
     }
 
     /// File drags and other drags toward the top: left button down and moved enough.

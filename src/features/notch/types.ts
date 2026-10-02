@@ -139,6 +139,8 @@ export type NotchShowcaseItem = {
 export type NotchShowcase = {
   /** The app it lives in: `canva`, `notion`, `figma`, …; none for plain pictures. */
   source?: string;
+  /** The connector whose tools made it, so the pill shows that connector's own icon. */
+  connector?: string;
   title?: string;
   /** Opens it in its app. */
   url?: string;

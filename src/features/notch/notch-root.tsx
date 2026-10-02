@@ -20,6 +20,7 @@ import {
   capturePick,
   dropOut,
   exitNotchMode,
+  finishNotchIntro,
   getNotchMode,
   hideNotch,
   listenForNotchGeometry,
@@ -27,6 +28,7 @@ import {
   onNotchDrag,
   onNotchHover,
   onNotchIntro,
+  onNotchClickAway,
   onNotchMode,
   onNotchMoved,
   onNotchSessions,
@@ -34,6 +36,7 @@ import {
   onOpenApp,
   openMainFromNotch,
   openTeamInApp,
+  pickerOpen,
   resizeNotch,
   sendNotchAnswer,
   sendNotchReply,
@@ -620,6 +623,20 @@ export function NotchRoot() {
     [],
   );
 
+  // A click off the pill folds it at once, whatever it shows; what was
+  // asked stays for next time. Only a permission or question waits for an answer.
+  const foldNow = () => {
+    if (pickerOpen()) return;
+    if (viewRef.current === "permission" || viewRef.current === "question") return;
+    clearTimeout(hoverTimer.current);
+    clearTimeout(peekTimer.current);
+    setPeek(undefined);
+    setOpen(null);
+  };
+  const foldNowRef = useRef(foldNow);
+  foldNowRef.current = foldNow;
+  useEffect(() => onNotchClickAway(() => foldNowRef.current()), []);
+
   // Clicking away closes the ask box; what was asked stays for next time.
   useEffect(() => {
     const onBlur = () => setOpen((o) => (o === "chat" ? null : o));
@@ -791,6 +808,7 @@ export function NotchRoot() {
         onDone={() => {
           // Back from the fly-in's full-screen window to the pill's: let that
           // one resize land before the welcome opens, so it isn't caught blank.
+          void finishNotchIntro().catch(() => undefined);
           setIntro(null);
           setTimeout(() => {
             // The pill opens on the welcome: the bot thinks, then waits for work.
@@ -940,6 +958,7 @@ export function NotchRoot() {
           view === "chat" ? (
             <NotchChat
               ref={inputRef}
+              look={look}
               chat={chat}
               geometry={geometry}
               input={input}

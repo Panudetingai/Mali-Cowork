@@ -180,6 +180,11 @@ export function takeNotchIntro() {
   return invoke<NotchIntro | null>("notch_take_intro");
 }
 
+/** The fly-in is over: the window goes back to the pill's own frame. */
+export function finishNotchIntro() {
+  return invoke<void>("notch_intro_done");
+}
+
 /** Relay: nothing to show. Hides the pill unless notch mode keeps it up. */
 export function releaseNotch() {
   return invoke<void>("notch_release");
@@ -202,6 +207,25 @@ export const onNotchHover = (handler: (inside: boolean) => void) =>
 export const onNotchWheel = (handler: (deltaY: number) => void) =>
   on<number>("notch:wheel", handler);
 export const onNotchIntro = (handler: () => void) => on<null>(INTRO, handler);
+/** A click landed off the open pill (watched from Rust): fold it at once. */
+export const onNotchClickAway = (handler: () => void) =>
+  on<null>("notch:click-away", handler);
+
+/**
+ * A system picker the pill opened: clicks in it land off the pill, and
+ * mustn't fold it away while files are being picked.
+ */
+let pickers = 0;
+export const pickerOpen = () => pickers > 0;
+export async function whilePicking<T>(pick: () => Promise<T>): Promise<T> {
+  pickers += 1;
+  try {
+    return await pick();
+  } finally {
+    pickers -= 1;
+  }
+}
+
 /** The pill moved to another screen. */
 export const onNotchMoved = (handler: () => void) =>
   on<null>("notch:moved", handler);
