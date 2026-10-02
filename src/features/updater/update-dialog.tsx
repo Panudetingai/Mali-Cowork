@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
+import { mainAwake, onMainAwake } from "@/features/notch";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { useEffect, useRef, useState } from "react";
@@ -47,10 +48,21 @@ export function UpdateDialog() {
     };
     const first = setTimeout(run, FIRST_CHECK_MS);
     const every = setInterval(run, RECHECK_MS);
+    // Hidden main window (started at login in the notch): browsers throttle timers;
+    // check as soon as the user opens the app.
+    const stopAwake = onMainAwake(() => {
+      if (mainAwake()) void run();
+    });
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void run();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
       clearTimeout(first);
       clearInterval(every);
+      stopAwake();
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 

@@ -112,7 +112,8 @@ export default function AppWithOnboarding() {
   return (
     <>
       {awake && <OnboardingDialog />}
-      {awake && <UpdateDialog />}
+      {/* Must run while the main window is still hidden (login item → `--notch`). */}
+      <UpdateDialog />
       <App />
     </>
   );

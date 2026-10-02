@@ -165,6 +165,23 @@ jobs:
             exit 1
           fi
 
+          # tauri-action writes GitHub API asset URLs; use browser_download_url so
+          # every client gets plain HTTPS links (no api.github.com / Accept quirks).
+          dir="$(mktemp -d)"
+          gh release download "$tag" --repo "$public_repo" -p latest.json -D "$dir"
+          jq --argjson release "$assets_json" '
+            def direct($api):
+              if ($api | test("^https://api\\.github\\.com/")) then
+                ($release.assets[] | select(.url == $api) | .browser_download_url) // $api
+              else $api end;
+            .platforms |= with_entries(.value.url = direct(.value.url))
+          ' "$dir/latest.json" > "$dir/latest.fixed.json"
+          if ! cmp -s "$dir/latest.json" "$dir/latest.fixed.json"; then
+            mv "$dir/latest.fixed.json" "$dir/latest.json"
+            gh release upload "$tag" --repo "$public_repo" --clobber "$dir/latest.json"
+            echo "Normalized latest.json download URLs to releases/download links"
+          fi
+
           body="$(echo "$assets_json" | jq -r '.body // empty')"
           if [[ -z "$body" ]]; then
             echo "::warning::Release $tag has empty notes — edit them on $public_repo before users update"
