@@ -338,8 +338,9 @@ function LookLayers({
           ? tint.blur
           : tint.solid
         : undefined;
+  // System backdrop (macOS NSVisualEffect / Windows Mica): skip CSS backdrop-filter — stacking it causes a circular smudge in WebView2.
   const shellFilter =
-    tinted && look === "glass" && glass
+    tinted && look === "glass" && glass && !blur
       ? { backdropFilter: `blur(${glass.blurPx}px) saturate(150%)`, WebkitBackdropFilter: `blur(${glass.blurPx}px) saturate(150%)` }
       : undefined;
   return (
@@ -354,7 +355,10 @@ function LookLayers({
       {tint && (
         <motion.div
           aria-hidden
-          className={cn("absolute inset-0", tinted && look === "light" && "backdrop-blur-3xl backdrop-saturate-150")}
+          className={cn(
+            "absolute inset-0",
+            tinted && look === "light" && !blur && "backdrop-blur-3xl backdrop-saturate-150",
+          )}
           style={{ background: shellBg, ...shellFilter }}
           initial={false}
           animate={{ opacity: tinted ? 1 : 0 }}
@@ -600,7 +604,7 @@ function Mascots(props: Props) {
             }
             title={on ? "Double-click to hide" : undefined}
           >
-            {on && <Glow {...props} bot={bot} />}
+            {on && view !== "collapsed" && view !== "chat" && view !== "sessions" && <Glow {...props} bot={bot} />}
             <CoworkBot
               size="100%"
               bot={bot}
@@ -1184,6 +1188,9 @@ function Home(props: Props) {
 const PAGES = ["main", "usage", "settings", "recap"] as const;
 /** The dot of the page in view, like a slide deck's. */
 const PAGE_DOT = "#0a84ff";
+/** One wheel / trackpad gesture → one page (native scroll + snap can skip several). */
+const WHEEL_STEP_COOLDOWN_MS = 480;
+const WHEEL_STEP_THRESHOLD = 36;
 
 /**
  * Home's left card as pages to scroll through, one at a time: the run (or
@@ -1194,10 +1201,37 @@ const PAGE_DOT = "#0a84ff";
 function LeftPager(props: Props) {
   const { snapshot, slide = 0, onSlide } = props;
   const scroller = useRef<HTMLDivElement>(null);
+  const slideRef = useRef(slide);
+  slideRef.current = slide;
   const go = (page: number) => {
     const el = scroller.current;
     if (el) el.scrollTo({ top: page * el.clientHeight, behavior: "smooth" });
   };
+  const step = (dir: -1 | 1) => {
+    const next = Math.max(0, Math.min(PAGES.length - 1, slideRef.current + dir));
+    if (next === slideRef.current) return;
+    onSlide?.(next);
+    go(next);
+  };
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    let pending = 0;
+    let lastStep = 0;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const now = Date.now();
+      if (now - lastStep < WHEEL_STEP_COOLDOWN_MS) return;
+      pending += event.deltaY;
+      if (Math.abs(pending) < WHEEL_STEP_THRESHOLD) return;
+      const dir = pending > 0 ? 1 : -1;
+      lastStep = now;
+      pending = 0;
+      step(dir);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [onSlide]);
   return (
     <>
       <div
@@ -1206,7 +1240,7 @@ function LeftPager(props: Props) {
         onScroll={(event) => {
           const el = event.currentTarget;
           const page = Math.round(el.scrollTop / Math.max(1, el.clientHeight));
-          if (page !== slide) onSlide?.(page);
+          if (page !== slideRef.current) onSlide?.(page);
         }}
       >
         {PAGES.map((page, i) => (
@@ -1224,7 +1258,10 @@ function LeftPager(props: Props) {
             key={page}
             type="button"
             title={page}
-            onClick={() => go(i)}
+            onClick={() => {
+              onSlide?.(i);
+              go(i);
+            }}
             className="size-[7px] rounded-full transition-[background,transform] duration-200"
             style={{
               background: i === slide ? PAGE_DOT : "rgba(255,255,255,0.18)",

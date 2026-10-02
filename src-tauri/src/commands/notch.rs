@@ -516,16 +516,22 @@ pub async fn notch_backdrop<R: Runtime>(app: AppHandle<R>, look: String, rect: O
     }
     #[cfg(windows)]
     {
-        use window_vibrancy::{apply_acrylic, clear_acrylic};
+        use window_vibrancy::{apply_acrylic, apply_mica, clear_acrylic, clear_mica};
         let Some(window) = app.get_webview_window(NOTCH_LABEL) else {
             return false;
         };
         let want = matches!(look.as_str(), "glass" | "light") && rect.is_some();
         if want {
             let light = look == "light";
+            let _ = clear_mica(&window);
+            let _ = clear_acrylic(&window);
+            if apply_mica(&window, Some(!light)).is_ok() {
+                return true;
+            }
             let tint = if light { (245, 245, 247, 200) } else { (12, 12, 16, 165) };
             apply_acrylic(&window, Some(tint)).is_ok()
         } else {
+            let _ = clear_mica(&window);
             let _ = clear_acrylic(&window);
             true
         }
