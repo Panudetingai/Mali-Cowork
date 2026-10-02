@@ -38,6 +38,9 @@ const HOVER: &str = "notch:hover";
 const INTRO: &str = "notch:intro";
 /// Files are being dragged near the top of the screen (true), or not any more.
 const DRAG: &str = "notch:drag";
+/// The mouse wheel turned over the pill (Windows): its `deltaY`, as a page would see it.
+#[cfg(windows)]
+const WHEEL: &str = "notch:wheel";
 /// The pill moved to another screen: the page plays its arrival.
 const MOVED: &str = "notch:moved";
 /// The app was asked for (the Dock, the tray): the pill drops into it.
@@ -520,19 +523,27 @@ pub async fn notch_backdrop<R: Runtime>(app: AppHandle<R>, look: String, rect: O
         let Some(window) = app.get_webview_window(NOTCH_LABEL) else {
             return false;
         };
-        let want = matches!(look.as_str(), "glass" | "light") && rect.is_some();
-        if want {
+        let want = rect.filter(|_| matches!(look.as_str(), "glass" | "light"));
+        if let Some(rect) = want {
             let light = look == "light";
+            // Mica / Acrylic fill the whole window, which is bigger than the
+            // pill: its region keeps them to the pill's shape.
+            win::clip_to_pill(&window, Some(rect));
             let _ = clear_mica(&window);
             let _ = clear_acrylic(&window);
             if apply_mica(&window, Some(!light)).is_ok() {
                 return true;
             }
             let tint = if light { (245, 245, 247, 200) } else { (12, 12, 16, 165) };
-            apply_acrylic(&window, Some(tint)).is_ok()
+            let ok = apply_acrylic(&window, Some(tint)).is_ok();
+            if !ok {
+                win::clip_to_pill(&window, None);
+            }
+            ok
         } else {
             let _ = clear_mica(&window);
             let _ = clear_acrylic(&window);
+            win::clip_to_pill(&window, None);
             true
         }
     }
@@ -1220,6 +1231,8 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
     if app.state::<NotchState>().watching.swap(true, Ordering::SeqCst) {
         return;
     }
+    #[cfg(windows)]
+    win::watch_wheel(app.clone());
     std::thread::spawn(move || {
         #[cfg(target_os = "macos")]
         let mut drags = mac::DragWatch::default();
@@ -1789,12 +1802,20 @@ mod mac {
 mod win {
     use super::NOTCH_LABEL;
     use super::super::quick::CaptureRect;
-    use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, Position, Runtime, Size, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
-    use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+    use tauri::{
+        AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Runtime, Size, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    };
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+    use windows_sys::Win32::Graphics::Gdi::{CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, SetWindowRgn, RGN_AND};
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::System::Threading::GetCurrentProcessId;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetAncestor, GetCursorPos, GetWindowRect, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
-        WindowFromPoint, GA_ROOT,
+        CallNextHookEx, GetAncestor, GetCursorPos, GetMessageW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
+        IsWindowVisible, SetWindowsHookExW, UnhookWindowsHookEx, WindowFromPoint, GA_ROOT, HC_ACTION, MSG, MSLLHOOKSTRUCT, WH_MOUSE_LL,
+        WM_MOUSEWHEEL,
     };
 
     pub const CAPTURE_OVERLAY: &str = "notch-capture-overlay";
@@ -1925,6 +1946,141 @@ mod win {
         let _ = window.show();
         let _ = window.set_focus();
         Ok(())
+    }
+
+    /// The open pill's shape in its window (logical pixels), as last clipped to.
+    #[derive(Debug, Clone, Copy)]
+    struct Clip {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        radius: f64,
+    }
+
+    impl Clip {
+        fn lerp(self, to: Clip, t: f64) -> Clip {
+            let mix = |a: f64, b: f64| a + (b - a) * t;
+            Clip {
+                x: mix(self.x, to.x),
+                y: mix(self.y, to.y),
+                width: mix(self.width, to.width),
+                height: mix(self.height, to.height),
+                radius: mix(self.radius, to.radius),
+            }
+        }
+    }
+
+    static CLIP: Mutex<Option<Clip>> = Mutex::new(None);
+    /// Counts each new shape: a slide on its way to an older one stops.
+    static CLIP_ROUND: AtomicU64 = AtomicU64::new(0);
+    /// As long as the page's pill takes to change shape.
+    const CLIP_FOLLOW: Duration = Duration::from_millis(300);
+    const CLIP_FRAME: Duration = Duration::from_millis(16);
+
+    /// The window's region: the pill's shape, square at the top and round at
+    /// the bottom — or (None) the whole window. A shape that changes slides
+    /// there along with the pill, so the pill is never cut off mid-way.
+    pub fn clip_to_pill<R: Runtime>(window: &WebviewWindow<R>, rect: Option<super::BackdropRect>) {
+        let round = CLIP_ROUND.fetch_add(1, Ordering::SeqCst) + 1;
+        let Ok(hwnd) = window.hwnd() else { return };
+        // As a number, to hand to the thread that slides the region.
+        let hwnd = hwnd.0 as isize;
+        let scale = window.scale_factor().unwrap_or(1.0);
+        let mut clip = CLIP.lock().unwrap();
+        let Some(rect) = rect else {
+            *clip = None;
+            // SAFETY: a window of ours; a null region is the whole window.
+            unsafe { SetWindowRgn(hwnd as HWND, std::ptr::null_mut(), 1) };
+            return;
+        };
+        let to = Clip { x: rect.x, y: rect.y, width: rect.width, height: rect.height, radius: rect.radius };
+        let Some(from) = *clip else {
+            // Coming into view: in place at once.
+            set_region(hwnd, to, scale);
+            *clip = Some(to);
+            return;
+        };
+        drop(clip);
+        std::thread::spawn(move || {
+            let start = Instant::now();
+            loop {
+                let t = (start.elapsed().as_secs_f64() / CLIP_FOLLOW.as_secs_f64()).min(1.0);
+                {
+                    let mut clip = CLIP.lock().unwrap();
+                    if CLIP_ROUND.load(Ordering::SeqCst) != round {
+                        return;
+                    }
+                    let now = from.lerp(to, 1.0 - (1.0 - t).powi(3));
+                    set_region(hwnd, now, scale);
+                    *clip = Some(now);
+                }
+                if t >= 1.0 {
+                    return;
+                }
+                std::thread::sleep(CLIP_FRAME);
+            }
+        });
+    }
+
+    fn set_region(hwnd: isize, clip: Clip, scale: f64) {
+        let px = |v: f64| (v * scale).round() as i32;
+        let (left, top, right, bottom) = (px(clip.x), px(clip.y), px(clip.x + clip.width), px(clip.y + clip.height));
+        let corner = px(clip.radius * 2.0).max(1);
+        // SAFETY: regions made here are deleted here, except the one the
+        // window takes, which is then the system's.
+        unsafe {
+            let region = CreateRectRgn(left, top, right, bottom);
+            // Rounded all round, from above the top: only the bottom corners show.
+            let rounded = CreateRoundRectRgn(left, top - corner, right + 1, bottom + 1, corner, corner);
+            CombineRgn(region, region, rounded, RGN_AND);
+            DeleteObject(rounded);
+            if SetWindowRgn(hwnd as HWND, region, 1) == 0 {
+                DeleteObject(region);
+            }
+        }
+    }
+
+    type OnWheel = Box<dyn Fn(i16) + Send + Sync>;
+    static ON_WHEEL: OnceLock<OnWheel> = OnceLock::new();
+
+    /// The mouse wheel over the pill, to the page. The pill's window never
+    /// activates, and WebView2 doesn't always get the wheel then; a low-level
+    /// hook hears it anyway (the page takes one turn once, from either).
+    pub fn watch_wheel<R: Runtime>(app: AppHandle<R>) {
+        let on: OnWheel = Box::new(move |delta| {
+            if app.state::<super::NotchState>().inside.load(Ordering::SeqCst) {
+                // Windows counts a turn away from you as up; a page's deltaY, down.
+                let _ = app.emit_to(NOTCH_LABEL, super::WHEEL, -f64::from(delta));
+            }
+        });
+        if ON_WHEEL.set(on).is_err() {
+            return;
+        }
+        std::thread::spawn(|| {
+            // SAFETY: the hook lives as long as this thread, which pumps
+            // messages for it (a low-level hook needs that) until the app quits.
+            unsafe {
+                let hook = SetWindowsHookExW(WH_MOUSE_LL, Some(wheel_hook), GetModuleHandleW(std::ptr::null()), 0);
+                if hook.is_null() {
+                    return;
+                }
+                let mut msg: MSG = std::mem::zeroed();
+                while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {}
+                UnhookWindowsHookEx(hook);
+            }
+        });
+    }
+
+    unsafe extern "system" fn wheel_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+        if code == HC_ACTION as i32 && wparam as u32 == WM_MOUSEWHEEL {
+            // SAFETY: for WM_MOUSEWHEEL, lparam is the hook's MSLLHOOKSTRUCT.
+            let info = &*(lparam as *const MSLLHOOKSTRUCT);
+            if let Some(on) = ON_WHEEL.get() {
+                on((info.mouseData >> 16) as u16 as i16);
+            }
+        }
+        CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam)
     }
 
     /// File drags and other drags toward the top: left button down and moved enough.

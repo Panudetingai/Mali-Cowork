@@ -72,6 +72,7 @@ import {
   useNotchSaveChats,
   useNotchScreen,
 } from "./settings";
+import { onNotchWheel } from "./bridge";
 import { minutesSaved } from "./recap";
 import { Showcase, ShowcaseViewerHost } from "./notch-showcase";
 import { useNotchText, type NotchText } from "./text";
@@ -1218,19 +1219,34 @@ function LeftPager(props: Props) {
     if (!el) return;
     let pending = 0;
     let lastStep = 0;
-    const onWheel = (event: WheelEvent) => {
-      event.preventDefault();
+    let hovered = false;
+    const turn = (deltaY: number) => {
       const now = Date.now();
       if (now - lastStep < WHEEL_STEP_COOLDOWN_MS) return;
-      pending += event.deltaY;
+      pending += deltaY;
       if (Math.abs(pending) < WHEEL_STEP_THRESHOLD) return;
       const dir = pending > 0 ? 1 : -1;
       lastStep = now;
       pending = 0;
       step(dir);
     };
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      turn(event.deltaY);
+    };
+    const onEnter = () => (hovered = true);
+    const onLeave = () => (hovered = false);
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
+    el.addEventListener("pointerenter", onEnter);
+    el.addEventListener("pointerleave", onLeave);
+    // Windows: the same turn may come from Rust too; the cooldown takes it once.
+    const stopWheel = onNotchWheel((deltaY) => hovered && turn(deltaY));
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("pointerenter", onEnter);
+      el.removeEventListener("pointerleave", onLeave);
+      stopWheel();
+    };
   }, [onSlide]);
   return (
     <>

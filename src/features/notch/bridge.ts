@@ -165,6 +165,8 @@ export const onNotchMode = (handler: (on: boolean) => void) => on<boolean>(MODE,
 export const onNotchSummon = (handler: () => void) => on<null>(SUMMON, handler);
 /** The cursor entered or left the pill (watched from Rust: works while Mali is in the background). */
 export const onNotchHover = (handler: (inside: boolean) => void) => on<boolean>(HOVER, handler);
+/** The mouse wheel turned over the pill, as a `deltaY` (Windows: heard from Rust, since the pill's window never activates). */
+export const onNotchWheel = (handler: (deltaY: number) => void) => on<number>("notch:wheel", handler);
 export const onNotchIntro = (handler: () => void) => on<null>(INTRO, handler);
 /** The pill moved to another screen. */
 export const onNotchMoved = (handler: () => void) => on<null>("notch:moved", handler);
