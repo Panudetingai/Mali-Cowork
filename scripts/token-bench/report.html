@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mali Token Saver</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a lab report — summary first, then the measured runs, then the
+   interactive anatomy of one task's request, then real usage and method. */
+:root {
+  color-scheme: light;
+  --bg: #f4f6f5;
+  --surface: #fcfcfb;
+  --surface-2: #eef1f0;
+  --line: #dde2e0;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --ink-3: #7a7d7a;
+  --accent: #0f5c55;
+  --accent-ink: #ffffff;
+  --good: #1f7a3a;
+  --warn: #9a5b00;
+  /* engines: categorical slots 1–3 */
+  --opencode: #2a78d6;
+  --before: #eb6834;
+  --after: #1baf7a;
+  /* parts of a request: slots 4, 7, 5, 6 */
+  --c-sys: #eda100;
+  --c-builtin: #4a3aa7;
+  --c-conn: #e87ba4;
+  --c-hist: #008300;
+  --display: "Bai Jamjuree", "IBM Plex Sans Thai", "Noto Sans Thai", system-ui, sans-serif;
+  --body: "IBM Plex Sans Thai", "Noto Sans Thai", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #111413; --surface: #1a1a19; --surface-2: #222624; --line: #323835;
+    --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8f938f;
+    --accent: #5cc7b8; --accent-ink: #0b1513; --good: #5fd08a; --warn: #f0b04a;
+    --opencode: #3987e5; --before: #d95926; --after: #199e70;
+    --c-sys: #c98500; --c-builtin: #9085e9; --c-conn: #d55181; --c-hist: #008300;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111413; --surface: #1a1a19; --surface-2: #222624; --line: #323835;
+  --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8f938f;
+  --accent: #5cc7b8; --accent-ink: #0b1513; --good: #5fd08a; --warn: #f0b04a;
+  --opencode: #3987e5; --before: #d95926; --after: #199e70;
+  --c-sys: #c98500; --c-builtin: #9085e9; --c-conn: #d55181; --c-hist: #008300;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.65 var(--body);
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 36px 64px; display: grid; gap: 44px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.25; }
+h1 { font-size: clamp(30px, 5vw, 44px); font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 23px; font-weight: 600; }
+h3 { font-size: 16px; font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+.muted { color: var(--ink-2); }
+.small { font-size: 13px; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+section { display: grid; gap: 16px; }
+.section-head { display: grid; gap: 6px; }
+
+/* header */
+header { display: grid; gap: 14px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font-family: var(--mono); font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line); }
+
+/* summary figures */
+.figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.figure { padding: 20px 22px; display: grid; gap: 4px; align-content: start; min-width: 0; }
+.figure + .figure { border-left: 1px solid var(--line); }
+.figure .big { font-family: var(--display); font-size: 40px; font-weight: 700; line-height: 1.1; }
+.figure .big.good { color: var(--good); }
+@media (max-width: 720px) {
+  .figures { grid-template-columns: 1fr; }
+  .figure + .figure { border-left: 0; border-top: 1px solid var(--line); }
+}
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 16px; min-width: 0; }
+
+/* legend */
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex: none; }
+
+/* bar rows (HTML bars: crisp text, wraps on phones) */
+.bars { display: grid; gap: 8px; }
+.bar-row { display: grid; grid-template-columns: 120px minmax(0, 1fr) 150px; align-items: center; gap: 12px; }
+.bar-row .label { font-size: 13px; color: var(--ink-2); }
+.track { position: relative; height: 22px; }
+.bar { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 0 4px 4px 0; transition: width .35s ease; }
+.bar:hover, .bar:focus-visible { filter: brightness(1.08); outline: none; }
+.value { font-size: 13px; text-align: right; }
+.value b { font-weight: 500; color: var(--ink); }
+.task-group { display: grid; gap: 5px; padding-block: 10px; border-top: 1px solid var(--line); }
+.task-group:first-child { border-top: 0; padding-top: 0; }
+.task-title { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; align-items: baseline; }
+.task-title .pill { font-family: var(--mono); font-size: 12px; color: var(--good); }
+.task-group .bar-row { grid-template-columns: 96px minmax(0, 1fr) 150px; }
+.task-group .track { height: 14px; }
+@media (max-width: 600px) {
+  .bar-row, .task-group .bar-row { grid-template-columns: 82px minmax(0, 1fr); }
+  .bar-row .value { grid-column: 2; text-align: left; margin-top: -4px; }
+}
+
+/* tabs */
+.tabs { display: inline-flex; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 2px; }
+.tabs button { font: 500 13px var(--body); color: var(--ink-2); background: transparent; border: 0; border-radius: 7px; padding: 5px 12px; cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.tabs button:focus-visible, .lever input:focus-visible + .switch, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.row-between { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
+
+/* tables */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 640px; }
+th, td { padding: 8px 12px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+thead th { font-weight: 500; color: var(--ink-2); background: var(--surface-2); }
+tbody tr:last-child td { border-bottom: 0; }
+td.err { color: var(--warn); }
+
+/* the anatomy simulator */
+.sim { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 16px; }
+@media (max-width: 860px) { .sim { grid-template-columns: 1fr; } }
+.levers { display: grid; gap: 10px; }
+.lever { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); cursor: pointer; }
+.lever[data-on="true"] { border-color: color-mix(in oklab, var(--accent) 55%, var(--line)); background: color-mix(in oklab, var(--accent) 6%, var(--surface)); }
+.lever input { position: absolute; opacity: 0; pointer-events: none; }
+.switch { grid-row: span 3; width: 38px; height: 22px; border-radius: 999px; background: var(--line); position: relative; margin-top: 2px; transition: background .2s; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .2s; }
+.lever input:checked + .switch { background: var(--accent); }
+.lever input:checked + .switch::after { transform: translateX(16px); }
+.lever .what { font-size: 13px; color: var(--ink-2); }
+.lever .facts { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; }
+.tag { font-family: var(--mono); font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2); }
+.tag.measured { color: var(--good); border-color: color-mix(in oklab, var(--good) 40%, var(--line)); }
+.tag.model { color: var(--warn); border-color: color-mix(in oklab, var(--warn) 40%, var(--line)); }
+.tag.claude { color: var(--opencode); border-color: color-mix(in oklab, var(--opencode) 40%, var(--line)); }
+.cmp { display: grid; gap: 14px; align-content: start; }
+.stack-row { display: grid; gap: 6px; }
+.stack-head { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.stack { display: flex; gap: 2px; height: 30px; }
+.seg { height: 100%; transition: flex-basis .35s ease; min-width: 0; }
+.seg:last-child { border-radius: 0 4px 4px 0; }
+.result { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline; padding: 14px 16px; background: var(--surface-2); border-radius: 10px; }
+.result .delta { font-family: var(--display); font-size: 32px; font-weight: 700; color: var(--good); line-height: 1; }
+select { font: 500 14px var(--body); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; max-width: 100%; }
+.breakdown { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 4px 12px; font-size: 13px; align-items: center; }
+.breakdown .h { color: var(--ink-3); font-size: 12px; }
+
+/* notes */
+.cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.callout { border-left: 3px solid var(--warn); padding: 4px 0 4px 14px; display: grid; gap: 6px; }
+code { font-family: var(--mono); font-size: 12.5px; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+
+/* tooltip */
+.tip { position: fixed; z-index: 10; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 12px; line-height: 1.5; padding: 6px 9px; border-radius: 6px; max-width: 260px; opacity: 0; transition: opacity .12s; }
+.tip.show { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">รายงานผลทดสอบ · 3 ต.ค. 2026</span>
+  <h1>Mali Token Saver</h1>
+  <p class="muted">งานเดียวกัน โมเดลเดียวกัน เทียบ 3 แบบ: OpenCode ที่ Cowork ใช้อยู่, agent ของ Mali แบบเดิม และ agent ของ Mali ที่เปิดระบบลด token แล้ว วัดทั้งจำนวน token และคุณภาพงานด้วยการตรวจผลลัพธ์จริงทีละข้อ</p>
+  <div class="chips">
+    <span class="chip">ollama-cloud/gpt-oss:120b</span>
+    <span class="chip">7 งาน × 2 รอบ × 3 แบบ = 42 ครั้ง</span>
+    <span class="chip">connector จำลอง 32 tools</span>
+  </div>
+</header>
+
+<div class="figures" aria-label="สรุปผล">
+  <div class="figure">
+    <span class="eyebrow">เทียบ OpenCode</span>
+    <span class="big good num" id="fig-oc">−60%</span>
+    <span class="muted small">token ขาเข้าเฉลี่ยต่องาน</span>
+  </div>
+  <div class="figure">
+    <span class="eyebrow">เทียบ Mali แบบเดิม</span>
+    <span class="big good num" id="fig-before">−31%</span>
+    <span class="muted small">ผลจากระบบลด token ล้วน ๆ</span>
+  </div>
+  <div class="figure">
+    <span class="eyebrow">คุณภาพงาน</span>
+    <span class="big num">100%</span>
+    <span class="muted small">ในทุกครั้งที่ผู้ให้บริการโมเดลไม่ error (3 ครั้งโดน 500 จาก ollama-cloud)</span>
+  </div>
+</div>
+
+<section>
+  <div class="section-head">
+    <span class="eyebrow">ผลที่วัดได้</span>
+    <h2>token ขาเข้าเฉลี่ยต่องาน</h2>
+    <p class="muted">นับ token ทั้งหมดที่ส่งให้โมเดลตลอดงาน รวมส่วนที่ผู้ให้บริการ cache ไว้ เพราะ ollama นับโควตาจากยอดนี้</p>
+  </div>
+  <div class="panel">
+    <div class="legend" id="engine-legend"></div>
+    <div class="bars" id="overall"></div>
+  </div>
+</section>
+
+<section>
+  <div class="section-head row-between">
+    <div class="section-head">
+      <span class="eyebrow">แยกตามงาน</span>
+      <h2>แต่ละงานลดได้เท่าไหร่</h2>
+    </div>
+    <div class="tabs" role="tablist" aria-label="มุมมอง">
+      <button role="tab" id="tab-chart" aria-selected="true" aria-controls="view-chart">กราฟ</button>
+      <button role="tab" id="tab-table" aria-selected="false" aria-controls="view-table">ตาราง (ทุกครั้ง)</button>
+    </div>
+  </div>
+  <div class="panel" id="view-chart" role="tabpanel" aria-labelledby="tab-chart">
+    <div class="legend" id="engine-legend-2"></div>
+    <div id="tasks"></div>
+  </div>
+  <div class="panel" id="view-table" role="tabpanel" aria-labelledby="tab-table" hidden>
+    <div class="table-wrap"><table id="runs-table"></table></div>
+    <p class="small muted">คุณภาพ = สัดส่วนข้อตรวจที่ผ่าน เช่น ตัวเลขถูก ไฟล์อยู่ครบ เทสผ่าน ไม่ได้ให้โมเดลตัดสินกันเอง · แถวสีส้ม = ผู้ให้บริการโมเดลตอบ 500 กลางงาน</p>
+  </div>
+</section>
+
+<section>
+  <div class="section-head">
+    <span class="eyebrow">กระบวนการ</span>
+    <h2>อะไรที่ทำให้ token ลดลง</h2>
+    <p class="muted">ทุกขั้นที่ agent คิด มันต้องส่งของ 4 อย่างให้โมเดลใหม่ทั้งหมด: คำสั่งระบบ, คำอธิบายเครื่องมือในตัว, คำอธิบายเครื่องมือของ connector และประวัติงานที่ผ่านมา ลองเปิดปิดแต่ละวิธีดูว่ากองไหนเล็กลง</p>
+  </div>
+  <div class="sim">
+    <div class="levers" id="levers"></div>
+    <div class="panel cmp">
+      <div class="row-between">
+        <label for="scenario" class="small muted">ตัวอย่างงาน</label>
+        <select id="scenario"></select>
+      </div>
+      <p class="small muted" id="scenario-note"></p>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--c-sys)"></i>คำสั่งระบบ</span>
+        <span><i class="sw" style="background:var(--c-builtin)"></i>เครื่องมือในตัว</span>
+        <span><i class="sw" style="background:var(--c-conn)"></i>เครื่องมือ connector</span>
+        <span><i class="sw" style="background:var(--c-hist)"></i>ประวัติงาน / ผลจากเครื่องมือ</span>
+      </div>
+      <div class="stack-row">
+        <div class="stack-head"><span>ปิดทุกวิธี (แบบเดิม)</span><span class="num" id="tot-before"></span></div>
+        <div class="stack" id="stack-before"></div>
+      </div>
+      <div class="stack-row">
+        <div class="stack-head"><span>ตามที่เลือกไว้</span><span class="num" id="tot-after"></span></div>
+        <div class="stack" id="stack-after"></div>
+      </div>
+      <div class="result">
+        <span class="delta num" id="sim-delta"></span>
+        <span class="small muted" id="sim-delta-note"></span>
+      </div>
+      <div class="breakdown" id="breakdown"></div>
+      <p class="small muted">ตัวเลขในส่วนนี้คำนวณจากขนาดจริงที่วัดได้ของแต่ละชิ้น (ตัวอักษร ÷ 4 ≈ token) และใช้กติกาเดียวกับโค้ด เป็นแบบจำลองให้เห็นภาพ ผลจริงดูที่กราฟด้านบน</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="section-head">
+    <span class="eyebrow">ข้อมูลใช้งานจริง 14 วัน</span>
+    <h2>token ในงานจริงหมดไปกับอะไร</h2>
+    <p class="muted">จากประวัติ session ของ Mali ในเครื่องนี้: ผลจากเครื่องมือที่ถูกส่งซ้ำในทุกขั้นถัดไป แยกตามเครื่องมือ นี่คือเหตุผลที่ต้องย่อผลเก่าที่ใช้แล้ว</p>
+  </div>
+  <div class="cols">
+    <div class="panel">
+      <h3>ส่วนแบ่งของ "ผลจากเครื่องมือที่ถูกส่งซ้ำ"</h3>
+      <div class="bars" id="resent"></div>
+    </div>
+    <div class="panel">
+      <h3>token ต่อคำตอบ (เฉลี่ย)</h3>
+      <div class="bars" id="real"></div>
+      <p class="small muted">agent ของ Mali ใช้เยอะกว่าเพราะงาน Canva ยาวหลายขั้นและส่งคำอธิบายเครื่องมือของ connector ทุกขั้น ตัวเลขนี้เป็นงานต่างกัน ใช้ดูแนวโน้มเท่านั้น ส่วนการเทียบที่ยุติธรรมคือผลทดสอบด้านบน</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="section-head">
+    <span class="eyebrow">เป้าหมาย</span>
+    <h2>เป้า 90% อยู่ตรงไหนแล้ว</h2>
+  </div>
+  <div class="cols">
+    <div class="panel callout">
+      <h3>ตอนนี้: −31% เทียบ Mali เดิม, −60% เทียบ OpenCode</h3>
+      <p class="small">ยังไม่ถึง 90% ส่วนที่เหลือมาจากสิ่งที่ตัดไม่ได้โดยไม่เสียคุณภาพ เช่น คำสั่งระบบและเนื้อหาที่ agent ต้องอ่านจริง</p>
+      <p class="small">ระบบลดได้มากขึ้นเมื่อมี connector หลายตัวพร้อมกัน (Canva + Notion + Gmail มีเครื่องมือเป็นร้อย) ในการทดสอบนี้มีแค่ตัวเดียว 32 tools</p>
+      <p class="small">token ที่ไม่ได้ cache ขยับขึ้นเล็กน้อย (4.1k → 5.2k ต่องาน) เพราะการโหลดเครื่องมือกลางงานทำให้ต้นคำขอเปลี่ยน</p>
+    </div>
+    <div class="panel">
+      <h3>ขั้นต่อไปที่จะลองวัด</h3>
+      <ul class="plain small">
+        <li>ทดสอบกับโมเดล Claude: prompt caching เปิดแล้ว ส่วนที่ cache จะคิดราคาราว 10% แต่ยังไม่ได้วัดในรอบนี้</li>
+        <li>เพิ่มงานจริงแบบ Canva หลายขั้น และค้นเว็บหลายหน้า ซึ่งเป็นงานที่กิน token ที่สุดในการใช้งานจริง</li>
+        <li>ย่อประวัติให้เร็วขึ้น โดยวัดคุณภาพด้วยชุดทดสอบเดิมทุกครั้งก่อนเปิดใช้</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="section-head">
+    <span class="eyebrow">วิธีทดสอบ</span>
+    <h2>ทดสอบอย่างไร</h2>
+  </div>
+  <div class="cols">
+    <div class="panel">
+      <ul class="plain small">
+        <li>ทุกครั้งเริ่มจากสำเนาโฟลเดอร์ตัวอย่างใหม่ แล้วลบทิ้งหลังตรวจเสร็จ กันไม่ให้ agent ไปเจองานของรอบอื่น</li>
+        <li>connector "Acme CRM" รันในเครื่อง มี 32 tools ขนาดคำอธิบายพอ ๆ กับ connector จริง ไม่แตะบัญชีจริงของคุณ</li>
+        <li>OpenCode ได้ connector ตัวเดียวกัน และปิด connector อื่นของเครื่องไว้ ให้เท่ากันทุกฝั่ง</li>
+        <li>Mali รันแบบไม่มีหน้าจอ ใส่คำสั่งเรื่อง connector แบบเดียวกับที่แอปใส่จริง</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <ul class="plain small">
+        <li>รันซ้ำเอง: <code>node scripts/token-bench/run.mjs --model ollama-cloud/gpt-oss:120b --repeat 2</code></li>
+        <li>ผลดิบ: <code>scripts/token-bench/results/2026-10-02T18-34-07/</code></li>
+        <li>สวิตช์เทียบก่อน/หลัง: <code>MALI_TOKEN_SAVER=0</code> ปิดระบบลด token</li>
+        <li>รอบละ 2 ครั้งต่องาน ผลของงานเดียวกันแกว่งได้ ดูตารางทุกครั้งประกอบ</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</div>
+<div class="tip" id="tip" role="tooltip"></div>
+
+<script>
+// ── measured runs (results.json, 2026-10-02T18-34-07) ──
+const RUNS = [{"t":"csv-summary","e":"opencode","r":1,"tok":80418,"unc":5122,"out":874,"q":100,"err":null,"tools":5},{"t":"csv-summary","e":"mali-before","r":1,"tok":32797,"unc":2717,"out":777,"q":100,"err":null,"tools":4},{"t":"csv-summary","e":"mali-after","r":1,"tok":25441,"unc":2737,"out":813,"q":100,"err":null,"tools":5},{"t":"fix-bug","e":"opencode","r":1,"tok":122684,"unc":5516,"out":1149,"q":100,"err":null,"tools":8},{"t":"fix-bug","e":"mali-before","r":1,"tok":74782,"unc":3438,"out":968,"q":100,"err":null,"tools":9},{"t":"fix-bug","e":"mali-after","r":1,"tok":40404,"unc":3348,"out":912,"q":100,"err":null,"tools":8},{"t":"crm-lookup","e":"opencode","r":1,"tok":38480,"unc":4016,"out":367,"q":100,"err":null,"tools":2},{"t":"crm-lookup","e":"mali-before","r":1,"tok":25970,"unc":2498,"out":448,"q":100,"err":null,"tools":3},{"t":"crm-lookup","e":"mali-after","r":1,"tok":22777,"unc":4985,"out":670,"q":100,"err":null,"tools":4},{"t":"crm-create","e":"opencode","r":1,"tok":51516,"unc":13052,"out":339,"q":100,"err":null,"tools":3},{"t":"crm-create","e":"mali-before","r":1,"tok":25977,"unc":2473,"out":494,"q":100,"err":null,"tools":3},{"t":"crm-create","e":"mali-after","r":1,"tok":23054,"unc":7038,"out":526,"q":100,"err":null,"tools":4},{"t":"crm-to-files","e":"opencode","r":1,"tok":176425,"unc":5497,"out":1786,"q":89,"err":null,"tools":12},{"t":"crm-to-files","e":"mali-before","r":1,"tok":54304,"unc":3088,"out":1901,"q":78,"err":"500","tools":7},{"t":"crm-to-files","e":"mali-after","r":1,"tok":22776,"unc":5176,"out":759,"q":22,"err":"500","tools":5},{"t":"handbook-qa","e":"opencode","r":1,"tok":68926,"unc":12814,"out":654,"q":100,"err":null,"tools":3},{"t":"handbook-qa","e":"mali-before","r":1,"tok":50341,"unc":11381,"out":593,"q":100,"err":null,"tools":4},{"t":"handbook-qa","e":"mali-after","r":1,"tok":30289,"unc":11217,"out":394,"q":100,"err":null,"tools":2},{"t":"thai-summary","e":"opencode","r":1,"tok":52149,"unc":4453,"out":445,"q":100,"err":null,"tools":3},{"t":"thai-summary","e":"mali-before","r":1,"tok":32674,"unc":2674,"out":711,"q":100,"err":null,"tools":4},{"t":"thai-summary","e":"mali-after","r":1,"tok":21223,"unc":2663,"out":526,"q":100,"err":null,"tools":4},{"t":"csv-summary","e":"opencode","r":2,"tok":38967,"unc":4247,"out":699,"q":100,"err":null,"tools":2},{"t":"csv-summary","e":"mali-before","r":2,"tok":32682,"unc":2666,"out":797,"q":100,"err":null,"tools":4},{"t":"csv-summary","e":"mali-after","r":2,"tok":21229,"unc":2685,"out":695,"q":100,"err":null,"tools":4},{"t":"fix-bug","e":"opencode","r":2,"tok":79932,"unc":14028,"out":721,"q":100,"err":null,"tools":5},{"t":"fix-bug","e":"mali-before","r":2,"tok":54477,"unc":3325,"out":975,"q":100,"err":null,"tools":7},{"t":"fix-bug","e":"mali-after","r":2,"tok":37776,"unc":3280,"out":844,"q":100,"err":null,"tools":7},{"t":"crm-lookup","e":"opencode","r":2,"tok":51467,"unc":4123,"out":432,"q":100,"err":null,"tools":3},{"t":"crm-lookup","e":"mali-before","r":2,"tok":25985,"unc":2497,"out":523,"q":100,"err":null,"tools":3},{"t":"crm-lookup","e":"mali-after","r":2,"tok":23025,"unc":4865,"out":678,"q":100,"err":null,"tools":4},{"t":"crm-create","e":"opencode","r":2,"tok":51531,"unc":4155,"out":447,"q":100,"err":null,"tools":3},{"t":"crm-create","e":"mali-before","r":2,"tok":25977,"unc":2473,"out":396,"q":100,"err":null,"tools":3},{"t":"crm-create","e":"mali-after","r":2,"tok":23330,"unc":5090,"out":560,"q":100,"err":null,"tools":4},{"t":"crm-to-files","e":"opencode","r":2,"tok":78787,"unc":13379,"out":1003,"q":33,"err":null,"tools":5},{"t":"crm-to-files","e":"mali-before","r":2,"tok":69427,"unc":3507,"out":2223,"q":100,"err":null,"tools":8},{"t":"crm-to-files","e":"mali-after","r":2,"tok":60912,"unc":6176,"out":2428,"q":78,"err":"500","tools":9},{"t":"handbook-qa","e":"opencode","r":2,"tok":68933,"unc":21749,"out":586,"q":100,"err":null,"tools":3},{"t":"handbook-qa","e":"mali-before","r":2,"tok":50272,"unc":11376,"out":560,"q":100,"err":null,"tools":4},{"t":"handbook-qa","e":"mali-after","r":2,"tok":38916,"unc":11396,"out":544,"q":100,"err":null,"tools":4},{"t":"thai-summary","e":"opencode","r":2,"tok":52185,"unc":4473,"out":709,"q":100,"err":null,"tools":3},{"t":"thai-summary","e":"mali-before","r":2,"tok":32686,"unc":2686,"out":453,"q":100,"err":null,"tools":4},{"t":"thai-summary","e":"mali-after","r":2,"tok":12740,"unc":2532,"out":434,"q":100,"err":null,"tools":2}];
+
+const ENGINES = [
+  { id: "opencode", name: "OpenCode", color: "var(--opencode)" },
+  { id: "mali-before", name: "Mali เดิม", color: "var(--before)" },
+  { id: "mali-after", name: "Mali ใหม่", color: "var(--after)" },
+];
+const TASKS = [
+  ["csv-summary", "สรุปไฟล์ CSV ลงไฟล์"],
+  ["fix-bug", "แก้บั๊กให้เทสผ่าน"],
+  ["crm-lookup", "ค้นข้อมูลใน connector"],
+  ["crm-create", "สร้างใบแจ้งหนี้ผ่าน connector"],
+  ["crm-to-files", "ดึงข้อมูล connector เขียนอีเมลภาษาไทย"],
+  ["handbook-qa", "ตอบคำถามจากเอกสารยาว"],
+  ["thai-summary", "สรุปบันทึกประชุมเป็นภาษาไทย"],
+];
+const fmt = (n) => Math.round(n).toLocaleString("en-US");
+const k = (n) => (n >= 10000 ? `${(n / 1000).toFixed(1)}k` : fmt(n));
+const avg = (xs) => xs.reduce((a, b) => a + b, 0) / (xs.length || 1);
+const runsOf = (engine, task) => RUNS.filter((r) => r.e === engine && (!task || r.t === task));
+const el = (tag, attrs = {}, html = "") => Object.assign(document.createElement(tag), attrs, html ? { innerHTML: html } : {});
+
+// tooltip
+const tip = document.getElementById("tip");
+function attachTip(node, text) {
+  node.tabIndex = 0;
+  node.setAttribute("aria-label", text.replace(/<[^>]+>/g, " "));
+  const show = (x, y) => { tip.innerHTML = text; tip.classList.add("show"); place(x, y); };
+  const place = (x, y) => {
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    tip.style.left = Math.min(window.innerWidth - w - 8, Math.max(8, x + 12)) + "px";
+    tip.style.top = Math.max(8, y - h - 10) + "px";
+  };
+  node.addEventListener("pointerenter", (e) => show(e.clientX, e.clientY));
+  node.addEventListener("pointermove", (e) => place(e.clientX, e.clientY));
+  node.addEventListener("pointerleave", () => tip.classList.remove("show"));
+  node.addEventListener("focus", () => { const r = node.getBoundingClientRect(); show(r.left + r.width / 2, r.top); });
+  node.addEventListener("blur", () => tip.classList.remove("show"));
+}
+
+function legend(id) {
+  const box = document.getElementById(id);
+  for (const e of ENGINES) box.append(el("span", {}, `<i class="sw" style="background:${e.color}"></i>${e.name}`));
+}
+legend("engine-legend");
+legend("engine-legend-2");
+
+// overall
+const overall = ENGINES.map((e) => {
+  const rs = runsOf(e.id);
+  return { ...e, tok: avg(rs.map((r) => r.tok)), q: avg(rs.map((r) => r.q)), clean: avg(rs.filter((r) => !r.err).map((r) => r.q)) };
+});
+const max1 = Math.max(...overall.map((o) => o.tok));
+const before = overall.find((o) => o.id === "mali-before").tok;
+const oc = overall.find((o) => o.id === "opencode").tok;
+const box1 = document.getElementById("overall");
+for (const o of overall) {
+  const row = el("div", { className: "bar-row" });
+  row.append(el("span", { className: "label" }, o.name));
+  const track = el("div", { className: "track" });
+  const bar = el("div", { className: "bar" });
+  bar.style.width = `${(100 * o.tok) / max1}%`;
+  bar.style.background = o.color;
+  attachTip(bar, `<b>${o.name}</b><br>${fmt(o.tok)} token ต่องาน<br>คุณภาพเฉลี่ย ${Math.round(o.q)}% · ไม่นับครั้งที่ error ${Math.round(o.clean)}%`);
+  track.append(bar);
+  row.append(track);
+  const vs = o.id === "mali-before" ? "ฐาน" : `${Math.round((100 * (o.tok - before)) / before)}%`;
+  row.append(el("span", { className: "value num" }, `<b>${k(o.tok)}</b> · ${o.id === "opencode" ? "+" : ""}${vs}`));
+  box1.append(row);
+}
+document.getElementById("fig-oc").textContent = `−${Math.round((100 * (oc - overall[2].tok)) / oc)}%`;
+document.getElementById("fig-before").textContent = `−${Math.round((100 * (before - overall[2].tok)) / before)}%`;
+
+// per task
+const taskBox = document.getElementById("tasks");
+const maxT = Math.max(...TASKS.flatMap(([t]) => ENGINES.map((e) => avg(runsOf(e.id, t).map((r) => r.tok)))));
+for (const [t, name] of TASKS) {
+  const g = el("div", { className: "task-group" });
+  const b = avg(runsOf("mali-before", t).map((r) => r.tok));
+  const a = avg(runsOf("mali-after", t).map((r) => r.tok));
+  const head = el("div", { className: "task-title" });
+  head.append(el("h3", {}, name));
+  head.append(el("span", { className: "pill" }, `Mali ใหม่ −${Math.round((100 * (b - a)) / b)}% จากเดิม`));
+  g.append(head);
+  for (const e of ENGINES) {
+    const rs = runsOf(e.id, t);
+    const tok = avg(rs.map((r) => r.tok));
+    const q = avg(rs.map((r) => r.q));
+    const errs = rs.filter((r) => r.err).length;
+    const row = el("div", { className: "bar-row" });
+    row.append(el("span", { className: "label" }, e.name));
+    const track = el("div", { className: "track" });
+    const bar = el("div", { className: "bar" });
+    bar.style.width = `${(100 * tok) / maxT}%`;
+    bar.style.background = e.color;
+    attachTip(bar, `<b>${e.name} · ${name}</b><br>${rs.map((r) => `รอบ ${r.r}: ${fmt(r.tok)} token · คุณภาพ ${r.q}%${r.err ? " · error 500" : ""}`).join("<br>")}`);
+    track.append(bar);
+    row.append(track);
+    row.append(el("span", { className: "value num" }, `<b>${k(tok)}</b> · ${Math.round(q)}%${errs ? ` <span style="color:var(--warn)">(${errs} error)</span>` : ""}`));
+    g.append(row);
+  }
+  taskBox.append(g);
+}
+
+// table
+const table = document.getElementById("runs-table");
+table.innerHTML = `<thead><tr><th>งาน</th><th>รอบ</th><th>แบบ</th><th>token ขาเข้า</th><th>ไม่ได้ cache</th><th>ขาออก</th><th>เรียกเครื่องมือ</th><th>คุณภาพ</th></tr></thead>`;
+const tb = el("tbody");
+for (const [t, name] of TASKS)
+  for (const r of RUNS.filter((x) => x.t === t)) {
+    const e = ENGINES.find((x) => x.id === r.e);
+    tb.append(el("tr", {}, `<td>${name}</td><td class="num">${r.r}</td><td>${e.name}</td><td class="num">${fmt(r.tok)}</td><td class="num">${fmt(r.unc)}</td><td class="num">${fmt(r.out)}</td><td class="num">${r.tools}</td><td class="num${r.err ? " err" : ""}">${r.q}%${r.err ? " · 500" : ""}</td>`));
+  }
+table.append(tb);
+const tabs = [["tab-chart", "view-chart"], ["tab-table", "view-table"]];
+for (const [tabId, viewId] of tabs)
+  document.getElementById(tabId).addEventListener("click", () => {
+    for (const [t2, v2] of tabs) {
+      document.getElementById(t2).setAttribute("aria-selected", String(t2 === tabId));
+      document.getElementById(v2).hidden = v2 !== viewId;
+    }
+  });
+
+// ── real usage (14 days, this machine) ──
+function simpleBars(id, rows, unit, maxV) {
+  const box = document.getElementById(id);
+  for (const [label, v, color, tipText] of rows) {
+    const row = el("div", { className: "bar-row" });
+    row.append(el("span", { className: "label" }, label));
+    const track = el("div", { className: "track" });
+    const bar = el("div", { className: "bar" });
+    bar.style.width = `${(100 * v) / maxV}%`;
+    bar.style.background = color;
+    attachTip(bar, tipText);
+    track.append(bar);
+    row.append(track);
+    row.append(el("span", { className: "value num" }, `<b>${unit === "%" ? v + "%" : k(v)}</b>`));
+    box.append(row);
+  }
+}
+simpleBars("resent", [
+  ["ค้นเว็บ (fetch)", 36, "var(--c-hist)", "ดึงหน้าเว็บ 38 ครั้ง ผลรวม 111k ตัวอักษร ถูกส่งซ้ำ 508k ตัวอักษร"],
+  ["อ่านไฟล์", 24, "var(--c-hist)", "read_file 65 ครั้ง ถูกส่งซ้ำ 343k ตัวอักษร"],
+  ["Canva", 23, "var(--c-hist)", "Canva 34 ครั้ง ถูกส่งซ้ำ 318k ตัวอักษร"],
+  ["คำสั่ง shell", 8, "var(--c-hist)", "bash 25 ครั้ง ถูกส่งซ้ำ 109k ตัวอักษร"],
+  ["อื่น ๆ", 9, "var(--c-hist)", "เทมเพลต ทีม รายการไฟล์ Notion ฯลฯ"],
+], "%", 40);
+simpleBars("real", [
+  ["Mali agent", 278267, "var(--before)", "16 คำตอบ · cache ได้ 232k · ไม่ได้ cache 46k"],
+  ["OpenCode", 103617, "var(--opencode)", "132 คำตอบ · cache ได้ 92k · ไม่ได้ cache 11k"],
+], "tok", 290000);
+
+// ── the anatomy simulator: one task's requests, step by step ──
+// Sizes in characters, measured: system prompt (rules 3,584 + environment
+// + the app's connector instructions 3,842), built-in tools (6,436),
+// the Acme connector's 32 tool definitions (19,185) and its catalog (3,242).
+const SIZE = { sys: 8300, builtin: 6436, connFull: 19185, catalog: 3242, perTool: 600, jsonRatio: 1430 / 1926, link: 830, handle: 45 };
+// Shortening stale output: the rule in compact.rs.
+const STALE = { keep: 6, chars: 2000, budget: 12000 };
+
+const SCENARIOS = {
+  crm: {
+    name: "งานผ่าน connector (CRM)",
+    note: "หาลูกค้า ดูใบแจ้งหนี้ แล้วเขียนไฟล์ 6 ขั้น ใช้เครื่องมือ connector 3 ตัว",
+    connector: true, uses: 3,
+    steps: [{ conn: 1926 }, { conn: 1926 }, { conn: 1926 }, { file: 300 }, { file: 300 }, {}],
+  },
+  web: {
+    name: "ค้นเว็บหลายหน้า",
+    note: "ดึง 5 หน้าเว็บ หน้าละ ~8,000 ตัวอักษร แล้วสรุปลงไฟล์ (งานแบบที่กิน token มากที่สุดในการใช้งานจริง)",
+    connector: true, uses: 0,
+    steps: [{ file: 8000 }, { file: 8000 }, { file: 8000 }, { file: 8000 }, { file: 8000 }, { file: 300 }, {}],
+  },
+  doc: {
+    name: "อ่านเอกสารยาว",
+    note: "อ่านคู่มือ 40,000 ตัวอักษร แล้วตอบคำถามลงไฟล์ (เหมือนงาน handbook-qa)",
+    connector: true, uses: 0,
+    steps: [{ file: 40000 }, { file: 300 }, {}],
+  },
+  canva: {
+    name: "งานออกแบบ Canva",
+    note: "สร้างดีไซน์ รอผล ดึงภาพตัวอย่าง 4 หน้า ทุกภาพมีลิงก์ยาว ~830 ตัวอักษร",
+    connector: true, uses: 3,
+    steps: [{ conn: 1500 }, { conn: 1200 }, { conn: 1400, links: 4 }, { conn: 900, links: 4 }, {}],
+  },
+};
+
+const LEVERS = [
+  { id: "lazy", name: "โหลดเครื่องมือ connector เมื่อใช้", on: true,
+    what: "ส่งแค่รายชื่อเครื่องมือบรรทัดละตัว ตัวไหนจะใช้ค่อยโหลดคำอธิบายเต็ม",
+    facts: ["19,185 → 3,242 ตัวอักษรต่อขั้น", "−83%"], tag: ["measured", "วัดในเทสต์แล้ว"] },
+  { id: "stale", name: "ย่อผลเก่าที่ใช้แล้ว", on: true,
+    what: "ผลจากเครื่องมือที่ยาวเกิน 2,000 ตัวอักษรและเก่ากว่า 6 ข้อความ จะย่อทีเดียวเมื่อสะสมเกิน 12,000 ตัวอักษร",
+    facts: ["ทำทีละก้อน ไม่ทำลาย cache ทุกขั้น"], tag: ["measured", "วัดในเทสต์แล้ว"] },
+  { id: "json", name: "บีบ JSON ให้เหลือบรรทัดเดียว", on: true,
+    what: "ผลจาก connector ที่จัดหน้าสวย ๆ มีช่องว่างเยอะ บีบให้แน่นโดยข้อมูลเท่าเดิม",
+    facts: ["1,926 → 1,430 ตัวอักษร", "−26%"], tag: ["measured", "วัดขนาดจริง"] },
+  { id: "handle", name: "ลิงก์ภาพ Canva เป็นรหัสสั้น", on: true,
+    what: "ลิงก์ภาพที่ลงลายเซ็นยาว ~830 ตัวอักษร ส่งให้โมเดลเป็นรหัส 45 ตัวอักษร แอปเก็บภาพไว้เอง แถมแก้ปัญหาพรีวิวพังด้วย",
+    facts: ["830 → 45 ตัวอักษรต่อลิงก์", "−95%"], tag: ["measured", "วัดจากแชทจริง"] },
+  { id: "cache", name: "Prompt caching (Claude)", on: false,
+    what: "ส่วนต้นของคำขอที่ซ้ำจากขั้นก่อน Anthropic เก็บไว้และคิดราคาราว 10% ไม่ลดจำนวน token แต่ลดค่าใช้จ่ายและไม่นับลิมิต",
+    facts: ["เปิดแล้วในโค้ด", "แสดงเป็น 'ราคาเทียบเท่า'"], tag: ["claude", "เฉพาะ Claude · ยังไม่ได้วัด"] },
+];
+const state = Object.fromEntries(LEVERS.map((l) => [l.id, l.on]));
+
+function simulate(sc, on) {
+  // Build the conversation step by step; each step sends everything so far.
+  const msgs = []; // chars of each message; tool outputs are { tool: true, chars }
+  const totals = { sys: 0, builtin: 0, conn: 0, hist: 0 };
+  let cachedLike = 0;
+  let prev = 0;
+  let loaded = 0;
+  const steps = [...sc.steps];
+  // With tools on demand, a task that uses connector tools spends one step loading them.
+  if (on.lazy && sc.uses > 0) steps.unshift({ load: true });
+  for (const step of steps) {
+    if (on.stale) {
+      const cut = Math.max(0, msgs.length - STALE.keep);
+      const excess = msgs.slice(0, cut).filter((m) => m.tool).reduce((s, m) => s + Math.max(0, m.chars - STALE.chars), 0);
+      if (excess > STALE.budget) for (const m of msgs.slice(0, cut)) if (m.tool && m.chars > STALE.chars) m.chars = STALE.chars + 90;
+    }
+    const conn = !sc.connector ? 0 : on.lazy ? SIZE.catalog + loaded * SIZE.perTool : SIZE.connFull;
+    const hist = 400 + msgs.reduce((s, m) => s + m.chars, 0);
+    const request = SIZE.sys + SIZE.builtin + conn + hist;
+    totals.sys += SIZE.sys; totals.builtin += SIZE.builtin; totals.conn += conn; totals.hist += hist;
+    // What a cache could serve: the part this request shares with the last one.
+    cachedLike += Math.min(prev, request);
+    prev = request;
+    // The step's own call and its result join the history.
+    msgs.push({ chars: 160 });
+    if (step.load) { loaded = sc.uses; msgs.push({ tool: true, chars: 120 }); continue; }
+    let out = 0;
+    if (step.conn) out += on.json ? step.conn * SIZE.jsonRatio : step.conn;
+    if (step.links) out += step.links * (on.handle ? SIZE.handle : SIZE.link) * 2; // in the result, and again in the reply
+    if (step.file) out += step.file;
+    if (out) msgs.push({ tool: true, chars: out });
+  }
+  const t = Object.fromEntries(Object.entries(totals).map(([kk, v]) => [kk, v / 4]));
+  const total = t.sys + t.builtin + t.conn + t.hist;
+  const billed = on.cache ? total - (cachedLike / 4) * 0.9 : total;
+  return { parts: t, total, billed, steps: steps.length };
+}
+
+const PARTS = [["sys", "คำสั่งระบบ", "var(--c-sys)"], ["builtin", "เครื่องมือในตัว", "var(--c-builtin)"], ["conn", "เครื่องมือ connector", "var(--c-conn)"], ["hist", "ประวัติงาน / ผลจากเครื่องมือ", "var(--c-hist)"]];
+const leverBox = document.getElementById("levers");
+for (const l of LEVERS) {
+  const label = el("label", { className: "lever" });
+  label.dataset.on = String(l.on);
+  const input = el("input", { type: "checkbox", checked: l.on, id: `lever-${l.id}` });
+  input.addEventListener("change", () => { state[l.id] = input.checked; label.dataset.on = String(input.checked); render(); });
+  label.append(input, el("span", { className: "switch" }));
+  label.append(el("h3", {}, l.name));
+  label.append(el("span", { className: "what" }, l.what));
+  label.append(el("span", { className: "facts" }, `<span class="tag ${l.tag[0]}">${l.tag[1]}</span>${l.facts.map((f) => `<span class="num">${f}</span>`).join("")}`));
+  leverBox.append(label);
+}
+const select = document.getElementById("scenario");
+for (const [id, sc] of Object.entries(SCENARIOS)) select.append(el("option", { value: id, textContent: sc.name }));
+
+function drawStack(id, parts, maxTotal) {
+  const box = document.getElementById(id);
+  box.innerHTML = "";
+  const total = PARTS.reduce((s, [p]) => s + parts[p], 0);
+  box.style.width = `${(100 * total) / maxTotal}%`;
+  for (const [p, name, color] of PARTS) {
+    if (parts[p] < 1) continue;
+    const seg = el("div", { className: "seg" });
+    seg.style.flex = `0 0 calc(${(100 * parts[p]) / total}% - 2px)`;
+    seg.style.background = color;
+    attachTip(seg, `<b>${name}</b><br>~${fmt(parts[p])} token (${Math.round((100 * parts[p]) / total)}%)`);
+    box.append(seg);
+  }
+}
+
+function render() {
+  const sc = SCENARIOS[select.value];
+  document.getElementById("scenario-note").textContent = sc.note;
+  const off = simulate(sc, { lazy: false, stale: false, json: false, handle: false, cache: false });
+  const now = simulate(sc, state);
+  drawStack("stack-before", off.parts, off.total);
+  drawStack("stack-after", now.parts, off.total);
+  document.getElementById("tot-before").textContent = `~${fmt(off.total)} token · ${off.steps} ขั้น`;
+  document.getElementById("tot-after").textContent = `~${fmt(now.total)} token · ${now.steps} ขั้น`;
+  const cut = Math.round((100 * (off.total - now.total)) / off.total);
+  document.getElementById("sim-delta").textContent = `${cut > 0 ? "−" : cut < 0 ? "+" : ""}${Math.abs(cut)}%`;
+  const billedCut = Math.round((100 * (off.total - now.billed)) / off.total);
+  document.getElementById("sim-delta-note").textContent = state.cache
+    ? `token ลดลงจากแบบเดิม · ถ้าใช้ Claude ราคาเทียบเท่าลดลง ~${billedCut}% (ส่วนที่ cache คิด 10%)`
+    : "token ลดลงจากแบบเดิม · เปิด Prompt caching เพื่อดูราคาเทียบเท่าบน Claude";
+  const bd = document.getElementById("breakdown");
+  bd.innerHTML = `<span></span><span class="h">ส่วนของคำขอ</span><span class="h">เดิม</span><span class="h">ตอนนี้</span>`;
+  for (const [p, name, color] of PARTS)
+    bd.innerHTML += `<i class="sw" style="background:${color}"></i><span>${name}</span><span class="num">${k(off.parts[p])}</span><span class="num">${k(now.parts[p])}</span>`;
+}
+select.addEventListener("change", render);
+render();
+</script>
+</body>
+</html>
