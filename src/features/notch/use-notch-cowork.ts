@@ -7,7 +7,7 @@
 import type { Attachment } from "@/features/attachments";
 import { useEffect, useRef, useState } from "react";
 import { requestCowork, requestStop } from "./bridge";
-import type { NotchPhase, NotchShowcase, NotchSnapshot, NotchStep } from "./types";
+import type { NotchEdit, NotchPhase, NotchShowcase, NotchSnapshot, NotchStep } from "./types";
 
 export type CoworkTurn = {
   id: string;
@@ -28,6 +28,10 @@ export type CoworkTurn = {
   changed?: number;
   /** What it made, to preview under the answer; grows as pages arrive. */
   showcase?: NotchShowcase[];
+  /** Files it wrote, with a few lines of each diff. */
+  edits?: NotchEdit[];
+  /** It ended on an error (the run's own, not the notch's). */
+  failed?: string;
   /** When it finished: an answer that lands whole with the finish still writes itself out. */
   endedAt?: number;
 };
@@ -52,6 +56,8 @@ export function useNotchCowork(snapshot: NotchSnapshot | null) {
       reply: snapshot.reply ?? t.reply,
       changed: snapshot.changed ?? t.changed,
       showcase: snapshot.showcase ?? t.showcase,
+      edits: snapshot.edits ?? t.edits,
+      failed: snapshot.phase === "done" ? snapshot.failed : undefined,
     }));
   }, [snapshot]);
 
@@ -60,10 +66,29 @@ export function useNotchCowork(snapshot: NotchSnapshot | null) {
 
   const running = turns.some((t) => t.status === "starting" || t.status === "queued" || t.status === "running");
 
-  const send = async (prompt: string, { folder, modelId, files }: { folder: string; modelId?: string; files: Attachment[] }) => {
+  /**
+   * `session`: continue that chat as it is (picked from the notch's list);
+   * otherwise work in `folder`, following up this thread's last chat there.
+   */
+  const send = async (
+    prompt: string,
+    {
+      folder,
+      modelId,
+      files,
+      session,
+    }: { folder: string; modelId?: string; files: Attachment[]; session?: string },
+  ) => {
     const id = crypto.randomUUID();
     const earlier = turnsRef.current.filter((t) => t.folder === folder);
     const previous = earlier.at(-1);
+    if (session) {
+      setTurns((prev) => [...prev, { id, prompt, folder, files, status: "starting", steps: [], chatId: session }]);
+      const answer = await requestCowork({ id, prompt, folder, modelId, attachments: files, chatId: session, session: true });
+      if (answer.error) update(id, (t) => ({ ...t, status: "error", error: answer.error }));
+      else update(id, (t) => ({ ...t, status: t.status === "starting" ? "running" : t.status }));
+      return;
+    }
     setTurns((prev) => [...prev, { id, prompt, folder, files, status: "starting", steps: [] }]);
     const answer = await requestCowork({
       id,

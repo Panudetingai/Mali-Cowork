@@ -10,7 +10,17 @@ import { useNotchCowork } from "@/features/notch/use-notch-cowork";
 import { NotchIntro } from "@/features/notch/notch-intro";
 import { NotchPill, type ActiveBot } from "@/features/notch/notch-pill";
 import type { RosterBot } from "@/features/notch/team";
-import type { NotchGeometry, NotchPhase, NotchSnapshot, NotchStep, NotchView } from "@/features/notch/types";
+import type {
+  NotchEdit,
+  NotchGeometry,
+  NotchLook,
+  NotchPeek,
+  NotchPhase,
+  NotchSession,
+  NotchSnapshot,
+  NotchStep,
+  NotchView,
+} from "@/features/notch/types";
 import { useNotchChat } from "@/features/notch/use-notch-chat";
 import type { QuickTurn } from "@/features/quick";
 import { cn } from "@/lib/utils";
@@ -30,6 +40,75 @@ const ROSTER: RosterBot[] = [
   { id: "c", name: "n8n", mascot: "mikan", color: "#ff9a2e", role: "Automations", instructions: "", modelId: "" },
   { id: "d", name: "Vercel", mascot: "petal", color: "#8b5cf6", role: "Deploys", instructions: "", modelId: "" },
 ];
+
+const EDIT: NotchEdit = {
+  id: "e1",
+  path: "src/billing.ts",
+  kind: "modified",
+  additions: 12,
+  deletions: 3,
+  lines: [
+    { tag: "ctx", text: "export function total(items: Item[]) {" },
+    { tag: "del", text: "  return items.reduce((n, i) => n + i.price, 0);" },
+    { tag: "add", text: "  const net = items.reduce((n, i) => n + i.price * i.qty, 0);" },
+    { tag: "add", text: "  return Math.round(net * (1 + VAT) * 100) / 100;" },
+  ],
+};
+
+const SESSIONS: NotchSession[] = [
+  {
+    id: "s1",
+    title: "Redesign the desktop app settings pane",
+    folder: "desktop-app",
+    mode: "cowork",
+    model: "Opus 5.5",
+    asked: "Redesign the desktop app settings pane",
+    running: true,
+    waiting: false,
+    failed: false,
+    step: { kind: "Edit", title: "Edit src/settings/pane.tsx" },
+    updatedAt: Date.now() - 20_000,
+  },
+  {
+    id: "s2",
+    title: "Refactor the agent runtime scheduler",
+    folder: "agent-runtime",
+    mode: "code",
+    model: "Sonnet 5.5",
+    asked: "Refactor the agent runtime scheduler",
+    running: true,
+    waiting: true,
+    failed: false,
+    step: { kind: "Bash", title: "Bash cargo test" },
+    updatedAt: Date.now() - 50_000,
+  },
+  {
+    id: "s3",
+    title: "Ship the session routing update",
+    folder: "vibe-island",
+    mode: "chat",
+    model: "GPT-5.6",
+    asked: "Ship the session routing update",
+    answer: "Shipped the session routing update.",
+    running: false,
+    waiting: false,
+    failed: false,
+    updatedAt: Date.now() - 5 * 60_000,
+  },
+];
+
+const PEEKS: Record<string, NotchPeek> = {
+  done: { id: "p1", tone: "done", title: "Mochi finished", detail: "Dock animated, built and signed" },
+  failed: { id: "p2", tone: "failed", title: "Ichigo couldn't finish", detail: "Instagram rejected the video (format)" },
+  team: {
+    id: "p3",
+    tone: "team",
+    title: "GitHub takes over",
+    detail: "Opening a PR",
+    bot: { key: "b", mascot: "ichigo", name: "GitHub" },
+  },
+  edit: { id: "p4", tone: "edit", title: "Mochi edited a file", edit: EDIT },
+};
 
 const SAMPLE: QuickTurn[] = [
   {
@@ -63,6 +142,10 @@ export default function NotchPreviewPage() {
   const [panel, setPanel] = useState<ChatPanel>(null);
   const [model, setModel] = useState<string | null>(null);
   const [folder, setFolder] = useState<string | null>(null);
+  const [peekKind, setPeekKind] = useState("edit");
+  const [look, setLook] = useState<NotchLook>("black");
+  const [teamOpen, setTeamOpen] = useState(true);
+  const [session, setSession] = useState<NotchSession>();
   const cowork = useNotchCowork(null);
   const chat = useNotchChat(SAMPLE);
   const shownChat = thread ? chat : { ...chat, turns: [] };
@@ -93,6 +176,9 @@ export default function NotchPreviewPage() {
         ? { id: "p", directory: "/repo", permission: "bash", patterns: ["git push origin main"], title: "git push origin main" }
         : undefined,
     command: "git push origin main",
+    edits: [EDIT],
+    startedAt: Date.now() - 9000,
+    folder: "/Users/me/tv-launcher",
     showcase: [
       {
         source: "canva",
@@ -109,11 +195,22 @@ export default function NotchPreviewPage() {
     running: 1,
   };
   const leadName = BOTS.find((b) => b.id === bot)?.name ?? "Mali";
+  const peek = PEEKS[peekKind];
   const active: ActiveBot =
-    swap && phase === "working"
+    view === "peek" && peek.bot
+      ? { key: peek.bot.key, bot: peek.bot.mascot, name: peek.bot.name }
+      : swap && phase === "working"
       ? { key: ROSTER[1].id, bot: ROSTER[1].mascot, name: ROSTER[1].name }
       : { key: "lead", bot, name: leadName };
-  const shape = shapeSize(view, geometry, { thread: shownChat.turns.length > 0 || !!panel, files: false });
+  const shape = shapeSize(view, geometry, {
+    thread: shownChat.turns.length > 0 || !!panel || !!session,
+    files: false,
+    peek: peek.tone,
+    sessions: SESSIONS.length,
+    models: 3,
+    team: roster.length,
+    teamOpen,
+  });
   const win = windowSize(view, shape);
   const button = "rounded-md border px-2 py-1";
 
@@ -123,11 +220,13 @@ export default function NotchPreviewPage() {
         <Group label="Screen" options={Object.keys(SCREENS)} value={screen} onChange={setScreen} />
         <Group
           label="View"
-          options={["collapsed", "home", "chat", "permission", "drop", "welcome", "done"]}
+          options={["collapsed", "home", "chat", "sessions", "recap", "peek", "permission", "drop", "welcome", "done"]}
           value={view}
           onChange={(v) => setView(v as NotchView)}
         />
         <Group label="Phase" options={["working", "done", "idle"]} value={phase} onChange={(v) => setPhase(v as NotchPhase)} />
+        <Group label="Peek" options={Object.keys(PEEKS)} value={peekKind} onChange={setPeekKind} />
+        <Group label="Look" options={["black", "glass", "light"]} value={look} onChange={(v) => setLook(v as NotchLook)} />
         <button className={button} onClick={() => setCount((c) => (c % STEP_TITLES.length) + 1)}>
           Next step ({count})
         </button>
@@ -216,6 +315,38 @@ export default function NotchPreviewPage() {
             onBotDropped={() => setView("chat")}
             onCapturePick={() => setView("chat")}
             onAddBot={() => undefined}
+            peek={peek}
+            onPeekClose={() => setView("collapsed")}
+            sessions={SESSIONS}
+            onSessions={() => setView("sessions")}
+            onPickSession={(picked) => {
+              setSession(picked);
+              setView("chat");
+            }}
+            teamOpen={teamOpen}
+            onTeamOpen={setTeamOpen}
+            look={look}
+            usage={{ runs: 12, seconds: 3840, files: 23, tokens: 48200, cost: 0.42, days: [3, 5, 2, 8, 4, 0, 12] }}
+            recap={{
+              week: 0,
+              from: Date.now() - 4 * 86_400_000,
+              to: Date.now() + 3 * 86_400_000,
+              tasks: 18,
+              chats: 7,
+              created: 67,
+              edited: 131,
+              commands: 61,
+              seconds: 1980,
+              tokens: 2_200_000,
+              cost: 0,
+              models: [
+                { name: "muse-spark-1.3-contributor-free", tasks: 9 },
+                { name: "mimo-v2.6-flash-free", tasks: 5 },
+                { name: "big-pickle", tasks: 4 },
+              ],
+              days: [2, 5, 3, 0, 8, 0, 0],
+            }}
+            onRecap={() => setView("recap")}
             welcomeState={welcome}
             drop={drop}
             chat={
@@ -235,6 +366,8 @@ export default function NotchPreviewPage() {
                 panel={panel}
                 onPanel={setPanel}
                 onOpenChat={() => undefined}
+                session={session}
+                onLeaveSession={() => setSession(undefined)}
               />
             }
           />

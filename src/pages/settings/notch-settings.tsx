@@ -9,21 +9,42 @@ import {
   getNotchLoginItem,
   setNotchEnabled,
   setNotchLoginItem,
+  glassBlurVisuals,
+  setNotchGlassBlur,
+  setNotchLook,
   setNotchSaveChats,
   setNotchScreenPref,
   useNotchEnabled,
+  useNotchGlassBlur,
+  useNotchLook,
   useNotchSaveChats,
   useNotchScreen,
+  type NotchLook,
   type NotchScreen,
 } from "@/features/notch";
 import { isMacPlatform } from "@/features/quick";
 import { isTauri } from "@tauri-apps/api/core";
-import { ActivityIcon, HistoryIcon, KeyboardIcon, LaptopIcon, LogInIcon, MousePointer2Icon } from "lucide-react";
+import {
+  ActivityIcon,
+  DropletsIcon,
+  HistoryIcon,
+  KeyboardIcon,
+  LaptopIcon,
+  LogInIcon,
+  MousePointer2Icon,
+  PaletteIcon,
+} from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
 import { SectionHeader, Segmented, SettingRow, SettingsGroup } from "./ui";
 
 const mac = isMacPlatform();
+
+const LOOKS: { value: NotchLook; label: string }[] = [
+  { value: "black", label: "Black" },
+  { value: "glass", label: "Glass" },
+  { value: "light", label: "Light" },
+];
 
 const SCREENS: { value: NotchScreen; label: string }[] = [
   { value: "follow", label: "Follow pointer" },
@@ -35,13 +56,15 @@ export function NotchSettings() {
   const enabled = useNotchEnabled();
   const save = useNotchSaveChats();
   const screen = useNotchScreen();
+  const look = useNotchLook();
+  const glassBlur = useNotchGlassBlur();
   return (
     <div className="flex flex-col gap-8">
       <SectionHeader
         title="Notch"
         description="A small pill at the top of the screen: what the agent is doing, approvals you can answer in place, and a place to ask without opening the app."
       />
-      <NotchPreview />
+      <NotchPreview look={look} glassBlur={glassBlur} />
 
       <SettingsGroup title="Showing">
         <SettingRow
@@ -59,6 +82,36 @@ export function NotchSettings() {
             <Segmented label="Screen for the notch" value={screen} onChange={setNotchScreenPref} options={SCREENS} />
           }
         />
+        <SettingRow
+          icon={<PaletteIcon />}
+          label="Look"
+          description={`How the pill looks when it opens: the notch's own black, frosted glass${mac ? " that blurs what's behind it" : ""}, or light. Folded up, it stays black — part of the notch.`}
+          control={<Segmented label="Notch look" value={look} onChange={setNotchLook} options={LOOKS} />}
+        />
+        {look === "glass" && (
+          <SettingRow
+            icon={<DropletsIcon />}
+            htmlFor="notch-glass-blur"
+            label="Glass blur"
+            description="How strongly the pill frosts what's behind it when open. Turn it down if the desktop feels too soft; up for a heavier glass look."
+            control={
+              <div className="flex w-full min-w-[11rem] max-w-xs flex-col gap-1.5 sm:items-end">
+                <input
+                  id="notch-glass-blur"
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={glassBlur}
+                  onChange={(e) => setNotchGlassBlur(Number(e.target.value))}
+                  className="h-2 w-full cursor-pointer accent-foreground"
+                  aria-valuetext={`${glassBlur}% blur`}
+                />
+                <span className="text-xs tabular-nums text-muted-foreground">{glassBlur}%</span>
+              </div>
+            }
+          />
+        )}
         <LoginRow />
       </SettingsGroup>
 
@@ -126,11 +179,12 @@ function LoginRow() {
 }
 
 /** The pill as it looks: hanging from the top edge, opening now and then to show it's there to ask. */
-function NotchPreview() {
+function NotchPreview({ look, glassBlur }: { look: NotchLook; glassBlur: number }) {
   const { bot } = useCoworkBot();
   const color = BOTS.find((b) => b.id === bot)?.color ?? "#3aa3f5";
   const reduced = useReducedMotion();
   const [open, setOpen] = useState(false);
+  const glass = look === "glass" ? glassBlurVisuals(glassBlur) : undefined;
   useEffect(() => {
     if (reduced) return;
     const timer = setInterval(() => setOpen((o) => !o), 2600);
@@ -147,7 +201,23 @@ function NotchPreview() {
       {/* The menu bar the pill hangs from. */}
       <div className="absolute inset-x-0 top-0 h-6 bg-foreground/[0.04]" />
       <motion.div
-        className="relative mt-0 flex overflow-hidden bg-black text-white shadow-[0_18px_40px_-14px_rgba(0,0,0,0.7)]"
+        className="relative mt-0 flex overflow-hidden shadow-[0_18px_40px_-14px_rgba(0,0,0,0.7)]"
+        style={
+          look === "black" || !open
+            ? { background: "#000", color: "#fff" }
+            : look === "glass"
+              ? {
+                  background: `linear-gradient(rgba(8,8,12,${glass!.hoodAlpha}) 22px, rgba(12,12,16,${glass!.tintAlpha}) 44px)`,
+                  color: "#fff",
+                  backdropFilter: `blur(${glass!.blurPx}px) saturate(150%)`,
+                  WebkitBackdropFilter: `blur(${glass!.blurPx}px) saturate(150%)`,
+                }
+              : {
+                  background: "linear-gradient(#000 22px, rgba(250,250,252,0.86) 44px)",
+                  color: "#16161b",
+                  ["--color-white" as string]: "#16161b",
+                }
+        }
         initial={false}
         animate={
           open

@@ -2,8 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { ChatRun, ChatSession } from "@/features/chat-history";
 import type { PermissionRequest } from "@/pages/chat/api/chat";
 import type { ActivityItem, ChatMessage } from "@/pages/chat/types";
-import { hitArea, homeCards, mascotFrame, pillWindow, shapeSize, teamSlots, windowSize } from "./layout";
-import { liveSnapshot, pillSyncKey, type MateInfo } from "./snapshot";
+import { hitArea, homeCards, mascotFrame, pillWindow, shapeSize, teamSlots, UNDER_NOTCH, windowSize } from "./layout";
+import { minutesSaved } from "./recap";
+import { editsOf, liveSnapshot, pillSyncKey, recapOf, sessionsOf, usageOf, weekStart, type MateInfo } from "./snapshot";
 import type { NotchSnapshot } from "./types";
 
 const run = (permissions: PermissionRequest[] = []): ChatRun => ({
@@ -192,8 +193,12 @@ describe("layout", () => {
   const notched = { hasNotch: true, notchWidth: 185, barHeight: 32 };
   const windows = { hasNotch: false, notchWidth: 0, barHeight: 0 };
 
-  test("collapsed, the pill wraps the notch with a wing either side", () => {
-    expect(shapeSize("collapsed", notched)).toEqual({ width: 185 + 92, height: 32 });
+  test("collapsed, the pill wraps the notch with a wing either side and a step row under the camera", () => {
+    expect(shapeSize("collapsed", notched)).toEqual({ width: 185 + 92, height: 32 + UNDER_NOTCH });
+  });
+
+  test("without a notch the step sits in the bar itself", () => {
+    expect(shapeSize("collapsed", { hasNotch: false, notchWidth: 0, barHeight: 24 }).height).toBe(24);
   });
 
   test("without a menu bar the pill is an island of its own height", () => {
@@ -231,29 +236,45 @@ describe("layout", () => {
     }
   });
 
-  test("the team card: full-width rows for a small team, a grid for more, and room to add one", () => {
-    const card = homeCards(notched, shapeSize("home", notched), true).right!;
-    const one = teamSlots(card, 1);
-    expect(one.bots).toHaveLength(1);
-    expect(one.add).toBeDefined();
-    expect(one.bots[0].chip.width).toBe(one.add!.width);
-    const four = teamSlots(card, 4);
-    expect(four.add).toBeUndefined();
-    expect(four.bots[1].chip.x).toBeGreaterThan(four.bots[0].chip.x);
-    expect(teamSlots(card, 9).bots).toHaveLength(4);
-    for (const { chip, bot } of [...one.bots, ...four.bots]) {
-      expect(chip.y).toBeGreaterThanOrEqual(card.y);
+  test("the team card: the lead, the team as one row, and its bots in two columns when open", () => {
+    const closed = shapeSize("home", notched, { team: 4, teamOpen: false });
+    const open = shapeSize("home", notched, { team: 4, teamOpen: true });
+    expect(open.height).toBeGreaterThan(closed.height);
+    const card = homeCards(notched, open, true).right!;
+    const slots = teamSlots(card, 4, true);
+    expect(slots.chips).toHaveLength(4);
+    expect(slots.chips[1].x).toBeGreaterThan(slots.chips[0].x);
+    expect(slots.group.y).toBeGreaterThan(slots.lead.y);
+    for (const chip of slots.chips) {
+      expect(chip.y).toBeGreaterThan(slots.group.y);
       expect(chip.y + chip.height).toBeLessThanOrEqual(card.y + card.height);
-      expect(bot.y + bot.size).toBeLessThanOrEqual(chip.y + chip.height);
     }
+    expect(teamSlots(card, 4, false).chips).toHaveLength(0);
+    expect(teamSlots(card, 9, true).chips).toHaveLength(6);
+  });
+
+  test("a peek opens out a little; one with a diff a little more", () => {
+    const short = shapeSize("peek", notched, { peek: "done" });
+    const edit = shapeSize("peek", notched, { peek: "edit" });
+    expect(short.height).toBeGreaterThan(32);
+    expect(edit.height).toBeGreaterThan(short.height);
+  });
+
+  test("the session list grows with its rows, then scrolls", () => {
+    const one = shapeSize("sessions", notched, { sessions: 1 });
+    const five = shapeSize("sessions", notched, { sessions: 5 });
+    expect(five.height).toBeGreaterThan(one.height);
+    expect(shapeSize("sessions", notched, { sessions: 8 }).height).toBe(five.height);
   });
 
   test("the ask box grows for a thread and for files, and stays wider than the notch", () => {
     const empty = shapeSize("chat", notched, { thread: false, files: false });
     const files = shapeSize("chat", notched, { thread: false, files: true });
     const thread = shapeSize("chat", notched, { thread: true, files: false });
+    const note = shapeSize("chat", notched, { thread: false, files: false, note: true });
     expect(files.height).toBeGreaterThan(empty.height);
     expect(thread.height).toBeGreaterThan(files.height);
+    expect(note.height).toBeGreaterThan(empty.height);
     expect(empty.width).toBeGreaterThan(185 + 92);
   });
 
@@ -264,5 +285,133 @@ describe("layout", () => {
     const big = mascotFrame("home", notched, shape);
     expect(big.y).toBeGreaterThan(32);
     expect(big.y + big.size).toBeLessThan(shape.height);
+  });
+});
+
+describe("edits", () => {
+  test("an edit step's diff becomes a file with its first changed lines", () => {
+    const diff = ["--- a/src/app.ts", "+++ b/src/app.ts", "@@ -1,3 +1,3 @@", " const a = 1;", "-const b = 2;", "+const b = 3;", " export { a, b };"].join("\n");
+    const edits = editsOf([{ id: "e1", kind: "tool", title: "Edit src/app.ts", detail: diff, done: true }]);
+    expect(edits).toHaveLength(1);
+    expect(edits[0]).toMatchObject({ path: "src/app.ts", kind: "modified", additions: 1, deletions: 1 });
+    expect(edits[0].lines.map((l) => l.tag)).toEqual(["ctx", "del", "add", "ctx"]);
+  });
+
+  test("a write without a diff is a new file, its lines added", () => {
+    const edits = editsOf([{ id: "w", kind: "tool", title: "Write notes.md", detail: "# Notes\nhello", done: true }]);
+    expect(edits[0]).toMatchObject({ path: "notes.md", kind: "added", additions: 2, deletions: 0 });
+  });
+
+  test("only the last few files are kept, and reads aren't edits", () => {
+    const steps = [1, 2, 3, 4, 5].map((n) => ({ id: `w${n}`, kind: "tool", title: `Write f${n}.txt`, detail: "x", done: true }));
+    const edits = editsOf([...steps, { id: "r", kind: "tool", title: "Read f1.txt", detail: "x", done: true }]);
+    expect(edits.map((e) => e.path)).toEqual(["f3.txt", "f4.txt", "f5.txt"]);
+  });
+});
+
+describe("sessions", () => {
+  const chat = (id: string, updatedAt: number, extra: Partial<ChatSession> = {}): ChatSession => ({
+    id,
+    title: `Chat ${id}`,
+    createdAt: 0,
+    updatedAt,
+    messages: [
+      { id: `${id}-u`, role: "user", content: "Refactor   the\nscheduler" },
+      { id: `${id}-a`, role: "assistant", content: "On it.", activities: [{ id: "s", kind: "tool", title: "Bash cargo test", done: false }] },
+    ],
+    ...extra,
+  });
+  const run = { token: "t", modelId: "m", permissions: [], questions: [] } as ChatRun;
+
+  test("running chats first, then the latest; tasks left out", () => {
+    const list = sessionsOf(
+      [chat("old", 1), chat("new", 3), chat("busy", 2, { cwd: "/w/agent-runtime", mode: "cowork" }), chat("task", 9, { inboxTask: true })],
+      { busy: run },
+      (c) => !c.inboxTask,
+    );
+    expect(list.map((s) => s.id)).toEqual(["busy", "new", "old"]);
+    expect(list[0]).toMatchObject({ folder: "agent-runtime", mode: "cowork", running: true, asked: "Refactor the scheduler" });
+    expect(list[0].step).toEqual({ kind: "Bash", title: "Bash cargo test" });
+    expect(list[1].step).toBeUndefined();
+  });
+});
+
+describe("usage and recap", () => {
+  const now = new Date(2026, 9, 2, 15, 0).getTime();
+  const hour = 3_600_000;
+  const reply = (id: string, createdAt: number, extra: Partial<ChatMessage> = {}): ChatMessage => ({
+    id,
+    role: "assistant",
+    content: "done",
+    createdAt,
+    durationMs: 90_000,
+    usage: { inputTokens: 1000, outputTokens: 500, cost: 0.02 },
+    ...extra,
+  });
+  const change = (relative: string, additions: number, deletions: number) => ({
+    path: `/w/${relative}`,
+    relative,
+    kind: "modified" as const,
+    additions,
+    deletions,
+    restorable: true,
+  });
+
+  test("today's runs, time, tokens and files; runs a day across the week", () => {
+    const chats: ChatSession[] = [
+      {
+        id: "a",
+        title: "A",
+        createdAt: 0,
+        updatedAt: now,
+        messages: [
+          reply("r1", now - hour, { turn: { checkpointId: "c", state: "applied", changes: [change("x.ts", 3, 1)] } }),
+          reply("r2", now - 2 * hour),
+          reply("r3", now - 3 * 24 * hour),
+        ],
+      },
+      { id: "old", title: "Old", createdAt: 0, updatedAt: now - 30 * 24 * hour, messages: [reply("r9", now - 30 * 24 * hour)] },
+    ];
+    const usage = usageOf(chats, now);
+    expect(usage).toMatchObject({ runs: 2, seconds: 180, tokens: 3000, files: 1 });
+    expect(usage.cost).toBeCloseTo(0.04);
+    expect(usage.days).toHaveLength(7);
+    expect(usage.days[6]).toBe(2);
+    expect(usage.days[3]).toBe(1);
+  });
+
+  test("a week runs Monday to Sunday; its recap counts tasks, files, commands and models", () => {
+    // Friday 2 October 2026: the week began Monday 28 September.
+    expect(new Date(weekStart(now)).toDateString()).toBe(new Date(2026, 8, 28).toDateString());
+    expect(new Date(weekStart(now, 1)).toDateString()).toBe(new Date(2026, 8, 21).toDateString());
+    const added = { ...change("new.ts", 9, 0), kind: "added" as const };
+    const chats: ChatSession[] = [
+      {
+        id: "a",
+        title: "A",
+        createdAt: 0,
+        updatedAt: now,
+        messages: [
+          { id: "u", role: "user", content: "go", resend: { modelId: "m", modelName: "big-pickle", maxTokens: 1, autoNewChat: false } },
+          reply("r1", now - hour, {
+            activities: [
+              { kind: "tool", title: "Edit a.ts", done: true },
+              { kind: "tool", title: "Bash npm test", done: true },
+              { kind: "tool", title: "Run cargo build", done: true },
+            ],
+            turn: { checkpointId: "c", state: "applied", changes: [change("a.ts", 5, 1), added] },
+          }),
+          reply("r2", now - 2 * hour),
+        ],
+      },
+      // Last week's work counts in last week's recap, not this one.
+      { id: "b", title: "B", createdAt: 0, updatedAt: now, messages: [reply("r3", now - 6 * 24 * hour)] },
+    ];
+    const recap = recapOf(chats, 0, now);
+    expect(recap).toMatchObject({ week: 0, tasks: 2, chats: 1, created: 1, edited: 1, commands: 2, seconds: 180, tokens: 3000 });
+    expect(recap.models).toEqual([{ name: "big-pickle", tasks: 2 }]);
+    expect(recap.days[4]).toBe(2);
+    expect(recapOf(chats, 1, now)).toMatchObject({ tasks: 1, chats: 1 });
+    expect(minutesSaved(recap, { task: 3, created: 10, edited: 5, command: 1 })).toBe(6 + 10 + 5 + 2);
   });
 });

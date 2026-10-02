@@ -4,7 +4,15 @@
  */
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
-import type { NotchCoworkRequest, NotchCoworkStarted, NotchGeometry, NotchReply, NotchSnapshot } from "./types";
+import type {
+  NotchCoworkRequest,
+  NotchCoworkStarted,
+  NotchGeometry,
+  NotchLook,
+  NotchOverview,
+  NotchReply,
+  NotchSnapshot,
+} from "./types";
 
 const NOTCH = "notch";
 const STATE = "notch:state";
@@ -238,3 +246,41 @@ export function openTeamInApp(create: boolean) {
 /** Main window: the notch asked for Settings → Team. */
 export const onOpenTeam = (handler: (request: { create: boolean }) => void) =>
   on<{ create: boolean }>("notch:open-team", handler);
+
+// ── sessions ──
+
+const SESSIONS = "notch:sessions";
+const SESSIONS_WANT = "notch:sessions-want";
+
+/**
+ * Pill → main: Home or the session list is on screen (true), or not any
+ * more. The main window works out the overview (sessions, usage, the
+ * week's recap) only while it's wanted.
+ */
+export function wantNotchSessions(on: boolean, week = 0) {
+  return emitTo("main", SESSIONS_WANT, { on, week });
+}
+
+/** Main window: the pill wants the overview (with the recap of `week` weeks back), or is done with it. */
+export const onNotchSessionsWant = (handler: (want: { on: boolean; week: number }) => void) =>
+  on<{ on: boolean; week: number }>(SESSIONS_WANT, handler);
+
+export function sendNotchSessions(overview: NotchOverview) {
+  return emitTo(NOTCH, SESSIONS, overview);
+}
+
+export const onNotchSessions = (handler: (overview: NotchOverview) => void) => on<NotchOverview>(SESSIONS, handler);
+
+// ── look ──
+
+/**
+ * The frosted backdrop behind the open pill (macOS): `rect` is the pill in
+ * its window, with its bottom corners' radius. `black` (or no rect) takes it
+ * away. Resolves false where the system can't blur behind a window.
+ */
+export function setNotchBackdrop(
+  look: NotchLook,
+  rect?: { x: number; y: number; width: number; height: number; radius: number },
+) {
+  return invoke<boolean>("notch_backdrop", { look, rect: rect ?? null });
+}

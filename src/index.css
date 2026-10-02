@@ -597,6 +597,20 @@ html[lang="th"] {
   0%, 100% { opacity: 0.28; }
   50% { opacity: 0.5; }
 }
+/* A drawn face's eyes blink now and then (they're centered with a translate). */
+@keyframes notch-blink {
+  0%, 90%, 100% { transform: translate(-50%, -50%) scaleY(1); }
+  94% { transform: translate(-50%, -50%) scaleY(0.12); }
+}
+/* A bot teleporting: a ring opens out and sparks fly off (played once). */
+@keyframes notch-ring {
+  0% { transform: scale(0.35); opacity: 0.9; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+@keyframes notch-spark {
+  0% { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) scale(0.2); opacity: 0; }
+}
 @media (prefers-reduced-motion: reduce) {
   .notch-loop { animation: none !important; }
 }

@@ -145,6 +145,9 @@ export const subscribeToRuns = runStore.subscribe;
 /** Any chat changed, e.g. a streaming reply's steps (the notch pill). */
 export const subscribeToChats = sessionStore.subscribe;
 
+/** Every chat, as held now (the notch's session list); don't change what it returns. */
+export const getChats = sessionStore.get;
+
 /** Every chat's id, including tasks and throwaway chats. */
 export const getChatIds = () => sessionStore.get().map((s) => s.id);
 

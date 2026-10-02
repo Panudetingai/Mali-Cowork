@@ -4,9 +4,10 @@
  * its shadow and the curved "ears" where it meets the top of the screen.
  *
  * Nothing is drawn where the camera is: the top row keeps clear of the notch
- * and a little either side of it, since the housing's corners curve.
+ * and a little either side of it, since the housing's corners curve. The
+ * collapsed pill's step text drops to a row under the camera instead.
  */
-import type { NotchGeometry, NotchView } from "./types";
+import type { NotchGeometry, NotchPeek, NotchView } from "./types";
 
 /** Each side of the notch the collapsed pill reaches out by. */
 export const WING = 46;
@@ -20,25 +21,49 @@ const SHADOW = 28;
 const ISLAND = 34;
 /** Width of the collapsed pill without a notch to wrap: it carries the step text. */
 const ISLAND_WIDTH = 300;
+/** Under a notch the step text can't sit beside the camera: it gets a row below it. */
+export const UNDER_NOTCH = 22;
 /** Inset of the open pill's cards from its edges. */
 export const PAD = 12;
 /** Height of the open pill's body under the top row, per view. */
 const BODY = { home: 168, welcome: 150, drop: 150, permission: 136, done: 200 } as const;
+/** A peek: one line of news, or a file's first changed lines. */
+const PEEK = { short: 84, edit: 150 } as const;
+const PEEK_WIDTH = 560;
+/** The session list: its header, and each row; past `SESSION_ROWS` it scrolls. */
+export const SESSION_HEADER = 36;
+export const SESSION_ROW = 64;
+const SESSION_ROWS = 5;
+/** The weekly recap: its header, the time saved, the tiles, the models, the note under them. */
+export const RECAP = { header: 46, hero: 96, tiles: 70, model: 30, foot: 30, gap: 10 } as const;
 
-/** Height of the chat's input bar, the file row above it, and the thread above that. */
-export const CHAT_INPUT = 52;
+/** Height of the chat's composer (the input, then its buttons), the file row above it, and the thread above that. */
+export const CHAT_INPUT = 92;
 /** Thumbnails of the attached files sit above the input. */
 const CHAT_FILES = 60;
 const CHAT_THREAD = 280;
-/** The bot beside the chat's input. */
-export const CHAT_BOT = 34;
+/** The bot in the composer's corner. */
+export const CHAT_BOT = 30;
+/** Hint under the file row when send or attach fails (includes gap above the input). */
+const CHAT_NOTE = 32;
 
 export type Size = { width: number; height: number };
 export type Frame = { x: number; y: number; size: number };
 export type Box = { x: number; y: number; width: number; height: number };
 
-/** What the chat view holds besides its input. */
-export type ChatFill = { thread: boolean; files: boolean };
+/** What a view holds that changes its size: the chat's thread and files, a peek's kind, the list's length, the team. */
+export type ChatFill = {
+  thread?: boolean;
+  files?: boolean;
+  note?: boolean;
+  peek?: NotchPeek["tone"];
+  sessions?: number;
+  /** Models the recap lists. */
+  models?: number;
+  /** Bots on the team, and whether Home shows them all. */
+  team?: number;
+  teamOpen?: boolean;
+};
 
 /** The collapsed pill matches the menu bar (the notch's height on a notched Mac). */
 export function barOf(geometry: NotchGeometry) {
@@ -70,14 +95,37 @@ export function shapeSize(view: NotchView, geometry: NotchGeometry, fill?: ChatF
     case "collapsed":
       return {
         width: geometry.hasNotch ? geometry.notchWidth + 2 * WING : ISLAND_WIDTH,
-        height: barOf(geometry),
+        height: barOf(geometry) + (geometry.hasNotch ? UNDER_NOTCH : 0),
       };
     case "chat": {
-      const body = 4 + CHAT_INPUT + (fill?.files ? CHAT_FILES : 0) + (fill?.thread ? CHAT_THREAD : 0) + PAD;
+      const body =
+        4 +
+        CHAT_INPUT +
+        (fill?.files ? CHAT_FILES : 0) +
+        (fill?.thread ? CHAT_THREAD : 0) +
+        (fill?.note ? CHAT_NOTE : 0) +
+        PAD;
       return { width: openWidth(geometry, 640), height: top + body };
     }
     case "permission":
       return { width: openWidth(geometry, 600), height: top + BODY.permission };
+    case "peek":
+      return { width: openWidth(geometry, PEEK_WIDTH), height: top + (fill?.peek === "edit" ? PEEK.edit : PEEK.short) };
+    case "recap": {
+      const models = Math.min(Math.max(fill?.models ?? 1, 1), 4);
+      const body =
+        RECAP.header + RECAP.hero + RECAP.gap + RECAP.tiles + RECAP.gap + 20 + models * RECAP.model + RECAP.foot + PAD;
+      return { width: openWidth(geometry, 640), height: top + body };
+    }
+    case "sessions": {
+      const rows = Math.min(Math.max(fill?.sessions ?? 0, 1), SESSION_ROWS);
+      return { width: openWidth(geometry, 640), height: top + SESSION_HEADER + rows * SESSION_ROW + PAD };
+    }
+    case "home":
+      return {
+        width: openWidth(geometry, 640),
+        height: top + Math.max(BODY.home, teamHeight(fill?.team ?? 0, !!fill?.teamOpen) + PAD),
+      };
     default:
       return { width: openWidth(geometry, 640), height: top + BODY[view] };
   }
@@ -90,10 +138,17 @@ export function shapeSize(view: NotchView, geometry: NotchGeometry, fill?: ChatF
  * what flickered. Outside the pill, clicks go through (`hitArea`).
  */
 export function pillWindow(geometry: NotchGeometry): Size {
-  const views: NotchView[] = ["home", "welcome", "drop", "permission", "done"];
-  const tallest = shapeSize("chat", geometry, { thread: true, files: true });
-  const widest = Math.max(tallest.width, ...views.map((v) => shapeSize(v, geometry).width));
-  return { width: widest + 2 * SHADOW, height: tallest.height + SHADOW };
+  const shapes = [
+    shapeSize("chat", geometry, { thread: true, files: true, note: true }),
+    shapeSize("home", geometry, { team: TEAM_SHOWN, teamOpen: true }),
+    shapeSize("sessions", geometry, { sessions: SESSION_ROWS }),
+    shapeSize("recap", geometry, { models: 4 }),
+    shapeSize("peek", geometry, { peek: "edit" }),
+    ...(["welcome", "drop", "permission", "done"] as const).map((v) => shapeSize(v, geometry)),
+  ];
+  const widest = Math.max(...shapes.map((s) => s.width));
+  const tallest = Math.max(...shapes.map((s) => s.height));
+  return { width: widest + 2 * SHADOW, height: tallest + SHADOW };
 }
 
 /** Where the pill is in its window, ears included: the part that takes clicks. */
@@ -120,40 +175,45 @@ export function homeCards(geometry: NotchGeometry, shape: Size, split: boolean):
 }
 
 /** Bots shown on Home's team card; the rest are a "+N". */
-export const TEAM_SHOWN = 4;
-/** The team card's own row: its name, and adding a bot. */
+export const TEAM_SHOWN = 6;
+/** The team card's rows: its buttons, the lead, the team as a group, then a chip per bot. */
 export const TEAM_HEADER = 30;
+const LEAD_ROW = 36;
+const GROUP_ROW = 46;
+const CHIP = 34;
+const GAP = 8;
+
+/** The team card's height: the group alone, or open with its bots. */
+function teamHeight(bots: number, open: boolean) {
+  const shown = Math.min(bots, TEAM_SHOWN);
+  const rows = open && shown ? Math.ceil(shown / 2) : 0;
+  return TEAM_HEADER + 6 + LEAD_ROW + GAP + GROUP_ROW + (rows ? GAP + rows * CHIP + (rows - 1) * 6 : 0) + PAD;
+}
 
 /**
- * The team card: a header, then one chip per bot (the bot sits at the chip's
- * left) and, while there's room, a dashed "New bot" chip. One or two chips
- * get a full-width row each; three or four make a two-by-two grid.
+ * The team card: "Ask" and "New bot" along its top, the lead's chip, the
+ * team as one row (its faces stacked, who's working), and when that's open,
+ * a chip per bot in two columns.
  */
-export function teamSlots(card: Box, bots: number): { bots: { chip: Box; bot: Frame }[]; add?: Box } {
-  const shown = Math.min(bots, TEAM_SHOWN);
-  const count = shown + (shown < TEAM_SHOWN ? 1 : 0);
-  const columns = count <= 2 ? 1 : 2;
-  const gap = 8;
-  const height = columns === 1 ? 44 : 40;
-  const rows = Math.ceil(count / columns);
-  const width = (card.width - 2 * PAD - (columns - 1) * gap) / columns;
-  const area = { y: card.y + TEAM_HEADER, height: card.height - TEAM_HEADER - PAD };
-  const top = area.y + (area.height - (rows * height + (rows - 1) * gap)) / 2;
-  const boxes = Array.from({ length: count }, (_, i) => ({
-    x: card.x + PAD + (i % columns) * (width + gap),
-    y: top + Math.floor(i / columns) * (height + gap),
-    width,
-    height,
+export function teamSlots(card: Box, bots: number, open: boolean) {
+  const x = card.x + PAD;
+  const width = card.width - 2 * PAD;
+  const lead: Box = { x, y: card.y + TEAM_HEADER + 6, width, height: LEAD_ROW };
+  const group: Box = { x, y: lead.y + LEAD_ROW + GAP, width, height: GROUP_ROW };
+  const shown = open ? Math.min(bots, TEAM_SHOWN) : 0;
+  const half = (width - 6) / 2;
+  const chips: Box[] = Array.from({ length: shown }, (_, i) => ({
+    x: x + (i % 2) * (half + 6),
+    y: group.y + GROUP_ROW + GAP + Math.floor(i / 2) * (CHIP + 6),
+    width: half,
+    height: CHIP,
   }));
-  const size = height - 10;
-  return {
-    bots: boxes.slice(0, shown).map((chip) => ({ chip, bot: { x: chip.x + 5, y: chip.y + 5, size } })),
-    add: count > shown ? boxes[shown] : undefined,
-  };
+  return { lead, group, chips };
 }
 
 /** Where the main bot sits in the shape for each view. */
-export function mascotFrame(view: NotchView, geometry: NotchGeometry, shape: Size): Frame {
+/** `slide`: Home's left card past its first page puts the bot small in its corner. */
+export function mascotFrame(view: NotchView, geometry: NotchGeometry, shape: Size, slide = 0): Frame {
   const top = topRowOf(geometry);
   const body = shape.height - top;
   switch (view) {
@@ -163,6 +223,7 @@ export function mascotFrame(view: NotchView, geometry: NotchGeometry, shape: Siz
       return { x: (WING - size) / 2 + 2, y: (bar - size) / 2, size };
     }
     case "home": {
+      if (slide > 0) return { x: PAD + 12, y: top + 10, size: 24 };
       const size = 84;
       return { x: PAD + 18, y: top + (body - PAD - size) / 2, size };
     }
@@ -183,7 +244,18 @@ export function mascotFrame(view: NotchView, geometry: NotchGeometry, shape: Siz
       return { x: PAD + 14, y: top + 12, size };
     }
     case "chat":
-      return { x: PAD + 4, y: shape.height - PAD - CHAT_INPUT + (CHAT_INPUT - CHAT_BOT) / 2, size: CHAT_BOT };
+      // In the composer's top-left corner, beside the words.
+      return { x: PAD + 12, y: shape.height - PAD - CHAT_INPUT + 10, size: CHAT_BOT };
+    case "peek": {
+      const size = 50;
+      return { x: PAD + 20, y: top + (body - PAD - size) / 2, size };
+    }
+    case "recap":
+      // At the start of the recap's header, beside its title.
+      return { x: PAD + 6, y: top + (RECAP.header - 26) / 2, size: 26 };
+    case "sessions":
+      // At the start of the list's header, small.
+      return { x: PAD + 8, y: top + (SESSION_HEADER - 22) / 2, size: 22 };
   }
 }
 

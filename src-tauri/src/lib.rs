@@ -44,7 +44,7 @@ use commands::mcp_oauth::mcp_auth_cancel;
 use commands::mcp_registry::{mcp_fetch_icon, mcp_registry_get, mcp_registry_icon, mcp_registry_search};
 use commands::native_alert::native_alert;
 use commands::notch::{
-    notch_capture_at_cursor, notch_capture_pick, notch_drop_out, notch_enter_mode, notch_exit_mode, notch_geometry,
+    notch_backdrop, notch_capture_at_cursor, notch_capture_pick, notch_drop_out, notch_enter_mode, notch_exit_mode, notch_geometry,
     notch_hide, notch_hit_area, notch_login_item, notch_mode, notch_open_main, notch_release, notch_resize,
     notch_set_login_item, notch_set_screen, notch_show, notch_take_intro, NotchState,
 };
@@ -239,6 +239,7 @@ pub fn run() {
             notch_resize,
             notch_geometry,
             notch_hit_area,
+            notch_backdrop,
             notch_capture_at_cursor,
             notch_capture_pick,
             notch_enter_mode,

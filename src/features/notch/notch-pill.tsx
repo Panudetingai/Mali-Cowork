@@ -3,13 +3,15 @@
  * has to read as part of the notch), so it uses fixed colors rather than the
  * app's theme.
  *
- * The bots stay mounted and glide between their spots, so their animations
- * never restart: the main bot (Mali, or the team bot that's working or being
- * asked) takes the big spot, and when a team bot steps in, Mali takes its
- * chip until it's done. The shape springs between sizes and the content
- * inside fades through a blur.
+ * Only the bot in the main spot is a live animation (an iframe each); the
+ * team's chips and the session list draw small static faces, so the pill
+ * stays cheap while it sits on screen all day. When a team bot takes over,
+ * the main bot vanishes in a puff and pops up in its chip, and the team bot
+ * puffs out of its chip into the main spot. The shape springs between sizes
+ * and the content inside fades through a blur.
  */
 import { CoworkBot } from "@/components/anim/cowork-bot";
+import { useBotPicture } from "@/components/anim/cowork-bot-picture";
 import { BOTS, type BotState, type CoworkBotId } from "@/features/cowork-bot";
 import { cn } from "@/lib/utils";
 import type { TodoItem } from "@/pages/chat/api/chat";
@@ -17,48 +19,83 @@ import {
   ArrowUpRightIcon,
   CameraIcon,
   CheckIcon,
+  ChevronDownIcon,
   CircleIcon,
   FileTextIcon,
   GlobeIcon,
   HammerIcon,
   HistoryIcon,
   HomeIcon,
+  LayersIcon,
   Loader2Icon,
   MessageCircleIcon,
   PencilIcon,
   PlusIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   SearchIcon,
+  ZapIcon,
   SparklesIcon,
   TerminalIcon,
+  XIcon,
   type LucideIcon,
 } from "lucide-react";
 import { AnimatePresence, motion, MotionConfig, type Transition } from "motion/react";
-import { useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
+  barOf,
   EAR,
   homeCards,
   mascotFrame,
   PAD,
+  RECAP,
   radiusOf,
-  shapeSize,
+  SESSION_HEADER,
+  SESSION_ROW,
   sideOf,
   TEAM_HEADER,
+  TEAM_SHOWN,
   teamSlots,
   topRowOf,
   WING,
-  type Frame,
+  type Box,
   type Size,
 } from "./layout";
-import { setNotchSaveChats, useNotchSaveChats } from "./settings";
+import {
+  glassBlurVisuals,
+  setNotchLook,
+  setNotchSaveChats,
+  setNotchScreenPref,
+  setNotchRates,
+  useNotchLook,
+  useNotchRates,
+  useNotchSaveChats,
+  useNotchScreen,
+} from "./settings";
+import { minutesSaved } from "./recap";
 import { Showcase, ShowcaseViewerHost } from "./notch-showcase";
 import { useNotchText, type NotchText } from "./text";
 import type { RosterBot } from "./team";
-import type { NotchGeometry, NotchMate, NotchSnapshot, NotchStep, NotchView } from "./types";
+import type {
+  NotchEdit,
+  NotchGeometry,
+  NotchLook,
+  NotchMate,
+  NotchPeek,
+  NotchRecap,
+  NotchSession,
+  NotchSnapshot,
+  NotchStep,
+  NotchUsage,
+  NotchView,
+} from "./types";
 
 /** Dynamic Island–like: quick, with a little overshoot. */
 const SPRING: Transition = { type: "spring", stiffness: 420, damping: 34, mass: 0.9 };
 const AMBER = "#f5a524";
 const GREEN = "#34c77b";
+const RED = "#f0443a";
+const BLUE = "#3aa3f5";
 
 /** Who is in the main spot: Mali ("lead") or a team bot by its id. */
 export type ActiveBot = { key: string; bot: CoworkBotId; name: string };
@@ -105,12 +142,46 @@ type Props = {
   onAddBot: () => void;
   /** A capture is being taken. */
   capturing?: boolean;
+  /** The news the pill opened out to tell (`view` "peek"). */
+  peek?: NotchPeek;
+  onPeekClose?: () => void;
+  /** Chats to pick up again (`view` "sessions"); undefined until the main window sends them. */
+  sessions?: NotchSession[];
+  onSessions?: () => void;
+  onPickSession?: (session: NotchSession) => void;
+  /** Home shows every bot on the team, not just the group's row. */
+  teamOpen?: boolean;
+  onTeamOpen?: (open: boolean) => void;
+  /** How the open pill looks, and whether the system blurs what's behind it. */
+  look?: NotchLook;
+  /** Glass only: frosted blur strength (0–100). */
+  glassBlur?: number;
+  blur?: boolean;
+  /** Home's left card, past the run: how much Cowork did today, and the week's recap. */
+  usage?: NotchUsage;
+  recap?: NotchRecap;
+  /** Open the weekly recap; pick another week in it (weeks back from this one). */
+  onRecap?: () => void;
+  onRecapWeek?: (week: number) => void;
+  /** The page Home's left card is on (the pill keeps it). */
+  slide?: number;
+  onSlide?: (slide: number) => void;
 };
 
-export function NotchPill(props: Props) {
+export function NotchPill(outer: Props) {
+  // Home's left card keeps its page while Home is open; it starts over next time.
+  const [slide, setSlide] = useState(0);
+  useEffect(() => {
+    if (outer.view !== "home") setSlide(0);
+  }, [outer.view]);
+  const props: Props = { ...outer, slide, onSlide: setSlide };
   const { view, geometry, shape, snapshot } = props;
   const radius = radiusOf(view, geometry);
   const open = view !== "collapsed";
+  const look = props.look ?? "black";
+  // The collapsed pill is part of the notch: black, whatever the look.
+  const tinted = open && look !== "black";
+  const lightShell = tinted && look === "light";
   return (
     <MotionConfig transition={SPRING} reducedMotion="user">
       <div className="flex size-full justify-center overflow-hidden select-none">
@@ -122,61 +193,94 @@ export function NotchPill(props: Props) {
           onMouseEnter={props.onEnter}
           onMouseLeave={props.onLeave}
         >
-          <Ear side="left" />
-          <Ear side="right" />
+          <Ear side="left" color={shellColor(look, tinted)} />
+          <Ear side="right" color={shellColor(look, tinted)} />
           <motion.div
-            className="absolute inset-0 overflow-hidden bg-black text-white"
+            className={cn("absolute inset-0 overflow-hidden", !lightShell && "text-white")}
+            style={lightShell ? LIGHT_VARS : undefined}
             initial={false}
             animate={{
               borderBottomLeftRadius: radius,
               borderBottomRightRadius: radius,
-              boxShadow: open ? "0 18px 40px -14px rgba(0,0,0,0.7)" : "0 0 0 0 rgba(0,0,0,0)",
+              boxShadow: open
+                ? lightShell
+                  ? "0 18px 40px -14px rgba(0,0,0,0.12)"
+                  : "0 18px 40px -14px rgba(0,0,0,0.7)"
+                : "0 0 0 0 rgba(0,0,0,0)",
             }}
-            onClick={view === "collapsed" ? props.onPress : undefined}
+            onClick={view === "collapsed" || view === "peek" ? props.onPress : undefined}
           >
+            <LookLayers
+              look={look}
+              tinted={tinted}
+              blur={!!props.blur}
+              glassBlur={props.glassBlur ?? 55}
+              top={topRowOf(geometry)}
+            />
             <ShowcaseViewerHost resetKey={view}>
-              <AnimatePresence initial={false}>
-                {view === "permission" && <PermissionGlow key="glow" />}
-                {view === "drop" && <DropGlow key="drop-glow" geometry={geometry} />}
-              </AnimatePresence>
-              <AnimatePresence initial={false}>
-                {view === "collapsed" && (
-                  <Fade key="collapsed">
-                    <Collapsed {...props} />
-                  </Fade>
-                )}
-                {view === "home" && (
-                  <Fade key="home">
-                    <Home {...props} />
-                  </Fade>
-                )}
-                {view === "welcome" && (
-                  <Fade key="welcome">
-                    <Welcome {...props} />
-                  </Fade>
-                )}
-                {view === "drop" && (
-                  <Fade key="drop">
-                    <Drop {...props} />
-                  </Fade>
-                )}
-                {view === "chat" && <Fade key="chat">{props.chat}</Fade>}
-                {view === "done" && (
-                  <Fade key="done">
-                    <Done {...props} />
-                  </Fade>
-                )}
-                {view === "permission" && snapshot.permission && (
-                  <Fade key="permission">
-                    <Permission {...props} />
-                  </Fade>
-                )}
-              </AnimatePresence>
+              <div className="absolute inset-0">
+                <AnimatePresence initial={false}>
+                  {view === "permission" && <PermissionGlow key="glow" />}
+                  {view === "drop" && <DropGlow key="drop-glow" geometry={geometry} />}
+                </AnimatePresence>
+                <AnimatePresence initial={false}>
+                  {view === "collapsed" && (
+                    <Fade key="collapsed">
+                      <Collapsed {...props} />
+                    </Fade>
+                  )}
+                  {view === "home" && (
+                    <Fade key="home">
+                      <Home {...props} />
+                    </Fade>
+                  )}
+                  {view === "welcome" && (
+                    <Fade key="welcome">
+                      <Welcome {...props} />
+                    </Fade>
+                  )}
+                  {view === "drop" && (
+                    <Fade key="drop">
+                      <Drop {...props} />
+                    </Fade>
+                  )}
+                  {view === "chat" && <Fade key="chat">{props.chat}</Fade>}
+                  {view === "done" && (
+                    <Fade key="done">
+                      <Done {...props} />
+                    </Fade>
+                  )}
+                  {view === "sessions" && (
+                    <Fade key="sessions">
+                      <Sessions {...props} />
+                    </Fade>
+                  )}
+                  {view === "recap" && (
+                    <Fade key="recap">
+                      <Recap {...props} />
+                    </Fade>
+                  )}
+                  {view === "peek" && props.peek && (
+                    <Fade key={`peek:${props.peek.id}`}>
+                      <Peek {...props} peek={props.peek} />
+                    </Fade>
+                  )}
+                  {view === "permission" && snapshot.permission && (
+                    <Fade key="permission">
+                      <Permission {...props} />
+                    </Fade>
+                  )}
+                </AnimatePresence>
+              </div>
               {/* Above the content, so the bots sit on their cards and chips. */}
               <Mascots {...props} />
-              {(view === "home" || view === "chat" || view === "welcome" || view === "drop" || view === "done") && (
-                <TopBar {...props} />
-              )}
+              {(view === "home" ||
+                view === "chat" ||
+                view === "welcome" ||
+                view === "drop" ||
+                view === "done" ||
+                view === "sessions" ||
+                view === "recap") && <TopBar {...props} />}
             </ShowcaseViewerHost>
           </motion.div>
         </motion.div>
@@ -185,8 +289,99 @@ export function NotchPill(props: Props) {
   );
 }
 
+/**
+ * Tailwind's white and black, swapped: every `text-white/…` and `bg-white/…`
+ * in the body reads dark on the light look, with no second set of classes.
+ */
+const LIGHT_VARS = { "--color-white": "#16161b", "--color-black": "#ffffff", color: "#16161b" } as CSSProperties;
+/** Back to the notch's own whites, for what stays dark in every look (a peek's card, a diff). */
+const DARK_VARS = { "--color-white": "#ffffff", "--color-black": "#000000", color: "#ffffff" } as CSSProperties;
+
+/** What each look lays under the open pill's body; with the system's blur behind, it can let some through. */
+const TINT: Record<Exclude<NotchLook, "black">, { blur: string; solid: string }> = {
+  glass: { blur: "rgba(12,12,16,0.28)", solid: "rgba(24,24,30,0.88)" },
+  light: { blur: "rgba(255,255,255,0.48)", solid: "#f5f5f7" },
+};
+
+function shellColor(look: NotchLook, tinted: boolean) {
+  if (!tinted || look === "black") return "#000";
+  return look === "light" ? TINT.light.solid : "#141418";
+}
+
+/**
+ * The pill's ground: black when collapsed, and a translucent tint when open
+ * (glass keeps a soft dark edge at the top; light is white all the way up).
+ */
+function LookLayers({
+  look,
+  tinted,
+  blur,
+  glassBlur,
+  top,
+}: {
+  look: NotchLook;
+  tinted: boolean;
+  blur: boolean;
+  glassBlur: number;
+  top: number;
+}) {
+  const tint = look === "black" ? undefined : TINT[look];
+  const frosted = tinted && !!tint && (blur || look === "glass" || look === "light");
+  const glass = look === "glass" ? glassBlurVisuals(glassBlur) : undefined;
+  const shellBg =
+    look === "glass" && glass
+      ? frosted
+        ? `rgba(12,12,16,${glass.tintAlpha})`
+        : TINT.glass.solid
+      : tint
+        ? frosted
+          ? tint.blur
+          : tint.solid
+        : undefined;
+  const shellFilter =
+    tinted && look === "glass" && glass
+      ? { backdropFilter: `blur(${glass.blurPx}px) saturate(150%)`, WebkitBackdropFilter: `blur(${glass.blurPx}px) saturate(150%)` }
+      : undefined;
+  return (
+    <>
+      <motion.div
+        aria-hidden
+        className="absolute inset-0 bg-black"
+        initial={false}
+        animate={{ opacity: tinted ? 0 : 1 }}
+        transition={{ duration: 0.22 }}
+      />
+      {tint && (
+        <motion.div
+          aria-hidden
+          className={cn("absolute inset-0", tinted && look === "light" && "backdrop-blur-3xl backdrop-saturate-150")}
+          style={{ background: shellBg, ...shellFilter }}
+          initial={false}
+          animate={{ opacity: tinted ? 1 : 0 }}
+          transition={{ duration: 0.22 }}
+        />
+      )}
+      {tint && look === "glass" && glass && (
+        <motion.div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0"
+          style={{
+            height: top + (blur ? 12 : 20),
+            background: blur
+              ? `linear-gradient(rgba(8,8,12,${glass.hoodAlpha}) 0px, rgba(8,8,12,${glass.hoodAlpha * 0.25}) ${top}px, transparent 100%)`
+              : `linear-gradient(rgba(8,8,12,0.85) 0px, transparent ${top + 16}px)`,
+          }}
+          initial={false}
+          animate={{ opacity: tinted ? 1 : 0 }}
+          transition={{ duration: 0.22 }}
+        />
+      )}
+    </>
+  );
+}
+
 /** The concave curve joining the pill to the top edge, like the notch's own. */
-function Ear({ side }: { side: "left" | "right" }) {
+function Ear({ side, color }: { side: "left" | "right"; color: string }) {
   const at = side === "left" ? "0% 100%" : "100% 100%";
   return (
     <div
@@ -196,7 +391,7 @@ function Ear({ side }: { side: "left" | "right" }) {
         width: EAR,
         height: EAR,
         [side]: -EAR,
-        background: `radial-gradient(circle at ${at}, transparent ${EAR - 0.5}px, #000 ${EAR}px)`,
+        background: `radial-gradient(circle at ${at}, transparent ${EAR - 0.5}px, ${color} ${EAR}px)`,
       }}
     />
   );
@@ -224,17 +419,20 @@ function TopBar({
   geometry,
   shape,
   snapshot,
+  look,
   onHome,
   onChat,
   onNewChat,
   onOpenChat,
   onCapturePick,
+  onSessions,
   capturing,
 }: Props) {
   const top = topRowOf(geometry);
   const side = sideOf(geometry, shape);
   const save = useNotchSaveChats();
   const t = useNotchText();
+  const light = look === "light";
   return (
     <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-3.5" style={{ height: top }}>
       <div className="flex items-center gap-1" style={{ maxWidth: side }}>
@@ -244,6 +442,11 @@ function TopBar({
         <Tab title={t("ask")} on={view === "chat"} onClick={onChat}>
           <MessageCircleIcon className="size-3.5" />
         </Tab>
+        {onSessions && (
+          <Tab title={t("sessions")} on={view === "sessions"} onClick={onSessions}>
+            <LayersIcon className="size-3.5" />
+          </Tab>
+        )}
         <Tab title={t("newQuestion")} onClick={onNewChat}>
           <PlusIcon className="size-3.5" />
         </Tab>
@@ -264,7 +467,9 @@ function TopBar({
               "flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors",
               save
                 ? "bg-white/[0.08] text-white/70 hover:bg-white/[0.14]"
-                : "bg-amber-400/15 text-amber-200 hover:bg-amber-400/25",
+                : light
+                  ? "bg-amber-500/15 text-amber-900 hover:bg-amber-500/25"
+                  : "bg-amber-400/15 text-amber-200 hover:bg-amber-400/25",
             )}
           >
             <HistoryIcon className="size-3" />
@@ -313,115 +518,213 @@ function Tab({
 
 // ── bots ──
 
-/** A bot and where it goes. Hidden bots stay mounted (an iframe that unmounts reloads, which flickers). */
-type Spot = { key: string; bot: CoworkBotId; frame: Frame; state: BotState; main: boolean; visible: boolean };
-
-function mainState({ snapshot, view, chatBusy, welcomeState, drop, active }: Props): BotState {
+function mainState({ snapshot, view, chatBusy, welcomeState, drop, active, peek }: Props): BotState {
   if (view === "permission") return "permission";
   if (view === "done") return "done";
   if (view === "welcome") return welcomeState ?? "idle";
   if (view === "drop") return drop === "taken" ? "done" : "welcome";
   if (view === "chat") return chatBusy ? "thinking" : "idle";
+  if (view === "sessions") return "idle";
+  if (view === "peek" && peek) {
+    return peek.tone === "done" ? "done" : peek.tone === "failed" ? "alert" : peek.tone === "edit" ? "tool" : "working";
+  }
   if (snapshot.phase === "idle") return chatBusy ? "thinking" : "idle";
   if (snapshot.phase === "done" && active.key === "lead") return "done";
   return view === "collapsed" ? "working" : "tool";
 }
 
-function mateState(mate: RosterBot, snapshot: NotchSnapshot): BotState {
-  const run = snapshot.team.find((m) => m.id === mate.id);
-  if (!run) return "idle";
-  return run.done ? "done" : "working";
+function colorOf(bot: CoworkBotId) {
+  return BOTS.find((b) => b.id === bot)?.color ?? BLUE;
+}
+
+/** How long a bot takes to vanish, before the next one pops up in its place. */
+const VANISH_S = 0.16;
+
+/**
+ * The main spot. Only bots that have stood in it are mounted (each is an
+ * iframe), and they stay mounted — one that unmounts reloads, which
+ * flickers — resting while another has the spot. A change of bot is a
+ * teleport, not a glide: the one leaving shrinks away with a twist, a puff
+ * marks the spot, and the new one pops up out of it.
+ */
+function Mascots(props: Props) {
+  const { view, geometry, shape, active } = props;
+  const frame = mascotFrame(view, geometry, shape, view === "home" ? props.slide : 0);
+  const mounted = useRef(new Map<string, CoworkBotId>());
+  mounted.current.set(active.key, active.bot);
+  const state = mainState(props);
+  const [puffs, setPuffs] = useState<{ id: number; color: string }[]>([]);
+  const last = useRef(active.key);
+  useEffect(() => {
+    if (last.current === active.key) return;
+    last.current = active.key;
+    const id = Date.now();
+    setPuffs((p) => [...p.slice(-2), { id, color: colorOf(active.bot) }]);
+    // Not cleared with the next swap: each puff plays out and goes on its own.
+    setTimeout(() => setPuffs((p) => p.filter((x) => x.id !== id)), PUFF_MS);
+  }, [active.key, active.bot]);
+  const center = { x: frame.x + frame.size / 2, y: frame.y + frame.size / 2 };
+  return (
+    <>
+      {[...mounted.current].map(([key, bot]) => {
+        const on = key === active.key;
+        return (
+          <motion.div
+            key={key}
+            className={cn("absolute top-0 left-0 z-10", on ? "cursor-pointer" : "pointer-events-none")}
+            initial={{ opacity: 0, scale: 0.2, x: frame.x, y: frame.y, width: frame.size, height: frame.size }}
+            animate={{
+              opacity: on ? 1 : 0,
+              scale: on ? 1 : 0.15,
+              rotate: on ? 0 : -30,
+              x: frame.x,
+              y: frame.y,
+              width: frame.size,
+              height: frame.size,
+              transition: on
+                ? {
+                    ...SPRING,
+                    opacity: { duration: 0.12, delay: VANISH_S },
+                    scale: { type: "spring", stiffness: 520, damping: 17, delay: VANISH_S },
+                    rotate: { type: "spring", stiffness: 300, damping: 20, delay: VANISH_S },
+                  }
+                : { ...SPRING, opacity: { duration: VANISH_S }, scale: { duration: VANISH_S }, rotate: { duration: VANISH_S } },
+            }}
+            onDoubleClick={
+              on
+                ? (event) => {
+                    event.stopPropagation();
+                    props.onDismiss();
+                  }
+                : undefined
+            }
+            title={on ? "Double-click to hide" : undefined}
+          >
+            {on && <Glow {...props} bot={bot} />}
+            <CoworkBot
+              size="100%"
+              bot={bot}
+              state={on ? state : "idle"}
+              theme="dark"
+              className="relative"
+              // Kept mounted (no reload flicker) but resting while away.
+              paused={!on}
+            />
+            {on && <Badges {...props} />}
+            {on && view !== "permission" && <BotHandle {...props} bot={bot} />}
+          </motion.div>
+        );
+      })}
+      {puffs.map((puff) => (
+        <Puff key={puff.id} x={center.x} y={center.y} color={puff.color} size={frame.size} />
+      ))}
+    </>
+  );
+}
+
+const PUFF_MS = 700;
+const SPARKS = 8;
+
+/**
+ * A puff where a bot vanished or appeared: a ring and a few sparks flying
+ * out. CSS only (transform and opacity), played once, then removed.
+ */
+function Puff({ x, y, color, size }: { x: number; y: number; color: string; size: number }) {
+  const reach = Math.max(18, size * 0.75);
+  return (
+    <div aria-hidden className="pointer-events-none absolute z-20" style={{ left: x, top: y }}>
+      <span
+        className="absolute rounded-full border-2"
+        style={{
+          width: size,
+          height: size,
+          left: -size / 2,
+          top: -size / 2,
+          borderColor: color,
+          animation: `notch-ring ${PUFF_MS}ms ease-out forwards`,
+        }}
+      />
+      {Array.from({ length: SPARKS }, (_, i) => {
+        const angle = (i / SPARKS) * Math.PI * 2 + 0.3;
+        const dot = i % 2 ? 4 : 6;
+        return (
+          <span
+            key={i}
+            className="absolute rounded-full"
+            style={
+              {
+                width: dot,
+                height: dot,
+                left: -dot / 2,
+                top: -dot / 2,
+                background: i % 3 === 0 ? "#fff" : color,
+                "--dx": `${Math.cos(angle) * reach}px`,
+                "--dy": `${Math.sin(angle) * reach}px`,
+                animation: `notch-spark ${PUFF_MS - 120}ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards`,
+              } as CSSProperties
+            }
+          />
+        );
+      })}
+    </div>
+  );
 }
 
 /**
- * Every bot and where it goes: the main spot, a chip, or Mali in the chip of
- * the bot that stepped up. Outside Home the team waits, hidden, where its
- * chips will be, so opening Home only fades them in.
+ * A bot's face, drawn: a round body in its color, two eyes. For chips, rows
+ * and stacks, where a live animation each would cost too much. Its eyes
+ * blink while it works (CSS, on the compositor), smile when it's done, and
+ * go flat when it failed.
  */
-function spotsOf(props: Props): Spot[] {
-  const { view, geometry, shape, lead, active, roster, snapshot } = props;
-  const main = mascotFrame(view, geometry, shape);
-  const spots: Spot[] = [
-    { key: active.key, bot: active.bot, frame: main, state: mainState(props), main: true, visible: true },
-  ];
-  const home = view === "home";
-  // Where Home's chips are, in this shape's coordinates (both are centered).
-  const homeShape = home ? shape : shapeSize("home", geometry);
-  const shift = (shape.width - homeShape.width) / 2;
-  const slots = teamSlots(homeCards(geometry, homeShape, true).right!, roster.length).bots.map((slot) => ({
-    ...slot.bot,
-    x: slot.bot.x + shift,
-  }));
-  let leadPlaced = active.key === "lead";
-  roster.slice(0, slots.length).forEach((mate, i) => {
-    if (mate.id === active.key) {
-      // The bot stepped up to the main spot; Mali waits in its chip.
-      spots.push({ key: "lead", bot: lead, frame: slots[i], state: "idle", main: false, visible: home });
-      leadPlaced = true;
-    } else {
-      const state = home ? mateState(mate, snapshot) : "idle";
-      spots.push({ key: mate.id, bot: mate.mascot, frame: slots[i], state, main: false, visible: home });
-    }
-  });
-  if (!leadPlaced) spots.push({ key: "lead", bot: lead, frame: main, state: "idle", main: false, visible: false });
-  return spots;
-}
-
-function colorOf(bot: CoworkBotId) {
-  return BOTS.find((b) => b.id === bot)?.color ?? "#3aa3f5";
-}
-
-function Mascots(props: Props) {
-  const spots = spotsOf(props);
+export function BotFace({
+  bot,
+  size,
+  mood = "idle",
+  className,
+  style,
+}: {
+  bot: CoworkBotId;
+  size: number;
+  mood?: "idle" | "working" | "done" | "failed";
+  className?: string;
+  style?: CSSProperties;
+}) {
+  const color = colorOf(bot);
+  const dark = bot === "nori";
+  const eye = dark ? "#f4f4f6" : "#1b1b22";
+  const w = Math.max(2, size * 0.12);
+  const h = Math.max(3, size * 0.26);
   return (
-    <AnimatePresence initial={false}>
-      {spots.map((spot) => (
-        <motion.div
-          key={spot.key}
-          className={cn("absolute top-0 left-0 z-10", spot.main ? "cursor-pointer" : "pointer-events-none")}
-          initial={{
-            opacity: 0,
-            scale: 0.6,
-            x: spot.frame.x,
-            y: spot.frame.y,
-            width: spot.frame.size,
-            height: spot.frame.size,
+    <span
+      aria-hidden
+      className={cn("relative inline-block shrink-0 rounded-full", className)}
+      style={{
+        width: size,
+        height: size,
+        background: `radial-gradient(circle at 34% 28%, ${dark ? "#56566a" : "#ffffffaa"} 0%, ${color} 46%, ${color} 100%)`,
+        boxShadow: `inset 0 -${Math.max(1, size * 0.08)}px ${size * 0.16}px rgba(0,0,0,0.22)`,
+        ...style,
+      }}
+    >
+      {[0.36, 0.64].map((at) => (
+        <span
+          key={at}
+          className={cn("absolute", mood === "working" && "notch-loop")}
+          style={{
+            left: `${at * 100}%`,
+            top: "54%",
+            width: mood === "done" ? w * 1.9 : mood === "failed" ? w * 2 : w,
+            height: mood === "done" ? w * 1.9 : mood === "failed" ? Math.max(2, w * 0.7) : h,
+            transform: "translate(-50%, -50%)",
+            borderRadius: 999,
+            ...(mood === "done"
+              ? { borderTop: `${Math.max(1.5, w * 0.6)}px solid ${eye}`, background: "transparent" }
+              : { background: eye }),
+            animation: mood === "working" ? "notch-blink 3.2s ease-in-out infinite" : undefined,
           }}
-          animate={{
-            opacity: spot.visible ? 1 : 0,
-            scale: spot.visible ? 1 : 0.6,
-            x: spot.frame.x,
-            y: spot.frame.y,
-            width: spot.frame.size,
-            height: spot.frame.size,
-            transition: spot.visible ? SPRING : { ...SPRING, opacity: { duration: 0.12 } },
-          }}
-          exit={{ opacity: 0, scale: 0.6, transition: { duration: 0.18 } }}
-          onDoubleClick={
-            spot.main
-              ? (event) => {
-                  event.stopPropagation();
-                  props.onDismiss();
-                }
-              : undefined
-          }
-          title={spot.main ? "Double-click to hide" : undefined}
-        >
-          {spot.main && <Glow {...props} bot={spot.bot} />}
-          <CoworkBot
-            size="100%"
-            bot={spot.bot}
-            state={spot.state}
-            theme="dark"
-            className="relative"
-            // Hidden bots stay mounted (no reload flicker) but rest.
-            paused={!spot.visible}
-          />
-          {spot.main && <Badges {...props} />}
-          {spot.main && props.view !== "permission" && <BotHandle {...props} bot={spot.bot} />}
-        </motion.div>
+        />
       ))}
-    </AnimatePresence>
+    </span>
   );
 }
 
@@ -541,10 +844,69 @@ function fallbackImage(color: string) {
   return canvas;
 }
 
+/**
+ * A cowork bot as a still picture (its own drawing, taken once and kept):
+ * for chips and stacks, where a live animation each would cost too much.
+ * The drawn face stands in until the picture is ready. A dot says it's
+ * working; a check, that it's done.
+ */
+function BotPicture({
+  bot,
+  size,
+  mood = "idle",
+  className,
+  style,
+}: {
+  bot: CoworkBotId;
+  size: number;
+  mood?: "idle" | "working" | "done" | "failed";
+  className?: string;
+  style?: CSSProperties;
+}) {
+  const picture = useBotPicture(bot);
+  const dot = Math.max(7, Math.round(size * 0.3));
+  return (
+    <span className={cn("relative inline-block shrink-0", className)} style={{ width: size, height: size, ...style }}>
+      {picture ? (
+        <img
+          src={picture}
+          alt=""
+          draggable={false}
+          className="size-full"
+          // The bot's blob, not a box, against what's behind it.
+          style={{ filter: "drop-shadow(0 0 1.5px rgba(0,0,0,0.85))" }}
+        />
+      ) : (
+        <BotFace bot={bot} size={size} mood={mood} />
+      )}
+      {mood !== "idle" && (
+        <span
+          className={cn("absolute -right-0.5 -bottom-0.5 rounded-full ring-2 ring-black", mood === "working" && "notch-loop")}
+          style={{
+            width: dot,
+            height: dot,
+            background: mood === "working" ? BLUE : mood === "done" ? GREEN : RED,
+            animation: mood === "working" ? "notch-fade 1.4s ease-in-out infinite" : undefined,
+          }}
+        />
+      )}
+    </span>
+  );
+}
+
+const TONE: Record<NotchPeek["tone"], string> = { done: GREEN, failed: RED, team: BLUE, edit: "#8b5cf6" };
+
 /** A soft light behind the main bot; it breathes while there's work. */
-function Glow({ snapshot, view, bot, drop }: Props & { bot: CoworkBotId }) {
-  const big = view !== "collapsed" && view !== "chat";
-  const color = view === "permission" ? AMBER : view === "drop" || snapshot.phase === "done" ? GREEN : colorOf(bot);
+function Glow({ snapshot, view, bot, drop, peek }: Props & { bot: CoworkBotId }) {
+  const big = view !== "collapsed" && view !== "chat" && view !== "sessions";
+  const color =
+    view === "permission"
+      ? AMBER
+      : view === "peek" && peek
+        ? TONE[peek.tone]
+        : view === "drop" || snapshot.phase === "done"
+          ? GREEN
+          : colorOf(bot);
   const breathing = big && (snapshot.phase === "working" || view === "welcome" || (view === "drop" && drop === "over"));
   return (
     <motion.div
@@ -566,8 +928,9 @@ function Glow({ snapshot, view, bot, drop }: Props & { bot: CoworkBotId }) {
   );
 }
 
-function Badges({ snapshot, view }: Props) {
+function Badges({ snapshot, view, peek }: Props) {
   const big = view === "home" || view === "permission";
+  const tone = view === "peek" ? peek?.tone : undefined;
   return (
     <AnimatePresence>
       {big && snapshot.phase === "permission" && (
@@ -576,18 +939,37 @@ function Badges({ snapshot, view }: Props) {
         </Badge>
       )}
       {big && snapshot.phase === "working" && (
-        <Badge key="busy" color="#3aa3f5">
+        <Badge key="busy" color={BLUE}>
           <Dots />
+        </Badge>
+      )}
+      {tone === "done" && (
+        <Badge key="peek-done" color={GREEN}>
+          <CheckIcon className="size-3.5 text-black" strokeWidth={3} />
+        </Badge>
+      )}
+      {tone === "failed" && <Badge key="peek-failed" color={RED} small />}
+      {tone === "team" && (
+        <Badge key="peek-team" color={BLUE}>
+          <Dots />
+        </Badge>
+      )}
+      {tone === "edit" && (
+        <Badge key="peek-edit" color={TONE.edit}>
+          <PencilIcon className="size-3 text-white" strokeWidth={2.5} />
         </Badge>
       )}
     </AnimatePresence>
   );
 }
 
-function Badge({ color, children }: { color: string; children: ReactNode }) {
+function Badge({ color, children, small }: { color: string; children?: ReactNode; small?: boolean }) {
   return (
     <motion.div
-      className="absolute -top-1 -left-1 flex size-6 items-center justify-center rounded-full ring-2 ring-black"
+      className={cn(
+        "absolute -top-1 -left-1 flex items-center justify-center rounded-full ring-2 ring-black",
+        small ? "size-4" : "size-6",
+      )}
       style={{ background: color }}
       initial={{ scale: 0, opacity: 0 }}
       animate={{ scale: 1, opacity: 1, transition: { delay: 0.18, type: "spring", stiffness: 520, damping: 18 } }}
@@ -628,31 +1010,39 @@ function stepText(snapshot: NotchSnapshot, t: NotchText) {
   return snapshot.steps[currentStepIndex(snapshot.steps)]?.title ?? t("working");
 }
 
-/** The bot on the left wing, a status on the right; the step in between without a notch. */
+/**
+ * The bot on the left wing, a status on the right; the step in between
+ * without a notch, and in a row under the camera with one.
+ */
 function Collapsed({ snapshot, geometry, chatBusy }: Props) {
   const t = useNotchText();
-  const text = stepText(snapshot, t);
+  const text = (
+    <AnimatePresence mode="popLayout" initial={false}>
+      <motion.p
+        key={stepText(snapshot, t)}
+        className="truncate text-center text-[12px] font-medium text-white/80"
+        initial={{ opacity: 0, y: 8, filter: "blur(4px)" }}
+        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+        exit={{ opacity: 0, y: -8, filter: "blur(4px)" }}
+      >
+        {stepText(snapshot, t)}
+      </motion.p>
+    </AnimatePresence>
+  );
   return (
-    <div className="flex h-full cursor-pointer items-center">
-      <div style={{ width: WING }} className="shrink-0" />
-      <div className="min-w-0 flex-1 px-1">
-        {!geometry.hasNotch && (
-          <AnimatePresence mode="popLayout" initial={false}>
-            <motion.p
-              key={text}
-              className="truncate text-center text-[12px] font-medium text-white/80"
-              initial={{ opacity: 0, y: 8, filter: "blur(4px)" }}
-              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-              exit={{ opacity: 0, y: -8, filter: "blur(4px)" }}
-            >
-              {text}
-            </motion.p>
-          </AnimatePresence>
-        )}
+    <div className="flex h-full cursor-pointer flex-col">
+      <div className="flex shrink-0 items-center" style={{ height: barOf(geometry) }}>
+        <div style={{ width: WING }} className="shrink-0" />
+        <div className="min-w-0 flex-1 px-1">{!geometry.hasNotch && text}</div>
+        <div style={{ width: WING }} className="flex shrink-0 items-center justify-center pr-1">
+          <Indicator snapshot={snapshot} chatBusy={chatBusy} />
+        </div>
       </div>
-      <div style={{ width: WING }} className="flex shrink-0 items-center justify-center pr-1">
-        <Indicator snapshot={snapshot} chatBusy={chatBusy} />
-      </div>
+      {geometry.hasNotch && (
+        <div className="flex min-w-0 flex-1 items-center overflow-hidden px-3 pb-1">
+          <div className="min-w-0 flex-1">{text}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -768,30 +1158,527 @@ function Bars() {
 
 // ── home ──
 
+function boxStyle(b: Box): CSSProperties {
+  return { left: b.x, top: b.y, width: b.width, height: b.height };
+}
+
 function Home(props: Props) {
   const { snapshot, geometry, shape, roster } = props;
   // The right card is the team (a CTA to make one when there's none), or the
   // plan while a run without a team has one.
   const side = roster.length === 0 && snapshot.todos.length > 0 ? "todos" : "team";
-  const cards = homeCards(geometry, shape, true);
-  const left = cards.left;
-  const right = cards.right!;
+  const { left, right } = homeCards(geometry, shape, true);
+  return (
+    <>
+      <div className="absolute overflow-hidden rounded-[22px] bg-white/[0.06]" style={boxStyle(left)}>
+        <LeftPager {...props} />
+      </div>
+      <div className="absolute rounded-[22px] bg-white/[0.06]" style={boxStyle(right!)}>
+        {side === "todos" && <Todos todos={snapshot.todos} />}
+      </div>
+      {side === "team" && <TeamCard {...props} card={right!} />}
+    </>
+  );
+}
+
+const PAGES = ["main", "usage", "settings", "recap"] as const;
+/** The dot of the page in view, like a slide deck's. */
+const PAGE_DOT = "#0a84ff";
+
+/**
+ * Home's left card as pages to scroll through, one at a time: the run (or
+ * a greeting), how much Cowork did today, a few settings, and the week's
+ * recap. Dots down the right say which; tap one to go there. Past the
+ * first page the bot steps into the corner to make room.
+ */
+function LeftPager(props: Props) {
+  const { snapshot, slide = 0, onSlide } = props;
+  const scroller = useRef<HTMLDivElement>(null);
+  const go = (page: number) => {
+    const el = scroller.current;
+    if (el) el.scrollTo({ top: page * el.clientHeight, behavior: "smooth" });
+  };
   return (
     <>
       <div
-        className="absolute rounded-[22px] bg-white/[0.06]"
-        style={{ left: left.x, top: left.y, width: left.width, height: left.height }}
+        ref={scroller}
+        className="absolute inset-0 snap-y snap-mandatory overflow-y-auto overscroll-contain"
+        onScroll={(event) => {
+          const el = event.currentTarget;
+          const page = Math.round(el.scrollTop / Math.max(1, el.clientHeight));
+          if (page !== slide) onSlide?.(page);
+        }}
       >
-        {snapshot.phase === "idle" ? <Greeting {...props} /> : <RunLines {...props} />}
+        {PAGES.map((page, i) => (
+          <section key={page} className="relative h-full snap-start snap-always" aria-hidden={i !== slide}>
+            {page === "main" && (snapshot.phase === "idle" ? <Greeting {...props} /> : <RunLines {...props} />)}
+            {page === "usage" && <UsagePage {...props} />}
+            {page === "settings" && <SettingsPage />}
+            {page === "recap" && <RecapPage {...props} />}
+          </section>
+        ))}
       </div>
-      <div
-        className="absolute rounded-[22px] bg-white/[0.06]"
-        style={{ left: right.x, top: right.y, width: right.width, height: right.height }}
-      >
-        {side === "todos" && <Todos todos={snapshot.todos} />}
+      <div className="absolute top-1/2 right-[9px] flex -translate-y-1/2 flex-col gap-[7px]">
+        {PAGES.map((page, i) => (
+          <button
+            key={page}
+            type="button"
+            title={page}
+            onClick={() => go(i)}
+            className="size-[7px] rounded-full transition-[background,transform] duration-200"
+            style={{
+              background: i === slide ? PAGE_DOT : "rgba(255,255,255,0.18)",
+              transform: i === slide ? "scale(1.15)" : undefined,
+            }}
+          />
+        ))}
       </div>
-      {side === "team" && <TeamCard {...props} />}
     </>
+  );
+}
+
+/** A page's title, beside the bot in the corner. */
+function PageTitle({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
+  return (
+    <div className="flex h-[44px] items-center gap-2 pr-7 pl-[46px]">
+      <span className="truncate text-[11px] font-medium tracking-wide text-white/45 uppercase">{children}</span>
+      {aside && <span className="ml-auto shrink-0 text-[11px] text-white/35">{aside}</span>}
+    </div>
+  );
+}
+
+function compact(n: number) {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+function money(cost: number) {
+  return cost >= 1 ? `$${cost.toFixed(2)}` : `$${cost.toFixed(cost >= 0.1 ? 2 : 3)}`;
+}
+
+/** How much Cowork did today — runs, time, files — and runs a day this week. */
+function UsagePage({ usage }: Props) {
+  const t = useNotchText();
+  if (!usage) {
+    return (
+      <>
+        <PageTitle>{t("usageTitle")}</PageTitle>
+        <div className="flex h-[90px] items-center justify-center text-white/35">
+          <Loader2Icon className="size-4 animate-spin" />
+        </div>
+      </>
+    );
+  }
+  const most = Math.max(1, ...usage.days);
+  const stats = [
+    { value: String(usage.runs), label: t("usageRuns") },
+    { value: usage.seconds ? spoken(usage.seconds) : "0s", label: t("usageTime") },
+    { value: String(usage.files), label: t("usageFiles") },
+  ];
+  return (
+    <>
+      <PageTitle aside={usage.tokens ? `${compact(usage.tokens)} tok${usage.cost ? ` · ${money(usage.cost)}` : ""}` : undefined}>
+        {t("usageTitle")}
+      </PageTitle>
+      <div className="grid grid-cols-3 gap-1.5 pr-7 pl-3.5">
+        {stats.map((stat) => (
+          <div key={stat.label} className="rounded-xl bg-white/[0.05] px-2 py-1.5">
+            <p className="truncate text-[16px] leading-tight font-semibold text-white tabular-nums">{stat.value}</p>
+            <p className="truncate text-[10px] text-white/40">{stat.label}</p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-2.5 flex items-end gap-1 pr-7 pl-3.5" style={{ height: 34 }} title={t("usageWeek")}>
+        {usage.days.map((runs, i) => (
+          <motion.span
+            key={i}
+            className="flex-1 origin-bottom rounded-[3px]"
+            style={{
+              height: Math.max(3, (runs / most) * 34),
+              background: i === usage.days.length - 1 ? PAGE_DOT : "rgba(255,255,255,0.16)",
+            }}
+            initial={{ scaleY: 0 }}
+            animate={{ scaleY: 1, transition: { delay: 0.05 + i * 0.03, type: "spring", stiffness: 300, damping: 24 } }}
+          />
+        ))}
+      </div>
+      <p className="mt-1 pr-7 pl-3.5 text-[10px] text-white/30">{t("usageWeek")}</p>
+    </>
+  );
+}
+
+/** A row of choices, small enough for the notch. */
+function Pills<T extends string>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+}) {
+  return (
+    <span className="flex shrink-0 rounded-full bg-white/[0.06] p-0.5">
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onChange(option.value)}
+          className={cn(
+            "h-6 rounded-full px-2 text-[11px] transition-colors",
+            option.value === value ? "bg-white font-medium text-black" : "text-white/55 hover:text-white",
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
+    </span>
+  );
+}
+
+/** A few of Settings → Notch, a scroll away: the look, keeping chats, the screen. */
+function SettingsPage() {
+  const t = useNotchText();
+  const look = useNotchLook();
+  const save = useNotchSaveChats();
+  const screen = useNotchScreen();
+  return (
+    <>
+      <PageTitle>{t("quickSettings")}</PageTitle>
+      <div className="flex flex-col gap-1.5 pr-7 pl-3.5 text-[12px] text-white/75">
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate">{t("lookLabel")}</span>
+          <Pills
+            value={look}
+            onChange={setNotchLook}
+            options={[
+              { value: "black", label: t("lookBlack") },
+              { value: "glass", label: t("lookGlass") },
+              { value: "light", label: t("lookLight") },
+            ]}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate">{t("saveChats")}</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={save}
+            onClick={() => setNotchSaveChats(!save)}
+            className={cn("relative h-5 w-9 shrink-0 rounded-full transition-colors", save ? "bg-[#0a84ff]" : "bg-white/20")}
+          >
+            <motion.span
+              className="absolute top-0.5 size-4 rounded-full bg-white shadow"
+              initial={false}
+              animate={{ left: save ? 18 : 2 }}
+            />
+          </button>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate">{t("screenLabel")}</span>
+          <Pills
+            value={screen}
+            onChange={setNotchScreenPref}
+            options={[
+              { value: "follow", label: t("screenFollow") },
+              { value: "builtin", label: t("screenMac") },
+              { value: "main", label: t("screenMain") },
+            ]}
+          />
+        </div>
+      </div>
+    </>
+  );
+}
+
+const SAVED = { ink: "#f5b53d", ground: "rgba(245,165,36,0.13)" } as const;
+
+/** "23 hr 56 min", "33 min": a length of time, read out. */
+function lasting(minutes: number, t: NotchText) {
+  const m = Math.max(0, Math.round(minutes));
+  return m >= 60 ? t("hoursMinutes", { h: Math.floor(m / 60), m: m % 60 }) : t("minutesOnly", { m });
+}
+
+/** Tasks a day, Monday first, as columns; today's (this week) stands out. */
+function DayColumns({ days, week, height, labels }: { days: number[]; week: number; height: number; labels?: boolean }) {
+  const most = Math.max(1, ...days);
+  const today = week === 0 ? (new Date().getDay() + 6) % 7 : -1;
+  const names = labels ? weekdayNames() : [];
+  return (
+    <div className="flex items-end gap-[5px]">
+      {days.map((tasks, i) => (
+        <div key={i} className="flex flex-col items-center gap-1">
+          <div className="flex items-end" style={{ height }}>
+            <motion.span
+              className="block w-[9px] origin-bottom rounded-[3px]"
+              style={{
+                height: Math.max(3, (tasks / most) * height),
+                background: i === today ? SAVED.ink : tasks ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.14)",
+              }}
+              title={`${tasks}`}
+              initial={{ scaleY: 0 }}
+              animate={{ scaleY: 1, transition: { delay: 0.06 + i * 0.035, type: "spring", stiffness: 300, damping: 24 } }}
+            />
+          </div>
+          {labels && <span className="text-[9px] leading-none text-white/35">{names[i]}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** M T W T F S S, in the app's language. */
+function weekdayNames() {
+  const monday = new Date(2026, 8, 28);
+  return Array.from({ length: 7 }, (_, i) =>
+    new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i).toLocaleDateString(undefined, {
+      weekday: "narrow",
+    }),
+  );
+}
+
+/** Home's last page: this week's time saved and tasks a day; tap for the whole recap. */
+function RecapPage({ recap, onRecap }: Props) {
+  const t = useNotchText();
+  const rates = useNotchRates();
+  return (
+    <>
+      <PageTitle aside={t("thisWeek")}>{t("recapTitle")}</PageTitle>
+      {!recap ? (
+        <div className="flex h-[90px] items-center justify-center text-white/35">
+          <Loader2Icon className="size-4 animate-spin" />
+        </div>
+      ) : (
+        <motion.button
+          type="button"
+          onClick={onRecap}
+          title={t("seeWeek")}
+          className="absolute top-[44px] right-7 bottom-3 left-3.5 flex flex-col justify-between rounded-2xl px-3 py-2 text-left"
+          style={{ background: SAVED.ground }}
+          whileHover={{ scale: 1.015 }}
+          whileTap={{ scale: 0.98 }}
+        >
+          <span className="flex items-center gap-1 text-[10.5px] font-medium" style={{ color: SAVED.ink }}>
+            <ZapIcon className="size-3" />
+            {t("timeSaved")}
+          </span>
+          <span className="flex items-end justify-between gap-2">
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate text-[20px] leading-tight font-bold text-white tabular-nums">
+                ~{lasting(minutesSaved(recap, rates), t)}
+              </span>
+              <span className="truncate text-[10.5px] text-white/50">
+                {t("recapLineShort", { tasks: recap.tasks, files: recap.created + recap.edited })}
+              </span>
+            </span>
+            <DayColumns days={recap.days} week={recap.week} height={26} />
+          </span>
+        </motion.button>
+      )}
+    </>
+  );
+}
+
+/**
+ * The weekly recap: the week (and the ones before it), the time saved by
+ * the estimate, tasks a day, the tiles — tasks, files, agent time, cost —
+ * and tasks per model. The estimate's minutes can be adjusted right here.
+ */
+function Recap({ geometry, recap, onHome, onRecapWeek }: Props) {
+  const t = useNotchText();
+  const rates = useNotchRates();
+  const [adjusting, setAdjusting] = useState(false);
+  const top = topRowOf(geometry);
+  if (!recap) {
+    return (
+      <div className="absolute inset-x-3 bottom-3 flex items-center justify-center text-white/40" style={{ top }}>
+        <Loader2Icon className="size-5 animate-spin" />
+      </div>
+    );
+  }
+  const date = (at: number) => new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  const last = new Date(recap.to);
+  last.setDate(last.getDate() - 1);
+  const label = recap.week === 0 ? t("thisWeek") : recap.week === 1 ? t("lastWeek") : t("weeksAgo", { n: recap.week });
+  const files = recap.created + recap.edited;
+  const tiles = [
+    { label: t("tileTasks"), value: String(recap.tasks), sub: t("tileChats", { n: recap.chats }) },
+    { label: t("tileFiles"), value: String(files), sub: t("filesSub", { created: recap.created, edited: recap.edited }) },
+    { label: t("agentTime"), value: lasting(recap.seconds / 60, t), sub: t("commandsSub", { n: recap.commands }) },
+    {
+      label: t("costLabel"),
+      value: recap.cost ? money(recap.cost) : "$0",
+      sub: recap.tokens ? t("tokensSub", { n: compact(recap.tokens) }) : undefined,
+    },
+  ];
+  const rateRows: { key: keyof typeof rates; label: string; step: number }[] = [
+    { key: "task", label: t("rateTask"), step: 1 },
+    { key: "created", label: t("rateCreated"), step: 1 },
+    { key: "edited", label: t("rateEdited"), step: 1 },
+    { key: "command", label: t("rateCommand"), step: 0.5 },
+  ];
+  return (
+    <div className="absolute inset-x-3 bottom-3 flex flex-col" style={{ top }}>
+      {/* The bot sits at the header's start (`mascotFrame`). */}
+      <div className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center" style={{ height: RECAP.header }}>
+        <span className="flex min-w-0 items-center gap-1.5 pl-9 text-[15px] font-semibold text-white">
+          <ZapIcon className="size-4 shrink-0" style={{ color: SAVED.ink }} />
+          <span className="truncate">{t("recapTitle")}</span>
+        </span>
+        <span className="flex items-center gap-1">
+          <button
+            type="button"
+            title={t("previousWeek")}
+            onClick={() => onRecapWeek?.(Math.min(recap.week + 1, 51))}
+            className="flex size-7 items-center justify-center rounded-full text-white/70 hover:bg-white/[0.08] hover:text-white"
+          >
+            <ChevronLeftIcon className="size-4" />
+          </button>
+          <span className="flex min-w-[150px] flex-col items-center leading-tight">
+            <span className="text-[13px] font-semibold text-white">{label}</span>
+            <span className="text-[11px] text-white/45 tabular-nums">
+              {date(recap.from)} – {date(last.getTime())}
+            </span>
+          </span>
+          <button
+            type="button"
+            title={t("nextWeek")}
+            disabled={recap.week === 0}
+            onClick={() => onRecapWeek?.(Math.max(recap.week - 1, 0))}
+            className="flex size-7 items-center justify-center rounded-full text-white/70 hover:bg-white/[0.08] hover:text-white disabled:opacity-25 disabled:hover:bg-transparent"
+          >
+            <ChevronRightIcon className="size-4" />
+          </button>
+        </span>
+        <span className="flex justify-end">
+          <button
+            type="button"
+            onClick={onHome}
+            title={t("close")}
+            className="flex size-7 items-center justify-center rounded-full text-white/60 hover:bg-white/[0.08] hover:text-white"
+          >
+            <XIcon className="size-4" />
+          </button>
+        </span>
+      </div>
+      <AnimatePresence mode="popLayout" initial={false}>
+        <motion.div
+          key={recap.week}
+          className="flex min-h-0 flex-1 flex-col"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8, transition: { duration: 0.12 } }}
+        >
+          <div
+            className="flex shrink-0 items-center justify-between gap-4 rounded-[20px] px-4"
+            style={{ height: RECAP.hero, background: SAVED.ground }}
+          >
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <span className="text-[12px] font-medium" style={{ color: SAVED.ink }}>
+                {t("timeSaved")}
+              </span>
+              <span className="truncate text-[30px] leading-tight font-bold text-white tabular-nums">
+                ~{lasting(minutesSaved(recap, rates), t)}
+              </span>
+              <span className="truncate text-[12px] text-white/55">
+                {t("savedLine", {
+                  tasks: recap.tasks,
+                  created: recap.created,
+                  edited: recap.edited,
+                  commands: recap.commands,
+                })}
+              </span>
+            </div>
+            <DayColumns days={recap.days} week={recap.week} height={44} labels />
+          </div>
+          <div className="mt-2.5 grid shrink-0 grid-cols-4 gap-2" style={{ height: RECAP.tiles }}>
+            {tiles.map((tile) => (
+              <div key={tile.label} className="flex min-w-0 flex-col rounded-2xl bg-white/[0.05] px-3 py-2">
+                <span className="truncate text-[11px] text-white/50">{tile.label}</span>
+                <span className="truncate text-[19px] leading-tight font-semibold text-white tabular-nums">{tile.value}</span>
+                {tile.sub && <span className="truncate text-[10.5px] text-white/40">{tile.sub}</span>}
+              </div>
+            ))}
+          </div>
+          <div className="mt-2.5 flex min-h-0 flex-col">
+            <span className="h-5 text-[11px] text-white/45">{t("modelsLabel")}</span>
+            {recap.models.length === 0 ? (
+              <span className="text-[12px] text-white/35" style={{ height: RECAP.model }}>
+                {t("recapNone")}
+              </span>
+            ) : (
+              recap.models.map((model, i) => (
+                <div key={model.name} className="flex flex-col justify-center gap-1" style={{ height: RECAP.model }}>
+                  <span className="flex items-center gap-2 text-[12.5px]">
+                    <span className="size-2 shrink-0 rounded-[2px] bg-white/70" />
+                    <span className="min-w-0 truncate text-white/85">{model.name}</span>
+                    <span className="ml-auto shrink-0 text-[11.5px] text-white/45 tabular-nums">
+                      {t("modelTasks", { n: model.tasks })}
+                    </span>
+                  </span>
+                  <span className="h-[5px] overflow-hidden rounded-full bg-white/[0.08]">
+                    <motion.span
+                      className="block h-full rounded-full bg-white/75"
+                      initial={{ width: 0 }}
+                      animate={{
+                        width: `${(model.tasks / Math.max(1, recap.tasks)) * 100}%`,
+                        transition: { delay: 0.1 + i * 0.06, type: "spring", stiffness: 160, damping: 24 },
+                      }}
+                    />
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </motion.div>
+      </AnimatePresence>
+      <div className="mt-auto flex shrink-0 items-center gap-2 text-[11px] text-white/40" style={{ height: RECAP.foot }}>
+        {adjusting ? (
+          <>
+            {/* Steppers, not boxes to type in: the notch doesn't take the keyboard here. */}
+            {rateRows.map((row) => (
+              <span key={row.key} className="flex min-w-0 items-center gap-1">
+                <span className="flex shrink-0 items-center rounded-full bg-white/[0.08]">
+                  <button
+                    type="button"
+                    title="−"
+                    onClick={() => setNotchRates({ ...rates, [row.key]: rates[row.key] - row.step })}
+                    className="flex size-5 items-center justify-center rounded-full text-white/60 hover:bg-white/[0.12] hover:text-white"
+                  >
+                    −
+                  </button>
+                  <span className="min-w-6 text-center text-[11px] text-white tabular-nums">{rates[row.key]}</span>
+                  <button
+                    type="button"
+                    title="+"
+                    onClick={() => setNotchRates({ ...rates, [row.key]: rates[row.key] + row.step })}
+                    className="flex size-5 items-center justify-center rounded-full text-white/60 hover:bg-white/[0.12] hover:text-white"
+                  >
+                    +
+                  </button>
+                </span>
+                <span className="truncate">{row.label}</span>
+              </span>
+            ))}
+            <button
+              type="button"
+              onClick={() => setAdjusting(false)}
+              className="ml-auto shrink-0 rounded-full bg-white/[0.1] px-2.5 py-0.5 text-white/80 hover:bg-white/[0.16]"
+            >
+              {t("done")}
+            </button>
+          </>
+        ) : (
+          <span className="truncate">
+            {t("recapFoot")}{" "}
+            <button type="button" onClick={() => setAdjusting(true)} className="underline underline-offset-2 hover:text-white/70">
+              {t("adjustEstimate")}
+            </button>
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -799,7 +1686,7 @@ function Home(props: Props) {
 function Greeting({ active, onChat }: Props) {
   const t = useNotchText();
   return (
-    <div className="absolute inset-y-0 right-4 left-[120px] flex flex-col justify-center gap-1.5">
+    <div className="absolute inset-y-0 right-6 left-[120px] flex flex-col justify-center gap-1.5">
       <p className="truncate text-[15px] font-semibold text-white">{t("greeting", { name: active.name })}</p>
       <p className="text-[12px] leading-snug text-white/50">{t("greetingBody")}</p>
       <div className="mt-1 flex items-center gap-2">
@@ -819,22 +1706,25 @@ function Greeting({ active, onChat }: Props) {
   );
 }
 
-/** The run: who's on it, how far through the plan, and the steps rolling by. */
+function folderName(path: string) {
+  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+}
+
+/**
+ * The run: who's on it and where, the step before (dim), the one it's on
+ * (bright, up to two lines), what comes next, and how long it has been at it.
+ */
 function RunLines(props: Props) {
   const { snapshot, active, onOpenChat } = props;
   const t = useNotchText();
-  const done = snapshot.todos.filter(isDone).length;
+  const where = snapshot.folder ? folderName(snapshot.folder) : snapshot.title;
   return (
-    <div className="absolute inset-y-0 right-3 left-[120px] flex flex-col justify-center gap-2">
-      <div className="flex min-w-0 items-center gap-2">
-        <span
-          className={cn("size-1.5 shrink-0 rounded-full bg-white", snapshot.phase === "working" && "notch-loop")}
-          style={{ animation: snapshot.phase === "working" ? "notch-fade 1.4s ease-in-out infinite" : undefined }}
-        />
+    <div className="absolute inset-y-0 right-6 left-[120px] flex flex-col justify-center gap-1.5 py-3">
+      <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-white/45">
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.span
             key={active.key}
-            className="shrink-0 text-[14px] font-semibold text-white"
+            className="shrink-0 font-semibold text-white/75"
             initial={{ opacity: 0, y: 6, filter: "blur(4px)" }}
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
             exit={{ opacity: 0, y: -6, filter: "blur(4px)" }}
@@ -842,21 +1732,59 @@ function RunLines(props: Props) {
             {active.name}
           </motion.span>
         </AnimatePresence>
-        <span className="min-w-0 truncate text-[12px] text-white/40">{snapshot.title}</span>
-        <span className="ml-auto shrink-0 text-[12px] text-white/40 tabular-nums">
-          {snapshot.todos.length > 0 && `${done}/${snapshot.todos.length}`}
-        </span>
+        {where && <span className="min-w-0 truncate">· {where}</span>}
         <button
           type="button"
           onClick={onOpenChat}
           title={t("openInMali")}
-          className="flex size-6 shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-white/60 hover:bg-white/[0.16] hover:text-white"
+          className="ml-auto flex size-6 shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-white/60 hover:bg-white/[0.16] hover:text-white"
         >
           <ArrowUpRightIcon className="size-3" />
         </button>
       </div>
       <RollingSteps snapshot={snapshot} />
+      <StatusChip snapshot={snapshot} />
     </div>
+  );
+}
+
+/** Seconds since `since`, ticking once a second while `live` (and only then). */
+function useElapsed(since: number | undefined, live: boolean) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live || !since) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [live, since]);
+  return since ? Math.max(0, Math.floor((now - since) / 1000)) : undefined;
+}
+
+function spoken(seconds: number) {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+/** "working · 9s", "needs you", "done": the run in a word, in its color. */
+function StatusChip({ snapshot }: { snapshot: NotchSnapshot }) {
+  const t = useNotchText();
+  const working = snapshot.phase === "working";
+  const elapsed = useElapsed(snapshot.startedAt, working);
+  const [label, color] =
+    snapshot.phase === "permission"
+      ? [t("needsYou"), AMBER]
+      : snapshot.phase === "done"
+        ? [snapshot.failed ? t("failedShort") : t("done"), snapshot.failed ? RED : GREEN]
+        : [elapsed !== undefined ? `${t("workingShort")} · ${spoken(elapsed)}` : t("workingShort"), BLUE];
+  return (
+    <span
+      className="mt-0.5 w-fit rounded-full px-2.5 py-0.5 text-[11.5px] font-medium tabular-nums"
+      style={{ background: `${color}24`, color }}
+    >
+      {label}
+    </span>
   );
 }
 
@@ -884,7 +1812,7 @@ function rowsOf(snapshot: NotchSnapshot, t: NotchText): Row[] {
   const past = snapshot.phase === "done" ? steps.at(-1) : steps[at - 1];
   if (past) rows.push({ key: past.id, title: past.title, icon: CheckIcon, tone: "past" });
   if (snapshot.phase === "done") {
-    rows.push({ key: "done", title: t("taskFinished"), icon: CheckIcon, tone: "now" });
+    rows.push({ key: "done", title: snapshot.failed ?? t("taskFinished"), icon: CheckIcon, tone: "now" });
     return rows;
   }
   const now = steps[at];
@@ -905,23 +1833,31 @@ function RollingSteps({ snapshot }: { snapshot: NotchSnapshot }) {
     <div className="flex flex-col gap-1 overflow-hidden">
       <AnimatePresence mode="popLayout" initial={false}>
         {rows.map((row) => {
-          const Icon = row.icon;
           const now = row.tone === "now";
           return (
             <motion.div
               layout
               key={row.key}
               className={cn(
-                "flex min-w-0 items-center gap-2",
-                now ? "text-[15px] font-medium text-white" : "text-[13px] text-white/40",
+                "flex min-w-0 items-start gap-2",
+                now ? "text-[15px] leading-snug font-medium text-white" : "text-[12.5px] text-white/40",
               )}
               initial={{ opacity: 0, y: 14, filter: "blur(6px)" }}
               animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
               exit={{ opacity: 0, y: -14, filter: "blur(6px)" }}
             >
-              <Icon className={cn("shrink-0", now ? "size-4" : "size-3.5")} />
-              <span className="truncate">{row.title}</span>
-              {row.spin && <Loader2Icon className="size-3 shrink-0 animate-spin text-white/40" />}
+              <span className={cn("flex w-3.5 shrink-0 justify-center", now ? "mt-[3px]" : "mt-[2px]")}>
+                {row.tone === "past" ? (
+                  <CheckIcon className="size-3" />
+                ) : row.tone === "next" ? (
+                  <CircleIcon className="size-2 fill-current" />
+                ) : row.spin ? (
+                  <Loader2Icon className="size-3.5 animate-spin text-white/60" />
+                ) : (
+                  <row.icon className="size-3.5" />
+                )}
+              </span>
+              <span className={now ? "line-clamp-2 break-words" : "truncate"}>{row.title}</span>
             </motion.div>
           );
         })}
@@ -930,111 +1866,248 @@ function RollingSteps({ snapshot }: { snapshot: NotchSnapshot }) {
   );
 }
 
+function chipMoodState(mood?: "idle" | "working" | "done" | "failed"): BotState {
+  if (mood === "working") return "working";
+  if (mood === "done") return "done";
+  if (mood === "failed") return "alert";
+  return "idle";
+}
+
 /**
- * The team: its name and a "New bot" button, then a chip per bot — tap one to
- * ask it directly; a bot at work shows what it's doing. With room left, a
- * dashed chip offers another bot; with no bots, the card invites making one.
+ * A chip's bot. A team bot on stage (in the main spot) leaves a dashed ring
+ * here; when it comes back, or when `pulse` changes (the lead stepping
+ * aside), it pops in with a puff.
  */
-function TeamCard({ geometry, shape, roster, snapshot, active, onPickBot, onAddBot }: Props) {
+function ChipFace({
+  bot,
+  size,
+  away,
+  mood,
+  pulse,
+  cowork,
+  paused,
+}: {
+  bot: CoworkBotId;
+  size: number;
+  away?: boolean;
+  mood?: "idle" | "working" | "done" | "failed";
+  pulse?: string;
+  /** The animated cowork bot (iframe), not its still picture. */
+  cowork?: boolean;
+  /** The animated bot rests (a still frame): it's already animating elsewhere. */
+  paused?: boolean;
+}) {
+  const [puff, setPuff] = useState(0);
+  const was = useRef(`${away}:${pulse}`);
+  useEffect(() => {
+    const now = `${away}:${pulse}`;
+    if (was.current === now) return;
+    was.current = now;
+    setPuff(Date.now());
+    const timer = setTimeout(() => setPuff(0), PUFF_MS);
+    return () => clearTimeout(timer);
+  }, [away, pulse]);
+  const color = colorOf(bot);
+  return (
+    <span className="relative shrink-0" style={{ width: size, height: size }}>
+      <AnimatePresence initial={false} mode="popLayout">
+        {away ? (
+          <motion.span
+            key="away"
+            className="absolute inset-0 rounded-full border-[1.5px] border-dashed"
+            style={{ borderColor: `${color}bb` }}
+            initial={{ scale: 0.4, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1, transition: { delay: VANISH_S } }}
+            exit={{ scale: 0.4, opacity: 0, transition: { duration: VANISH_S } }}
+          />
+        ) : (
+          <motion.span
+            key={`here:${pulse ?? ""}`}
+            className="absolute inset-0"
+            initial={{ scale: 0, rotate: -30 }}
+            animate={{
+              scale: 1,
+              rotate: 0,
+              transition: { type: "spring", stiffness: 520, damping: 17, delay: VANISH_S },
+            }}
+            exit={{ scale: 0, rotate: 30, transition: { duration: VANISH_S } }}
+          >
+            {cowork ? (
+              <CoworkBot bot={bot} size={size} state={chipMoodState(mood)} theme="dark" paused={paused} />
+            ) : (
+              <BotPicture bot={bot} size={size} mood={mood} />
+            )}
+          </motion.span>
+        )}
+      </AnimatePresence>
+      {puff > 0 && <Puff key={puff} x={size / 2} y={size / 2} color={color} size={size} />}
+    </span>
+  );
+}
+
+function moodOf(run: NotchMate | undefined): "idle" | "working" | "done" {
+  return !run ? "idle" : run.done ? "done" : "working";
+}
+
+/**
+ * The team: "Ask" and "New bot" along the top, the lead's chip, then the
+ * team as one row — its faces stacked, who's working — that opens into a
+ * chip per bot. Tap a chip to ask that bot directly. With no bots, the card
+ * invites making one.
+ */
+function TeamCard(props: Props & { card: Box }) {
+  const { roster, snapshot, active, lead, card, teamOpen, onTeamOpen, onPickBot, onAddBot } = props;
   const t = useNotchText();
-  const card = homeCards(geometry, shape, true).right!;
-  const { bots, add } = teamSlots(card, roster.length);
-  const extra = roster.length - bots.length;
+  const slots = teamSlots(card, roster.length, !!teamOpen);
+  const leadName = BOTS.find((b) => b.id === lead)?.name ?? "Mali";
+  const working = snapshot.team.filter((m) => !m.done);
+  const shown = roster.slice(0, TEAM_SHOWN);
+  const extra = roster.length - shown.length;
+  const leadOnStage = active.key === "lead";
   return (
     <>
       <div
-        className="absolute flex items-center justify-between px-4"
-        style={{ left: card.x, top: card.y, width: card.width, height: TEAM_HEADER }}
+        className="absolute flex items-center justify-between px-3"
+        style={{ left: card.x, top: card.y + 4, width: card.width, height: TEAM_HEADER }}
       >
-        <span className="text-[11px] font-medium tracking-wide text-white/40 uppercase">
-          {t("team")}
-          {roster.length > 0 && <span className="ml-1.5 text-white/25 tabular-nums">{roster.length}</span>}
-        </span>
-        {roster.length > 0 && (
-          <button
-            type="button"
-            onClick={onAddBot}
-            title={t("newBotHint")}
-            className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] text-white/50 transition-colors hover:bg-white/[0.08] hover:text-white"
-          >
-            <PlusIcon className="size-3" />
-            {t("newBot")}
-            {extra > 0 && <span className="text-white/30">· +{extra}</span>}
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => onPickBot("lead")}
+          className="flex items-center gap-1.5 rounded-full bg-white/[0.08] px-2.5 py-1 text-[11.5px] text-white/75 transition-colors hover:bg-white/[0.14] hover:text-white"
+        >
+          <PencilIcon className="size-3" />
+          {t("askName", { name: leadName })}
+        </button>
+        <button
+          type="button"
+          onClick={onAddBot}
+          title={t("newBotHint")}
+          className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] text-white/45 transition-colors hover:bg-white/[0.08] hover:text-white"
+        >
+          <PlusIcon className="size-3" />
+          {t("newBot")}
+        </button>
       </div>
+      <motion.button
+        type="button"
+        onClick={() => onPickBot("lead")}
+        className="absolute flex items-center gap-2.5 rounded-full border pr-3 pl-1.5 text-left"
+        style={{
+          ...boxStyle(slots.lead),
+          background: `${colorOf(lead)}1c`,
+          borderColor: `${colorOf(lead)}${leadOnStage ? "99" : "55"}`,
+        }}
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.97 }}
+      >
+        {/* The lead itself, always: resting while it's also the big bot, alive while it stands by. */}
+        <ChipFace
+          bot={lead}
+          size={28}
+          cowork
+          paused={leadOnStage}
+          mood={leadOnStage && snapshot.phase === "working" ? "working" : "idle"}
+          pulse={leadOnStage ? "stage" : "chip"}
+        />
+        <span className="truncate text-[13px] font-semibold" style={{ color: colorOf(lead) }}>
+          {leadName}
+        </span>
+        <span className="ml-auto shrink-0 text-[10.5px] text-white/40">
+          {leadOnStage ? (snapshot.phase === "working" ? t("onIt") : t("lead")) : t("standingBy")}
+        </span>
+      </motion.button>
       {roster.length === 0 ? (
         <motion.div
-          className="absolute flex flex-col items-center justify-center gap-2 px-6 text-center"
-          style={{ left: card.x, top: card.y + TEAM_HEADER - 6, width: card.width, height: card.height - TEAM_HEADER }}
+          className="absolute flex items-center gap-3 rounded-2xl border border-dashed border-white/15 px-3"
+          style={boxStyle(slots.group)}
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0, transition: { delay: 0.1 } }}
         >
-          <p className="text-[13px] font-semibold text-white/80">{t("noBots")}</p>
-          <p className="text-[11px] leading-snug text-white/40">{t("noBotsBody")}</p>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[12.5px] font-semibold text-white/80">{t("noBots")}</span>
+            <span className="block truncate text-[10.5px] text-white/40">{t("noBotsBody")}</span>
+          </span>
           <button
             type="button"
             onClick={onAddBot}
-            className="mt-0.5 flex h-7 items-center gap-1 rounded-full bg-white px-3 text-[12px] font-semibold text-black transition-transform active:scale-95"
+            className="flex h-7 shrink-0 items-center gap-1 rounded-full bg-white px-3 text-[12px] font-semibold text-black transition-transform active:scale-95"
           >
             <PlusIcon className="size-3.5" />
             {t("newBot")}
           </button>
         </motion.div>
       ) : (
-        <>
-          {bots.map(({ chip }, i) => {
-            const mate = roster[i];
-            const run = snapshot.team.find((m) => m.id === mate.id);
-            const working = !!run && !run.done;
-            const stepped = mate.id === active.key;
-            return (
-              <motion.button
-                type="button"
+        <motion.button
+          type="button"
+          onClick={() => onTeamOpen?.(!teamOpen)}
+          className={cn(
+            "absolute flex items-center gap-3 rounded-2xl border px-2.5 text-left transition-colors",
+            teamOpen ? "border-white/25 bg-white/[0.06]" : "border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06]",
+          )}
+          style={boxStyle(slots.group)}
+          whileTap={{ scale: 0.98 }}
+        >
+          <span className="flex shrink-0 items-center">
+            {shown.slice(0, 5).map((mate, i) => (
+              <BotPicture
                 key={mate.id}
-                title={`${mate.name} — ${mate.role || t("askDirectly")}`}
-                onClick={() => onPickBot(mate.id)}
-                className="absolute flex items-center rounded-full border pr-3 text-left"
-                style={{
-                  left: chip.x,
-                  top: chip.y,
-                  width: chip.width,
-                  height: chip.height,
-                  paddingLeft: chip.height + 2,
-                  background: `${mate.color}1f`,
-                  borderColor: stepped ? `${mate.color}cc` : `${mate.color}55`,
-                }}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1, transition: { delay: 0.08 + i * 0.05 } }}
-                whileHover={{ scale: 1.03 }}
-                whileTap={{ scale: 0.96 }}
-              >
-                <span className="flex min-w-0 flex-col leading-tight">
-                  <span className="truncate text-[13px] font-semibold text-white/90">{mate.name}</span>
-                  <span className={cn("truncate text-[10.5px]", working ? "text-white/70" : "text-white/40")}>
-                    {run ? run.status : mate.role || t("askDirectly")}
-                  </span>
-                </span>
-              </motion.button>
-            );
-          })}
-          {add && (
+                bot={mate.mascot}
+                size={28}
+                mood={moodOf(snapshot.team.find((m) => m.id === mate.id))}
+                style={{ marginLeft: i ? -10 : 0, opacity: teamOpen ? 0.45 : 1, transition: "opacity 0.2s" }}
+              />
+            ))}
+          </span>
+          <span className="flex min-w-0 flex-col leading-tight">
+            <span className="truncate text-[13px] font-semibold text-white/90">
+              {t("team")} · <span className="tabular-nums">{roster.length}</span>
+            </span>
+            <span className="truncate text-[11px]" style={{ color: working.length ? BLUE : undefined }}>
+              {working.length
+                ? t("teamBusy", { n: working.length, free: Math.max(0, roster.length - working.length) })
+                : <span className="text-white/40">{t("teamFree")}</span>}
+            </span>
+          </span>
+          {extra > 0 && <span className="shrink-0 text-[11px] text-white/35">+{extra}</span>}
+          <ChevronDownIcon
+            className={cn("ml-auto size-4 shrink-0 text-white/50 transition-transform", teamOpen ? "rotate-180" : "-rotate-90")}
+          />
+        </motion.button>
+      )}
+      <AnimatePresence initial={false}>
+        {slots.chips.map((chip, i) => {
+          const mate = shown[i];
+          const run = snapshot.team.find((m) => m.id === mate.id);
+          const stepped = mate.id === active.key;
+          return (
             <motion.button
               type="button"
-              onClick={onAddBot}
-              title={t("newBotHint")}
-              className="absolute flex items-center justify-center gap-1.5 rounded-full border border-dashed border-white/20 text-[12px] text-white/45 transition-colors hover:border-white/40 hover:bg-white/[0.04] hover:text-white/80"
-              style={{ left: add.x, top: add.y, width: add.width, height: add.height }}
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1, transition: { delay: 0.08 + bots.length * 0.05 } }}
+              key={mate.id}
+              title={`${mate.name} — ${mate.role || t("askDirectly")}`}
+              onClick={() => onPickBot(mate.id)}
+              className="absolute flex items-center gap-2 rounded-full border pr-3 pl-1 text-left"
+              style={{
+                ...boxStyle(chip),
+                background: `${mate.color}1c`,
+                borderColor: stepped ? `${mate.color}cc` : `${mate.color}4d`,
+              }}
+              initial={{ opacity: 0, y: -6, scale: 0.94 }}
+              animate={{ opacity: 1, y: 0, scale: 1, transition: { delay: 0.04 + i * 0.035 } }}
+              exit={{ opacity: 0, y: -6, scale: 0.94, transition: { duration: 0.12 } }}
+              whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.96 }}
             >
-              <PlusIcon className="size-3.5" />
-              {t("newBot")}
+              <ChipFace bot={mate.mascot} size={26} away={stepped} mood={moodOf(run)} />
+              <span className="flex min-w-0 flex-col leading-tight">
+                <span className="truncate text-[12.5px] font-semibold" style={{ color: mate.color }}>
+                  {mate.name}
+                </span>
+                {run && !run.done && <span className="truncate text-[10px] text-white/55">{run.status}</span>}
+              </span>
             </motion.button>
-          )}
-        </>
-      )}
+          );
+        })}
+      </AnimatePresence>
     </>
   );
 }
@@ -1070,6 +2143,284 @@ function Todos({ todos }: { todos: TodoItem[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ── sessions ──
+
+const MODE_TINT: Record<NotchSession["mode"], string> = { cowork: GREEN, chat: BLUE, code: "#ff9a2e" };
+
+/** "<1m", "5m", "2h", "3d": how long ago, as the list's last column. */
+function ago(at: number, now: number) {
+  const minutes = Math.floor((now - at) / 60_000);
+  if (minutes < 1) return "<1m";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+}
+
+/**
+ * Chats to pick up again: the ones running first, then the latest. Each
+ * row says where and what, the user's last words, what it's doing now,
+ * and its mode, model and age; tap one to carry on with it right here.
+ */
+function Sessions({ geometry, sessions, onPickSession, onOpenChat }: Props) {
+  const t = useNotchText();
+  const top = topRowOf(geometry);
+  // Ages are read when the list opens or changes; nothing ticks while it's up.
+  const now = Date.now();
+  return (
+    <div className="absolute inset-x-3 bottom-3 flex flex-col" style={{ top }}>
+      {/* The bot sits at the header's start (`mascotFrame`). */}
+      <div className="flex shrink-0 items-center gap-2 pr-2 pl-9" style={{ height: SESSION_HEADER }}>
+        <span className="text-[11px] font-medium tracking-wide text-white/40 uppercase">{t("sessions")}</span>
+        {sessions && sessions.length > 0 && (
+          <span className="text-[11px] text-white/25 tabular-nums">{sessions.length}</span>
+        )}
+        <span className="ml-auto text-[11px] text-white/30">{t("sessionsHint")}</span>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {!sessions ? (
+          <div className="flex h-full items-center justify-center text-white/40">
+            <Loader2Icon className="size-4 animate-spin" />
+          </div>
+        ) : sessions.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
+            <p className="text-[13px] font-medium text-white/70">{t("noSessions")}</p>
+            <p className="text-[11px] text-white/40">{t("noSessionsBody")}</p>
+          </div>
+        ) : (
+          sessions.map((session, i) => (
+            <SessionRow
+              key={session.id}
+              session={session}
+              index={i}
+              now={now}
+              onPick={() => onPickSession?.(session)}
+              onOpen={() => onOpenChat()}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A small mark per mode, drawn in CSS: a few pixels, like a sprite. */
+function ModeMark({ mode, running }: { mode: NotchSession["mode"]; running: boolean }) {
+  const color = MODE_TINT[mode];
+  // A 3×3 sprite: the cells that are lit, per mode.
+  const cells = mode === "cowork" ? [0, 2, 3, 4, 5, 7] : mode === "code" ? [1, 3, 5, 7, 4] : [0, 1, 2, 3, 5, 7];
+  return (
+    <span className="grid shrink-0 grid-cols-3 gap-[2px]" style={{ width: 22, height: 22 }}>
+      {Array.from({ length: 9 }, (_, i) => (
+        <span
+          key={i}
+          className={cn("rounded-[1.5px]", running && cells.includes(i) && "notch-loop")}
+          style={{
+            background: cells.includes(i) ? color : "transparent",
+            animation: running && cells.includes(i) ? `notch-dim 1.2s ease-in-out ${(i % 3) * 0.15}s infinite` : undefined,
+          }}
+        />
+      ))}
+    </span>
+  );
+}
+
+function SessionRow({
+  session,
+  index,
+  now,
+  onPick,
+}: {
+  session: NotchSession;
+  index: number;
+  now: number;
+  onPick: () => void;
+  onOpen: () => void;
+}) {
+  const t = useNotchText();
+  const where = session.folder ?? t(session.mode === "chat" ? "chat" : "cowork");
+  return (
+    <motion.button
+      type="button"
+      onClick={onPick}
+      className="flex w-full items-start gap-3 rounded-2xl px-2.5 py-2 text-left transition-colors hover:bg-white/[0.06]"
+      style={{ minHeight: SESSION_ROW - 4 }}
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0, transition: { delay: Math.min(index, 6) * 0.03 } }}
+    >
+      <span className="mt-1">
+        <ModeMark mode={session.mode} running={session.running} />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="min-w-0 truncate text-[13.5px] font-semibold text-white/90">
+            {where} <span className="text-white/35">·</span> {session.title || t("untitled")}
+          </span>
+          <span className="ml-auto flex shrink-0 items-center gap-1.5">
+            <Tag color={MODE_TINT[session.mode]}>{t(session.mode === "code" ? "code" : session.mode === "chat" ? "chat" : "cowork")}</Tag>
+            {session.model && <Tag>{session.model}</Tag>}
+            {session.waiting ? (
+              <span
+                className="notch-loop flex size-4 items-center justify-center rounded-full text-[10px] font-bold text-black"
+                style={{ background: AMBER, animation: "notch-beat 1.2s ease-in-out infinite" }}
+              >
+                !
+              </span>
+            ) : session.running ? (
+              <span
+                className="notch-loop size-2 rounded-full"
+                style={{ background: GREEN, animation: "notch-fade 1.4s ease-in-out infinite" }}
+              />
+            ) : (
+              <span className="w-7 text-right text-[11px] text-white/35 tabular-nums">{ago(session.updatedAt, now)}</span>
+            )}
+          </span>
+        </span>
+        {session.asked && (
+          <span className="truncate text-[12px] text-white/50">
+            {t("you")}: {session.asked}
+          </span>
+        )}
+        {session.step ? (
+          <span className="truncate text-[12px]">
+            <span className="font-medium" style={{ color: BLUE }}>
+              {session.step.kind}
+            </span>{" "}
+            <span className="text-white/45">{session.step.title.slice(session.step.kind.length).trim()}</span>
+          </span>
+        ) : session.failed ? (
+          <span className="truncate text-[12px]" style={{ color: RED }}>
+            {t("failedShort")}
+          </span>
+        ) : null}
+      </span>
+    </motion.button>
+  );
+}
+
+function Tag({ color, children }: { color?: string; children: ReactNode }) {
+  return (
+    <span
+      className="max-w-28 truncate rounded-md px-1.5 py-px text-[10.5px] font-medium"
+      style={color ? { background: `${color}26`, color } : { background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.6)" }}
+    >
+      {children}
+    </span>
+  );
+}
+
+// ── peek ──
+
+const PEEK_TINT: Record<NotchPeek["tone"], { from: string; to: string; ink: string }> = {
+  done: { from: "#1f9d5c", to: "#0b2a1b", ink: "#6ee7a8" },
+  failed: { from: "#c2412d", to: "#2c0f0b", ink: "#ff9b85" },
+  team: { from: "#2f6fd6", to: "#0d1a33", ink: "#8cc2ff" },
+  edit: { from: "#6d4ad9", to: "#160f2e", ink: "#c4b5fd" },
+};
+
+/**
+ * News, told for a moment: a card in the news' color — the bot it's about
+ * on the left, what happened and a line more — then the pill folds back.
+ * A file edit shows its first changed lines. With a team at work, its
+ * faces stand in a capsule on the right.
+ */
+function Peek({ geometry, peek, snapshot, onPeekClose }: Props & { peek: NotchPeek }) {
+  const t = useNotchText();
+  const top = topRowOf(geometry);
+  const tint = PEEK_TINT[peek.tone];
+  const mates = snapshot.team.slice(-4);
+  const side = mates.length > 0 ? 52 : 0;
+  return (
+    <>
+      <motion.div
+        className="absolute overflow-hidden rounded-[22px]"
+        style={{
+          ...DARK_VARS,
+          left: PAD,
+          right: PAD + side,
+          top,
+          bottom: PAD,
+          background: `radial-gradient(130% 160% at 50% 120%, ${tint.from} 0%, ${tint.from}aa 22%, ${tint.to} 70%)`,
+        }}
+        initial={{ opacity: 0, scale: 0.97 }}
+        animate={{ opacity: 1, scale: 1 }}
+      >
+        <div className="absolute inset-y-0 right-12 left-[96px] flex flex-col justify-center gap-1">
+          <p className="truncate text-[16px] font-semibold text-white">{peek.title}</p>
+          {peek.edit ? (
+            <EditLines edit={peek.edit} ink={tint.ink} />
+          ) : (
+            peek.detail && (
+              <p className="truncate text-[13px]" style={{ color: tint.ink }}>
+                {peek.detail}
+              </p>
+            )
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onPeekClose?.();
+          }}
+          title={t("close")}
+          className="absolute top-1/2 right-3 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/25 text-white/70 transition-colors hover:bg-black/40 hover:text-white"
+        >
+          <XIcon className="size-3.5" />
+        </button>
+      </motion.div>
+      {side > 0 && (
+        <motion.div
+          className="absolute flex flex-col items-center justify-center rounded-full bg-white/[0.06]"
+          style={{ right: PAD, top, bottom: PAD, width: side - 8 }}
+          initial={{ opacity: 0, x: 8 }}
+          animate={{ opacity: 1, x: 0, transition: { delay: 0.08 } }}
+        >
+          {mates.map((mate, i) => (
+            <BotPicture key={mate.id} bot={mate.mascot} size={26} mood={moodOf(mate)} style={{ marginTop: i ? -8 : 0 }} />
+          ))}
+        </motion.div>
+      )}
+    </>
+  );
+}
+
+/** A file's diff, a taste of it: its name and size, then its first changed lines. */
+export function EditLines({ edit, ink, lines = 3 }: { edit: NotchEdit; ink?: string; lines?: number }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1" style={DARK_VARS}>
+      <p className="flex min-w-0 items-center gap-2 text-[12px]">
+        <span className="min-w-0 truncate font-mono" style={{ color: ink }}>
+          {edit.path}
+        </span>
+        <span className="shrink-0 font-mono text-[11px] tabular-nums">
+          {edit.additions > 0 && <span className="text-emerald-300">+{edit.additions}</span>}
+          {edit.deletions > 0 && <span className="ml-1 text-rose-300">−{edit.deletions}</span>}
+        </span>
+      </p>
+      {edit.lines.length > 0 && (
+        <div className="overflow-hidden rounded-lg bg-[#0b0b10]/70 py-1 font-mono text-[11px] leading-[1.45]">
+          {edit.lines.slice(0, lines).map((line, i) => (
+            <div
+              key={i}
+              className={cn(
+                "truncate px-2 whitespace-pre",
+                line.tag === "add" && "bg-emerald-400/15 text-emerald-100",
+                line.tag === "del" && "bg-rose-400/15 text-rose-100/80 line-through decoration-rose-300/40",
+                line.tag === "ctx" && "text-white/40",
+              )}
+            >
+              <span className="mr-1.5 inline-block w-2 opacity-60 select-none">
+                {line.tag === "add" ? "+" : line.tag === "del" ? "−" : " "}
+              </span>
+              {line.text || " "}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

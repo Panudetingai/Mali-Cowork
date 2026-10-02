@@ -477,6 +477,50 @@ pub fn notch_hit_area<R: Runtime>(app: AppHandle<R>, x: f64, y: f64, width: f64,
     }
 }
 
+/// The open pill in its window (logical pixels, top-left origin) and its
+/// bottom corners' radius: where the frosted backdrop goes.
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct BackdropRect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub radius: f64,
+}
+
+/// The frosted backdrop behind the open pill: "glass" (dark) or "light", in
+/// `rect`; "black" or no rect takes it away. The page can only blur itself,
+/// so the system's blur of what's behind the window sits under the web view
+/// and follows the pill's shape. False where there's no such blur.
+#[tauri::command]
+pub async fn notch_backdrop<R: Runtime>(app: AppHandle<R>, look: String, rect: Option<BackdropRect>) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let Some(window) = app.get_webview_window(NOTCH_LABEL) else { return false };
+        let want = match (look.as_str(), rect) {
+            ("glass", Some(rect)) => Some((false, rect)),
+            ("light", Some(rect)) => Some((true, rect)),
+            _ => None,
+        };
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let ns = window.clone();
+        if window
+            .run_on_main_thread(move || {
+                let _ = tx.send(mac::set_backdrop(&ns, want));
+            })
+            .is_err()
+        {
+            return false;
+        }
+        rx.await.unwrap_or(false)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, look, rect);
+        false
+    }
+}
+
 /// Which screen the pill lives on; it moves there now if it should.
 #[tauri::command]
 pub fn notch_set_screen<R: Runtime>(app: AppHandle<R>, pref: ScreenPref) {
@@ -699,21 +743,28 @@ async fn main_rect<R: Runtime>(app: &AppHandle<R>) -> Option<Rect> {
 
 /// The light along the top edge needs this much of the screen.
 const GLOW_HEIGHT: f64 = 140.0;
+/// Where the dot starts without the main window on this screen (at login,
+/// or from another screen): this far down, as a share of the screen.
+const DOT_START: f64 = 0.42;
 
-/// Cover the top of `screen` for the intro; the dot flies up from `from`
-/// (screen units) when it is on this screen.
+/// Cover the top of `screen` for the intro. The dot always rises from the
+/// middle of the screen, straight up into the notch: from the height the
+/// main window shrank at when that's on this screen, else from a little
+/// above the middle. (Starting where the window was put it off to one side,
+/// and on another screen there was no dot at all.)
 fn play_intro<R: Runtime>(window: &WebviewWindow<R>, screen: Screen, from: Option<(f64, f64)>) {
     let area = screen.area;
-    let from = from.filter(|&p| area.contains(p));
-    let height = match from {
-        Some((_, y)) => ((y - area.y) / screen.unit + 80.0).max(120.0),
-        None => GLOW_HEIGHT,
-    };
+    let height = area.height / screen.unit;
+    let start = from
+        .filter(|&p| area.contains(p))
+        .map(|(_, y)| (y - area.y) / screen.unit)
+        .unwrap_or(height * DOT_START)
+        .clamp(GLOW_HEIGHT, height * 0.7);
+    let cover = (start + 80.0).max(GLOW_HEIGHT);
     window.state::<NotchState>().placed.lock().unwrap().screen = Some(screen);
-    stretch(window, Rect { x: area.x, y: area.y, width: area.width, height: height * screen.unit });
-    *window.state::<NotchState>().intro.lock().unwrap() = Some(Intro {
-        from: from.map(|(x, y)| Point { x: (x - area.x) / screen.unit, y: (y - area.y) / screen.unit }),
-    });
+    stretch(window, Rect { x: area.x, y: area.y, width: area.width, height: cover * screen.unit });
+    *window.state::<NotchState>().intro.lock().unwrap() =
+        Some(Intro { from: Some(Point { x: area.width / screen.unit / 2.0, y: start }) });
 }
 
 /// Put the main window away and keep the pill at the top: the window has
@@ -1487,6 +1538,110 @@ mod mac {
 
     pub fn window_rect<R: Runtime>(window: &WebviewWindow<R>) -> Option<Rect> {
         Some(from_cocoa(ns_window(window)?.frame()))
+    }
+
+    /// Marks the backdrop among the window's views, to find it again.
+    const BACKDROP_ID: &str = "mali.notch.backdrop";
+    /// NSVisualEffectView: blur what's behind the window, always active.
+    const BEHIND_WINDOW: isize = 0;
+    const ACTIVE: isize = 1;
+    /// Materials: the HUD's dark glass, the popover's light one.
+    const HUD: isize = 13;
+    const POPOVER: isize = 6;
+    /// Keep the distance to the top when the window grows (a non-flipped view's top).
+    const PIN_TOP: usize = 8;
+    /// The layer's bottom corners (minY is the bottom in a non-flipped layer).
+    const BOTTOM_CORNERS: usize = 1 | 2;
+    /// About the page's spring, so the blur keeps up with the shape.
+    const FOLLOW_S: f64 = 0.3;
+
+    /// The system's blur under the web view, shaped like the open pill; or
+    /// hidden (`want` none). Views are found and changed by message, so no
+    /// AppKit feature has to be compiled in for them.
+    pub fn set_backdrop<R: Runtime>(window: &WebviewWindow<R>, want: Option<(bool, super::BackdropRect)>) -> bool {
+        use objc2::msg_send;
+        use objc2::runtime::AnyClass;
+        let Some(ns_window) = ns_window(window) else { return false };
+        // SAFETY: on the main thread (ns_window checked), with AppKit classes
+        // and selectors that exist on every macOS the app runs on; the view
+        // made here is owned by its superview once added.
+        unsafe {
+            let content: *mut AnyObject = msg_send![ns_window, contentView];
+            let Some(content) = content.as_ref() else { return false };
+            let id = NSString::from_str(BACKDROP_ID);
+            let subviews: *mut AnyObject = msg_send![content, subviews];
+            let count: usize = msg_send![subviews, count];
+            let mut effect: *mut AnyObject = std::ptr::null_mut();
+            for i in 0..count {
+                let view: *mut AnyObject = msg_send![subviews, objectAtIndex: i];
+                let ident: *mut AnyObject = msg_send![view, identifier];
+                if !ident.is_null() {
+                    let same: bool = msg_send![ident, isEqualToString: &*id];
+                    if same {
+                        effect = view;
+                        break;
+                    }
+                }
+            }
+            let Some((light, rect)) = want else {
+                if !effect.is_null() {
+                    let _: () = msg_send![effect, setHidden: true];
+                }
+                return true;
+            };
+            let Some(class) = AnyClass::get(c"NSVisualEffectView") else { return false };
+            let fresh = effect.is_null();
+            if fresh {
+                let made: *mut AnyObject = msg_send![class, alloc];
+                let made: *mut AnyObject = msg_send![made, initWithFrame: NSRect::ZERO];
+                if made.is_null() {
+                    return false;
+                }
+                let _: () = msg_send![made, setIdentifier: &*id];
+                let _: () = msg_send![made, setBlendingMode: BEHIND_WINDOW];
+                let _: () = msg_send![made, setState: ACTIVE];
+                let _: () = msg_send![made, setWantsLayer: true];
+                let _: () = msg_send![made, setAutoresizingMask: PIN_TOP];
+                let _: () = msg_send![made, setHidden: true];
+                // Below the web view, which is transparent where the pill lets it through.
+                let below: isize = -1;
+                let _: () = msg_send![content, addSubview: made, positioned: below, relativeTo: std::ptr::null_mut::<AnyObject>()];
+                let _: () = msg_send![made, release];
+                effect = made;
+            }
+            let _: () = msg_send![effect, setMaterial: if light { POPOVER } else { HUD }];
+            if let Some(appearances) = AnyClass::get(c"NSAppearance") {
+                let name = NSString::from_str(if light { "NSAppearanceNameAqua" } else { "NSAppearanceNameDarkAqua" });
+                let appearance: *mut AnyObject = msg_send![appearances, appearanceNamed: &*name];
+                let _: () = msg_send![effect, setAppearance: appearance];
+            }
+            let bounds: NSRect = msg_send![content, bounds];
+            let flipped: bool = msg_send![content, isFlipped];
+            let y = if flipped { rect.y } else { bounds.size.height - rect.y - rect.height };
+            let frame = NSRect::new(NSPoint::new(rect.x, y), NSSize::new(rect.width, rect.height));
+            let layer: *mut AnyObject = msg_send![effect, layer];
+            if !layer.is_null() {
+                let _: () = msg_send![layer, setCornerRadius: rect.radius];
+                let _: () = msg_send![layer, setMaskedCorners: BOTTOM_CORNERS];
+                let _: () = msg_send![layer, setMasksToBounds: true];
+            }
+            let hidden: bool = msg_send![effect, isHidden];
+            if hidden || fresh {
+                // Coming into view: in place at once, the page fades its tint in over it.
+                let _: () = msg_send![effect, setFrame: frame];
+                let _: () = msg_send![effect, setHidden: false];
+            } else if let Some(animation) = AnyClass::get(c"NSAnimationContext") {
+                let _: () = msg_send![animation, beginGrouping];
+                let context: *mut AnyObject = msg_send![animation, currentContext];
+                let _: () = msg_send![context, setDuration: FOLLOW_S];
+                let animator: *mut AnyObject = msg_send![effect, animator];
+                let _: () = msg_send![animator, setFrame: frame];
+                let _: () = msg_send![animation, endGrouping];
+            } else {
+                let _: () = msg_send![effect, setFrame: frame];
+            }
+        }
+        true
     }
 
     /// The notch of the screen at `at` (else the window's, else the main

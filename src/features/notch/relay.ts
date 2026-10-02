@@ -8,27 +8,38 @@
  * done state behind.
  */
 import { isTauri } from "@tauri-apps/api/core";
-import { getChat, getRun, getRuns, subscribeToChats, subscribeToRuns } from "@/features/chat-history";
+import {
+  getChat,
+  getChats,
+  getRun,
+  getRuns,
+  isListedChat,
+  sessionMode,
+  subscribeToChats,
+  subscribeToRuns,
+} from "@/features/chat-history";
 import { BOTS } from "@/features/cowork-bot";
 import { getTeam } from "@/features/team";
 import { cancelTask, enqueueTask, getTasks, subscribeToTasks } from "@/features/tasks";
 import { getOpencodeModels } from "@/features/opencode";
 import { normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import { coworkResend } from "@/pages/chat/move-to-cowork";
-import { resendSettingsFor } from "@/pages/chat/models";
+import { loadSelectedModelId, resendSettingsFor } from "@/pages/chat/models";
 import { replyToPermission, sendTurn, stopRun, type TurnInput } from "@/pages/chat/turn";
 import {
   onNotchCowork,
   onNotchReady,
   onNotchReply,
+  onNotchSessionsWant,
   onNotchStop,
   releaseNotch,
   sendCoworkStarted,
+  sendNotchSessions,
   sendNotchState,
   showNotch,
 } from "./bridge";
 import { isNotchEnabled, subscribeToNotchEnabled } from "./settings";
-import { liveSnapshot, pillSyncKey, replyOf, type MateInfo } from "./snapshot";
+import { liveSnapshot, pillSyncKey, recapOf, replyOf, sessionsOf, usageOf, type MateInfo } from "./snapshot";
 import type { NotchCoworkRequest, NotchCoworkStarted, NotchSnapshot } from "./types";
 
 /** Run / permission / task changes — pill should react quickly. */
@@ -37,6 +48,8 @@ const RUN_THROTTLE_MS = 150;
 const CHAT_THROTTLE_MS = 450;
 /** The notch's own Cowork task: its answer streams into the notch, so it syncs often. */
 const STREAM_THROTTLE_MS = 120;
+/** The session list, while the notch shows it: a step changing is news enough. */
+const SESSIONS_THROTTLE_MS = 900;
 
 function teamInfo(): MateInfo[] {
   return getTeam().mates.map((m) => ({
@@ -65,6 +78,32 @@ export function startNotchRelay() {
   const followedChat = () => follow?.chatId ?? getTasks().find((t) => t.id === follow?.taskId)?.chatId;
 
   const warn = (error: unknown) => console.warn("[notch]", error);
+
+  /** The notch shows Home or its session list: only then is the overview (sessions, usage, the week's recap) worked out and sent. */
+  let sessionsWanted = false;
+  /** The week the recap is of: weeks back from this one. */
+  let recapWeek = 0;
+  let sessionsThrottle: ReturnType<typeof setTimeout> | undefined;
+  let sessionsSent = "";
+  function pushSessions() {
+    sessionsThrottle = undefined;
+    if (!sessionsWanted) return;
+    const chats = getChats();
+    const runs = getRuns();
+    const listed = chats.filter(isListedChat);
+    const overview = {
+      sessions: sessionsOf(chats, runs, isListedChat),
+      usage: usageOf(listed),
+      recap: recapOf(listed, recapWeek),
+    };
+    const key = JSON.stringify(overview);
+    if (key === sessionsSent) return;
+    sessionsSent = key;
+    void sendNotchSessions(overview).catch(warn);
+  }
+  function scheduleSessions() {
+    if (sessionsWanted) sessionsThrottle ??= setTimeout(pushSessions, SESSIONS_THROTTLE_MS);
+  }
 
   function compute(): NotchSnapshot | null {
     if (!isNotchEnabled()) {
@@ -151,9 +190,37 @@ export function startNotchRelay() {
   window.addEventListener("focus", onFocus);
   window.addEventListener("blur", onBlur);
 
+  /**
+   * A session picked in the notch, continued as it is: its own mode, folder
+   * and model (the one its last prompt went out on), unless the notch picked
+   * another model.
+   */
+  async function continueSession(request: NotchCoworkRequest): Promise<NotchCoworkStarted> {
+    const id = request.id;
+    const chatId = request.chatId!;
+    const chat = getChat(chatId);
+    if (!chat) return { id, error: "That chat is gone — it may have been deleted in the app." };
+    if (getRun(chatId)) return { id, error: "That chat is still working — wait for it, or stop it first." };
+    const mode = sessionMode(chat);
+    const opencode = getOpencodeModels();
+    const last = chat.messages.filter((m) => m.role === "user" && m.resend).at(-1)?.resend;
+    const resend =
+      (request.modelId && resendSettingsFor(request.modelId, opencode, mode)) ||
+      last ||
+      (mode === "cowork" ? coworkResend() : resendSettingsFor(loadSelectedModelId("chat"), opencode, "chat"));
+    if (!resend) return { id, error: "No model can answer here yet — pick one in the app." };
+    follow = { key: id, chatId };
+    void sendTurn(
+      { chatId, newChatMode: mode },
+      { prompt: request.prompt, attachments: request.attachments, resend },
+    ).catch(warn);
+    return { id, chatId };
+  }
+
   /** Work in a folder, asked from the notch: the same pipeline as Cowork, via the Task Inbox. */
   async function startCowork(request: NotchCoworkRequest): Promise<NotchCoworkStarted> {
     const id = request.id;
+    if (request.session && request.chatId) return continueSession(request);
     const cwd = normalizeFolder(request.folder);
     const granted =
       cwd && (await requestFolderAccess(cwd, { reason: "You asked Mali from the notch to work in this folder." }));
@@ -191,6 +258,17 @@ export function startNotchRelay() {
     subscribeToTasks(scheduleRun),
     subscribeToRuns(scheduleRun),
     subscribeToChats(scheduleChat),
+    subscribeToRuns(scheduleSessions),
+    subscribeToChats(scheduleSessions),
+    onNotchSessionsWant(({ on, week }) => {
+      sessionsWanted = on;
+      recapWeek = week;
+      if (!on) return;
+      // Asked again: send it now, even if it hasn't changed (the notch may have reloaded).
+      sessionsSent = "";
+      clearTimeout(sessionsThrottle);
+      pushSessions();
+    }),
     subscribeToNotchEnabled(scheduleRun),
     onNotchReady(() => void sendNotchState(current).catch(warn)),
     // Stop from the notch: a task by its Inbox entry (queued or running), else the chat's run.
@@ -212,5 +290,6 @@ export function startNotchRelay() {
     stops.forEach((stop) => stop());
     clearTimeout(runThrottle);
     clearTimeout(chatThrottle);
+    clearTimeout(sessionsThrottle);
   };
 }

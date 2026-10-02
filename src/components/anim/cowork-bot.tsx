@@ -12,7 +12,7 @@ import { CheckIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useRef } from "react";
 
-const EMBED_VERSION = "10";
+export const EMBED_VERSION = "11";
 
 /**
  * The selected cowork bot, rendered from public/anim/cowork-bots.html

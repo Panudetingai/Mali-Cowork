@@ -1,6 +1,8 @@
 import { createStore } from "@/lib/local-store";
 import { isTauri } from "@tauri-apps/api/core";
 import { setNotchScreen, type NotchScreen } from "./bridge";
+import { DEFAULT_RATES } from "./recap";
+import type { NotchLook, NotchRates } from "./types";
 
 const ENABLED_KEY = "mali.notch.enabled";
 
@@ -74,4 +76,84 @@ if (typeof window !== "undefined") {
       // Not ours to fix; the next change writes it again.
     }
   });
+}
+
+const LOOK_KEY = "mali.notch.look";
+
+/**
+ * Settings → Notch: how the open pill looks — the notch's own black, frosted
+ * glass, or light. Collapsed stays black; open light is white through the top row.
+ */
+const lookStore = createStore<NotchLook>("black", { key: LOOK_KEY });
+
+export const useNotchLook = lookStore.use;
+export const setNotchLook = (look: NotchLook) => lookStore.set(look);
+
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key !== LOOK_KEY || !event.newValue) return;
+    try {
+      lookStore.set(JSON.parse(event.newValue) as NotchLook);
+    } catch {
+      // Not ours to fix; the next change writes it again.
+    }
+  });
+}
+
+const GLASS_BLUR_KEY = "mali.notch.glassBlur";
+const GLASS_BLUR_DEFAULT = 55;
+
+/** Settings → Notch → Glass: 0 = softer tint, 100 = strongest frosted blur. */
+const glassBlurStore = createStore<number>(GLASS_BLUR_DEFAULT, { key: GLASS_BLUR_KEY });
+
+export const useNotchGlassBlur = glassBlurStore.use;
+
+export function setNotchGlassBlur(amount: number) {
+  glassBlurStore.set(Math.round(Math.min(100, Math.max(0, amount))));
+}
+
+/** Fresh read for the notch window when Settings writes in another webview. */
+export function getNotchGlassBlur() {
+  try {
+    const raw = localStorage.getItem(GLASS_BLUR_KEY);
+    if (raw === null) return GLASS_BLUR_DEFAULT;
+    const n = JSON.parse(raw) as number;
+    return Number.isFinite(n) ? Math.round(Math.min(100, Math.max(0, n))) : GLASS_BLUR_DEFAULT;
+  } catch {
+    return glassBlurStore.get();
+  }
+}
+
+/** Maps the slider to CSS blur and tint strength for the glass shell. */
+export function glassBlurVisuals(amount: number) {
+  const t = Math.min(1, Math.max(0, amount / 100));
+  return {
+    blurPx: Math.round(6 + t * 34),
+    tintAlpha: 0.4 - t * 0.24,
+    hoodAlpha: 0.5 - t * 0.3,
+  };
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key !== GLASS_BLUR_KEY) return;
+    glassBlurStore.set(getNotchGlassBlur());
+  });
+}
+
+const RATES_KEY = "mali.notch.rates";
+
+/**
+ * The weekly recap's time-saved estimate: minutes a person would take per
+ * task, new file, edited file and command. Adjusted from the recap itself.
+ */
+const ratesStore = createStore<NotchRates>(DEFAULT_RATES, {
+  key: RATES_KEY,
+  revive: (rates) => ({ ...DEFAULT_RATES, ...rates }),
+});
+
+export const useNotchRates = ratesStore.use;
+export function setNotchRates(rates: NotchRates) {
+  const clean = (n: number) => Math.round(Math.min(240, Math.max(0, Number.isFinite(n) ? n : 0)) * 10) / 10;
+  ratesStore.set({ task: clean(rates.task), created: clean(rates.created), edited: clean(rates.edited), command: clean(rates.command) });
 }

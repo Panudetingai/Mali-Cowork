@@ -18,6 +18,7 @@ import {
   ArrowUpIcon,
   ArrowUpRightIcon,
   CheckIcon,
+  CornerDownLeftIcon,
   ChevronDownIcon,
   CircleAlertIcon,
   ClockIcon,
@@ -33,6 +34,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { forwardRef, useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
+import { EditLines } from "./notch-pill";
 import { folderName, useAllowedFolders } from "./folders";
 import { CHAT_BOT, CHAT_INPUT, topRowOf } from "./layout";
 import { NotchModelsPanel } from "./notch-models-panel";
@@ -40,7 +42,7 @@ import type { RosterBot } from "./team";
 import type { NotchCapture } from "./bridge";
 import { Showcase } from "./notch-showcase";
 import { useNotchText } from "./text";
-import type { NotchGeometry } from "./types";
+import type { NotchGeometry, NotchSession } from "./types";
 import type { NotchChat as Chat } from "./use-notch-chat";
 import type { CoworkTurn, useNotchCowork } from "./use-notch-cowork";
 
@@ -71,6 +73,9 @@ type Props = {
   onOpenChat: (chatId: string) => void;
   /** The window just captured (dragging the bot onto it, or the camera). */
   captured?: NotchCapture;
+  /** A chat picked from the session list: what's asked here carries it on. */
+  session?: NotchSession;
+  onLeaveSession?: () => void;
 };
 
 /** One tap after a capture or a file: what people most often want done with it, in the app's language. */
@@ -81,11 +86,13 @@ const QUICK_ASKS = [
   { label: "qContinue", prompt: "qContinuePrompt" },
 ] as const;
 
-export const NotchChat = forwardRef<HTMLInputElement, Props>(function NotchChat(props, inputRef) {
-  const { chat, cowork, geometry, input, onInput, bot, onClearBot, onClose, folder, panel, onPanel } = props;
+export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchChat(props, inputRef) {
+  const { chat, cowork, geometry, input, onInput, bot, onClearBot, onClose, panel, onPanel, session } = props;
   const top = topRowOf(geometry);
   const t = useNotchText();
-  const inFolder = !!folder;
+  // A picked session works where it works: its own folder, or none.
+  const folder = session ? (session.cwd ?? null) : props.folder;
+  const inFolder = !!folder || !!session;
   const [modelsReady, setModelsReady] = useState(!!getOpencodeModels());
   useEffect(() => {
     if (modelsReady) return;
@@ -93,7 +100,7 @@ export const NotchChat = forwardRef<HTMLInputElement, Props>(function NotchChat(
     void ensureOpencodeModels(cwd).finally(() => setModelsReady(true));
   }, [modelsReady]);
   // What will really answer: the pick here, else the bot's model, else the default for the mode.
-  const fallback = inFolder ? loadSelectedModelId("cowork") : quickModelId();
+  const fallback = session?.mode === "chat" ? loadSelectedModelId("chat") : inFolder ? loadSelectedModelId("cowork") : quickModelId();
   const answerId = props.modelId ?? ((!inFolder && bot?.modelId) || fallback);
   const opencode = getOpencodeModels();
   const answerMeta = useMemo(
@@ -101,20 +108,36 @@ export const NotchChat = forwardRef<HTMLInputElement, Props>(function NotchChat(
     [answerId, opencode, modelsReady],
   );
   const nameOf = (id: string) =>
-    id === OPENCODE_DEFAULT_ID ? "Auto" : (modelMetaFromId(id, opencode).name ?? id.split("/").at(-1) ?? id);
+    // A session answers on its own model unless another is picked here.
+    session && !props.modelId && id === answerId && session.model
+      ? session.model
+      : id === OPENCODE_DEFAULT_ID
+        ? "Auto"
+        : (modelMetaFromId(id, opencode).name ?? id.split("/").at(-1) ?? id);
   const busy = chat.streaming || cowork.running;
-  const thread = inFolder ? cowork.turns.length > 0 : chat.turns.length > 0;
+  const thread = session ? true : inFolder ? cowork.turns.length > 0 : chat.turns.length > 0;
+  const needsFolder = !inFolder && !!chatIssueOf(answerMeta);
+  const inputNote = chat.note && panel !== "folders";
 
   const submit = async (ask?: string) => {
     const text = (ask ?? input).trim();
     if (busy || (!text && chat.files.length === 0)) return;
     if (!inFolder && chatIssueOf(answerMeta)) {
-      chat.setNote(`${answerMeta.name} ตอบได้เมื่อเลือกโฟลเดอร์ — กด Chat แล้วเลือกโฟลเดอร์ก่อนส่ง`);
+      chat.setNote(`${answerMeta.name} ต้องเลือกโฟลเดอร์ก่อนส่ง — เลือกจากรายการด้านบน`);
       onPanel("folders");
       return;
     }
     onInput("");
     onPanel(null);
+    if (session) {
+      await cowork.send(text || "Look at the attached files.", {
+        folder: session.cwd ?? "",
+        modelId: props.modelId,
+        files: chat.takeFiles(),
+        session: session.id,
+      });
+      return;
+    }
     if (folder) {
       await cowork.send(text || "Look at the attached files.", { folder, modelId: props.modelId, files: chat.takeFiles() });
       return;
@@ -123,7 +146,7 @@ export const NotchChat = forwardRef<HTMLInputElement, Props>(function NotchChat(
     if (!sent && !ask) onInput(text);
   };
 
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       void submit();
@@ -134,7 +157,7 @@ export const NotchChat = forwardRef<HTMLInputElement, Props>(function NotchChat(
     }
   };
 
-  const onPaste = (event: ClipboardEvent<HTMLInputElement>) => {
+  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = Array.from(event.clipboardData.files);
     if (files.length === 0) return;
     event.preventDefault();
@@ -163,10 +186,16 @@ export const NotchChat = forwardRef<HTMLInputElement, Props>(function NotchChat(
             onClose={() => onPanel(null)}
           />
         ) : panel === "folders" ? (
-          <Folders key="folders" folder={folder} onFolder={props.onFolder} onClose={() => onPanel(null)} />
+          <Folders
+            key="folders"
+            folder={folder}
+            hint={chat.note ?? undefined}
+            onFolder={props.onFolder}
+            onClose={() => onPanel(null)}
+          />
         ) : thread ? (
           inFolder ? (
-            <CoworkThread key="cowork" turns={cowork.turns} onOpenChat={props.onOpenChat} />
+            <CoworkThread key="cowork" turns={cowork.turns} onOpenChat={props.onOpenChat} session={session} />
           ) : (
             <Thread key="thread" turns={chat.turns} answeredBy={chat.answeredBy} />
           )
@@ -209,91 +238,133 @@ export const NotchChat = forwardRef<HTMLInputElement, Props>(function NotchChat(
           </motion.div>
         )}
       </AnimatePresence>
-      <div
-        className="flex shrink-0 items-center gap-1.5 rounded-[18px] bg-white/[0.08] px-1.5 ring-1 ring-white/[0.06] focus-within:ring-white/20"
-        // The bot sits to the left of the box.
-        style={{ height: CHAT_INPUT, marginLeft: CHAT_BOT + 10 }}
-      >
-        <IconButton title={t("attach")} onClick={() => void pick()} big>
-          <PlusIcon className="size-4" />
-        </IconButton>
-        <Chip
-          on={panel === "folders"}
-          tint={inFolder ? "#34c77b" : undefined}
-          onClick={() => onPanel(panel === "folders" ? null : "folders")}
-          title={folder ?? t("chatOnly")}
-        >
-          {inFolder ? <FolderIcon className="size-3 shrink-0" /> : <MessageCircleIcon className="size-3 shrink-0" />}
-          <span className="truncate">{folder ? folderName(folder) : t("chat")}</span>
-        </Chip>
-        {bot && !inFolder && (
-          <span
-            className="flex h-7 shrink-0 items-center gap-1 rounded-full border pr-1 pl-2.5 text-[12px] font-medium text-white/85"
-            style={{ background: `${bot.color}26`, borderColor: `${bot.color}77` }}
-            title={bot.role}
+      <AnimatePresence initial={false}>
+        {inputNote && (
+          <motion.div
+            key="note"
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            className="flex shrink-0 items-start gap-1.5 rounded-xl bg-amber-400/10 px-2.5 py-1.5 ring-1 ring-amber-400/20"
           >
-            {bot.name}
-            <button
-              type="button"
-              onClick={onClearBot}
-              title={t("askMaliInstead")}
-              className="rounded-full p-0.5 text-white/50 hover:bg-white/10 hover:text-white"
-            >
-              <XIcon className="size-3" />
-            </button>
-          </span>
+            <CircleAlertIcon className="mt-px size-3.5 shrink-0 text-amber-300/90" />
+            <p className="line-clamp-2 text-[11px] leading-snug text-amber-100/90">{chat.note}</p>
+          </motion.div>
         )}
-        <input
+      </AnimatePresence>
+      {/* The composer: the words on top (the bot sits in its corner), the buttons under them. */}
+      <div
+        className="flex shrink-0 flex-col justify-between rounded-[22px] bg-white/[0.07] px-2 pt-2 pb-2 ring-1 ring-white/[0.07] transition-shadow focus-within:ring-white/20"
+        style={{ height: CHAT_INPUT }}
+      >
+        <textarea
           ref={inputRef}
+          rows={1}
           value={input}
           onChange={(e) => onInput(e.target.value)}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
           placeholder={
-            inFolder
-              ? t("placeholderFolder", { folder: folderName(folder!) })
-              : chat.files.length
-                ? t("placeholderFile")
-                : bot
-                  ? t("placeholderBot", { name: bot.name })
-                  : t("placeholder")
+            session
+              ? t("placeholderSession", { title: session.title || t("untitled") })
+              : folder
+                ? t("placeholderFolder", { folder: folderName(folder) })
+                : chat.files.length
+                  ? t("placeholderFile")
+                  : bot
+                    ? t("placeholderBot", { name: bot.name })
+                    : t("placeholder")
           }
-          className="min-w-0 flex-1 bg-transparent text-[14px] text-white outline-none placeholder:text-white/35"
+          className="h-[34px] w-full resize-none bg-transparent py-1.5 pr-2 text-[14.5px] leading-snug text-white outline-none placeholder:text-white/35"
+          style={{ paddingLeft: CHAT_BOT + 12 }}
           spellCheck={false}
         />
-        <Chip
-          on={panel === "models"}
-          onClick={() => onPanel(panel === "models" ? null : "models")}
-          title={t("answeringWith", { name: nameOf(answerId) })}
-        >
-          <ModelSelectorLogo provider={answerMeta.provider} className="size-3" />
-          <span className="truncate">{nameOf(answerId)}</span>
-          <ChevronDownIcon className={cn("size-3 shrink-0 transition-transform", panel === "models" && "rotate-180")} />
-        </Chip>
-        {chat.streaming || (inFolder && cowork.running) ? (
-          <motion.button
-            type="button"
-            onClick={inFolder ? cowork.stop : chat.stop}
-            whileTap={{ scale: 0.92 }}
-            title={t("stop")}
-            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/[0.14] text-white"
+        <div className="flex min-w-0 items-center gap-1.5">
+          <IconButton title={t("attach")} onClick={() => void pick()}>
+            <PlusIcon className="size-4" />
+          </IconButton>
+          {session ? (
+            <span
+              className="flex h-7 max-w-52 min-w-0 shrink items-center gap-1 rounded-full bg-white/[0.08] pr-1 pl-2.5 text-[12px] text-white/75"
+              title={t("continuing", { title: session.title })}
+            >
+              <CornerDownLeftIcon className="size-3 shrink-0" />
+              <span className="truncate">{session.title || t("untitled")}</span>
+              <button
+                type="button"
+                onClick={props.onLeaveSession}
+                title={t("leaveSession")}
+                className="rounded-full p-0.5 text-white/50 hover:bg-white/10 hover:text-white"
+              >
+                <XIcon className="size-3" />
+              </button>
+            </span>
+          ) : (
+            <Chip
+              on={panel === "folders"}
+              tint={inFolder ? "#34c77b" : needsFolder ? "#f5a524" : undefined}
+              onClick={() => onPanel(panel === "folders" ? null : "folders")}
+              title={needsFolder ? (chat.note ?? t("chatOnly")) : (folder ?? t("chatOnly"))}
+            >
+              {inFolder ? <FolderIcon className="size-3 shrink-0" /> : <MessageCircleIcon className="size-3 shrink-0" />}
+              <span className="truncate">{folder ? folderName(folder) : t("chat")}</span>
+            </Chip>
+          )}
+          {bot && !inFolder && (
+            <span
+              className="flex h-7 shrink-0 items-center gap-1 rounded-full border pr-1 pl-2.5 text-[12px] font-medium text-white/85"
+              style={{ background: `${bot.color}26`, borderColor: `${bot.color}77` }}
+              title={bot.role}
+            >
+              {bot.name}
+              <button
+                type="button"
+                onClick={onClearBot}
+                title={t("askMaliInstead")}
+                className="rounded-full p-0.5 text-white/50 hover:bg-white/10 hover:text-white"
+              >
+                <XIcon className="size-3" />
+              </button>
+            </span>
+          )}
+          <Chip
+            on={panel === "models"}
+            onClick={() => onPanel(panel === "models" ? null : "models")}
+            title={t("answeringWith", { name: nameOf(answerId) })}
           >
-            <SquareIcon className="size-3 fill-current" />
-          </motion.button>
-        ) : (
-          <motion.button
-            type="button"
-            onClick={() => void submit()}
-            whileTap={{ scale: 0.92 }}
-            disabled={busy || (!input.trim() && chat.files.length === 0)}
-            title={inFolder ? t("startWork") : t("send")}
-            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white text-black transition-opacity disabled:opacity-30"
-          >
-            {cowork.running ? <Loader2Icon className="size-4 animate-spin" /> : <ArrowUpIcon className="size-4" strokeWidth={2.5} />}
-          </motion.button>
-        )}
+            <ModelSelectorLogo provider={answerMeta.provider} className="size-3" />
+            <span className="truncate">{nameOf(answerId)}</span>
+            <ChevronDownIcon className={cn("size-3 shrink-0 transition-transform", panel === "models" && "rotate-180")} />
+          </Chip>
+          <span className="ml-auto min-w-0 truncate pl-2 text-right text-[11px] text-white/30">{t("composerHint")}</span>
+          {chat.streaming || (inFolder && cowork.running) ? (
+            <motion.button
+              type="button"
+              onClick={inFolder ? cowork.stop : chat.stop}
+              whileTap={{ scale: 0.92 }}
+              title={t("stop")}
+              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/[0.14] text-white"
+            >
+              <SquareIcon className="size-3 fill-current" />
+            </motion.button>
+          ) : (
+            <motion.button
+              type="button"
+              onClick={() => void submit()}
+              whileTap={{ scale: 0.92 }}
+              disabled={busy || (!input.trim() && chat.files.length === 0)}
+              title={inFolder ? t("startWork") : t("send")}
+              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white text-black shadow-[0_2px_10px_rgba(255,255,255,0.18)] transition-opacity disabled:opacity-30"
+            >
+              {cowork.running ? (
+                <Loader2Icon className="size-4 animate-spin" />
+              ) : (
+                <ArrowUpIcon className="size-4" strokeWidth={2.5} />
+              )}
+            </motion.button>
+          )}
+        </div>
       </div>
-      {chat.note && <p className="truncate px-2 text-[11px] text-amber-200/80">{chat.note}</p>}
     </div>
   );
 });
@@ -330,10 +401,12 @@ function Chip({
 /** Where to work: a folder already allowed, another one, or no folder (just chat). */
 function Folders({
   folder,
+  hint,
   onFolder,
   onClose,
 }: {
   folder: string | null;
+  hint?: string;
   onFolder: (path: string | null) => void;
   onClose: () => void;
 }) {
@@ -357,9 +430,15 @@ function Folders({
       animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
       exit={{ opacity: 0, y: 8, filter: "blur(4px)" }}
     >
-      <p className="shrink-0 border-b border-white/[0.06] px-4 py-2.5 text-[12px] text-white/50">
-        {t("foldersIntro")}
-      </p>
+      <div className="shrink-0 border-b border-white/[0.06] px-4 py-2.5">
+        <p className="text-[12px] text-white/50">{t("foldersIntro")}</p>
+        {hint && (
+          <p className="mt-1.5 flex items-start gap-1.5 text-[11px] leading-snug text-amber-200/90">
+            <CircleAlertIcon className="mt-px size-3.5 shrink-0 text-amber-300/90" />
+            <span>{hint}</span>
+          </p>
+        )}
+      </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         <Row icon={<MessageCircleIcon className="size-3.5" />} active={!folder} onClick={() => pickFolder(null)}>
           <span className="flex-1">{t("chatOnly")}</span>
@@ -455,13 +534,34 @@ function Thread({ turns, answeredBy }: { turns: QuickTurn[]; answeredBy: Record<
  * chat opens from "Open Mali" above, so the turns don't repeat them: only
  * the latest says it's done, and a turn that changed files keeps its review.
  */
-function CoworkThread({ turns, onOpenChat }: { turns: CoworkTurn[]; onOpenChat: (chatId: string) => void }) {
+function CoworkThread({
+  turns: all,
+  onOpenChat,
+  session,
+}: {
+  turns: CoworkTurn[];
+  onOpenChat: (chatId: string) => void;
+  session?: NotchSession;
+}) {
+  const t = useNotchText();
+  // A picked session shows only what was asked in it here.
+  const turns = session ? all.filter((turn) => turn.chatId === session.id) : all;
   const last = turns.at(-1);
   const pages = last?.showcase?.reduce((n, s) => n + s.items.length, 0) ?? 0;
-  const ref = useFollow(`${turns.length}:${last?.reply?.length}:${last?.steps.length}:${last?.status}:${pages}`);
+  const ref = useFollow(
+    `${turns.length}:${last?.reply?.length}:${last?.steps.length}:${last?.status}:${pages}:${last?.edits?.length}`,
+  );
   return (
     <motion.div ref={ref} className={THREAD} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <div className="flex flex-col gap-4">
+        {session && (session.asked || session.answer) && (
+          // Where the session left off, so the next question reads in place.
+          <div className="flex flex-col gap-1.5 border-b border-white/[0.06] pb-3 opacity-60">
+            <span className="text-[10.5px] font-medium tracking-wide text-white/40 uppercase">{t("earlier")}</span>
+            {session.asked && <Asked text={session.asked} files={[]} />}
+            {session.answer && <p className="line-clamp-4 text-[12.5px] leading-relaxed text-white/70">{session.answer}</p>}
+          </div>
+        )}
         {turns.map((turn) => (
           <CoworkTurnView key={turn.id} turn={turn} latest={turn === last} onOpenChat={onOpenChat} onGrow={ref} />
         ))}
@@ -521,6 +621,18 @@ function CoworkTurnView({
         </div>
       )}
       {turn.reply && <TypedAnswer text={turn.reply} live={fresh} onGrow={onGrow} />}
+      {/* What it wrote, as diffs: a few lines of each file. */}
+      {turn.edits?.map((edit) => (
+        <motion.div
+          key={edit.id}
+          className="rounded-xl bg-[#15151b] p-2 ring-1 ring-white/[0.06]"
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <EditLines edit={edit} lines={6} />
+        </motion.div>
+      ))}
+      {turn.failed && <Failed text={turn.failed} />}
       {/* What it made: pages join the strip as the agent makes them. */}
       {turn.showcase?.map((showcase, i) => (
         <Showcase key={`${showcase.url ?? showcase.source ?? "pictures"}-${i}`} showcase={showcase} className="mt-1" />

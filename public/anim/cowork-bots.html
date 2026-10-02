@@ -1015,7 +1015,7 @@ document.getElementById("bot").contentWindow
   // for no visible gain), and none while the host pauses it (a bot it hides).
   var bots = [];
   var last = performance.now();
-  var paused = false, pending = 0, MIN_MS = 1000/60 - 4;
+  var paused = false, pending = 0, MIN_MS = 1000/60 - 4, drawn = false;
   function frame(now){
     pending = 0;
     if (paused) return;
@@ -1023,10 +1023,18 @@ document.getElementById("bot").contentWindow
     var dt = Math.min(0.05, (now - last)/1000); last = now;
     var f = dt*60;
     for (var i=0; i<bots.length; i++) bots[i].update(dt, f);
+    drawn = true;
     pending = requestAnimationFrame(frame);
+  }
+  // A bot paused before its first frame (or in a frame the browser doesn't
+  // animate, e.g. one kept out of sight) would show nothing: draw it once.
+  function drawOnce(){
+    for (var i=0; i<bots.length; i++) bots[i].update(1/60, 1);
+    drawn = true;
   }
   function setPaused(p){
     paused = p;
+    if (paused && !drawn) drawOnce();
     if (!paused && !pending){ last = performance.now(); pending = requestAnimationFrame(frame); }
   }
   pending = requestAnimationFrame(frame);
