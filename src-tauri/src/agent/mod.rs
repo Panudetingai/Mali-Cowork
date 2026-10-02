@@ -9,6 +9,9 @@
 pub(crate) mod coach;
 mod compact;
 pub(crate) mod images;
+#[cfg(test)]
+mod bench;
+mod lazy_tools;
 pub(crate) mod paths;
 mod permissions;
 mod provider;
@@ -441,11 +444,16 @@ async fn run(
     if request.vision {
         specs.push(images::spec());
     }
-    specs.extend(hub_tools.iter().map(|t| wire::ToolSpec {
-        name: t.name.clone(),
-        description: if t.description.is_empty() { format!("{} tool {}", t.server, t.tool) } else { t.description.clone() },
-        schema: t.schema.clone(),
-    }));
+    // Large connectors: their tools load on demand (`lazy_tools.rs`).
+    let lazy = lazy_tools::wanted(&hub_tools);
+    let base_specs = specs.clone();
+    let hub_names: Vec<&str> = hub_tools.iter().map(|t| t.name.as_str()).collect();
+    let mut loaded = if lazy { lazy_tools::used_in(&session.messages, |name| hub.contains_key(name)) } else { Vec::new() };
+    if lazy {
+        specs = lazy_tools::specs(&base_specs, &hub_tools, &hub, &loaded);
+    } else {
+        specs.extend(hub_tools.iter().map(lazy_tools::spec_of));
+    }
     let system = match &scope {
         Some(scope) => system_prompt(request, scope),
         None => chat_system_prompt(request),
@@ -513,6 +521,11 @@ async fn run(
                 // One very long turn: nothing before it to summarise.
                 compact::trim_tight(&mut session.messages);
             }
+            session.save()?;
+        }
+
+        // Long output the agent already used: shortened once enough piles up.
+        if lazy_tools::saver_on() && compact::trim_stale(&mut session.messages) {
             session.save()?;
         }
 
@@ -585,6 +598,7 @@ async fn run(
             };
             let title = match (hub_tool, &scope) {
                 _ if call.name == questions::NAME => "Ask: the user".to_string(),
+                _ if lazy && call.name == lazy_tools::NAME => "Load: connector tools".to_string(),
                 _ if call.name == team::DELEGATE => format!("Team: {}", mate.map(|m| m.name.as_str()).unwrap_or("teammate")),
                 _ if call.name == team::PROPOSE => format!(
                     "Team: propose {}",
@@ -639,6 +653,17 @@ async fn run(
                 }
                 _ if call.name == team::PROPOSE => team::propose(call, request, on_event, &mut usage, &mut *cancel).await,
                 _ if call.name == team::COACH => team::coach(call, request, on_event, &mut usage, &mut *cancel).await,
+                _ if lazy && call.name == lazy_tools::NAME => {
+                    let before = loaded.len();
+                    let out = match lazy_tools::load(&call.args, &hub_names, &mut loaded) {
+                        Ok(text) => tools::Outcome::ok(text),
+                        Err(e) => tools::Outcome::err(e),
+                    };
+                    if loaded.len() != before {
+                        specs = lazy_tools::specs(&base_specs, &hub_tools, &hub, &loaded);
+                    }
+                    out
+                }
                 _ if call.name == questions::NAME => {
                     let directory = scope.as_ref().map(|s| s.cwd.to_string_lossy().to_string()).unwrap_or_default();
                     match questions::ask(&call.args, &directory, on_event, cancel).await {
@@ -650,7 +675,14 @@ async fn run(
                     Ok((text, image)) => tools::Outcome { detail: Some(text.clone()), content: text, is_error: false, images: vec![image] },
                     Err(e) => tools::Outcome::err(e),
                 },
-                (Some(tool), _) => call_connector(tool, call, cancel).await,
+                (Some(tool), _) => {
+                    // Called straight from the catalog: it stays loaded from here on.
+                    if lazy && !loaded.contains(&tool.name) {
+                        loaded.push(tool.name.clone());
+                        specs = lazy_tools::specs(&base_specs, &hub_tools, &hub, &loaded);
+                    }
+                    call_connector(tool, call, cancel).await
+                }
                 (None, Some(scope)) => {
                     let mut always = std::mem::take(&mut session.always);
                     let out = {
@@ -1324,3 +1356,4 @@ done
         assert_eq!(wire_for("google"), Wire::OpenAi);
     }
 }
+

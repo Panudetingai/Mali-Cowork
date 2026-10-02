@@ -381,12 +381,19 @@ fn rejects_effort(error: &str) -> bool {
 
 /// The request body. Effort goes in `output_config` (low … max, as the model
 /// lists them); it's only sent for a model whose metadata offers levels.
+///
+/// Cached, so each step of a run (and the next message) re-reads what it
+/// already sent at a tenth of the price and without counting against the
+/// input rate limit: the tools and system prompt are a breakpoint of their
+/// own (the same for every chat that day), and the top-level `cache_control`
+/// moves along the conversation as it grows.
 fn anthropic_body(target: &ModelTarget, system: &str, msgs: &[Msg], tools: &[ToolSpec], max_tokens: u64) -> Value {
     let mut body = json!({
         "model": target.model,
         "max_tokens": max_tokens,
-        "system": system,
+        "system": [{ "type": "text", "text": system, "cache_control": { "type": "ephemeral" } }],
         "messages": anthropic_messages(msgs),
+        "cache_control": { "type": "ephemeral" },
         "stream": true,
     });
     if !tools.is_empty() {
@@ -555,6 +562,9 @@ mod tests {
         assert!(body.get("effort").is_none() && body.get("thinking").is_none());
         target.effort = None;
         assert!(anthropic_body(&target, "s", &convo(), &[], 16_000).get("output_config").is_none());
+        let cached = anthropic_body(&target, "s", &convo(), &[], 16_000);
+        assert_eq!(cached["cache_control"]["type"], "ephemeral");
+        assert_eq!(cached["system"][0]["cache_control"]["type"], "ephemeral");
         assert!(rejects_effort("400 Bad Request: output_config.effort: not supported on this model"));
         assert!(!rejects_effort("401 Unauthorized: invalid x-api-key"));
     }

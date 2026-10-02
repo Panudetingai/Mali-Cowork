@@ -50,6 +50,7 @@ pub struct ToolCall {
 }
 
 /// A tool as the model sees it.
+#[derive(Clone)]
 pub struct ToolSpec {
     pub name: String,
     pub description: String,
