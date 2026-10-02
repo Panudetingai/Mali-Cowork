@@ -16,7 +16,7 @@ export function keepPreviews(content: string) {
   const links = [
     ...galleries.flatMap((g) => g.items.map((item) => item.image)),
     ...mediaPreviews.filter((m) => m.kind === "image" && !m.local).map((m) => m.thumbnail ?? m.url),
-  ].filter((url) => url.startsWith("https://"));
+  ].filter((url) => url.startsWith("https://") || url.startsWith("mali-preview:"));
   if (!links.length) return;
   const queue = [...new Set(links)];
   const next = async (): Promise<void> => {

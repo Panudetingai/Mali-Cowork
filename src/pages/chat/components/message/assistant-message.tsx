@@ -8,6 +8,7 @@ import {
     MessageResponse,
 } from "@/components/ai-elements/message";
 import { ChatRichBlocks } from "@/components/chat-blocks/chat-rich-blocks";
+import { SocialLinkCards } from "@/components/chat-blocks/social-link-cards";
 import { ZoomableImage } from "@/components/chat-blocks/zoomable-image";
 import { MarkdownSurface } from "@/components/chat/markdown-surface";
 import { CoworkBot } from "@/components/anim/cowork-bot";
@@ -167,6 +168,8 @@ export function AssistantMessage({
         {(authActions.length > 0 || mediaPreviews.length > 0 || galleries.length > 0) && (
           <ChatRichBlocks authActions={authActions} mediaPreviews={mediaPreviews} galleries={galleries} />
         )}
+        {/* Posts and videos it linked to, unfurled once the reply is done. */}
+        {!isStreaming && <SocialLinkCards text={visibleContent} className="mt-3" />}
         {suggestions.length > 0 && <ConnectorSuggestions suggestions={suggestions} />}
       </MessageContent>
 

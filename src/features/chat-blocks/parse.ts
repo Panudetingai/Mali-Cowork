@@ -124,6 +124,9 @@ function parsePreview(body: string): MediaPreviewBlock | null {
 
 const httpsOnly = (value: unknown) =>
   typeof value === "string" && /^https:\/\//i.test(value.trim()) ? value.trim() : undefined;
+/** A page's picture: an https link, or the short handle the app gave the model for one. */
+const pictureLink = (value: unknown) =>
+  typeof value === "string" && /^mali-preview:[0-9a-f]{32}$/i.test(value.trim()) ? value.trim() : httpsOnly(value);
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
 const size = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value > 0 && value < 100_000 ? value : undefined;
@@ -139,10 +142,10 @@ function parseGallery(body: string): GalleryBlock | null {
   const items: GalleryItem[] = raw
     .slice(0, MAX_GALLERY_ITEMS)
     .map((entry): GalleryItem | null => {
-      if (typeof entry === "string") return httpsOnly(entry) ? { image: entry.trim() } : null;
+      if (typeof entry === "string") return pictureLink(entry) ? { image: entry.trim() } : null;
       if (!entry || typeof entry !== "object") return null;
       const item = entry as Record<string, unknown>;
-      const image = httpsOnly(item.image ?? item.thumbnail ?? item.src);
+      const image = pictureLink(item.image ?? item.thumbnail ?? item.src);
       if (!image) return null;
       return {
         image,
