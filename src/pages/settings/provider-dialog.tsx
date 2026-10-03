@@ -258,6 +258,16 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
         </Field>
       )}
 
+      {!isPuter && !isOllama && models.length > 0 && !missingKey && (
+        <ModelTestRow
+          providerId={provider.id}
+          models={models}
+          apiKey={draft.apiKey.trim()}
+          baseUrl={draft.baseUrl.trim() || provider.defaultBaseUrl}
+          disabled={saving}
+        />
+      )}
+
       <Field
         label="Token limit"
         htmlFor={ids.limit}
