@@ -76,7 +76,11 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
     setAtBottom(value);
   }, []);
 
-  /** Glide to the bottom, frame by frame, until caught up (and, while streaming, keep following). */
+  /**
+   * Glide to the bottom, frame by frame, until caught up. Then rest, even
+   * mid-reply: a long tool call can stream nothing for minutes, and the
+   * ResizeObserver below starts the glide again as soon as the reply grows.
+   */
   const glide = useCallback(() => {
     if (rafRef.current) return;
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -93,8 +97,8 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
         const dt = Math.min(64, now - last);
         const move = reduced ? gap : Math.max(1, gap * (1 - Math.exp(-dt / GLIDE_MS)));
         el.scrollTop = Math.min(target, el.scrollTop + move);
-      } else if (!loadingRef.current) {
-        // Caught up and nothing is streaming: rest until content changes.
+      } else {
+        // Caught up: rest until content changes.
         rafRef.current = 0;
         updateAtBottom(true);
         return;
@@ -169,11 +173,11 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
     el.addEventListener("touchstart", onTouchStart, { passive: true });
     el.addEventListener("touchmove", onTouchMove, { passive: true });
     el.addEventListener("keydown", onKeyDown);
+    // The reply growing (text, steps, a picture loading) resizes `content`;
+    // no MutationObserver, which on a long chat fired on every streamed token.
     const resize = new ResizeObserver(onContentChange);
     resize.observe(content);
     resize.observe(el);
-    const mutation = new MutationObserver(onContentChange);
-    mutation.observe(content, { childList: true, subtree: true, characterData: true });
     return () => {
       el.removeEventListener("scroll", onScroll);
       el.removeEventListener("wheel", onWheel);
@@ -181,7 +185,6 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
       el.removeEventListener("touchmove", onTouchMove);
       el.removeEventListener("keydown", onKeyDown);
       resize.disconnect();
-      mutation.disconnect();
       cancelAnimationFrame(rafRef.current);
       rafRef.current = 0;
     };

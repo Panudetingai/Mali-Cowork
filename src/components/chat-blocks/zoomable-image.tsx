@@ -1,37 +1,31 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { ImageOffIcon } from "lucide-react";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { MediaFallback } from "./media-fallback";
 import { MediaPreviewDialog, type MediaPreviewItem } from "./media-preview-dialog";
+import { useProxiedImage } from "./use-proxied-image";
 
-function isRemote(src: string) {
-  return /^https?:\/\//i.test(src);
-}
-
-/** A picture that failed to load, said plainly instead of a broken icon. */
-function BrokenImage({ src, className }: { src: string; className?: string }) {
-  return (
-    <div
-      className={cn(
-        "flex flex-col items-center justify-center gap-1 bg-muted/40 px-3 py-6 text-center",
-        className,
-      )}
-    >
-      <ImageOffIcon className="size-5 text-muted-foreground/60" aria-hidden />
-      <p className="text-xs text-muted-foreground">Couldn't load this image</p>
-      {isRemote(src) && (
-        <button
-          type="button"
-          onClick={() => void openUrl(src)}
-          className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
-        >
-          Open in browser
-        </button>
-      )}
-    </div>
-  );
+/** True once `el` comes within a screen or so of the viewport. */
+function useNearViewport(el: RefObject<HTMLElement | null>) {
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    const node = el.current;
+    if (near || !node) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setNear(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) setNear(true);
+      },
+      { rootMargin: "600px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [el, near]);
+  return near;
 }
 
 /**
@@ -61,29 +55,51 @@ export function ZoomableImage({
   galleryIndex?: number;
 }) {
   const [open, setOpen] = useState(false);
-  const [failed, setFailed] = useState(false);
+  // Drew as data but the picture itself is bad.
+  const [broken, setBroken] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
+  const boxRef = useRef<HTMLButtonElement>(null);
+  // Web pictures load through the backend (the webview may not fetch them).
+  const near = useNearViewport(boxRef);
+  const image = useProxiedImage(src, near);
+  const shown = broken ? undefined : image.src;
 
   // Cached images often finish loading before React attaches onLoad.
   useLayoutEffect(() => {
     setLoaded(false);
-    setFailed(false);
     const el = imgRef.current;
     if (el?.complete && el.naturalWidth > 0) setLoaded(true);
-  }, [src]);
+  }, [shown]);
+
+  useEffect(() => setBroken(false), [src]);
 
   const items = useMemo<MediaPreviewItem[]>(() => {
     if (gallery?.length) return gallery;
-    return [{ src, title: alt, kind: "image", localPath }];
-  }, [gallery, src, alt, localPath]);
+    return [{ src: image.src ?? src, title: alt, kind: "image", localPath }];
+  }, [gallery, image.src, src, alt, localPath]);
 
-  if (failed) return <BrokenImage src={src} className={className} />;
+  if (image.failed || broken) {
+    return (
+      <MediaFallback
+        src={src}
+        title={alt}
+        localPath={localPath}
+        onRetry={() => {
+          setBroken(false);
+          image.retry();
+        }}
+        className={cn("my-2", fitContent ? "w-fit min-w-64" : undefined)}
+      />
+    );
+  }
 
   return (
     <>
       <button
+        ref={boxRef}
         type="button"
+        disabled={!shown}
         onClick={() => setOpen(true)}
         title={alt || "Open full size"}
         className={cn(
@@ -93,23 +109,25 @@ export function ZoomableImage({
           className,
         )}
       >
-        {!loaded && !failed && (
+        {!loaded && (
           <div className="absolute inset-0 animate-pulse bg-muted/50" aria-hidden />
         )}
-        <img
-          ref={imgRef}
-          src={src}
-          alt={alt ?? ""}
-          loading="lazy"
-          decoding="async"
-          onLoad={() => setLoaded(true)}
-          onError={() => setFailed(true)}
-          className={cn(
-            "relative z-[1] block max-w-full bg-muted/20 object-contain",
-            fitContent ? "h-auto w-auto" : "w-full",
-            imageClassName,
-          )}
-        />
+        {shown && (
+          <img
+            ref={imgRef}
+            src={shown}
+            alt={alt ?? ""}
+            loading="lazy"
+            decoding="async"
+            onLoad={() => setLoaded(true)}
+            onError={() => setBroken(true)}
+            className={cn(
+              "relative z-[1] block max-w-full bg-muted/20 object-contain",
+              fitContent ? "h-auto w-auto" : "w-full",
+              imageClassName,
+            )}
+          />
+        )}
       </button>
 
       <MediaPreviewDialog

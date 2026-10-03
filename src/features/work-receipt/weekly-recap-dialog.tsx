@@ -12,6 +12,7 @@ import { useChatSessions } from "@/features/chat-history";
 import { getProject } from "@/features/projects";
 import { ProviderLogo } from "@/features/providers";
 import { modelRefOf } from "@/features/usage/stats";
+import { MALI_EASE } from "@/lib/motion-presets";
 import { cn } from "@/lib/utils";
 import { ChevronLeftIcon, ChevronRightIcon, FolderIcon, SparklesIcon, ZapIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -56,8 +57,6 @@ function formatCost(usd: number) {
   if (usd === 0) return "$0";
   return usd < 0.01 ? `<$0.01` : `$${usd.toFixed(2)}`;
 }
-
-const EASE = [0.22, 1, 0.36, 1] as const;
 
 function Tile({ label, value, sub }: { label: string; value: ReactNode; sub?: ReactNode }) {
   return (
@@ -160,7 +159,7 @@ export function WeeklyRecapDialog() {
             initial="enter"
             animate="center"
             exit="exit"
-            transition={{ duration: 0.28, ease: EASE }}
+            transition={{ duration: 0.28, ease: MALI_EASE }}
             className="flex min-h-0 flex-col gap-5 overflow-y-auto"
           >
             {recap.tasks === 0 ? (
@@ -271,7 +270,7 @@ function Ranking({
                   className="h-full rounded-full bg-foreground/80"
                   initial={{ width: 0 }}
                   animate={{ width: `${total > 0 ? (item.count / total) * 100 : 0}%` }}
-                  transition={{ duration: 0.6, ease: EASE, delay: 0.1 + index * 0.06 }}
+                  transition={{ duration: 0.6, ease: MALI_EASE, delay: 0.1 + index * 0.06 }}
                 />
               </div>
             </li>

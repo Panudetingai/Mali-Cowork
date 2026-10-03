@@ -6,6 +6,7 @@ mod chat_stream;
 mod commands;
 pub mod mcp_runner;
 mod media;
+mod puter;
 pub mod panic_log;
 mod sandbox;
 mod templates;
@@ -21,7 +22,7 @@ use commands::templates::{
 use commands::voice::voice_input_status;
 use commands::attachments::{attachment_from_url, attachment_import, attachment_read, attachment_save};
 use commands::link_preview::link_preview;
-use commands::chat::{chat_generate, ollama_list_models, provider_check_key, provider_env_keys};
+use commands::chat::{chat_generate, ollama_list_models, provider_check_key, provider_env_keys, provider_test_model};
 use commands::media::media_generate;
 use commands::checkpoint::{
     checkpoint_add_folder, checkpoint_begin, checkpoint_diff, checkpoint_finish, checkpoint_open,
@@ -192,6 +193,8 @@ pub fn run() {
             attachment_read,
             attachment_from_url,
             voice_input_status,
+            commands::speech::speech_transcribe,
+            commands::speech::speech_synthesize,
             templates_list,
             templates_inspect,
             templates_add,
@@ -216,7 +219,12 @@ pub fn run() {
             mcp_hub_sign_out,
             link_preview,
             chat_generate,
+            provider_test_model,
             media_generate,
+            puter::puter_models,
+            puter::puter_account,
+            puter::puter_sign_in,
+            puter::puter_sign_in_cancel,
             checkpoint_begin,
             checkpoint_add_folder,
             checkpoint_finish,

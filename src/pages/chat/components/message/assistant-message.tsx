@@ -32,6 +32,7 @@ import { ConnectorSuggestions } from "./connector-suggestions";
 import { extractConnectorBlocks } from "@/features/mcp/agent-install";
 import { ExpandableClamp } from "./expandable-clamp";
 import { MarkdownLink } from "./markdown-link";
+import { ReplyStatus } from "./reply-status";
 
 const markdownExtras = {
   a: MarkdownLink,
@@ -110,8 +111,6 @@ export function AssistantMessage({
   const contentIsAnimating = isCli ? false : isStreaming;
   const lastActivity = hasActivities ? activities![activities!.length - 1] : undefined;
   const waitingOnTool = Boolean(lastActivity && !lastActivity.done);
-  const showAgentSpinner =
-    isStreaming && (waitingOnTool || !hasContent);
   // The step still running, if any: only the last one can be.
   const runningIndex = isStreaming && waitingOnTool ? activities!.length - 1 : undefined;
 
@@ -173,28 +172,22 @@ export function AssistantMessage({
         {suggestions.length > 0 && <ConnectorSuggestions suggestions={suggestions} />}
       </MessageContent>
 
-      {showAgentSpinner ? (
-        <div className="mb-2 flex items-center gap-2">
-          <CoworkBot size={32} state={waitingOnTool ? "tool" : "thinking"} />
-          <span className="text-[11px] text-muted-foreground animate-pulse">
-            {waitingOnTool
-              ? lastActivity?.title || "Using a tool…"
-              : isCli
-                ? "Running…"
-                : "Thinking…"}
-          </span>
-        </div>
-      ) : (
-        isStreaming && (
-          <div
-            role="status"
-            aria-label="Writing reply"
-            className="mt-2 flex h-7 items-center gap-1 text-muted-foreground"
-          >
-            <CoworkBot size={32} state="working" />
+      {isStreaming &&
+        (waitingOnTool ? (
+          <div className="mb-2 flex items-center gap-2">
+            <CoworkBot size={32} state="tool" />
+            <span className="text-[11px] text-muted-foreground animate-pulse">
+              {lastActivity?.title || "Using a tool…"}
+            </span>
           </div>
-        )
-      )}
+        ) : (
+          <ReplyStatus
+            growth={content.length + (activities?.length ?? 0)}
+            reasoning={reasoning}
+            hasContent={hasContent}
+            cli={isCli}
+          />
+        ))}
 
       {/* Copy, feedback, retry and usage only once the reply is complete. */}
       {(hasContent || hasReasoning) && !isStreaming && (

@@ -352,6 +352,7 @@ document.getElementById("bot").contentWindow
     panda: { d:"M-17 8Q-19 -14 -6 -25Q0 -28 6 -25Q19 -14 17 8Z",
              inner:"M-10 3Q-11 -10 -3 -17Q0 -19 3 -17Q11 -10 10 3Z", innerFill:"#ffffff", at:0.66 },
     leaf:  { d:"M-2.5 8L-2 -12C-14 -14 -24 -26 -19 -40C-5 -40 3 -28 2 -13L2.5 8Z", at:0.08, single:true },
+    none:  { d:"M0 0", at:0, single:true },
     tuft:  { d:"M-5 8Q-13 -10 -4 -22Q-3 -10 1 -5Q2 -18 11 -24Q9 -8 5 8Z", at:0.05, single:true }
   };
   var MOUTHS = {
@@ -824,7 +825,7 @@ document.getElementById("bot").contentWindow
         var bx = Math.sin(a)*R*sx*0.9, by = -Math.cos(a)*R*sy*0.9;
         var flop = EAR.flop ? side*(6 + 4*Math.sin(t*1.7 + side)) : 0;
         var rot = a*180/Math.PI*0.75 + flop + tw*18*side + (EAR.single ? 6*Math.sin(t*1.3) : 0);
-        var tf = "translate(" + bx.toFixed(2) + "," + by.toFixed(2) + ") rotate(" + rot.toFixed(2) + ") scale(" + (bs*partsOn).toFixed(3) + ")";
+        var tf = "translate(" + bx.toFixed(2) + "," + by.toFixed(2) + ") rotate(" + rot.toFixed(2) + ") scale(" + (bs*partsOn*(P.earScale || 1)).toFixed(3) + ")";
         el.setAttribute("transform", tf);
         if (inner) inner.setAttribute("transform", tf);
       }
@@ -1058,6 +1059,37 @@ document.getElementById("bot").contentWindow
   // ---------- page setup ----------
   var params = new URLSearchParams(location.search);
   var embedKey = params.get("embed");
+
+  // A bot designed in the app's Bot Studio (`?embed=custom&preset=<json>`):
+  // one of the bots above with its own parts and colors. Same engine, so it
+  // has every pose the others have. Anything unknown falls back to the base.
+  function customPreset(raw){
+    var c; try { c = JSON.parse(raw || ""); } catch(e){ return null; }
+    if (!c || typeof c !== "object") return null;
+    var B = PRESETS[c.base] || PRESETS.mochi;
+    var isHex = function(v){ return typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v); };
+    var pals = Array.isArray(c.palettes) ? c.palettes.filter(function(p){
+      return Array.isArray(p) && p.length === 4 && p.every(isHex);
+    }).slice(0, 4) : [];
+    var num = function(v, lo, hi, d){ return typeof v === "number" && isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d; };
+    var aspect = Array.isArray(c.aspect) ? [num(c.aspect[0], 0.85, 1.2, B.aspect[0]), num(c.aspect[1], 0.85, 1.2, B.aspect[1])] : B.aspect;
+    return {
+      name: typeof c.name === "string" ? c.name.slice(0, 40) : B.name,
+      palettes: pals.length ? pals : B.palettes,
+      aspect: aspect,
+      base: B.base, morph: B.morph,
+      eyes: (PRESETS[c.eyes] || B).eyes,
+      eyeInk: isHex(c.eyeInk) ? c.eyeInk : B.eyeInk,
+      blush: typeof c.blush === "boolean" ? c.blush : B.blush,
+      layout: c.layout === "tri" || c.layout === "line" ? c.layout : B.layout,
+      work: ["wave","hop","orbit","snake"].indexOf(c.work) >= 0 ? c.work : B.work,
+      squash: B.squash,
+      ears: EARS[c.ears] ? c.ears : B.ears,
+      earScale: num(c.earScale, 0.3, 1.3, 1),
+      mouth: MOUTHS[c.mouth] ? c.mouth : B.mouth
+    };
+  }
+  if (embedKey === "custom") PRESETS.custom = customPreset(params.get("preset")) || PRESETS.mochi;
 
   if (embedKey && PRESETS[embedKey]){
     document.documentElement.classList.add("embed");

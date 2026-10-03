@@ -4,7 +4,8 @@
  * a closer look. Pictures from Canva and the like load through the app, as
  * in the chat (`gallery-card.tsx`): their hosts aren't in the page's policy.
  */
-import { loadImage, sourceOf } from "@/components/chat-blocks/gallery-card";
+import { sourceOf } from "@/components/chat-blocks/gallery-card";
+import { loadImage } from "@/features/chat-blocks/load-image";
 import { useLocalMedia } from "@/components/chat-blocks/media-preview-card";
 import { connectorFor, McpToolIcon, useCustomMcps } from "@/features/mcp";
 import { cn } from "@/lib/utils";

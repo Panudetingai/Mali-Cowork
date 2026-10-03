@@ -148,7 +148,11 @@ pub fn answer_question(id: &str, answers: Vec<Vec<String>>) -> bool {
 const DEFAULT_CONTEXT: u64 = 128_000;
 
 fn wire_for(provider: &str) -> Wire {
-    if provider == "anthropic" { Wire::Anthropic } else { Wire::OpenAi }
+    match provider {
+        "anthropic" => Wire::Anthropic,
+        "puter" => Wire::Puter,
+        _ => Wire::OpenAi,
+    }
 }
 
 /// Everything needed to call one model with the user's key.
@@ -168,6 +172,54 @@ pub(crate) fn target_for(
         api_key,
         effort: effort.filter(|e| !e.trim().is_empty()),
     })
+}
+
+/// What a stopped model call ends with.
+pub(crate) use provider::STOPPED;
+
+/// One reply with no tools, for a plain chat on a provider the chat SDK can't
+/// reach (Puter's free route, see `provider::puter_step`).
+pub(crate) async fn reply_once(
+    target: &ModelTarget,
+    system: &str,
+    msgs: &[Msg],
+    on_delta: &mut (dyn FnMut(Delta) + Send),
+    cancel: &mut watch::Receiver<bool>,
+) -> Result<wire::StepResult, String> {
+    provider::step(target, system, msgs, &[], on_delta, cancel).await
+}
+
+/// A reply that can be stopped: through [`abort`] by its chat id (the Stop
+/// button), or by `stop` (its window went away). Forgotten when dropped.
+pub(crate) struct Stoppable {
+    id: Option<String>,
+    tx: watch::Sender<bool>,
+}
+
+impl Stoppable {
+    pub(crate) fn new(run_id: Option<&str>) -> (Self, watch::Receiver<bool>) {
+        let (tx, rx) = watch::channel(false);
+        let id = run_id.map(str::trim).filter(|id| !id.is_empty()).map(str::to_string);
+        if let Some(id) = &id {
+            runs().lock().unwrap().insert(id.clone(), tx.clone());
+        }
+        (Self { id, tx }, rx)
+    }
+
+    pub(crate) fn stop(&self) {
+        let _ = self.tx.send(true);
+    }
+}
+
+impl Drop for Stoppable {
+    fn drop(&mut self) {
+        let Some(id) = &self.id else { return };
+        let mut runs = runs().lock().unwrap();
+        // Only ours: a newer run in the same chat may have taken the id.
+        if runs.get(id).is_some_and(|tx| tx.same_channel(&self.tx)) {
+            runs.remove(id);
+        }
+    }
 }
 
 fn os_name() -> &'static str {
@@ -1354,6 +1406,7 @@ done
     fn anthropic_speaks_its_own_wire() {
         assert_eq!(wire_for("anthropic"), Wire::Anthropic);
         assert_eq!(wire_for("google"), Wire::OpenAi);
+        assert_eq!(wire_for("puter"), Wire::Puter);
     }
 }
 

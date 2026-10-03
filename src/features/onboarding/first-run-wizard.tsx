@@ -60,7 +60,10 @@ export function useSetupSteps(): { steps: StepState[]; ready: boolean; checking:
       icon: TerminalIcon,
       done: hasAgent,
       actionLabel: hasAgent ? "Run setup again" : "Run setup",
-      onAction: () => openOnboarding(),
+      onAction: () => {
+        openOnboarding();
+        navigate("/onboarding");
+      },
     },
     {
       id: "model",
@@ -103,6 +106,7 @@ export function useIsOnboarding() {
  * its own as soon as the app can answer.
  */
 export function FirstRunWizard({ className }: { className?: string }) {
+  const navigate = useNavigate();
   const { steps, ready, checking } = useSetupSteps();
   if (ready) return null;
 
@@ -153,7 +157,14 @@ export function FirstRunWizard({ className }: { className?: string }) {
       </ol>
 
       <div className="flex items-center gap-2">
-        <Button type="button" onClick={() => openOnboarding()} className="gap-1.5">
+        <Button
+          type="button"
+          onClick={() => {
+            openOnboarding();
+            navigate("/onboarding");
+          }}
+          className="gap-1.5"
+        >
           <WandSparklesIcon className="size-4" />
           Run the setup wizard
         </Button>

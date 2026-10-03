@@ -117,13 +117,13 @@ export function MarkdownPre({ children, className }: MarkdownPreProps) {
       showLineNumbers={lines > 10}
       className={cn("my-0", className)}
     >
-      <CodeBlockHeader className="py-1.5">
-        <CodeBlockTitle className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+      {/* A quiet label and a copy button that shows on hover: the code is what matters. */}
+      <CodeBlockHeader className="border-b-0 bg-transparent py-1 pr-1.5 pl-3.5">
+        <CodeBlockTitle className="text-[10.5px] font-medium tracking-wide text-muted-foreground/80 lowercase">
           {language}
-          {lines > 1 && <span className="font-normal normal-case"> · {lines} lines</span>}
         </CodeBlockTitle>
-        <CodeBlockActions>
-          <CodeBlockCopyButton className="size-7" />
+        <CodeBlockActions className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <CodeBlockCopyButton className="size-6" />
         </CodeBlockActions>
       </CodeBlockHeader>
     </CodeBlock>

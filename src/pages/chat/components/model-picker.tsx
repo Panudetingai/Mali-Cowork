@@ -4,14 +4,13 @@ import {
   ModelSelectorInput,
   ModelSelectorItem,
   ModelSelectorList,
-  ModelSelectorLogo,
-  type ModelSelectorLogoProps,
   ModelSelectorName,
   ModelSelectorTrigger,
 } from "@/components/ai-elements/model-selector";
 import { Button } from "@/components/ui/button";
 import { ScrollMore, useScrollFade } from "@/components/ui/scroll-fade";
 import { cn } from "@/lib/utils";
+import { ModelBrandIcon } from "@/features/providers";
 import { CheckIcon, ChevronDownIcon, FilmIcon, ImageIcon, KeyRoundIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { OPENCODE_DEFAULT_ID, type AiModel } from "../models";
@@ -132,7 +131,7 @@ export function ModelPicker({ models, selected, loading, onSelect, appearance = 
             className="flex h-11 w-full min-w-0 items-center gap-2.5 rounded-xl border border-border/70 bg-background px-3 text-left text-sm shadow-xs transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
             aria-label="Select AI model"
           >
-            <Logo provider={selected.provider} />
+            <ModelBrandIcon model={selected} className="size-4" />
             <span className="min-w-0 flex-1 truncate font-medium">{agentLabel(selected)}</span>
             <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">{selected.group}</span>
             {modelIsConnected(selected) && <ConnectedDot />}
@@ -147,7 +146,7 @@ export function ModelPicker({ models, selected, loading, onSelect, appearance = 
             aria-label="Select AI model"
           >
             {modelIsConnected(selected) && <ConnectedDot />}
-            <Logo provider={selected.provider} />
+            <ModelBrandIcon model={selected} className="size-4" />
             <ModelSelectorName className="text-sm font-normal">
               {agentLabel(selected)}
             </ModelSelectorName>
@@ -269,7 +268,7 @@ function RailItem({
       ) : (
         <span className="size-1.5 shrink-0" aria-hidden />
       )}
-      <Logo provider={group.items[0]?.provider ?? "opencode"} />
+      <ModelBrandIcon model={group.items[0] ?? { id: "api:opencode/default", name: "OpenCode", provider: "opencode" }} className="size-4" />
       <span className="min-w-0 truncate sm:flex-1">{group.label}</span>
       <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
         {group.items.length}
@@ -293,7 +292,7 @@ function ModelList({
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex min-w-0 items-center gap-2 border-b px-3 py-2">
-        <Logo provider={group.items[0]?.provider ?? "opencode"} />
+        <ModelBrandIcon model={group.items[0] ?? { id: "api:opencode/default", name: "OpenCode", provider: "opencode" }} className="size-4" />
         <span className="min-w-0 flex-1 truncate text-sm font-medium">
           {group.label}
           {group.note && (
@@ -357,7 +356,7 @@ function ModelRow({
       ) : (
         <span className="size-2 shrink-0" aria-hidden />
       )}
-      <Logo provider={model.provider} />
+      <ModelBrandIcon model={model} className="size-4" />
       <ModelSelectorName className="min-w-0">{model.name}</ModelSelectorName>
       <ModelBadge model={model} />
       {active && <CheckIcon className="size-4 shrink-0 text-foreground" />}
@@ -432,18 +431,6 @@ function ModelBadge({ model }: { model: AiModel }) {
     );
   }
   return <span className="ml-auto" />;
-}
-
-function Logo({ provider }: { provider: string }) {
-  return (
-    <ModelSelectorLogo
-      provider={provider as ModelSelectorLogoProps["provider"]}
-      className="size-4 shrink-0"
-      onError={(event) => {
-        event.currentTarget.style.visibility = "hidden";
-      }}
-    />
-  );
 }
 
 function matches(model: AiModel, query: string) {

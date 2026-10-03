@@ -56,6 +56,7 @@ pub enum Provider {
     OpenRouter,
     Xai,
     Alibaba,
+    Puter,
 }
 
 impl Provider {
@@ -65,6 +66,7 @@ impl Provider {
         Provider::OpenRouter,
         Provider::Xai,
         Provider::Alibaba,
+        Provider::Puter,
     ];
 
     pub fn id(self) -> &'static str {
@@ -74,6 +76,7 @@ impl Provider {
             Provider::OpenRouter => "openrouter",
             Provider::Xai => "xai",
             Provider::Alibaba => "alibaba",
+            Provider::Puter => "puter",
         }
     }
 
@@ -84,6 +87,7 @@ impl Provider {
             Provider::OpenRouter => "OpenRouter",
             Provider::Xai => "xAI (Grok)",
             Provider::Alibaba => "Alibaba (Qwen)",
+            Provider::Puter => "Puter",
         }
     }
 
@@ -99,6 +103,7 @@ impl Provider {
             Provider::OpenRouter => &["OPENROUTER_API_KEY"],
             Provider::Xai => &["XAI_API_KEY"],
             Provider::Alibaba => &["DASHSCOPE_API_KEY", "ALIBABA_API_KEY", "QWEN_API_KEY"],
+            Provider::Puter => &["PUTER_AUTH_TOKEN"],
         }
     }
 
@@ -117,7 +122,7 @@ impl Provider {
     /// whatever its name or metadata says it makes.
     pub fn routes(self) -> &'static [Kind] {
         match self {
-            Provider::Google | Provider::Alibaba => &[Kind::Image, Kind::Video],
+            Provider::Google | Provider::Alibaba | Provider::Puter => &[Kind::Image, Kind::Video],
             Provider::OpenAI | Provider::OpenRouter | Provider::Xai => &[Kind::Image],
         }
     }
@@ -130,6 +135,8 @@ impl Provider {
             (Provider::Xai, _) => "grok-imagine-image",
             (Provider::Alibaba, _) => "qwen-image-plus",
             (Provider::OpenRouter, _) => "google/gemini-3-pro-image-preview",
+            (Provider::Puter, Kind::Image) => "gpt-image-2",
+            (Provider::Puter, Kind::Video) => "veo-3.1-lite",
         }
     }
 }
@@ -165,8 +172,8 @@ pub fn max_references(provider: Provider, kind: Kind) -> usize {
     match (provider, kind) {
         (Provider::Xai, _) => 0,
         (_, Kind::Image) => 3,
-        // Veo and Wan animate from one picture: the first frame.
-        (Provider::Google | Provider::Alibaba, Kind::Video) => 1,
+        // Veo and Wan animate from one picture: the first frame (Puter's `input_reference`).
+        (Provider::Google | Provider::Alibaba | Provider::Puter, Kind::Video) => 1,
         (_, Kind::Video) => 0,
     }
 }
@@ -895,6 +902,123 @@ async fn run_dashscope_video(job: &Job<'_>, key: &str) -> Result<Output, String>
     }
 }
 
+// ── Puter ──
+//
+// Through `crate::puter` (the driver route puter.js's `txt2img` / `txt2vid`
+// call, open to free accounts), with the auth token from puter.com/dashboard:
+// no sign-in popup, which a desktop webview can't complete. Each call makes
+// one picture or one clip, and the answer is the file itself, or a link to it.
+
+/// A clip's size as Puter takes it, `WIDTHxHEIGHT`: the tier is the shorter side.
+fn puter_video_size(aspect: Option<&str>, resolution: Option<&str>) -> String {
+    let short: u32 = resolution
+        .map(|r| r.trim().trim_end_matches(['p', 'P']))
+        .and_then(|r| r.parse().ok())
+        .filter(|n| (240..=2160).contains(n))
+        .unwrap_or(720);
+    let (w, h) = aspect
+        .and_then(|a| a.split_once(':'))
+        .and_then(|(w, h)| Some((w.trim().parse::<f64>().ok()?, h.trim().parse::<f64>().ok()?)))
+        .filter(|(w, h)| *w > 0.0 && *h > 0.0)
+        .unwrap_or((16.0, 9.0));
+    let long = (f64::from(short) * w.max(h) / w.min(h)).round() as u32;
+    // Video encoders want even sides.
+    let long = long + long % 2;
+    if w >= h { format!("{long}x{short}") } else { format!("{short}x{long}") }
+}
+
+async fn run_puter(job: &Job<'_>, key: &str) -> Result<Output, String> {
+    let model = job.model.unwrap_or(Provider::Puter.default_model(job.kind)).to_string();
+    let mut args = json!({ "prompt": job.prompt, "model": model });
+    match job.kind {
+        Kind::Image => {
+            if let Some(ratio) = job.aspect_ratio {
+                args["aspect_ratio"] = json!(ratio);
+            }
+            if !job.references.is_empty() {
+                args["input_images"] = job.references.iter().map(Reference::data_uri).collect();
+            }
+        }
+        Kind::Video => {
+            args["size"] = json!(puter_video_size(job.aspect_ratio, job.resolution));
+            if let Some(seconds) = job.duration_seconds {
+                args["seconds"] = json!(seconds);
+            }
+            if let Some(first) = job.references.first() {
+                args["input_reference"] = json!(first.data_uri());
+            }
+        }
+    }
+    // One per call: a picture asked for twice is two calls.
+    let count = if job.kind == Kind::Image { job.count.max(1) } else { 1 };
+    let mut files = Vec::new();
+    for _ in 0..count {
+        if job.expired() {
+            break;
+        }
+        files.push(puter_generate(job, key, &args).await?);
+    }
+    if files.is_empty() {
+        return Err(format!("Puter ran out of time before the {} was ready.", job.kind.noun()));
+    }
+    Ok(Output { files, model })
+}
+
+async fn puter_generate(job: &Job<'_>, key: &str, args: &Value) -> Result<Produced, String> {
+    let service = match job.kind {
+        Kind::Image => crate::puter::Service::Image,
+        Kind::Video => crate::puter::Service::Video,
+    };
+    // A clip is only answered once it's made, which takes minutes.
+    let client = reqwest::Client::builder()
+        .timeout(job.left().max(Duration::from_secs(30)))
+        .build()
+        .map_err(|e| format!("Cannot start the HTTP client: {e}"))?;
+    let response = crate::puter::call(&client, job.base_url, key, service, "generate", args)
+        .send()
+        .await
+        .map_err(|e| format!("Cannot reach Puter: {e}"))?;
+    let status = response.status();
+    let mime = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    let bytes = response.bytes().await.map_err(|e| format!("Puter: {e}"))?;
+    // The file itself.
+    if status.is_success() && (mime.starts_with("image/") || mime.starts_with("video/")) {
+        return Ok(Produced::new(bytes.to_vec(), extension_for(Some(&mime), job.kind.default_extension())));
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    if !status.is_success() {
+        return Err(api_error(Provider::Puter, status, &text));
+    }
+    let Ok(value) = serde_json::from_str::<Value>(&text) else {
+        // Not JSON and not labelled: take it as the file, if it's big enough to be one.
+        if bytes.len() > 1024 {
+            return Ok(Produced::new(bytes.to_vec(), job.kind.default_extension().to_string()));
+        }
+        return Err(format!("Puter sent a reply this app cannot read: {}", text.chars().take(300).collect::<String>()));
+    };
+    if let Some(message) = crate::puter::refusal(&value) {
+        return Err(format!("Puter: {message}"));
+    }
+    let result = if value.get("result").is_some() { &value["result"] } else { &value };
+    let url = result
+        .as_str()
+        .or_else(|| ["asset_url", "url", "href"].iter().find_map(|k| result[*k].as_str()))
+        .filter(|u| !u.trim().is_empty())
+        .ok_or_else(|| format!("Puter finished without a {}: {}", job.kind.noun(), summarize(&value)))?;
+    // A link on Puter's own host needs the token; anyone else's must not get it.
+    let own = reqwest::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h == "puter.com" || h.ends_with(".puter.com")))
+        .unwrap_or(false);
+    let auth = format!("Bearer {key}");
+    download(Provider::Puter, url, own.then_some(("Authorization", auth.as_str())), job.kind).await
+}
+
 // ── entry point ──
 
 /// Run one job on a named provider with a key the caller already has.
@@ -922,6 +1046,7 @@ async fn run(provider: Provider, job: &Job<'_>, key: &str) -> Result<Output, Str
         }
         (Provider::Xai, Kind::Image) => run_openai_compatible(provider, XAI_API, job, key).await,
         (Provider::OpenRouter, Kind::Image) => run_openrouter(job, key).await,
+        (Provider::Puter, _) => run_puter(job, key).await,
         (provider, kind) => Err(no_route(provider, kind)),
     }
 }
@@ -1063,5 +1188,124 @@ mod tests {
         assert!(message.contains("Settings"), "{message}");
         let renamed = api_error(Provider::Alibaba, reqwest::StatusCode::NOT_FOUND, "{}");
         assert!(renamed.contains("model id"), "{renamed}");
+    }
+
+    #[test]
+    fn puter_sizes_a_clip_by_its_shorter_side() {
+        assert_eq!(puter_video_size(None, None), "1280x720");
+        assert_eq!(puter_video_size(Some("9:16"), Some("1080P")), "1080x1920");
+        assert_eq!(puter_video_size(Some("16:9"), Some("480p")), "854x480");
+        assert_eq!(puter_video_size(Some("1:1"), Some("720P")), "720x720");
+    }
+
+    /// A server answering each request in turn; hands back the request bodies.
+    async fn puter_mock(replies: Vec<(&'static str, &'static str, Vec<u8>)>) -> (String, tokio::task::JoinHandle<Vec<String>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let seen = tokio::spawn(async move {
+            let mut seen = Vec::new();
+            for (status, content_type, body) in replies {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let mut req = Vec::new();
+                let mut buf = [0u8; 16384];
+                loop {
+                    let n = sock.read(&mut buf).await.unwrap();
+                    req.extend_from_slice(&buf[..n]);
+                    let text = String::from_utf8_lossy(&req).to_string();
+                    if let Some(end) = text.find("\r\n\r\n") {
+                        let len = text[..end]
+                            .lines()
+                            .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap()))
+                            .unwrap_or(0);
+                        if req.len() >= end + 4 + len {
+                            seen.push(text);
+                            break;
+                        }
+                    }
+                }
+                // A JSON reply may link back here: `{BASE}` is this server.
+                let body = if content_type.contains("json") {
+                    String::from_utf8_lossy(&body).replace("{BASE}", &format!("http://{addr}")).into_bytes()
+                } else {
+                    body
+                };
+                let head = format!("HTTP/1.1 {status}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len());
+                sock.write_all(head.as_bytes()).await.unwrap();
+                sock.write_all(&body).await.unwrap();
+                let _ = sock.shutdown().await;
+            }
+            seen
+        });
+        (format!("http://{addr}"), seen)
+    }
+
+    #[tokio::test]
+    async fn puter_makes_pictures_and_clips_through_its_driver_route() {
+        let png = [&[0x89u8, b'P', b'N', b'G'][..], &[7u8; 200][..]].concat();
+        let (base, seen) = puter_mock(vec![
+            ("200 OK", "image/png", png.clone()),
+            ("200 OK", "image/png", png.clone()),
+        ])
+        .await;
+        let reference = Reference { mime: "image/png".into(), bytes: vec![1, 2, 3], name: "a.png".into() };
+        let job = Job {
+            kind: Kind::Image,
+            prompt: "a cat",
+            model: Some("gpt-image-2"),
+            aspect_ratio: Some("1:1"),
+            count: 2,
+            base_url: Some(&base),
+            references: std::slice::from_ref(&reference),
+            ..Default::default()
+        };
+        let out = generate_with(Provider::Puter, "tok", &job).await.unwrap();
+        assert_eq!(out.files.len(), 2);
+        let seen = seen.await.unwrap();
+        assert!(seen[0].starts_with("POST /drivers/call "), "{}", seen[0]);
+        let sent: Value = serde_json::from_str(seen[0].split("\r\n\r\n").nth(1).unwrap()).unwrap();
+        assert_eq!(sent["interface"], "puter-image-generation");
+        assert_eq!(sent["method"], "generate");
+        assert_eq!(sent["args"]["model"], "gpt-image-2");
+        assert_eq!(sent["args"]["aspect_ratio"], "1:1");
+        assert_eq!(sent["args"]["input_images"][0], "data:image/png;base64,AQID");
+
+        // A clip answered with a link to it, fetched without the token (not Puter's host).
+        let link = br#"{"success":true,"result":{"asset_url":"{BASE}/clip.mp4"}}"#.to_vec();
+        let mp4 = vec![0u8; 2048];
+        let (base, seen) = puter_mock(vec![("200 OK", "application/json", link), ("200 OK", "video/mp4", mp4)]).await;
+        let job = Job {
+            kind: Kind::Video,
+            prompt: "a fox",
+            model: Some("veo-3.1-lite"),
+            aspect_ratio: Some("9:16"),
+            duration_seconds: Some(4),
+            base_url: Some(&base),
+            ..Default::default()
+        };
+        let out = generate_with(Provider::Puter, "tok", &job).await.unwrap();
+        assert_eq!(out.files.len(), 1);
+        let seen = seen.await.unwrap();
+        let sent: Value = serde_json::from_str(seen[0].split("\r\n\r\n").nth(1).unwrap()).unwrap();
+        assert_eq!(sent["interface"], "puter-video-generation");
+        assert_eq!(sent["args"]["size"], "720x1280");
+        assert_eq!(sent["args"]["seconds"], 4);
+        assert!(seen[1].starts_with("GET /clip.mp4 "), "{}", seen[1]);
+        assert!(!seen[1].to_ascii_lowercase().contains("authorization"), "the token stays with Puter");
+    }
+
+    #[tokio::test]
+    async fn puter_says_why_it_said_no() {
+        let refusal = br#"{"error":"A subscription is required","message":"No usage left for request.","code":"insufficient_funds"}"#.to_vec();
+        let (base, _) = puter_mock(vec![("402 Payment Required", "application/json", refusal)]).await;
+        let job = Job { kind: Kind::Video, prompt: "a fox", model: Some("veo-3.1-lite"), base_url: Some(&base), ..Default::default() };
+        let err = generate_with(Provider::Puter, "tok", &job).await.err().unwrap();
+        assert!(err.contains("402") && err.contains("No usage left"), "{err}");
+
+        let envelope = br#"{"success":false,"error":{"code":"email_must_be_confirmed","message":"Confirm your email first."}}"#.to_vec();
+        let (base, _) = puter_mock(vec![("200 OK", "application/json", envelope)]).await;
+        let job = Job { kind: Kind::Image, prompt: "a cat", base_url: Some(&base), ..Default::default() };
+        let err = generate_with(Provider::Puter, "tok", &job).await.err().unwrap();
+        assert_eq!(err, "Puter: Confirm your email first.");
     }
 }

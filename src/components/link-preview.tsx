@@ -1,6 +1,6 @@
 "use client";
 
-import { loadImage } from "@/components/chat-blocks/gallery-card";
+import { loadImage } from "@/features/chat-blocks/load-image";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
 import { invoke } from "@tauri-apps/api/core";

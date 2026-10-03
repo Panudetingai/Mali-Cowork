@@ -2,7 +2,8 @@ import { getInstructions, saveSkill, seedThaiTemplateSkills } from "@/features/i
 import { syncMcpServers } from "@/features/mcp";
 import { UpdateDialog } from "@/features/updater/update-dialog";
 import { AppLayout } from "@/layouts/app-layout";
-import { OnboardingDialog, openOnboarding, isOnboardingDone, FORCE_ONBOARDING } from "@/features/onboarding";
+import { OnboardingGate } from "@/features/onboarding/onboarding-gate";
+import { FORCE_ONBOARDING, openOnboarding } from "@/features/onboarding";
 import { useWeeklyRecapAutoOpen, WeeklyRecapDialog } from "@/features/work-receipt";
 import { watchSkills } from "@/features/skills";
 import { startTaskQueue } from "@/features/tasks";
@@ -19,13 +20,15 @@ import ProjectsPage from "./pages/projects";
 import ProjectPage from "./pages/projects/project-page";
 import SettingsPage from "./pages/settings";
 import VisualPage from "./pages/visual";
+import BotStudioPage from "./pages/bot-studio";
 import ChatBlocksPreviewPage from "./pages/dev/chat-blocks-preview";
 import NotchPreviewPage from "./pages/dev/notch-preview";
 import MarkdownPreviewPage from "./pages/dev/markdown-preview";
+import OnboardingPage from "./pages/onboarding";
 
 function App() {
   useEffect(() => {
-    if (!isOnboardingDone() || FORCE_ONBOARDING) openOnboarding();
+    if (FORCE_ONBOARDING) openOnboarding();
   }, []);
 
   // Keep the skill folders the agent reads in step with the library.
@@ -82,10 +85,13 @@ function App() {
   return (
     <>
       <Routes>
-        <Route element={<AppLayout />}>
+        <Route path="onboarding" element={<OnboardingPage />} />
+        <Route element={<OnboardingGate />}>
+          <Route element={<AppLayout />}>
           <Route index element={<ChatLayout />} />
           <Route path="chat/:chatId" element={<ChatLayout />} />
           <Route path="visual" element={<VisualPage />} />
+          <Route path="bots" element={<BotStudioPage />} />
           <Route path="inbox" element={<InboxPage />} />
           <Route path="outputs" element={<OutputsPage />} />
           <Route path="usage" element={<UsagePage />} />
@@ -100,6 +106,7 @@ function App() {
             </>
           ) : null}
           <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
         </Route>
       </Routes>
       <WeeklyRecapDialog />
@@ -111,7 +118,6 @@ export default function AppWithOnboarding() {
   const awake = useMainAwake();
   return (
     <>
-      {awake && <OnboardingDialog />}
       {awake && <UpdateDialog />}
       <App />
     </>

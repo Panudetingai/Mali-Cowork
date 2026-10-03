@@ -369,6 +369,8 @@ async function routeStream(
       model: api.model,
       ...requestConfigFor(api.provider),
       effort,
+      // Stop reaches the reply through the chat's id (Puter's route reads it).
+      runId: request.runId,
       history: [
         ...(request.summary
           ? ([

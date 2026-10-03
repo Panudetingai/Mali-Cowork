@@ -24,6 +24,7 @@ import {
   type TaskStatus,
 } from "@/features/tasks";
 import { folderName } from "@/features/workspace";
+import { MALI_EASE } from "@/lib/motion-presets";
 import { cn } from "@/lib/utils";
 import { allowFolderForRun, answerAgentQuestion, replyToPermission } from "@/pages/chat/turn";
 import { EmptyState, StatusPill } from "@/pages/settings/ui";
@@ -88,8 +89,6 @@ const FINISHED: TaskStatus[] = ["failed", "interrupted", "done", "accepted", "un
 
 const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
 const SEND_TO_INBOX = isMac ? "⌘⏎" : "Ctrl+Enter";
-
-const EASE = [0.22, 1, 0.36, 1] as const;
 
 export default function InboxPage() {
   const views = useTaskViews();
@@ -176,7 +175,7 @@ export default function InboxPage() {
                       initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0 }}
-                      transition={{ duration: 0.25, ease: EASE }}
+                      transition={{ duration: 0.25, ease: MALI_EASE }}
                       className="flex flex-col gap-2.5"
                     >
                       <div className="flex items-center gap-2">
@@ -285,7 +284,7 @@ function TaskCard({ view, all }: { view: View; all: View[] }) {
       initial={{ opacity: 0, y: 10, scale: 0.99 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, scale: 0.97, transition: { duration: 0.18 } }}
-      transition={{ duration: 0.3, ease: EASE }}
+      transition={{ duration: 0.3, ease: MALI_EASE }}
       className={cn(
         "group/task flex flex-col gap-3 rounded-2xl bg-muted/40 p-4 transition-colors hover:bg-muted/60",
         status === "needs-you" && "bg-amber-500/[0.06] ring-1 ring-amber-500/35 hover:bg-amber-500/10",
@@ -448,7 +447,7 @@ function Collapsible({ summary, children }: { summary: ReactNode; children: Reac
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: EASE }}
+            transition={{ duration: 0.25, ease: MALI_EASE }}
             className="overflow-hidden"
           >
             {children}

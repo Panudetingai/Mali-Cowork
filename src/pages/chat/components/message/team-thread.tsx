@@ -1,10 +1,11 @@
 import { CoworkBot } from "@/components/anim/cowork-bot";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { TextShimmer } from "@/components/ui/text-shimmer";
-import { BOTS, type BotState, type CoworkBotId } from "@/features/cowork-bot";
+import { BOTS, useCoworkBot, type BotChoice, type BotState, type CoworkBotId } from "@/features/cowork-bot";
 import { useTeam } from "@/features/team";
+import { MALI_EASE } from "@/lib/motion-presets";
 import { cn } from "@/lib/utils";
-import { ChevronDownIcon, UsersIcon } from "lucide-react";
+import { ChevronDownIcon } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useState, type ReactNode } from "react";
 import { AgentSteps } from "./agent-steps";
@@ -15,6 +16,9 @@ const pop = { type: "spring", stiffness: 420, damping: 30, mass: 0.8 } as const;
 const fold = { type: "spring", stiffness: 380, damping: 38 } as const;
 /** The avatars' column: the line between them runs down its middle. */
 const AVATAR = 32;
+/** Back bot peeks out to the left; front sits ~`STACK_STEP` px over. */
+const STACK_SIZE = 28;
+const STACK_STEP = 18;
 
 /**
  * One hand-off in team mode, as a group chat: the lead briefs the bot, the
@@ -25,6 +29,7 @@ const AVATAR = 32;
  */
 export function TeamThread({ handoff }: { handoff: TeamHandoff }) {
   const { mates } = useTeam();
+  const { bot: leadBot } = useCoworkBot();
   const mate = mates.find((m) => m.id === handoff.teammateId);
   const report = handoff.report;
   const name = mate?.name ?? report?.title.replace(/^Team:\s*/, "").replace(/ \(failed\)$/, "") ?? "Teammate";
@@ -34,6 +39,9 @@ export function TeamThread({ handoff }: { handoff: TeamHandoff }) {
   const waitingForYou = working && !handoff.brief;
   const state: BotState = failed ? "alert" : working ? (handoff.steps.some((s) => !s.done) ? "tool" : "working") : "done";
   const color = mate ? BOTS.find((b) => b.id === mate.mascot)?.color : undefined;
+  const mateBot = mate?.mascot ?? "momo";
+  const leadState: BotState = waitingForYou ? "permission" : working ? "idle" : "done";
+  const frontBot: "lead" | "mate" = waitingForYou ? "lead" : "mate";
   const [open, setOpen] = useState(true);
   const reduced = useReducedMotion();
   const running = working ? handoff.steps.findIndex((s) => !s.done) : -1;
@@ -44,26 +52,27 @@ export function TeamThread({ handoff }: { handoff: TeamHandoff }) {
       initial={{ opacity: 0, y: 12, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={pop}
-      className="not-prose my-3 overflow-hidden rounded-2xl border border-border/60 bg-muted/15"
+      className="not-prose my-3 rounded-md"
     >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 px-3.5 py-2.5 text-left text-xs transition-colors hover:bg-muted/30"
+        className="flex w-full items-center gap-2.5 overflow-visible px-3.5 py-2.5 text-left text-xs transition-colors hover:bg-muted/35"
       >
-        <span
-          className="flex size-5 shrink-0 items-center justify-center rounded-full"
-          style={{ background: color ? `${color}26` : undefined }}
-        >
-          <UsersIcon className="size-3" style={color ? { color } : undefined} />
-        </span>
+        <TeamBotStack
+          leadBot={leadBot}
+          mateBot={mateBot}
+          front={frontBot}
+          leadState={leadState}
+          mateState={state}
+        />
         <span className="font-medium text-foreground/90">Team chat</span>
         <span className="min-w-0 truncate text-muted-foreground">Lead → {name}</span>
-        <span className="ml-auto flex shrink-0 items-center gap-2">
+        <span className="ml-auto flex shrink-0 items-center gap-1">
           <Status failed={failed} working={working} waitingForYou={waitingForYou} />
           <ChevronDownIcon
-            className={cn("size-3.5 text-muted-foreground transition-transform duration-200", !open && "-rotate-90")}
+            className={cn("size-3.5 text-muted-foreground/80 transition-transform duration-200", !open && "-rotate-90")}
           />
         </span>
       </button>
@@ -129,7 +138,58 @@ export function TeamThread({ handoff }: { handoff: TeamHandoff }) {
   );
 }
 
+/** Lead + teammate in one stack; whoever is active slides to the front. */
+function TeamBotStack({
+  leadBot,
+  mateBot,
+  front,
+  leadState,
+  mateState,
+}: {
+  leadBot: BotChoice;
+  mateBot: BotChoice;
+  front: "lead" | "mate";
+  leadState: BotState;
+  mateState: BotState;
+}) {
+  const slots = [
+    { key: "lead" as const, bot: leadBot, state: leadState, title: "Lead" },
+    { key: "mate" as const, bot: mateBot, state: mateState, title: "Teammate" },
+  ];
+
+  const ordered = [...slots].sort((a, b) => (a.key === front ? 1 : 0) - (b.key === front ? 1 : 0));
+
+  return (
+    <div
+      className="relative shrink-0 overflow-visible"
+      style={{ width: STACK_SIZE + STACK_STEP, height: STACK_SIZE }}
+      aria-hidden
+    >
+      {ordered.map(({ key, bot, state, title }) => {
+        const onTop = key === front;
+        return (
+          <motion.div
+            key={key}
+            layout
+            className="absolute top-0 overflow-visible"
+            title={title}
+            animate={{
+              left: onTop ? STACK_STEP : 0,
+              scale: onTop ? 1 : 0.92,
+            }}
+            transition={{ duration: 0.32, ease: MALI_EASE }}
+            style={{ width: STACK_SIZE, height: STACK_SIZE, zIndex: onTop ? 2 : 1 }}
+          >
+            <CoworkBot bot={bot} state={state} size={STACK_SIZE} paused={!onTop} />
+          </motion.div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Status({ failed, working, waitingForYou }: { failed: boolean; working: boolean; waitingForYou: boolean }) {
+  const tone = failed ? "danger" : working ? "active" : "done";
   return (
     <AnimatePresence mode="popLayout" initial={false}>
       <motion.span
@@ -138,15 +198,21 @@ function Status({ failed, working, waitingForYou }: { failed: boolean; working: 
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -4 }}
         transition={{ duration: 0.18 }}
+        className={cn(
+          "inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums",
+          tone === "done" && "text-emerald-700 dark:text-emerald-400",
+          tone === "active" && "bg-muted/50 text-foreground/80",
+          tone === "danger" && "text-red-600 dark:text-red-400",
+        )}
       >
         {failed ? (
-          <span className="text-red-600 dark:text-red-400">Didn't finish</span>
+          "Didn't finish"
         ) : working ? (
-          <TextShimmer duration={2} className="font-normal">
+          <TextShimmer duration={2} className="font-medium">
             {waitingForYou ? "Waiting for your OK" : "Working"}
           </TextShimmer>
         ) : (
-          <span className="text-emerald-600 dark:text-emerald-400">Done</span>
+          "Done"
         )}
       </motion.span>
     </AnimatePresence>

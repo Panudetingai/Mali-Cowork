@@ -388,10 +388,10 @@ async fn respond(stream: &mut tokio::net::TcpStream, status: &str, body: &str) {
 }
 
 impl CallbackServer {
-    /// Wait for the browser to come back with our `state`. Other requests
-    /// (favicon, stray tabs, a wrong state) are answered and ignored.
-    pub async fn wait(&mut self, expected_state: &str, service: &str) -> Result<Callback, String> {
-        let deadline = tokio::time::Instant::now() + SIGN_IN_TIMEOUT;
+    /// The next browser request for `path` on the loopback, with its query.
+    /// Anything else (favicon, stray tabs, a name pointed at 127.0.0.1) is
+    /// answered and skipped.
+    async fn next_for(&mut self, path: &str, deadline: tokio::time::Instant) -> Result<(tokio::net::TcpStream, String), String> {
         let local_port = self.listener.local_addr().map(|a| a.port()).unwrap_or(CALLBACK_PORT);
         loop {
             let accept = tokio::select! {
@@ -413,11 +413,37 @@ impl CallbackServer {
                 continue;
             }
             let target = request.lines().next().and_then(|line| line.split_whitespace().nth(1)).unwrap_or("/");
-            let (path, query) = target.split_once('?').unwrap_or((target, ""));
-            if path != CALLBACK_PATH {
+            let (got, query) = target.split_once('?').unwrap_or((target, ""));
+            if got != path {
                 respond(&mut stream, "404 Not Found", "").await;
                 continue;
             }
+            return Ok((stream, query.to_string()));
+        }
+    }
+
+    /// A sign-in that hands back a token straight away (Puter's AuthMe), not
+    /// an OAuth code. It echoes no `state`, so `path` carries one instead.
+    pub async fn wait_token(&mut self, path: &str, service: &str) -> Result<String, String> {
+        let deadline = tokio::time::Instant::now() + SIGN_IN_TIMEOUT;
+        loop {
+            let (mut stream, query) = self.next_for(path, deadline).await?;
+            let Some(token) = query_param(&query, "token").filter(|t| !t.trim().is_empty()) else {
+                respond(&mut stream, "400 Bad Request", &page(service, Some("No sign-in token came back"))).await;
+                continue;
+            };
+            respond(&mut stream, "200 OK", &page(service, None)).await;
+            return Ok(token);
+        }
+    }
+
+    /// Wait for the browser to come back with our `state`. Other requests
+    /// (favicon, stray tabs, a wrong state) are answered and ignored.
+    pub async fn wait(&mut self, expected_state: &str, service: &str) -> Result<Callback, String> {
+        let deadline = tokio::time::Instant::now() + SIGN_IN_TIMEOUT;
+        loop {
+            let (mut stream, query) = self.next_for(CALLBACK_PATH, deadline).await?;
+            let query = query.as_str();
             if query_param(query, "state").as_deref() != Some(expected_state) {
                 // Not our flow (or forged): never pass its code on.
                 respond(&mut stream, "400 Bad Request", &page(service, Some("This sign-in link has expired"))).await;
@@ -488,6 +514,35 @@ mod tests {
         assert!(https("http://auth.example.com").is_err());
         assert!(https("https://auth.example.com").is_ok());
         assert!(https("http://127.0.0.1:3845/mcp").is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_token_sign_in_answers_only_its_own_path() {
+        let (_cancel, cancel) = tokio::sync::watch::channel(false);
+        let mut server = CallbackServer {
+            listener: TcpListener::bind(("127.0.0.1", 0)).await.unwrap(),
+            id: "test-token".into(),
+            cancel,
+        };
+        let port = server.listener.local_addr().unwrap().port();
+        let send = move |path: &'static str| async move {
+            let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            s.write_all(format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n").as_bytes())
+                .await
+                .unwrap();
+            let mut out = String::new();
+            let _ = s.read_to_string(&mut out).await;
+            out
+        };
+        let client = tokio::spawn(async move {
+            // Another sign-in's path, or ours with nothing in it, gets nothing.
+            assert!(send("/puter/callback/other?token=stolen").await.starts_with("HTTP/1.1 404"));
+            assert!(send("/puter/callback/abc").await.starts_with("HTTP/1.1 400"));
+            let ok = send("/puter/callback/abc?token=tok%2Bx").await;
+            assert!(ok.contains("Connected to Puter"));
+        });
+        assert_eq!(server.wait_token("/puter/callback/abc", "Puter").await.unwrap(), "tok+x");
+        client.await.unwrap();
     }
 
     #[tokio::test]

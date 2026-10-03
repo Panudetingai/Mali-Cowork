@@ -4,11 +4,11 @@ import type { GalleryBlock, GalleryItem } from "@/features/chat-blocks";
 import { connectorFor, McpToolIcon, useCustomMcps } from "@/features/mcp";
 import { cn } from "@/lib/utils";
 import { Figma, Github, Google, Notion } from "@lobehub/icons";
-import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ChevronLeftIcon, ChevronRightIcon, ExternalLinkIcon, ImageOffIcon, LayoutGridIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { MediaPreviewDialog } from "./media-preview-dialog";
+import { useProxiedImage } from "./use-proxied-image";
 
 /** Tiles share one height; each is as wide as its page's shape needs. */
 const TILE_HEIGHT = 184;
@@ -53,44 +53,6 @@ export function sourceOf(source: string | undefined) {
   return { label, icon: <LayoutGridIcon className="size-[18px] text-muted-foreground" /> };
 }
 
-const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-
-/**
- * Pictures from Canva, Notion and the like come from their own CDNs, which the
- * app's content policy doesn't load directly: the backend fetches each one
- * (https, public hosts, images only) and hands back a data URL. Cached for the
- * session so scrolling back doesn't refetch.
- */
-const fetched = new Map<string, Promise<string>>();
-export function loadImage(url: string): Promise<string> {
-  if (!isTauri()) return Promise.resolve(url);
-  let pending = fetched.get(url);
-  if (!pending) {
-    // Kept on disk once loaded (the links expire), with Canva's fallback link tried too.
-    pending = invoke<string>("preview_image", { url });
-    // A failure isn't kept: the next render may try again.
-    pending.catch(() => fetched.delete(url));
-    fetched.set(url, pending);
-  }
-  return pending;
-}
-
-function useRemoteImage(url: string) {
-  const [state, setState] = useState<{ src?: string; failed?: boolean }>({});
-  useEffect(() => {
-    let cancelled = false;
-    setState({});
-    loadImage(url).then(
-      (src) => !cancelled && setState({ src }),
-      () => !cancelled && setState({ failed: true }),
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [url]);
-  return state;
-}
-
 function Tile({
   item,
   index,
@@ -108,7 +70,7 @@ function Tile({
   /** Opens this page (or the whole design) in its app. */
   href?: string;
 }) {
-  const remote = useRemoteImage(item.image);
+  const remote = useProxiedImage(item.image);
   // A picture that loaded as data but won't draw counts as failed too.
   const [broken, setBroken] = useState(false);
   const src = broken ? undefined : remote.src;

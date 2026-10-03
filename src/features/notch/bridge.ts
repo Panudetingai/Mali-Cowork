@@ -12,6 +12,7 @@ import type {
   NotchLook,
   NotchOverview,
   NotchReply,
+  NotchSetup,
   NotchSnapshot,
 } from "./types";
 
@@ -348,6 +349,18 @@ export function sendNotchSessions(overview: NotchOverview) {
 
 export const onNotchSessions = (handler: (overview: NotchOverview) => void) =>
   on<NotchOverview>(SESSIONS, handler);
+
+// ── setup (onboarding) ──
+
+const SETUP = "notch:setup";
+
+/** Main window: setup scan or install progress for the pill. */
+export function sendNotchSetup(setup: NotchSetup) {
+  return emitTo(NOTCH, SETUP, setup);
+}
+
+export const onNotchSetup = (handler: (setup: NotchSetup) => void) =>
+  on<NotchSetup>(SETUP, handler);
 
 // ── look ──
 

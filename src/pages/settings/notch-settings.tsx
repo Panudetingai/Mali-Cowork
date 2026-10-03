@@ -3,8 +3,9 @@
  * it keeps, which screen it lives on, and starting Mali in it at login.
  */
 import { CoworkBot } from "@/components/anim/cowork-bot";
+import { useResolvedBot } from "@/features/bot-studio/resolve";
 import { Switch } from "@/components/ui/switch";
-import { BOTS, useCoworkBot } from "@/features/cowork-bot";
+import { useCoworkBot } from "@/features/cowork-bot";
 import {
   getNotchLoginItem,
   glassBlurVisuals,
@@ -191,7 +192,7 @@ function NotchPreview({
   glassBlur: number;
 }) {
   const { bot } = useCoworkBot();
-  const color = BOTS.find((b) => b.id === bot)?.color ?? "#3aa3f5";
+  const color = useResolvedBot(bot).color;
   const reduced = useReducedMotion();
   const [open, setOpen] = useState(false);
   const glass = look === "glass" ? glassBlurVisuals(glassBlur) : undefined;

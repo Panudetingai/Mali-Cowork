@@ -34,6 +34,7 @@ import { useInboxAttention } from "@/features/tasks";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import {
+  BotIcon,
   CheckSquareIcon,
   ChevronRightIcon,
   CodeXmlIcon,
@@ -311,6 +312,7 @@ export function AppSidebar() {
             <NavItem title={t("cowork")} url="/?mode=cowork" icon={SparklesIcon} />
             <NavItem title={t("code")} url="/?mode=code" icon={CodeXmlIcon} />
             <NavItem title={t("visual")} url="/visual" icon={ImagesIcon} />
+            <NavItem title={t("botStudio")} url="/bots" icon={BotIcon} />
           </SidebarMenu>
           {/* Places to go, apart from the ways to start work above. */}
           <div className="mx-2 my-1 h-px bg-sidebar-border/70 group-data-[collapsible=icon]:mx-1" aria-hidden />

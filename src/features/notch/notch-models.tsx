@@ -3,7 +3,7 @@
  * Chat mode (API keys, Cursor, Antigravity, OpenCode), searchable, inside the
  * pill rather than in a popover the small window would cut off.
  */
-import { ModelSelectorLogo } from "@/components/ai-elements/model-selector";
+import { ModelBrandIcon } from "@/features/providers";
 import { cn } from "@/lib/utils";
 import { chatIssueOf, OPENCODE_DEFAULT_ID, type AiModel, type ModelSource } from "@/pages/chat/models";
 import { CheckIcon, Loader2Icon, SearchIcon } from "lucide-react";
@@ -108,7 +108,7 @@ export function NotchModels({ catalog, inFolder, loading, selected, defaultName,
                 disabled={model.needsKey || model.needsLogin}
                 onClick={() => onPick(model.id)}
                 name={model.id === OPENCODE_DEFAULT_ID ? "Auto — OpenCode picks" : model.name}
-                provider={model.provider}
+                model={model}
                 hint={
                   model.needsKey
                     ? t("addKey")
@@ -136,14 +136,14 @@ export function NotchModels({ catalog, inFolder, loading, selected, defaultName,
 
 function Item({
   name,
-  provider,
+  model,
   hint,
   active,
   disabled,
   onClick,
 }: {
   name: string;
-  provider?: string;
+  model?: AiModel;
   hint?: string;
   active: boolean;
   disabled?: boolean;
@@ -160,8 +160,8 @@ function Item({
         disabled && "cursor-not-allowed opacity-40 hover:bg-transparent",
       )}
     >
-      <span className="flex size-4 shrink-0 items-center justify-center">
-        {provider ? <ModelSelectorLogo provider={provider} className="size-3.5" /> : <span className="size-1.5 rounded-full bg-white/50" />}
+      <span className="flex size-4 shrink-0 items-center justify-center [&_svg]:text-white">
+        {model ? <ModelBrandIcon model={model} size={14} /> : <span className="size-1.5 rounded-full bg-white/50" />}
       </span>
       <span className="min-w-0 flex-1 truncate">{name}</span>
       {hint && <span className="shrink-0 text-[11px] text-white/35">{hint}</span>}

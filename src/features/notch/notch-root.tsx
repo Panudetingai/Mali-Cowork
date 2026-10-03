@@ -11,7 +11,8 @@
  * top of the screen (watched from Rust, so it works while Mali is in the
  * background) opens Home, ⌥⌘M the ask box.
  */
-import { BOTS, useCoworkBot, type BotState } from "@/features/cowork-bot";
+import { useCoworkBot, type BotState } from "@/features/cowork-bot";
+import { useResolvedBot } from "@/features/bot-studio/resolve";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useEffect, useRef, useState } from "react";
@@ -32,6 +33,7 @@ import {
   onNotchMode,
   onNotchMoved,
   onNotchSessions,
+  onNotchSetup,
   onNotchSummon,
   onOpenApp,
   openMainFromNotch,
@@ -75,6 +77,7 @@ import type {
   NotchOverview,
   NotchPeek,
   NotchSession,
+  NotchSetup,
   NotchSnapshot,
   NotchView,
 } from "./types";
@@ -181,6 +184,7 @@ export function NotchRoot() {
   const [blur, setBlur] = useState(false);
   const [peek, setPeek] = useState<NotchPeek>();
   const peekTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [setup, setSetup] = useState<NotchSetup | null>(null);
   const [overview, setOverview] = useState<NotchOverview>();
   const sessions = overview?.sessions;
   /** The weekly recap's week: weeks back from this one. */
@@ -191,6 +195,7 @@ export function NotchRoot() {
   const [teamOpen, setTeamOpen] = useState<boolean>();
 
   useEffect(() => listenForNotchState(setSnapshot), []);
+  useEffect(() => onNotchSetup(setSetup), []);
   useEffect(() => onNotchSessions(setOverview), []);
   useEffect(() => listenForNotchGeometry(setGeometry), []);
   // Which screen the pill lives on (Settings → Notch): Rust learns it from here.
@@ -319,7 +324,8 @@ export function NotchRoot() {
   }, [snapshot, open]);
 
   // ── who's in the main spot ──
-  const leadName = BOTS.find((b) => b.id === lead)?.name ?? "Mali";
+  const leadInfo = useResolvedBot(lead);
+  const leadName = leadInfo.name;
   const picked = roster.find((b) => b.id === botId);
   const stepping = snapshot?.team.filter((m) => !m.done).at(-1);
   const active: ActiveBot = shown?.asker
@@ -346,8 +352,31 @@ export function NotchRoot() {
     !!intro ||
     !!outro ||
     leaving.current;
+  // First-run setup: keep the pill open with download/install news.
+  useEffect(() => {
+    if (!setup?.active) {
+      // Setup went quiet without a "done" (a scan finished, a step was left):
+      // its line goes too, rather than staying until other news replaces it.
+      setPeek((peek) => (peek?.id.startsWith("setup:") && !peek.id.startsWith("setup:done") ? undefined : peek));
+      return;
+    }
+    clearTimeout(peekTimer.current);
+    const progress =
+      setup.progress != null ? `${setup.progress}% · ${setup.detail ?? ""}`.trim() : setup.detail;
+    setPeek({
+      id: `setup:${setup.phase}:${setup.progress ?? 0}`,
+      tone: setup.phase === "done" ? "done" : "team",
+      title: setup.title,
+      detail: progress || undefined,
+      bot: { key: "setup", mascot: lead, name: "Mali" },
+    });
+    if (setup.phase === "done") {
+      peekTimer.current = setTimeout(() => setPeek(undefined), PEEK_MS);
+    }
+  }, [setup, lead]);
+
   const showPeek = (next: NotchPeek) => {
-    if (quiet.current) return;
+    if (quiet.current || setup?.active) return;
     clearTimeout(peekTimer.current);
     setPeek(next);
     peekTimer.current = setTimeout(
@@ -778,7 +807,7 @@ export function NotchRoot() {
   // The Dock or the tray asked for the app: drop into it.
   useEffect(() => onOpenApp(() => openAppRef.current()), []);
 
-  const color = BOTS.find((b) => b.id === lead)?.color ?? "#3aa3f5";
+  const color = leadInfo.color;
   const outroView = outro && (
     <NotchOutro
       key={outro.id}

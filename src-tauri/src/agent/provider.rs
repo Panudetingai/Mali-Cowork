@@ -4,6 +4,7 @@
 //! they arrive; tool calls come back whole once the model is done.
 
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use futures::StreamExt;
@@ -18,13 +19,20 @@ const ANTHROPIC_FALLBACK_MAX_TOKENS: u64 = 8_192;
 
 pub const STOPPED: &str = "Stopped.";
 
+/// One client for every call: its pool keeps the connection to the provider
+/// open, so each step of a run skips a new TCP and TLS handshake.
 fn client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    if let Some(client) = CLIENT.get() {
+        return Ok(client.clone());
+    }
+    let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(30))
         // A model can think for a long time before its first token.
         .read_timeout(Duration::from_secs(300))
         .build()
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    Ok(CLIENT.get_or_init(|| client).clone())
 }
 
 /// Call the model once. `cancel` turning true stops it with [`STOPPED`].
@@ -38,6 +46,7 @@ pub async fn step(
 ) -> Result<StepResult, String> {
     match target.wire {
         Wire::OpenAi => openai_step(target, system, msgs, tools, on_delta, cancel).await,
+        Wire::Puter => puter_step(target, system, msgs, tools, on_delta, cancel).await,
         Wire::Anthropic => {
             match anthropic_step(target, system, msgs, tools, on_delta, cancel, ANTHROPIC_MAX_TOKENS).await {
                 // Older models cap output lower; ask again within their limit.
@@ -214,6 +223,18 @@ struct PartialCall {
     args: String,
 }
 
+fn openai_tools(tools: &[ToolSpec]) -> Value {
+    tools
+        .iter()
+        .map(|t| {
+            json!({
+                "type": "function",
+                "function": { "name": t.name, "description": t.description, "parameters": t.schema },
+            })
+        })
+        .collect()
+}
+
 async fn openai_step(
     target: &ModelTarget,
     system: &str,
@@ -229,15 +250,7 @@ async fn openai_step(
         "stream_options": { "include_usage": true },
     });
     if !tools.is_empty() {
-        body["tools"] = tools
-            .iter()
-            .map(|t| {
-                json!({
-                    "type": "function",
-                    "function": { "name": t.name, "description": t.description, "parameters": t.schema },
-                })
-            })
-            .collect();
+        body["tools"] = openai_tools(tools);
     }
     if let Some(effort) = &target.effort {
         body["reasoning_effort"] = json!(effort);
@@ -304,6 +317,143 @@ async fn openai_step(
         })
         .collect();
     Ok(result)
+}
+
+// ---------------------------------------------------------------- Puter
+
+/// The token usage a Puter `usage` line reports, whichever vendor served it.
+fn puter_usage(usage: &Value) -> Usage {
+    let n = |keys: &[&str]| keys.iter().find_map(|k| usage[*k].as_u64()).unwrap_or(0);
+    Usage {
+        input: n(&["prompt_tokens", "input_tokens"]),
+        output: n(&["completion_tokens", "output_tokens"]),
+        cache_read: n(&["cached_tokens", "cache_read_input_tokens"]),
+        cache_write: n(&["cache_creation_input_tokens"]),
+        reasoning: n(&["reasoning_tokens"]),
+    }
+}
+
+/// One NDJSON line of a Puter stream, added to the result.
+fn puter_line(line: &Value, result: &mut StepResult, on_delta: &mut (dyn FnMut(Delta) + Send)) -> Result<(), String> {
+    match line["type"].as_str().unwrap_or_default() {
+        "text" => {
+            if let Some(text) = line["text"].as_str().filter(|t| !t.is_empty()) {
+                result.text.push_str(text);
+                on_delta(Delta::Text(text.to_string()));
+            }
+        }
+        "reasoning" => {
+            if let Some(text) = line["reasoning"].as_str().filter(|t| !t.is_empty()) {
+                on_delta(Delta::Reasoning(text.to_string()));
+            }
+        }
+        // Puter sends a tool call whole, its input already parsed.
+        "tool_use" => {
+            let name = line["name"].as_str().unwrap_or_default();
+            if !name.is_empty() {
+                let args = match &line["input"] {
+                    Value::String(raw) => parse_args(raw),
+                    Value::Null => json!({}),
+                    input => input.clone(),
+                };
+                let id = line["id"].as_str().filter(|s| !s.is_empty());
+                result.tool_calls.push(ToolCall {
+                    id: id.map(str::to_string).unwrap_or_else(|| format!("call_{}", uuid::Uuid::new_v4().simple())),
+                    name: name.to_string(),
+                    args,
+                });
+            }
+        }
+        "usage" => result.usage = puter_usage(&line["usage"]),
+        "error" => {
+            let message = line["message"].as_str().or_else(|| line["error"]["message"].as_str()).unwrap_or("Puter stopped the reply.");
+            return Err(message.to_string());
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Puter through `/drivers/call`, the route puter.js uses. Unlike Puter's
+/// OpenAI-compatible endpoint (paid plans only: free accounts get 402
+/// `subscription_required` there), free accounts may use it, with the same
+/// dashboard token. It takes OpenAI-style messages and tools and streams NDJSON
+/// lines: `text`, `reasoning`, `tool_use` (whole), `usage` and `error`.
+async fn puter_step(
+    target: &ModelTarget,
+    system: &str,
+    msgs: &[Msg],
+    tools: &[ToolSpec],
+    on_delta: &mut (dyn FnMut(Delta) + Send),
+    cancel: &mut watch::Receiver<bool>,
+) -> Result<StepResult, String> {
+    let mut args = json!({
+        "model": target.model,
+        "messages": openai_messages(system, msgs),
+        "stream": true,
+    });
+    if !tools.is_empty() {
+        args["tools"] = openai_tools(tools);
+    }
+    if let Some(effort) = &target.effort {
+        args["reasoning_effort"] = json!(effort);
+    }
+    let request = crate::puter::call(&client()?, Some(&target.base_url), &target.api_key, crate::puter::Service::Chat, "complete", &args);
+    let response = send(request).await?;
+
+    let mut result = StepResult::default();
+    let streamed = response
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.contains("ndjson"));
+    if !streamed {
+        // A refusal (or a reply that came whole) is one JSON envelope.
+        let text = response.text().await.map_err(|e| e.to_string())?;
+        let value: Value = serde_json::from_str(&text).map_err(|_| format!("Puter answered: {}", text.chars().take(300).collect::<String>()))?;
+        if let Some(message) = crate::puter::refusal(&value) {
+            return Err(message);
+        }
+        let message = &value["result"]["message"];
+        if let Some(text) = message["content"].as_str().filter(|t| !t.is_empty()) {
+            result.text = text.to_string();
+            on_delta(Delta::Text(text.to_string()));
+        }
+        for call in message["tool_calls"].as_array().into_iter().flatten() {
+            puter_line(
+                &json!({ "type": "tool_use", "id": call["id"], "name": call["function"]["name"], "input": call["function"]["arguments"] }),
+                &mut result,
+                on_delta,
+            )?;
+        }
+        result.usage = puter_usage(&value["result"]["usage"]);
+        return Ok(result);
+    }
+
+    let mut stream = response.bytes_stream();
+    let mut pending: Vec<u8> = Vec::new();
+    loop {
+        let chunk = tokio::select! {
+            chunk = stream.next() => chunk,
+            _ = cancel.wait_for(|stopped| *stopped) => return Err(STOPPED.into()),
+        };
+        let done = chunk.is_none();
+        if let Some(chunk) = chunk {
+            pending.extend_from_slice(&chunk.map_err(|e| format!("Puter's stream broke off: {e}"))?);
+        } else {
+            // The last line may come without its newline.
+            pending.push(b'\n');
+        }
+        while let Some(end) = pending.iter().position(|b| *b == b'\n') {
+            let line: Vec<u8> = pending.drain(..=end).collect();
+            let line = String::from_utf8_lossy(&line);
+            let Ok(value) = serde_json::from_str::<Value>(line.trim()) else { continue };
+            puter_line(&value, &mut result, on_delta)?;
+        }
+        if done {
+            return Ok(result);
+        }
+    }
 }
 
 // ------------------------------------------------------------- Anthropic
@@ -604,5 +754,110 @@ mod tests {
         assert_eq!(out[2]["tool_calls"][0]["function"]["arguments"], "{\"path\":\"x\"}");
         assert_eq!(out[3]["role"], "tool");
         assert_eq!(out[3]["tool_call_id"], "a");
+    }
+
+    /// A one-request server: answers with `status`, `content_type` and `body`, and hands back what it got.
+    async fn puter_server(status: &str, content_type: &str, body: String) -> (String, tokio::task::JoinHandle<String>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let head = format!(
+            "HTTP/1.1 {status}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+            body.len()
+        );
+        let seen = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut req = Vec::new();
+            let mut buf = [0u8; 16384];
+            loop {
+                let n = sock.read(&mut buf).await.unwrap();
+                req.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&req).to_string();
+                if let Some(end) = text.find("\r\n\r\n") {
+                    let len = text[..end]
+                        .lines()
+                        .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap()))
+                        .unwrap_or(0);
+                    if req.len() >= end + 4 + len {
+                        break;
+                    }
+                }
+            }
+            sock.write_all(head.as_bytes()).await.unwrap();
+            sock.write_all(body.as_bytes()).await.unwrap();
+            let _ = sock.shutdown().await;
+            String::from_utf8_lossy(&req).to_string()
+        });
+        // Saved the way the OpenAI endpoint was: the route is found from the host.
+        (format!("http://{addr}/puterai/openai/v1"), seen)
+    }
+
+    fn puter_target(base_url: String) -> ModelTarget {
+        ModelTarget {
+            wire: Wire::Puter,
+            provider: "puter".into(),
+            model: "gpt-5.4-nano".into(),
+            base_url,
+            api_key: "tok".into(),
+            effort: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn puter_streams_text_reasoning_and_whole_tool_calls() {
+        let lines = [
+            json!({"type": "reasoning", "reasoning": "Let me look."}),
+            json!({"type": "text", "text": "Reading "}),
+            json!({"type": "text", "text": "it."}),
+            json!({"type": "tool_use", "id": "toolu_1", "name": "read_file", "input": {"path": "a.md"}, "text": ""}),
+            json!({"type": "usage", "usage": {"input_tokens": 12, "output_tokens": 5}}),
+        ];
+        // The last line comes without its newline.
+        let body = lines.iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
+        let (base, seen) = puter_server("200 OK", "application/x-ndjson", body).await;
+        let tools = [ToolSpec { name: "read_file".into(), description: "Read".into(), schema: json!({"type": "object"}) }];
+        let mut deltas = Vec::new();
+        let (_tx, mut cancel) = watch::channel(false);
+        let result = step(&puter_target(base), "sys", &[Msg::User { text: "hi".into(), images: vec![] }], &tools, &mut |d| deltas.push(d), &mut cancel)
+            .await
+            .unwrap();
+
+        assert_eq!(result.text, "Reading it.");
+        assert_eq!(result.tool_calls.len(), 1);
+        assert_eq!(result.tool_calls[0].id, "toolu_1");
+        assert_eq!(result.tool_calls[0].args, json!({"path": "a.md"}));
+        assert_eq!((result.usage.input, result.usage.output), (12, 5));
+        assert!(matches!(&deltas[0], Delta::Reasoning(r) if r == "Let me look."));
+
+        let request = seen.await.unwrap();
+        assert!(request.starts_with("POST /drivers/call "), "{request}");
+        assert!(request.to_ascii_lowercase().contains("authorization: bearer tok"));
+        let sent: Value = serde_json::from_str(request.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+        assert_eq!(sent["interface"], "puter-chat-completion");
+        assert_eq!(sent["method"], "complete");
+        assert_eq!(sent["args"]["model"], "gpt-5.4-nano");
+        assert_eq!(sent["args"]["stream"], true);
+        assert_eq!(sent["args"]["messages"][0]["role"], "system");
+        assert_eq!(sent["args"]["tools"][0]["function"]["name"], "read_file");
+    }
+
+    #[tokio::test]
+    async fn puter_refusals_reach_the_user() {
+        let (_tx, mut cancel) = watch::channel(false);
+        let msgs = [Msg::User { text: "hi".into(), images: vec![] }];
+        let refused = json!({"success": false, "error": {"code": "insufficient_funds", "message": "No usage left for request."}}).to_string();
+        let (base, _) = puter_server("200 OK", "application/json", refused).await;
+        let err = step(&puter_target(base), "s", &msgs, &[], &mut |_| {}, &mut cancel).await.unwrap_err();
+        assert_eq!(err, "No usage left for request.");
+
+        let mid_stream = json!({"type": "error", "message": "Model is overloaded"}).to_string() + "\n";
+        let (base, _) = puter_server("200 OK", "application/x-ndjson", mid_stream).await;
+        let err = step(&puter_target(base), "s", &msgs, &[], &mut |_| {}, &mut cancel).await.unwrap_err();
+        assert_eq!(err, "Model is overloaded");
+
+        let unauthorized = json!({"message": "Authentication failed", "code": "token_auth_failed"}).to_string();
+        let (base, _) = puter_server("401 Unauthorized", "application/json", unauthorized).await;
+        let err = step(&puter_target(base), "s", &msgs, &[], &mut |_| {}, &mut cancel).await.unwrap_err();
+        assert!(err.starts_with("401") && err.contains("Authentication failed"), "{err}");
     }
 }

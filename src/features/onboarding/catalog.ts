@@ -1,3 +1,12 @@
+import {
+  BrainIcon,
+  FileTextIcon,
+  FolderIcon,
+  GlobeIcon,
+  ListTreeIcon,
+  MousePointerClickIcon,
+  type LucideIcon,
+} from "lucide-react";
 import type { ToolId } from "./api";
 
 export type AgentChoice = {
@@ -39,6 +48,8 @@ export const AGENTS: AgentChoice[] = [
 
 export type McpChoice = {
   id: string;
+  name: string;
+  icon: LucideIcon;
   /** Why a new user would want it. */
   pitch: string;
   /** `uv` for Python servers, `node` for npx ones. */
@@ -48,10 +59,40 @@ export type McpChoice = {
 
 /** A short, safe starter set from the MCP catalog. */
 export const RECOMMENDED_MCP: McpChoice[] = [
-  { id: "word", pitch: "Create and edit Word documents", needs: "uv", recommended: true },
-  { id: "fetch", pitch: "Read web pages for research", needs: "node", recommended: true },
-  { id: "memory", pitch: "Remember facts across chats", needs: "node", recommended: true },
-  { id: "sequential-thinking", pitch: "Plan big tasks step by step", needs: "node" },
-  { id: "playwright", pitch: "Drive a browser: click, fill, screenshot", needs: "node" },
-  { id: "filesystem", pitch: "Read and write files in your folder", needs: "node" },
+  { id: "word", name: "Word", icon: FileTextIcon, pitch: "Create and edit Word documents", needs: "uv", recommended: true },
+  { id: "fetch", name: "Fetch", icon: GlobeIcon, pitch: "Read web pages for research", needs: "node", recommended: true },
+  { id: "memory", name: "Memory", icon: BrainIcon, pitch: "Remember facts across chats", needs: "node", recommended: true },
+  {
+    id: "sequential-thinking",
+    name: "Sequential Thinking",
+    icon: ListTreeIcon,
+    pitch: "Plan big tasks step by step",
+    needs: "node",
+  },
+  {
+    id: "playwright",
+    name: "Playwright",
+    icon: MousePointerClickIcon,
+    pitch: "Drive a browser: click, fill, screenshot",
+    needs: "node",
+  },
+  { id: "filesystem", name: "Filesystem", icon: FolderIcon, pitch: "Read and write files in your folder", needs: "node" },
 ];
+
+/** Runtimes the picked MCP servers run on, so the plan can install them too. */
+export function runtimesFor(mcp: string[]): ToolId[] {
+  return [...new Set(RECOMMENDED_MCP.filter((m) => mcp.includes(m.id)).map((m) => m.needs))];
+}
+
+/** Why each tool on the readiness check matters, in the user's words. */
+export const TOOL_WHY: Record<ToolId, string> = {
+  node: "Runs OpenCode, Codex and most tools",
+  git: "Lets agents track and undo changes",
+  brew: "Installs everything else on macOS",
+  winget: "Installs everything else on Windows",
+  uv: "Runs Python tools such as Word",
+  opencode: "The main Cowork agent, free models included",
+  codex: "OpenAI's coding agent",
+  antigravity: "Google's terminal agent",
+  cursor: "The agent behind Cursor",
+};

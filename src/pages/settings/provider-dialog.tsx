@@ -20,15 +20,17 @@ import {
   saveProviderConfig,
   splitModels,
   syncCliProviders,
+  testProviderModel,
   usableModels,
   useEnvKeys,
   useProviderConfigs,
+  type ModelTest,
   type ProviderConfig,
   type ProviderDef,
 } from "@/features/providers";
 import { cn } from "@/lib/utils";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { CheckIcon, ExternalLinkIcon, LoaderIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
+import { CheckIcon, ExternalLinkIcon, LoaderIcon, PlayIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -39,6 +41,8 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+import { refreshPuterModels } from "@/features/media/puter-catalog";
+import { PuterConnect } from "./puter-connect";
 import { Field, IconTile, Notice, SecretInput, StatusPill, TagInput } from "./ui";
 
 export function ProviderDialog({ provider, onClose }: { provider: ProviderDef | null; onClose: () => void }) {
@@ -77,6 +81,8 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
   const badUrl = !!draft.baseUrl.trim() && !/^https?:\/\/\S+$/i.test(draft.baseUrl.trim());
   const canSave = models.length > 0 && !missingKey && !badUrl;
   const isOllama = provider.id === "ollama" || provider.id === "ollama-cloud";
+  // Puter's chat models come from Puter's own list, like Ollama's from its server.
+  const isPuter = provider.id === "puter";
 
   const set = (patch: Partial<ProviderConfig>) => setDraft((prev) => ({ ...prev, ...patch }));
 
@@ -126,6 +132,23 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
     if (ok) onClose();
   }
 
+  /**
+   * Signing in to Puter (or pasting a token it accepted) is the setup: it's
+   * saved at once, with Puter's default models if none were picked, so the
+   * user isn't left one Save away from a working provider.
+   */
+  function connectPuter(token: string) {
+    const next = { ...draft, apiKey: token, models: draft.models.trim() || provider.defaultModels };
+    setDraft(next);
+    saveProviderConfig(provider.id, {
+      apiKey: token,
+      baseUrl: next.baseUrl.trim() || provider.defaultBaseUrl,
+      models: next.models,
+      contextLimit: next.contextLimit?.trim() ?? "",
+    });
+    clearAgentSessions();
+  }
+
   async function reset() {
     removeProviderConfig(provider.id);
     setDraft(configOrDefaults(provider));
@@ -157,35 +180,43 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
       </div>
 
       <div className="flex flex-col gap-4 border-t border-border/60 px-6 py-5">
-      <Field
-        label="API key"
-        htmlFor={ids.key}
-        optional={!provider.keyRequired}
-        hint={
-          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            {hasEnvKey && <span>Using {provider.envVar} from .env. Enter a key to override.</span>}
-            {provider.keyUrl && (
-              <button
-                type="button"
-                onClick={() => void openUrl(provider.keyUrl!)}
-                className="inline-flex items-center gap-1 font-medium text-foreground/80 underline-offset-2 hover:text-foreground hover:underline"
-              >
-                Get an API key
-                <ExternalLinkIcon className="size-3 opacity-70" />
-              </button>
-            )}
-            {!provider.keyRequired && !provider.keyUrl && "Not needed for a local server"}
-          </span>
-        }
-        error={attempted && missingKey ? "API key is required" : null}
-      >
-        <SecretInput
-          id={ids.key}
-          value={draft.apiKey}
-          onChange={(e) => set({ apiKey: e.target.value })}
-          placeholder={hasEnvKey ? `Using ${provider.envVar} from .env` : provider.keyRequired ? "Paste API key" : "Optional"}
+      {isPuter ? (
+        <PuterConnect
+          apiKey={draft.apiKey}
+          baseUrl={draft.baseUrl || provider.defaultBaseUrl}
+          onToken={connectPuter}
         />
-      </Field>
+      ) : (
+        <Field
+          label="API key"
+          htmlFor={ids.key}
+          optional={!provider.keyRequired}
+          hint={
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              {hasEnvKey && <span>Using {provider.envVar} from .env. Enter a key to override.</span>}
+              {provider.keyUrl && (
+                <button
+                  type="button"
+                  onClick={() => void openUrl(provider.keyUrl!)}
+                  className="inline-flex items-center gap-1 font-medium text-foreground/80 underline-offset-2 hover:text-foreground hover:underline"
+                >
+                  Get an API key
+                  <ExternalLinkIcon className="size-3 opacity-70" />
+                </button>
+              )}
+              {!provider.keyRequired && !provider.keyUrl && "Not needed for a local server"}
+            </span>
+          }
+          error={attempted && missingKey ? "API key is required" : null}
+        >
+          <SecretInput
+            id={ids.key}
+            value={draft.apiKey}
+            onChange={(e) => set({ apiKey: e.target.value })}
+            placeholder={hasEnvKey ? `Using ${provider.envVar} from .env` : provider.keyRequired ? "Paste API key" : "Optional"}
+          />
+        </Field>
+      )}
 
       <Field label="Base URL" htmlFor={ids.host} error={attempted && badUrl ? "Must start with http:// or https://" : null}>
         <Input
@@ -198,10 +229,11 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
         />
       </Field>
 
-      {isOllama ? (
+      {isOllama || isPuter ? (
         <OllamaModelPicker
           id={ids.models}
-          cloud={provider.id === "ollama-cloud"}
+          cloud={provider.id !== "ollama"}
+          catalog={isPuter ? PUTER_CATALOG : undefined}
           baseUrl={draft.baseUrl || provider.defaultBaseUrl}
           apiKey={draft.apiKey}
           selected={models}
@@ -275,9 +307,101 @@ function ProviderForm({ provider, onClose }: { provider: ProviderDef; onClose: (
   );
 }
 
+/**
+ * Try a model before relying on it: one short message with what's in the
+ * form now (saved or not), and what came back — the answer, or the
+ * provider's own reason it didn't.
+ */
+function ModelTestRow({
+  providerId,
+  models,
+  apiKey,
+  baseUrl,
+  disabled,
+}: {
+  providerId: string;
+  models: string[];
+  apiKey: string;
+  baseUrl: string;
+  disabled: boolean;
+}) {
+  const [model, setModel] = useState<string>();
+  const [result, setResult] = useState<(ModelTest & { model: string }) | null>(null);
+  const [testing, setTesting] = useState(false);
+  const chosen = model && models.includes(model) ? model : models[0];
+  if (!chosen) return null;
+
+  const run = async () => {
+    setTesting(true);
+    setResult(null);
+    try {
+      setResult({ ...(await testProviderModel(providerId, chosen, apiKey, baseUrl)), model: chosen });
+    } catch (e) {
+      setResult({ ok: false, message: e instanceof Error ? e.message : String(e), durationMs: 0, model: chosen });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-border/70 bg-muted/15 px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        <p className="min-w-0 flex-1 text-[12px] text-muted-foreground">Check it works: send one short message</p>
+        {models.length > 1 && (
+          <select
+            value={chosen}
+            onChange={(e) => {
+              setModel(e.target.value);
+              setResult(null);
+            }}
+            aria-label="Model to test"
+            className="h-8 max-w-44 truncate rounded-md border border-input bg-background px-2 font-mono text-[12px]"
+          >
+            {models.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        )}
+        <Button type="button" variant="secondary" size="sm" className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => void run()} disabled={testing || disabled}>
+          {testing ? <LoaderIcon className="size-3.5 animate-spin" /> : <PlayIcon className="size-3.5" />}
+          Test
+        </Button>
+      </div>
+      {testing && <StatusPill tone="pending">Asking {chosen}…</StatusPill>}
+      {result && (
+        <div className="flex flex-col gap-1">
+          <StatusPill tone={result.ok ? "success" : "danger"}>
+            {result.ok
+              ? `Works — ${result.model} answered in ${(result.durationMs / 1000).toFixed(1)}s`
+              : `${result.model} didn't answer`}
+          </StatusPill>
+          <p className="text-[12px] leading-relaxed text-muted-foreground wrap-anywhere">
+            {result.ok ? `“${result.message}”` : result.message}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Where a picker lists models from, when it isn't an Ollama server. */
+type Catalog = { label: string; list: (baseUrl: string) => Promise<string[]> };
+
+/** Puter's chat models that can call tools (Cowork needs them), newest first. */
+const PUTER_CATALOG: Catalog = {
+  label: "Puter catalog — models that can use tools",
+  list: async (baseUrl) => (await refreshPuterModels("chat", baseUrl)).filter((m) => m.toolCall === true).map((m) => m.id),
+};
+
+/** Shown at once from a long catalog; typing narrows it. */
+const SHOWN_FROM_CATALOG = 40;
+
 function OllamaModelPicker({
   id,
   cloud,
+  catalog: source,
   baseUrl,
   apiKey,
   selected,
@@ -287,6 +411,8 @@ function OllamaModelPicker({
 }: {
   id: string;
   cloud: boolean;
+  /** List from here instead of an Ollama server. */
+  catalog?: Catalog;
   baseUrl: string;
   apiKey: string;
   selected: string[];
@@ -304,7 +430,7 @@ function OllamaModelPicker({
     setLoading(true);
     setDetectError(null);
     try {
-      const list = await ollamaListModels(url, key);
+      const list = source ? await source.list(url) : await ollamaListModels(url, key);
       setAvailable(list.map((m) => m.trim()).filter(Boolean));
     } catch (e) {
       setAvailable(null);
@@ -312,17 +438,22 @@ function OllamaModelPicker({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [source]);
 
   const [initial] = useState({ baseUrl, apiKey });
   useEffect(() => {
-    if (!cloud || initial.apiKey.trim()) void detect(initial.baseUrl, initial.apiKey);
-  }, [cloud, detect, initial]);
+    // A public catalog lists without a key.
+    if (!cloud || source || initial.apiKey.trim()) void detect(initial.baseUrl, initial.apiKey);
+  }, [cloud, source, detect, initial]);
 
   const catalog = available ?? [];
   const catalogSet = new Set(catalog);
   const manual = selected.filter((m) => m.trim() && !catalogSet.has(m));
-  const catalogChoices = catalog.filter((m) => !selected.includes(m));
+  // What's typed narrows a long catalog; only so many show at once.
+  const query = text.trim().toLowerCase();
+  const catalogChoices = catalog
+    .filter((m) => !selected.includes(m) && (!query || m.toLowerCase().includes(query)))
+    .slice(0, SHOWN_FROM_CATALOG);
 
   const toggle = (model: string) =>
     onChange(selected.includes(model) ? selected.filter((m) => m !== model) : [...selected, model]);
@@ -365,7 +496,7 @@ function OllamaModelPicker({
       >
         <div className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/20 px-3 py-2.5">
           <p className="text-[12px] text-muted-foreground">
-            {cloud ? "Ollama Cloud catalog" : "Local Ollama catalog"}
+            {source?.label ?? (cloud ? "Ollama Cloud catalog" : "Local Ollama catalog")}
           </p>
           <Button
             type="button"

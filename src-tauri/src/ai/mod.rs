@@ -37,6 +37,9 @@ pub struct ChatRequest {
     /// offer a choice; see `efforts` in the model list.
     #[serde(default)]
     pub effort: Option<String>,
+    /// The chat's id: Stop reaches the reply through it (see `agent::abort`).
+    #[serde(default)]
+    pub run_id: Option<String>,
 }
 
 pub(crate) struct ProviderInfo {
@@ -63,6 +66,9 @@ pub(crate) fn provider_info(provider: &str) -> Result<ProviderInfo, String> {
         "moonshotai" => ("https://api.moonshot.ai/v1", Some("MOONSHOT_API_KEY")),
         "openrouter" => ("https://openrouter.ai/api/v1", Some("OPENROUTER_API_KEY")),
         "groq" => ("https://api.groq.com/openai/v1", Some("GROQ_API_KEY")),
+        // Puter's API: one auth token (puter.com/dashboard), many vendors' models. Calls go
+        // to its driver route, which free accounts may use (`agent::provider::puter_step`).
+        "puter" => ("https://api.puter.com", Some("PUTER_AUTH_TOKEN")),
         "ollama" => ("http://localhost:11434/v1", None),
         "ollama-cloud" => ("https://ollama.com/v1", Some("OLLAMA_API_KEY")),
         _ => return Err(format!("Unknown provider: {provider}")),
@@ -128,7 +134,7 @@ fn same_host(url: &str, default: &str) -> bool {
 pub fn providers_with_env_key() -> Vec<String> {
     [
         "anthropic", "openai", "google", "xai", "deepseek", "mistral", "alibaba", "zai",
-        "moonshotai", "openrouter", "groq", "ollama-cloud", "kimi",
+        "moonshotai", "openrouter", "groq", "puter", "ollama-cloud", "kimi",
     ]
     .into_iter()
     .filter(|id| {
@@ -239,6 +245,10 @@ async fn run(request: &ChatRequest, on_event: &Channel<ChatStreamEvent>) -> Resu
         return Err("No model selected. Set one in Settings → Models.".into());
     }
 
+    if request.provider == "puter" {
+        return puter_reply(request, prompt, on_event).await;
+    }
+
     let info = provider_info(&request.provider)?;
     let base_url =
         non_empty(request.base_url.as_deref()).unwrap_or_else(|| info.base_url.to_string());
@@ -283,6 +293,75 @@ async fn run(request: &ChatRequest, on_event: &Channel<ChatStreamEvent>) -> Resu
         .build()
         .map_err(|e| e.to_string())?;
     stream_with_model!(model, messages, on_event, effort)
+}
+
+/// A plain chat on Puter goes through the agent's Puter route: the chat SDK
+/// only speaks Puter's OpenAI endpoint, which free accounts can't use.
+async fn puter_reply(request: &ChatRequest, prompt: &str, on_event: &Channel<ChatStreamEvent>) -> Result<(), String> {
+    use crate::agent::wire::{Delta, Msg};
+    let target = crate::agent::target_for(
+        &request.provider,
+        &request.model,
+        request.api_key.as_deref(),
+        request.base_url.as_deref(),
+        non_empty(request.effort.as_deref()),
+    )?;
+    let mut msgs: Vec<Msg> = request
+        .history
+        .iter()
+        .filter(|m| !m.content.trim().is_empty())
+        .filter_map(|m| match m.role.as_str() {
+            "user" => Some(Msg::User { text: m.content.clone(), images: Vec::new() }),
+            "assistant" => Some(Msg::Assistant { text: m.content.clone(), tool_calls: Vec::new() }),
+            _ => None,
+        })
+        .collect();
+    msgs.push(Msg::User { text: prompt.to_string(), images: Vec::new() });
+    let system = match non_empty(request.system.as_deref()) {
+        Some(extra) => format!("{SYSTEM_PROMPT}\n\n{extra}"),
+        None => SYSTEM_PROMPT.to_string(),
+    };
+
+    on_event.send(ChatStreamEvent::Started).map_err(|e| e.to_string())?;
+    // Stop (the chat's id) or a closed window ends the reply — and Puter's
+    // metering with it — rather than reading it to the end for no one.
+    let (stoppable, mut cancel) = crate::agent::Stoppable::new(request.run_id.as_deref());
+    let mut has_output = false;
+    let mut on_delta = |delta: Delta| {
+        has_output = true;
+        let sent = on_event.send(match delta {
+            Delta::Text(text) => ChatStreamEvent::Chunk { text },
+            Delta::Reasoning(reasoning) => ChatStreamEvent::Reasoning { reasoning },
+        });
+        if sent.is_err() {
+            stoppable.stop();
+        }
+    };
+    let result = match crate::agent::reply_once(&target, &system, &msgs, &mut on_delta, &mut cancel).await {
+        Ok(result) => result,
+        // Stopped on purpose: what came so far stays, without an error.
+        Err(e) if e == crate::agent::STOPPED => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    if !has_output {
+        return Err("Model returned an empty response.".into());
+    }
+    let usage = result.usage;
+    let _ = on_event.send(ChatStreamEvent::Metadata {
+        session_id: None,
+        usage: Some(AgentUsage {
+            input_tokens: Some(usage.input),
+            output_tokens: Some(usage.output),
+            cache_read_tokens: (usage.cache_read > 0).then_some(usage.cache_read),
+            cache_write_tokens: None,
+            reasoning_tokens: (usage.reasoning > 0).then_some(usage.reasoning),
+            total_tokens: Some(usage.input + usage.output),
+            cost: None,
+        }),
+        duration_ms: None,
+        model: None,
+    });
+    Ok(())
 }
 
 pub async fn stream_chat_response(

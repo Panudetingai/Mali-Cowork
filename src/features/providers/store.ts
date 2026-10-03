@@ -159,6 +159,19 @@ export async function checkProviderKey(
   }
 }
 
+/** How a model answered a test message (see `provider_test_model`). */
+export type ModelTest = { ok: boolean; message: string; durationMs: number };
+
+/** Send one short message to a model with these settings, to see that they work. */
+export function testProviderModel(providerId: string, model: string, apiKey: string, baseUrl?: string) {
+  return invoke<ModelTest>("provider_test_model", {
+    provider: providerId,
+    model,
+    apiKey: cleanApiKey(apiKey) || null,
+    baseUrl: baseUrl?.trim() || null,
+  });
+}
+
 export function ollamaListModels(baseUrl: string, apiKey?: string) {
   return invoke<string[]>("ollama_list_models", {
     baseUrl: baseUrl || null,
@@ -175,7 +188,7 @@ export async function syncCliProviders() {
   // Keys come from the keychain; syncing before they load would drop them.
   await whenVaultReady();
   const configs = configStore.get();
-  const providers = PROVIDERS.map((provider) => {
+  const providers = PROVIDERS.filter((provider) => !provider.maliOnly).map((provider) => {
     const config = configs[provider.id];
     return {
       id: provider.id,

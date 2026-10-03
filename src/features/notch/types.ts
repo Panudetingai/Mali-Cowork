@@ -1,4 +1,4 @@
-import type { CoworkBotId } from "@/features/cowork-bot";
+import type { BotChoice } from "@/features/cowork-bot";
 import type { PermissionRequest, QuestionRequest, TodoItem } from "@/pages/chat/api/chat";
 
 /**
@@ -38,7 +38,7 @@ export type NotchPeek = {
   title: string;
   detail?: string;
   /** Who it's about: the main spot shows this bot. */
-  bot?: { key: string; mascot: CoworkBotId; name: string };
+  bot?: { key: string; mascot: BotChoice; name: string };
   edit?: NotchEdit;
 };
 
@@ -154,7 +154,7 @@ export type NotchStep = { id: string; kind: string; title: string; done: boolean
 export type NotchMate = {
   id: string;
   name: string;
-  mascot: CoworkBotId;
+  mascot: BotChoice;
   color: string;
   /** What it is doing now, e.g. "Asking research"; its name before its first step. */
   status: string;
@@ -162,7 +162,7 @@ export type NotchMate = {
 };
 
 /** Who asks for an approval: a team bot, or the lead (the user's own bot) when unset. */
-export type NotchAsker = { id: string; name: string; mascot: CoworkBotId };
+export type NotchAsker = { id: string; name: string; mascot: BotChoice };
 
 /** One run, as the pill shows it. The main window builds it from its run store. */
 export type NotchSnapshot = {
@@ -226,6 +226,16 @@ export type NotchCoworkRequest = {
 
 /** Main → pill: the work started (or was queued), or why it didn't. */
 export type NotchCoworkStarted = { id: string; taskId?: string; chatId?: string; error?: string };
+
+/** Main → pill: first-run setup (system scan / downloads) while the app window is away. */
+export type NotchSetup = {
+  active: boolean;
+  phase: "scan" | "install" | "done";
+  title: string;
+  detail?: string;
+  /** 0–100 when known (e.g. install batch progress). */
+  progress?: number;
+};
 
 /** Pill → main: the labels picked (or written) for each of a question's questions; none withdraws it. */
 export type NotchAnswer = { chatId: string; id: string; answers: string[][] };

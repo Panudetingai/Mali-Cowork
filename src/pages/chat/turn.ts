@@ -21,6 +21,7 @@ import {
 import { agentAbort, agentAnswerQuestion, agentReplyPermission } from "@/features/agent";
 import type { Attachment } from "@/features/attachments";
 import { addCheckpointFolder, beginCheckpoint, finishCheckpoint, type TurnFiles } from "@/features/checkpoints";
+import { recordWorkForActiveBot } from "@/features/bot-studio";
 import { keepPreviews } from "@/features/chat-blocks";
 import { codexAbort } from "@/features/codex";
 import { cursorAbort, requestCursorLogin } from "@/features/cursor";
@@ -161,21 +162,60 @@ export async function sendTurn(
     await summarizeInto(chatKey, previous, runModelIdFor(modelId), budget.maxTokens);
   }
 
-  const update = (fn: (message: ChatMessage) => ChatMessage) =>
+  const apply = (fn: (message: ChatMessage) => ChatMessage) =>
     updateChatMessages(chatKey, (prev) => prev.map((m) => (m.id === assistantId ? fn(m) : m)));
+
+  // Text streams in a token at a time, and every store change redraws the
+  // chat, the sidebar and the Inbox: gather it and apply it about 30 times a
+  // second instead. A timer, not rAF, so a hidden window still fills.
+  let pendingText = "";
+  let pendingReasoning = "";
+  let textTimer: ReturnType<typeof setTimeout> | undefined;
+  const flushText = () => {
+    clearTimeout(textTimer);
+    textTimer = undefined;
+    if (!pendingText && !pendingReasoning) return;
+    const text = pendingText;
+    const reasoning = pendingReasoning;
+    pendingText = "";
+    pendingReasoning = "";
+    apply((m) => {
+      const next = text ? withChunk(m, text) : m;
+      return reasoning ? { ...next, reasoning: (next.reasoning ?? "") + reasoning } : next;
+    });
+  };
+  const queueText = () => {
+    textTimer ??= setTimeout(flushText, STREAM_FLUSH_MS);
+  };
+  // Anything else lands after the text before it (a step's place is the text's length).
+  const update = (fn: (message: ChatMessage) => ChatMessage) => {
+    flushText();
+    apply(fn);
+  };
 
   // The reply and the sidebar spinner must finish together: settle the
   // message and end the run in the same tick.
+  let recorded = false;
   const finish = () => {
     update((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
     endRun(chatKey, runToken);
     // Pictures of what it made expire within minutes: keep them now.
-    keepPreviews(getChat(chatKey)?.messages.find((m) => m.id === assistantId)?.content ?? "");
+    const finished = getChat(chatKey)?.messages.find((m) => m.id === assistantId);
+    keepPreviews(finished?.content ?? "");
+    // `finish` runs twice (on done, and finally): the work counts once.
+    if (!hasErrored && !recorded && finished?.content?.trim()) {
+      recorded = true;
+      recordWorkForActiveBot({
+        mode: chatMode ?? "chat",
+        fromInbox: Boolean(getChat(chatKey)?.inboxTask),
+      });
+    }
   };
 
   const handleError = (content: string) => {
     if (hasErrored) return;
     hasErrored = true;
+    flushText();
     if (shouldResetAgentSession(content)) {
       clearAgentSessions(chatKey);
     }
@@ -265,9 +305,14 @@ export async function sendTurn(
         summary: getChat(chatKey)?.continuedFrom?.summary,
       },
       {
-        onChunk: (text) => update((m) => withChunk(m, text)),
-        onReasoning: (reasoning) =>
-          update((m) => ({ ...m, reasoning: (m.reasoning ?? "") + reasoning })),
+        onChunk: (text) => {
+          pendingText += text;
+          queueText();
+        },
+        onReasoning: (reasoning) => {
+          pendingReasoning += reasoning;
+          queueText();
+        },
         onActivity: (activity) =>
           update((m) => withActivity(m, activity)),
         onTeammateProposal: (proposal) => addProposal(proposal, chatKey),
@@ -345,6 +390,8 @@ export async function sendTurn(
 
 /** A stopped run that hasn't ended by then is ended here. */
 const STOP_SETTLE_MS = 6000;
+/** Streamed text is applied this often, not on every token. */
+const STREAM_FLUSH_MS = 33;
 
 /** Stop a chat's run, whichever backend it is on. */
 export async function stopRun(chatId: string) {
@@ -371,7 +418,8 @@ async function abortRun(chatId: string, activeRun: NonNullable<ReturnType<typeof
   if (isCursorModel(activeRun.modelId)) return cursorAbort(chatId);
   if (isCodexModel(activeRun.modelId)) return codexAbort(chatId);
   if (isAntigravityModel(activeRun.modelId)) return antigravityAbort(chatId);
-  // Mali's own agent; a plain API reply has nothing to stop and says so.
+  // Mali's own agent, and a plain reply on Puter's route (registered by chat id);
+  // any other plain API reply has nothing to stop and says so.
   if (apiModelOf(activeRun.modelId)) {
     await agentAbort(chatId);
     return;

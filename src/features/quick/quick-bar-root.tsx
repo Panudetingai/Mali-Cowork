@@ -12,7 +12,7 @@ import {
   saveAttachment,
   type Attachment,
 } from "@/features/attachments";
-import { useSpeechInput, VoiceButton } from "@/features/voice";
+import { useVoiceInput, VoiceButton } from "@/features/voice";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { cn } from "@/lib/utils";
@@ -218,7 +218,7 @@ export function QuickBarRoot() {
   const inputNow = useRef(input);
   inputNow.current = input;
   const voiceBase = useRef("");
-  const voice = useSpeechInput({
+  const voice = useVoiceInput({
     onStart: () => {
       const typed = inputNow.current;
       voiceBase.current = typed && !/\s$/.test(typed) ? `${typed} ` : typed;

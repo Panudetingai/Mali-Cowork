@@ -25,6 +25,7 @@ import {
   type TopQuery,
   type UsageRange,
 } from "@/features/usage";
+import { MALI_EASE } from "@/lib/motion-presets";
 import { cn } from "@/lib/utils";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { SecretInput } from "@/pages/settings/ui";
@@ -257,14 +258,12 @@ export default function UsagePage() {
   );
 }
 
-const EASE = [0.22, 1, 0.36, 1] as const;
-
 /** Cards rise in one after another, once, when the page opens. */
 function rise(index: number) {
   return {
     initial: { opacity: 0, y: 14 },
     animate: { opacity: 1, y: 0 },
-    transition: { duration: 0.45, ease: EASE, delay: index * 0.05 },
+    transition: { duration: 0.45, ease: MALI_EASE, delay: index * 0.05 },
   };
 }
 
@@ -284,7 +283,7 @@ function usePulse(pulse: unknown, index: number) {
     void run(
       scope.current,
       { scale: [0.985, 1], opacity: [0.55, 1] },
-      { duration: 0.45, ease: EASE, delay: index * 0.035 },
+      { duration: 0.45, ease: MALI_EASE, delay: index * 0.035 },
     );
   }, [pulse]);
   return scope;
@@ -343,7 +342,7 @@ function AnimatedNumber({ value, format }: { value: number; format: (n: number) 
   useEffect(() => {
     const controls = animate(from.current, value, {
       duration: 0.8,
-      ease: EASE,
+      ease: MALI_EASE,
       onUpdate: (latest) => {
         from.current = latest;
         setShown(latest);
@@ -602,7 +601,7 @@ function itemIn(index: number, base = 0.25) {
   return {
     initial: { opacity: 0, x: -8 },
     animate: { opacity: 1, x: 0 },
-    transition: { duration: 0.3, ease: EASE, delay: base + index * 0.04 },
+    transition: { duration: 0.3, ease: MALI_EASE, delay: base + index * 0.04 },
   };
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultEffort, describeEffort, effortLevels } from "./levels";
+import { defaultEffort, describeEffort, effortLevels, isMaxEffort } from "./levels";
 
 describe("effort levels", () => {
   test("a model with no choice to make gets no control", () => {
@@ -29,5 +29,12 @@ describe("effort levels", () => {
     const levels = effortLevels(["none", "low", "medium", "high"]);
     expect(levels.map((l) => l.label)).toEqual(["None", "Low", "Medium", "High"]);
     expect(levels.every((l) => l.hint)).toBe(true);
+  });
+
+  test("max effort is only the last level the model offers", () => {
+    const levels = effortLevels(["none", "low", "medium", "high", "xhigh"]);
+    expect(isMaxEffort(levels, "xhigh")).toBe(true);
+    expect(isMaxEffort(levels, "high")).toBe(false);
+    expect(isMaxEffort(levels, undefined)).toBe(false);
   });
 });

@@ -34,6 +34,7 @@ pub mod storage;
 pub mod supervisor;
 pub mod templates;
 pub mod usage_remote;
+pub mod speech;
 pub mod voice;
 
 

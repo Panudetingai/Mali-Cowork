@@ -8,6 +8,7 @@ type Props = {
   logo: string;
   name: string;
   className?: string;
+  size?: number;
 };
 
 /**
@@ -15,14 +16,14 @@ type Props = {
  * models.dev image fallback and a letter tile as last resort.
  * Browse: https://lobehub.com/icons
  */
-export function ProviderLogo({ logo, name, className }: Props) {
+export function ProviderLogo({ logo, name, className, size = 24 }: Props) {
   const [imgFailed, setImgFailed] = useState(false);
   const lobeKey = lobeProviderKey(logo);
 
   if (lobeKey) {
     return (
       <span className={cn("flex shrink-0 items-center justify-center", className)} aria-hidden>
-        <ProviderIcon provider={lobeKey} size={24} type="color" />
+        <ProviderIcon provider={lobeKey} size={size} type="color" />
       </span>
     );
   }
@@ -32,9 +33,10 @@ export function ProviderLogo({ logo, name, className }: Props) {
       <img
         src={`https://models.dev/logos/${logo}.svg`}
         alt=""
-        width={24}
-        height={24}
-        className={cn("size-6 shrink-0 dark:invert", className)}
+        width={size}
+        height={size}
+        className={cn("shrink-0 dark:invert", className)}
+        style={{ width: size, height: size }}
         onError={() => setImgFailed(true)}
       />
     );
@@ -44,9 +46,10 @@ export function ProviderLogo({ logo, name, className }: Props) {
     <span
       aria-hidden
       className={cn(
-        "flex size-6 shrink-0 items-center justify-center rounded-sm bg-muted text-[10px] font-semibold text-muted-foreground",
+        "flex shrink-0 items-center justify-center rounded-sm bg-muted font-semibold text-muted-foreground",
         className,
       )}
+      style={{ width: size, height: size, fontSize: Math.max(9, Math.round(size * 0.42)) }}
     >
       {name.charAt(0)}
     </span>

@@ -139,7 +139,7 @@ export function Titlebar() {
                 <CoworkBot size={26} />
               </button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-64 p-2">
+            <PopoverContent align="end" className="w-[min(22rem,calc(100vw-1.5rem))] rounded-2xl p-3.5 shadow-lg">
               <CoworkBotPicker />
             </PopoverContent>
           </Popover>

@@ -13,6 +13,11 @@ import type { TaskRecord } from "./types";
 
 /** Finished tasks beyond this are dropped from the Inbox (their chats stay). */
 const KEEP = 200;
+/**
+ * Tasks run side by side, each its own agent run (a CLI agent is a process
+ * of its own, with its connectors). On a slower machine 1–2 keeps the app
+ * responsive; the Inbox lets the user pick 1–5.
+ */
 const DEFAULT_MAX = 3;
 const MAX_KEY = "mali.tasks.maxConcurrent";
 

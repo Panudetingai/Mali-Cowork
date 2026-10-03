@@ -63,6 +63,7 @@ const KEY_PAGES: Record<string, string> = {
   google: "https://aistudio.google.com/app/apikey",
   groq: "https://console.groq.com/keys",
   openrouter: "https://openrouter.ai/settings/keys",
+  puter: "https://puter.com/dashboard",
   "ollama-cloud": "https://ollama.com/settings/keys",
   deepseek: "https://platform.deepseek.com/api_keys",
   xai: "https://console.x.ai",

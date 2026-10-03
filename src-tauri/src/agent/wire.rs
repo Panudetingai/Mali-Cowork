@@ -96,6 +96,8 @@ pub struct StepResult {
 pub enum Wire {
     OpenAi,
     Anthropic,
+    /// Puter's own driver route, the one free accounts may use (see `provider::puter_step`).
+    Puter,
 }
 
 /// Everything needed to call one model.

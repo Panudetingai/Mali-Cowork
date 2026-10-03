@@ -11,8 +11,9 @@
  * and the content inside fades through a blur.
  */
 import { CoworkBot } from "@/components/anim/cowork-bot";
+import { resolveBotNow, useResolvedBot } from "@/features/bot-studio/resolve";
 import { useBotPicture } from "@/components/anim/cowork-bot-picture";
-import { BOTS, type BotState, type CoworkBotId } from "@/features/cowork-bot";
+import { type BotState, type BotChoice } from "@/features/cowork-bot";
 import { cn } from "@/lib/utils";
 import type { TodoItem } from "@/pages/chat/api/chat";
 import {
@@ -119,7 +120,7 @@ const RED = "#f0443a";
 const BLUE = "#3aa3f5";
 
 /** Who is in the main spot: Mali ("lead") or a team bot by its id. */
-export type ActiveBot = { key: string; bot: CoworkBotId; name: string };
+export type ActiveBot = { key: string; bot: BotChoice; name: string };
 
 type Props = {
   snapshot: NotchSnapshot;
@@ -127,7 +128,7 @@ type Props = {
   geometry: NotchGeometry;
   shape: Size;
   /** The user's own bot: Mali, the lead. */
-  lead: CoworkBotId;
+  lead: BotChoice;
   active: ActiveBot;
   /** The bots on the user's team. */
   roster: RosterBot[];
@@ -647,8 +648,8 @@ function mainState({
   return view === "collapsed" ? "working" : "tool";
 }
 
-function colorOf(bot: CoworkBotId) {
-  return BOTS.find((b) => b.id === bot)?.color ?? BLUE;
+function colorOf(bot: BotChoice) {
+  return resolveBotNow(bot).color ?? BLUE;
 }
 
 /** How long a bot takes to vanish, before the next one pops up in its place. */
@@ -669,7 +670,7 @@ function Mascots(props: Props) {
     shape,
     view === "home" ? props.slide : 0,
   );
-  const mounted = useRef(new Map<string, CoworkBotId>());
+  const mounted = useRef(new Map<string, BotChoice>());
   mounted.current.set(active.key, active.bot);
   const state = mainState(props);
   const [puffs, setPuffs] = useState<{ id: number; color: string }[]>([]);
@@ -852,7 +853,7 @@ export function BotFace({
   className,
   style,
 }: {
-  bot: CoworkBotId;
+  bot: BotChoice;
   size: number;
   mood?: "idle" | "working" | "done" | "failed";
   className?: string;
@@ -913,7 +914,7 @@ export function BotFace({
  * window for the ask box. The system drag image (a little bot) follows the
  * cursor across the whole screen, outside the notch's own window.
  */
-function BotHandle({ bot, onBotDropped }: Props & { bot: CoworkBotId }) {
+function BotHandle({ bot, onBotDropped }: Props & { bot: BotChoice }) {
   const t = useNotchText();
   const image = useRef<HTMLCanvasElement | null>(null);
   // Ready before the drag starts: the drag image must be set synchronously.
@@ -1045,7 +1046,7 @@ function BotPicture({
   className,
   style,
 }: {
-  bot: CoworkBotId;
+  bot: BotChoice;
   size: number;
   mood?: "idle" | "working" | "done" | "failed";
   className?: string;
@@ -1106,7 +1107,7 @@ function Glow({
   bot,
   drop,
   peek,
-}: Props & { bot: CoworkBotId }) {
+}: Props & { bot: BotChoice }) {
   const big = view !== "collapsed" && view !== "chat" && view !== "sessions";
   const color =
     view === "permission"
@@ -2550,7 +2551,7 @@ function ChipFace({
   cowork,
   paused,
 }: {
-  bot: CoworkBotId;
+  bot: BotChoice;
   size: number;
   away?: boolean;
   mood?: "idle" | "working" | "done" | "failed";
@@ -2649,7 +2650,7 @@ function TeamCard(props: Props & { card: Box }) {
   } = props;
   const t = useNotchText();
   const slots = teamSlots(card, roster.length, !!teamOpen);
-  const leadName = BOTS.find((b) => b.id === lead)?.name ?? "Mali";
+  const leadName = useResolvedBot(lead).name;
   const working = snapshot.team.filter((m) => !m.done);
   const shown = roster.slice(0, TEAM_SHOWN);
   const extra = roster.length - shown.length;

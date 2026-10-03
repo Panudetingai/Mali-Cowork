@@ -1,18 +1,40 @@
 "use client";
 
+// Not the feature index: that pulls in chat history, which the notch window must not load.
+import { resolveBot } from "@/features/bot-studio/resolve";
+import { useBotStudio } from "@/features/bot-studio/store";
 import {
   BOTS,
   setCoworkBot,
   useCoworkBot,
+  type BotChoice,
   type BotState,
-  type CoworkBotId,
 } from "@/features/cowork-bot";
 import { cn } from "@/lib/utils";
 import { CheckIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useRef } from "react";
 
-export const EMBED_VERSION = "12";
+export const EMBED_VERSION = "13";
+
+/**
+ * Who the animation draws: a built-in bot by name, or a Studio bot as its
+ * design (the same engine, so the same poses).
+ */
+export function botEmbed(bot: BotChoice, studio: Parameters<typeof resolveBot>[1]) {
+  const { mascot, preset } = resolveBot(bot, studio);
+  return preset ? designEmbed(preset) : mascot;
+}
+
+type Design = NonNullable<ReturnType<typeof resolveBot>["preset"]>;
+
+function designEmbed(design: Design) {
+  return `custom&preset=${encodeURIComponent(JSON.stringify(design))}`;
+}
+
+export function botFrameSrc(embed: string, state: BotState, theme: "light" | "dark") {
+  return `/anim/cowork-bots.html?embed=${embed}&shadow=0&state=${state}&theme=${theme}&v=${EMBED_VERSION}`;
+}
 
 /**
  * The selected cowork bot, rendered from public/anim/cowork-bots.html
@@ -26,10 +48,11 @@ export function CoworkBot({
   title,
   theme: themeProp,
   paused = false,
+  design,
 }: {
   /** Pixels, or a CSS length such as "100%" to fill a parent that animates its size. */
   size?: number | string;
-  bot?: CoworkBotId;
+  bot?: BotChoice;
   state?: BotState;
   className?: string;
   title?: string;
@@ -37,19 +60,24 @@ export function CoworkBot({
   theme?: "light" | "dark";
   /** Stop drawing (a bot kept mounted but hidden): its animation loop rests. */
   paused?: boolean;
+  /** Draw this design instead (Bot Studio's preview, before it's saved). */
+  design?: Design;
 }) {
   const { bot: stored } = useCoworkBot();
+  const { bots: studio } = useBotStudio();
   const bot = botProp ?? stored;
+  // A Studio bot's design (it changes as the bot grows); the frame reloads only when it does.
+  const embed = design ? designEmbed(design) : botEmbed(bot, studio);
   const { resolvedTheme } = useTheme();
   const theme = themeProp ?? (resolvedTheme === "dark" ? "dark" : "light");
   const frameRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     frameRef.current?.contentWindow?.postMessage({ state }, "*");
-  }, [state, bot]);
+  }, [state, embed]);
   useEffect(() => {
     frameRef.current?.contentWindow?.postMessage({ paused }, "*");
-  }, [paused, bot]);
+  }, [paused, embed]);
 
   return (
     <div
@@ -71,8 +99,8 @@ export function CoworkBot({
       <iframe
         ref={frameRef}
         data-cowork-bot=""
-        key={`${bot}-${theme}`}
-        src={`/anim/cowork-bots.html?embed=${bot}&shadow=0&state=${state}&theme=${theme}&v=${EMBED_VERSION}`}
+        key={`${embed}-${theme}`}
+        src={botFrameSrc(embed, state, theme)}
         title={title ?? "Cowork bot"}
         scrolling="no"
         tabIndex={-1}
@@ -92,14 +120,24 @@ export function CoworkBot({
   );
 }
 
-/** Bot picker: one live preview per bot, the choice persists in localStorage. */
+/** Bot picker: one live preview per bot, the choice persists in localStorage. Bots made in Bot Studio come after the built-in ones. */
 export function CoworkBotPicker({ onPicked }: { onPicked?: () => void }) {
   const { bot } = useCoworkBot();
+  const { bots: studio } = useBotStudio();
+  const choices: { id: BotChoice; name: string; color: string; level?: number }[] = [
+    ...BOTS.map((b) => ({ id: b.id as BotChoice, name: b.name, color: b.color })),
+    ...studio.map((b) => ({
+      id: `custom:${b.id}` as const,
+      name: b.name,
+      color: b.look.color,
+      level: b.level,
+    })),
+  ];
   return (
-    <div className="flex flex-col gap-1">
-      <p className="px-1 text-xs font-medium text-muted-foreground">เลือกน้อง bot</p>
-      <div className="grid grid-cols-4 gap-1">
-        {BOTS.map((b) => {
+    <div className="flex flex-col gap-3">
+      <p className="px-0.5 text-sm font-semibold tracking-tight ">Select a bot</p>
+      <div className="grid grid-cols-4 gap-2">
+        {choices.map((b) => {
           const active = b.id === bot;
           return (
             <button
@@ -110,18 +148,28 @@ export function CoworkBotPicker({ onPicked }: { onPicked?: () => void }) {
                 onPicked?.();
               }}
               aria-pressed={active}
+              aria-label={b.name}
               className={cn(
-                "flex flex-col items-center gap-1 rounded-lg border p-2 transition-colors hover:bg-accent",
-                active ? "border-foreground/30 bg-accent" : "border-transparent",
+                "flex flex-col items-center gap-2 rounded-2xl px-1.5 py-2.5 transition-[background-color,box-shadow] duration-300",
+                active ? "bg-muted/55 shadow-sm" : "hover:bg-muted/35",
               )}
+              style={
+                active
+                  ? { boxShadow: `0 0 0 2px ${b.color}55, 0 1px 2px rgb(0 0 0 / 0.06)` }
+                  : undefined
+              }
             >
-              <CoworkBot size={44} bot={b.id} state="idle" />
-              <span className="flex items-center gap-1 text-xs font-medium">
-                <span className="size-2 rounded-full" style={{ background: b.color }} />
-                {b.name}
-                {active && <CheckIcon className="size-3 text-muted-foreground" />}
+              <CoworkBot size={48} bot={b.id} state="idle" paused={!active} />
+              <span className="flex min-w-0 max-w-full flex-col items-center gap-0.5">
+                <span className="flex items-center justify-center gap-1.5 text-xs font-semibold">
+                  <span className="size-2 shrink-0 rounded-full ring-1 ring-black/5" style={{ background: b.color }} />
+                  <span className="truncate">{b.name}</span>
+                  {active && <CheckIcon className="size-3 shrink-0 text-muted-foreground" aria-hidden />}
+                </span>
+                {b.level != null && (
+                  <span className="text-[10px] font-medium tabular-nums text-muted-foreground">Lv{b.level}</span>
+                )}
               </span>
-              <span className="text-[10px] text-muted-foreground">{b.hint}</span>
             </button>
           );
         })}

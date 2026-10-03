@@ -9,6 +9,7 @@ import { SmartSuggestions } from "@/features/smart-start";
 import { getProject, useProjects } from "@/features/projects";
 import { carriedConversation, ChatTasksStrip, enqueueTask, TaskChatNote } from "@/features/tasks";
 import { folderName, normalizeFolder, requestFolderAccess } from "@/features/workspace";
+import { MALI_EASE } from "@/lib/motion-presets";
 import { cn } from "@/lib/utils";
 import { turnInputFor, useChat, type SendMessage } from "@/pages/chat/hooks/use-chat";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -26,7 +27,7 @@ import { loadViewMode, saveWorkMode, type ViewMode } from "./components/work-mod
 
 const VIEW_ORDER: Record<ViewMode, number> = { chat: 0, cowork: 1, code: 2 };
 
-const viewEase = [0.22, 1, 0.36, 1] as const;
+const viewEase = MALI_EASE;
 
 function ViewShell({
   viewKey,

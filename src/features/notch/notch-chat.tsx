@@ -14,6 +14,17 @@ import { quickModelId, type QuickTurn } from "@/features/quick";
 import { cn } from "@/lib/utils";
 import { ensureOpencodeModels, getOpencodeModels, loadOpencodeSettings } from "@/features/opencode";
 import { normalizeFolder } from "@/features/workspace";
+import {
+  speak,
+  speakerState,
+  stopSpeaking,
+  subscribeSpeaker,
+  useVoiceInput,
+  useVoiceSettings,
+  Waveform,
+  type VoiceInput,
+} from "@/features/voice";
+import { THINKING_AFTER_MS, useQuietFor } from "@/hooks/use-quiet-for";
 import { chatIssueOf, loadSelectedModelId, modelMetaFromId, OPENCODE_DEFAULT_ID } from "@/pages/chat/models";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -31,10 +42,12 @@ import {
   ImageIcon,
   Loader2Icon,
   MessageCircleIcon,
+  MicIcon,
   PlusIcon,
   ShieldAlertIcon,
   SparklesIcon,
   SquareIcon,
+  Volume2Icon,
   XIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -47,6 +60,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ClipboardEvent,
   type CSSProperties,
   type KeyboardEvent,
@@ -124,6 +138,8 @@ function chatInk(look?: NotchLook) {
     composer: light
       ? "rounded-[22px] bg-black/[0.05] ring-1 ring-black/[0.08] focus-within:ring-black/15"
       : "rounded-[22px] bg-white/[0.07] ring-1 ring-white/[0.07] focus-within:ring-white/20",
+    // Solid, so the words under it don't show through while talking.
+    voiceBar: light ? "rounded-[22px] bg-[#ececef] ring-1 ring-black/[0.1]" : "rounded-[22px] bg-[#1c1c22] ring-1 ring-white/[0.12]",
     chipOn: light ? "bg-black/[0.12] text-[#16161b]" : "bg-white/[0.16] text-white",
     chipOff: light
       ? "bg-black/[0.06] text-[#16161b]/60 hover:bg-black/[0.1] hover:text-[#16161b]"
@@ -203,6 +219,57 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
   const inputNote = chat.note && panel !== "folders";
   const ink = chatInk(props.look);
 
+  // Voice: a task said out loud, and (per Settings → Voice) the reply read back.
+  const voiceSettings = useVoiceSettings();
+  /** The words came from the mic, not the keyboard. */
+  const fromVoice = useRef(false);
+  /** The last ask that was spoken: its reply is read aloud. */
+  const spokenAsk = useRef<string>(undefined);
+  const voice = useVoiceInput({
+    autoStop: voiceSettings.autoSend,
+    onStart: () => stopSpeaking(),
+    onText: (text) => {
+      fromVoice.current = true;
+      onInput(text);
+    },
+    onTranscribed: (text) => {
+      if (voiceSettings.autoSend) void submit(text);
+    },
+  });
+  // System dictation streams words; it's sent when the user stops it.
+  const wasListening = useRef(false);
+  useEffect(() => {
+    if (voice.engine === "system" && wasListening.current && !voice.listening && voiceSettings.autoSend && input.trim()) {
+      void submit();
+    }
+    wasListening.current = voice.listening;
+  }, [voice.listening]);
+  useEffect(() => {
+    if (!voice.error) return;
+    chat.setNote(voice.error);
+    voice.clearError();
+  }, [voice.error, voice, chat]);
+
+  const lastAsk = chat.turns.at(-1);
+  const lastWork = cowork.turns.at(-1);
+  const spoken = useRef<Set<string> | null>(null);
+  // Replies already there when the notch opened aren't read out.
+  spoken.current ??= new Set([lastAsk?.id, lastWork?.id].filter((id): id is string => !!id));
+  useEffect(() => {
+    const mode = voiceSettings.speakReplies;
+    const finished = [
+      lastAsk?.status === "done" ? { id: lastAsk.id, asked: lastAsk.display, reply: lastAsk.answer } : null,
+      lastWork?.status === "done" ? { id: lastWork.id, asked: lastWork.prompt, reply: lastWork.reply ?? "" } : null,
+    ];
+    for (const turn of finished) {
+      if (!turn || spoken.current!.has(turn.id) || !turn.reply.trim()) continue;
+      spoken.current!.add(turn.id);
+      if (mode === "always" || (mode === "voice" && turn.asked.trim() === spokenAsk.current?.trim())) void speak(turn.reply);
+    }
+  }, [lastAsk?.id, lastAsk?.status, lastWork?.id, lastWork?.status, voiceSettings.speakReplies]);
+  // The notch closing ends what it was saying.
+  useEffect(() => () => stopSpeaking(), []);
+
   const submit = async (ask?: string) => {
     const text = (ask ?? input).trim();
     if (busy || (!text && chat.files.length === 0)) return;
@@ -211,6 +278,8 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
       onPanel("folders");
       return;
     }
+    spokenAsk.current = fromVoice.current ? text : undefined;
+    fromVoice.current = false;
     onInput("");
     onPanel(null);
     if (session) {
@@ -311,7 +380,7 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
       <AnimatePresence initial={false}>
         {(chat.files.length > 0 || chat.importing > 0) && (
           <motion.div
-            className="flex h-[52px] shrink-0 items-center gap-2 overflow-x-auto"
+            className="flex h-13 shrink-0 items-center gap-2 overflow-x-auto"
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 6 }}
@@ -345,6 +414,7 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
           </motion.div>
         )}
       </AnimatePresence>
+      <SpeakingPill />
       <AnimatePresence initial={false}>
         {inputNote && (
           <motion.div
@@ -360,7 +430,20 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
         )}
       </AnimatePresence>
       {/* The composer: the words on top (the bot sits in its corner), the buttons under them. */}
-      <div className={cn("flex shrink-0 flex-col justify-between px-2 pt-2 pb-2 transition-shadow", ink.composer)} style={{ height: CHAT_INPUT }}>
+      <div className={cn("relative flex shrink-0 flex-col justify-between px-2 pt-2 pb-2 transition-shadow", ink.composer)} style={{ height: CHAT_INPUT }}>
+        <AnimatePresence>
+          {voice.phase !== "idle" && (
+            <VoiceBar
+              voice={voice}
+              autoSend={voiceSettings.autoSend}
+              onDone={voice.stop}
+              onCancel={() => {
+                voice.cancel();
+                fromVoice.current = false;
+              }}
+            />
+          )}
+        </AnimatePresence>
         <textarea
           ref={inputRef}
           rows={1}
@@ -450,6 +533,17 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
               className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", ink.stopBtn)}
             >
               <SquareIcon className="size-3 fill-current" />
+            </motion.button>
+          ) : !busy && !input.trim() && chat.files.length === 0 && voice.supported ? (
+            <motion.button
+              type="button"
+              onClick={() => void voice.start()}
+              whileTap={{ scale: 0.92 }}
+              title={t("voiceSpeak")}
+              aria-label={t("voiceSpeak")}
+              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white text-black shadow-[0_2px_10px_rgba(255,255,255,0.18)]"
+            >
+              <MicIcon className="size-4" strokeWidth={2.25} />
             </motion.button>
           ) : (
             <motion.button
@@ -625,7 +719,7 @@ function Thread({ turns, answeredBy }: { turns: QuickTurn[]; answeredBy: Record<
             {turn.answer ? (
               <Answer text={turn.answer} streaming={turn.status === "streaming"} />
             ) : turn.status === "streaming" ? (
-              <Waiting text={t("thinking")} />
+              <ThinkingWait />
             ) : null}
             {turn.status === "error" && <Failed text={turn.error} />}
             {turn.status === "stopped" && <p className={cn("text-[11px]", ink.faint)}>{t("stopped")}</p>}
@@ -776,7 +870,7 @@ function splitStep(title: string) {
   return { verb: verb.charAt(0).toUpperCase() + verb.slice(1), rest: rest.join(" ") || undefined };
 }
 
-function trailOf(turn: CoworkTurn, writing: boolean, t: ReturnType<typeof useNotchText>): TrailRow[] {
+function trailOf(turn: CoworkTurn, writing: boolean, quietFor: number, t: ReturnType<typeof useNotchText>): TrailRow[] {
   const rows: TrailRow[] = turn.steps.map((step: NotchStep) => {
     // The question tool reads as what it is: the agent waiting on you.
     if (/^(question|ask)\b/i.test(step.title.trim())) {
@@ -790,11 +884,22 @@ function trailOf(turn: CoworkTurn, writing: boolean, t: ReturnType<typeof useNot
   } else if (turn.phase === "permission") {
     rows.push({ key: "permission", icon: ShieldAlertIcon, verb: t("waitingOk"), state: "waiting" });
   } else if (!rows.some((row) => row.state !== "done")) {
-    const verb = writing ? t("writing") : t("starting");
-    rows.push({ key: writing ? "writing" : "starting", icon: SparklesIcon, verb, state: "running" });
+    // Between steps the model is thinking; a long think says how long, so it doesn't look stuck.
+    const seconds = Math.floor(quietFor / 1000);
+    if (writing && quietFor < THINKING_AFTER_MS) {
+      rows.push({ key: "writing", icon: SparklesIcon, verb: t("writing"), state: "running" });
+    } else if (!writing && rows.length === 0 && seconds < SHOW_SECONDS_FROM) {
+      rows.push({ key: "starting", icon: SparklesIcon, verb: t("starting"), state: "running" });
+    } else {
+      const rest = seconds >= SHOW_SECONDS_FROM ? `${seconds}s` : undefined;
+      rows.push({ key: "thinking", icon: SparklesIcon, verb: t("thinking"), rest, state: "running" });
+    }
   }
   return rows.slice(-4);
 }
+
+/** A wait shows its seconds from here on. */
+const SHOW_SECONDS_FROM = 3;
 
 /** A trail row's height and the gap under it; the bot steps down by both. */
 const TRAIL_ROW = 24;
@@ -806,6 +911,7 @@ const TRAIL_BOT = 30;
 function poseOf(row: TrailRow): BotState {
   if (row.state === "asking") return "question";
   if (row.state === "waiting") return "permission";
+  if (row.key === "thinking") return "thinking";
   // At work, the bot always: "thinking" and "working" fold it into three dots now and then, a spinner again.
   return "tool";
 }
@@ -818,7 +924,9 @@ function poseOf(row: TrailRow): BotState {
 function StepTrail({ turn, writing }: { turn: CoworkTurn; writing: boolean }) {
   const t = useNotchText();
   const ink = useChatInk();
-  const rows = trailOf(turn, writing, t);
+  // The trail alone re-checks twice a second, not the answer under it.
+  const quietFor = useQuietFor((turn.reply?.length ?? 0) + turn.steps.length);
+  const rows = trailOf(turn, writing, quietFor, t);
   let at = rows.length - 1;
   while (at >= 0 && rows[at].state === "done") at--;
   const live = rows[at];
@@ -997,6 +1105,20 @@ function Waiting({ text }: { text: string }) {
   );
 }
 
+/** Waiting on the first words: thinking, and after a few seconds for how long. */
+function ThinkingWait() {
+  const t = useNotchText();
+  const ink = useChatInk();
+  const seconds = Math.floor(useQuietFor(0) / 1000);
+  return (
+    <div role="status" className={cn("flex items-center gap-2 text-[12px]", ink.muted)}>
+      <CoworkBot size={TRAIL_BOT} state="thinking" theme={ink.botTheme} className="-my-1 -ml-1" />
+      {t("thinking")}
+      {seconds >= SHOW_SECONDS_FROM && <span className="tabular-nums opacity-70">{seconds}s</span>}
+    </div>
+  );
+}
+
 function Failed({ text }: { text?: string }) {
   return (
     <p className="flex items-start gap-2 rounded-lg bg-red-500/15 px-3 py-2 text-[12px] text-red-200">
@@ -1043,6 +1165,132 @@ function FileThumb({ file, onRemove, size = 48 }: { file: Attachment; onRemove?:
         </button>
       )}
     </motion.div>
+  );
+}
+
+/**
+ * Talking to the notch: it covers the composer while listening — a live
+ * waveform, how long, and ✕ / ✓ — then says it's writing the words down.
+ */
+function VoiceBar({
+  voice,
+  autoSend,
+  onDone,
+  onCancel,
+}: {
+  voice: VoiceInput;
+  autoSend: boolean;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const t = useNotchText();
+  const ink = useChatInk();
+  const listening = voice.phase === "listening";
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    if (!listening) return;
+    const started = Date.now();
+    setSeconds(0);
+    const timer = setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [listening]);
+
+  return (
+    <motion.div
+      className={cn("absolute inset-0 z-10 flex items-center gap-3 px-3", ink.voiceBar)}
+      initial={{ opacity: 0, scale: 0.98 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.98 }}
+      transition={FLOW}
+      role="status"
+      aria-live="polite"
+    >
+      <span className="relative flex size-9 shrink-0 items-center justify-center">
+        {listening && (
+          <motion.span
+            className="absolute inset-0 rounded-full bg-red-500/25"
+            animate={{ scale: [1, 1.35, 1], opacity: [0.7, 0, 0.7] }}
+            transition={{ duration: 1.6, repeat: Infinity, ease: "easeOut" }}
+          />
+        )}
+        <span className={cn("relative flex size-7 items-center justify-center rounded-full", listening ? "bg-red-500 text-white" : "bg-white/10")}>
+          {listening ? <MicIcon className="size-3.5" /> : <Loader2Icon className={cn("size-3.5 animate-spin", ink.muted)} />}
+        </span>
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className={cn("flex items-center gap-2 text-[13px] font-medium", ink.input)}>
+          {listening ? t("voiceListening") : t("voiceWriting")}
+          {listening && <span className={cn("text-[11px] font-normal tabular-nums", ink.muted)}>{`0:${String(seconds).padStart(2, "0")}`}</span>}
+        </span>
+        <span className={cn("truncate text-[11px]", ink.muted)}>
+          {listening ? (autoSend ? t("voiceHint") : t("voiceHintManual")) : "\u00a0"}
+        </span>
+      </div>
+      <Waveform
+        level={listening ? voice.level : undefined}
+        bars={14}
+        className={cn("h-6 shrink-0 gap-[3px]", listening ? "text-red-400" : ink.muted)}
+        barClassName="w-[3px]"
+      />
+      {listening && (
+        <span className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onCancel}
+            title={t("voiceCancel")}
+            aria-label={t("voiceCancel")}
+            className={cn("flex size-8 items-center justify-center rounded-full transition-colors", ink.iconBtn)}
+          >
+            <XIcon className="size-4" />
+          </button>
+          <motion.button
+            type="button"
+            onClick={onDone}
+            whileTap={{ scale: 0.92 }}
+            title={t("voiceDone")}
+            aria-label={t("voiceDone")}
+            className="flex size-9 items-center justify-center rounded-full bg-white text-black"
+          >
+            <CheckIcon className="size-4" strokeWidth={2.5} />
+          </motion.button>
+        </span>
+      )}
+    </motion.div>
+  );
+}
+
+/** While a reply is read aloud: what's happening, bars that breathe, and Stop. */
+function SpeakingPill() {
+  const t = useNotchText();
+  const ink = useChatInk();
+  const state = useSyncExternalStore(subscribeSpeaker, speakerState);
+  const on = state.speaking || state.loading;
+  return (
+    <AnimatePresence initial={false}>
+      {on && (
+        <motion.div
+          key="speaking"
+          className={cn("flex shrink-0 items-center gap-2 self-start rounded-full py-1 pr-1 pl-2.5", ink.quickAsk)}
+          initial={{ opacity: 0, y: 6, scale: 0.96 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 6, scale: 0.96 }}
+          transition={FLOW}
+          role="status"
+        >
+          {state.loading ? <Loader2Icon className="size-3.5 animate-spin" /> : <Volume2Icon className="size-3.5" />}
+          <span className="text-[12px]">{state.loading ? t("voicePreparing") : t("voiceSpeaking")}</span>
+          {state.speaking && <Waveform bars={5} className="h-3 gap-[2px]" barClassName="w-[2px]" />}
+          <button
+            type="button"
+            onClick={stopSpeaking}
+            className={cn("ml-0.5 flex h-6 items-center gap-1 rounded-full px-2 text-[11px] font-medium", ink.chipOn)}
+          >
+            <SquareIcon className="size-2.5 fill-current" />
+            {t("voiceStop")}
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
