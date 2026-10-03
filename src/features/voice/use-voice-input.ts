@@ -1,0 +1,118 @@
+/**
+ * Voice input, whichever engine Settings → Voice names: the system's own
+ * dictation (words stream in as you speak), or a model (you speak, then the
+ * words arrive at once — better at Thai and at noise). Same shape either way,
+ * so the prompt, the Quick bar and the notch don't care which.
+ */
+import { useCallback, useRef, useState } from "react";
+import { isTauri, invoke } from "@tauri-apps/api/core";
+import { useRecorder, recordingSupported } from "./recorder";
+import { useVoiceSettings } from "./settings";
+import { transcribe } from "./speech";
+import { useSpeechInput, type VoiceLang } from "./use-speech-input";
+
+export type VoicePhase = "idle" | "listening" | "transcribing";
+
+type Options = {
+  /** `text` is everything heard since start; `final` once it won't change. */
+  onText: (text: string, final: boolean) => void;
+  onStart?: () => void;
+  /** A model finished transcribing (not called for system dictation). */
+  onTranscribed?: (text: string) => void;
+  /** Stop by itself when the user stops talking (models only). */
+  autoStop?: boolean;
+};
+
+/** macOS closes a dev build that touches the mic (see `commands/voice.rs`). */
+type MicStatus = { available: boolean; reason?: string | null };
+let micStatus: Promise<MicStatus> | undefined;
+function micAllowed(): Promise<MicStatus> {
+  if (!isTauri()) return Promise.resolve({ available: true });
+  micStatus ??= invoke<{ available: boolean; reason?: string | null }>("voice_input_status").catch(() => ({
+    available: false,
+    reason: "Voice input couldn't be checked on this device.",
+  }));
+  return micStatus;
+}
+
+export function useVoiceInput({ onText, onStart, onTranscribed, autoStop = false }: Options) {
+  const settings = useVoiceSettings();
+  const system = useSpeechInput({ onText, onStart });
+  const onTextRef = useRef(onText);
+  onTextRef.current = onText;
+  const onTranscribedRef = useRef(onTranscribed);
+  onTranscribedRef.current = onTranscribed;
+  const [transcribing, setTranscribing] = useState(false);
+  const [error, setError] = useState<string>();
+  const usesModel = settings.input.engine !== "system";
+
+  const recorder = useRecorder({
+    autoStop,
+    onDone: async (recording) => {
+      // A tap with nothing said isn't worth a call.
+      if (recording.ms < 400) return;
+      setTranscribing(true);
+      try {
+        const text = await transcribe(recording, settings);
+        if (text) {
+          onTextRef.current(text, true);
+          onTranscribedRef.current?.(text);
+        } else setError("Nothing was heard. Try again a little closer to the mic.");
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setTranscribing(false);
+      }
+    },
+  });
+
+  const start = useCallback(async () => {
+    if (!usesModel) return system.start();
+    const status = await micAllowed();
+    if (!status.available) {
+      setError(status.reason ?? "Voice input isn't available here.");
+      return;
+    }
+    setError(undefined);
+    onStart?.();
+    await recorder.start();
+  }, [usesModel, system, recorder, onStart]);
+
+  const toggle = useCallback(() => {
+    if (!usesModel) return system.toggle();
+    if (recorder.recording) recorder.stop();
+    else if (!transcribing) void start();
+  }, [usesModel, system, recorder, transcribing, start]);
+
+  if (!usesModel) {
+    return {
+      ...system,
+      engine: "system" as const,
+      phase: (system.listening ? "listening" : "idle") as VoicePhase,
+      level: undefined,
+    };
+  }
+
+  const phase: VoicePhase = recorder.recording ? "listening" : transcribing ? "transcribing" : "idle";
+  return {
+    supported: recordingSupported(),
+    engine: settings.input.engine,
+    listening: recorder.recording,
+    phase,
+    /** How loud the voice is now (0–1), read by the waveform each frame. */
+    level: recorder.level,
+    error: error ?? recorder.error,
+    clearError: () => {
+      setError(undefined);
+      recorder.clearError();
+    },
+    lang: (settings.language === "en" ? "en-US" : "th-TH") as VoiceLang,
+    setLang: (_: VoiceLang) => {},
+    start,
+    stop: recorder.stop,
+    cancel: recorder.cancel,
+    toggle,
+  };
+}
+
+export type VoiceInput = ReturnType<typeof useVoiceInput>;

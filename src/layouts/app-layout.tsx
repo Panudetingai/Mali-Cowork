@@ -10,6 +10,7 @@ import { discardEphemeralChats } from "@/features/chat-history";
 import { useTranslation } from "@/features/i18n";
 import { cn } from "@/lib/utils";
 import { ChevronDownIcon } from "lucide-react";
+import { MALI_EASE } from "@/lib/motion-presets";
 import { motion } from "motion/react";
 import { useEffect } from "react";
 
@@ -28,7 +29,11 @@ export function AppLayout() {
       <CommandPalette />
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <AppSidebar />
-        <SidebarInset className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+        <SidebarInset className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 bg-mali-ambient opacity-90 dark:hidden"
+          />
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             <div
               ref={fade.ref}
@@ -44,7 +49,7 @@ export function AppLayout() {
                   key={section}
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                  transition={{ duration: 0.28, ease: MALI_EASE }}
                   // Bounded to the viewport: the chat page scrolls inside itself;
                   // taller pages overflow into the scroller above.
                   className="flex min-h-0 min-w-0 flex-1 flex-col"

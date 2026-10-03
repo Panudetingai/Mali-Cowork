@@ -4,12 +4,14 @@
  * and kept as an image. No animation loop and no page per bot — one hidden
  * frame loads, gives up its drawing, and goes.
  */
-import type { CoworkBotId } from "@/features/cowork-bot";
+import { useBotStudio } from "@/features/bot-studio/store";
+import type { BotChoice } from "@/features/cowork-bot";
 import { useEffect, useSyncExternalStore } from "react";
-import { EMBED_VERSION } from "./cowork-bot";
+import { botEmbed, botFrameSrc } from "./cowork-bot";
 
-const pictures = new Map<CoworkBotId, string>();
-const loading = new Map<CoworkBotId, Promise<void>>();
+/** Pictures by what's drawn (a Studio bot's design, not just its name: it changes as it grows). */
+const pictures = new Map<string, string>();
+const loading = new Map<string, Promise<void>>();
 const listeners = new Set<() => void>();
 /** Long enough for the drawing to appear; past this, the flat face stays. */
 const GIVE_UP_MS = 4000;
@@ -26,12 +28,12 @@ export function svgPicture(svg: SVGSVGElement) {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
 }
 
-function take(bot: CoworkBotId): Promise<void> {
+function take(bot: string): Promise<void> {
   const pending = loading.get(bot);
   if (pending) return pending;
   const done = new Promise<void>((resolve) => {
     const frame = document.createElement("iframe");
-    frame.src = `/anim/cowork-bots.html?embed=${bot}&shadow=0&state=idle&theme=dark&v=${EMBED_VERSION}`;
+    frame.src = botFrameSrc(bot, "idle", "dark");
     frame.setAttribute("aria-hidden", "true");
     frame.tabIndex = -1;
     frame.style.cssText = "position:fixed;left:-400px;top:-400px;width:160px;height:160px;border:0;opacity:0;pointer-events:none";
@@ -70,10 +72,12 @@ function subscribe(listener: () => void) {
 }
 
 /** The bot's picture as an image URL; undefined until it's taken (the first time only). */
-export function useBotPicture(bot: CoworkBotId) {
-  const picture = useSyncExternalStore(subscribe, () => pictures.get(bot));
+export function useBotPicture(bot: BotChoice) {
+  const { bots: studio } = useBotStudio();
+  const embed = botEmbed(bot, studio);
+  const picture = useSyncExternalStore(subscribe, () => pictures.get(embed));
   useEffect(() => {
-    if (!pictures.has(bot)) void take(bot);
-  }, [bot]);
+    if (!pictures.has(embed)) void take(embed);
+  }, [embed]);
   return picture;
 }

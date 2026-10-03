@@ -37,6 +37,12 @@ export function describeEffort(id: string): EffortLevel {
 }
 
 /** The model's own levels, described, in the order the model gave them. */
+/** True when the chosen level is the model's highest (Extra high, Max, …). */
+export function isMaxEffort(levels: EffortLevel[], value: string | undefined) {
+  if (!value || levels.length < 2) return false;
+  return levels[levels.length - 1]!.id === value;
+}
+
 export function effortLevels(ids: string[] | undefined): EffortLevel[] {
   return (ids ?? []).map(describeEffort);
 }

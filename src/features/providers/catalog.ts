@@ -19,6 +19,11 @@ export type ProviderDef = {
   contextLimit?: number;
   /** Where to get an API key. */
   keyUrl?: string;
+  /**
+   * OpenCode can't run it, so it isn't synced there (nor its key): its
+   * models run on Mali's own agent only.
+   */
+  maliOnly?: boolean;
 };
 
 export const PROVIDERS: ProviderDef[] = [
@@ -163,6 +168,23 @@ export const PROVIDERS: ProviderDef[] = [
     keyRequired: true,
     envVar: "OPENROUTER_API_KEY",
     keyUrl: "https://openrouter.ai/settings/keys",
+  },
+  {
+    id: "puter",
+    name: "Puter",
+    description: "GPT, Claude, Gemini and Grok on a Puter account — the free plan works.",
+    logo: "puter",
+    group: "cloud",
+    // Puter's API root: Mali calls its driver route, which free accounts may use
+    // (its OpenAI-compatible endpoint is for paid plans only).
+    defaultBaseUrl: "https://api.puter.com",
+    defaultModels: "gpt-5.4-nano,claude-sonnet-5,gemini-3.5-flash-lite",
+    keyRequired: true,
+    envVar: "PUTER_AUTH_TOKEN",
+    // Dashboard → "Create token".
+    keyUrl: "https://puter.com/dashboard",
+    // OpenCode would call Puter's OpenAI endpoint, which free accounts can't use.
+    maliOnly: true,
   },
   {
     id: "groq",

@@ -26,7 +26,9 @@ use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+};
 
 use super::quick::{show_main, MAIN_LABEL};
 
@@ -38,6 +40,11 @@ const HOVER: &str = "notch:hover";
 const INTRO: &str = "notch:intro";
 /// Files are being dragged near the top of the screen (true), or not any more.
 const DRAG: &str = "notch:drag";
+/// The mouse wheel turned over the pill (Windows): its `deltaY`, as a page would see it.
+#[cfg(windows)]
+const WHEEL: &str = "notch:wheel";
+/// A click landed off the open pill (anywhere on screen): the pill folds away at once.
+const CLICK_AWAY: &str = "notch:click-away";
 /// The pill moved to another screen: the page plays its arrival.
 const MOVED: &str = "notch:moved";
 /// The app was asked for (the Dock, the tray): the pill drops into it.
@@ -145,14 +152,21 @@ fn home_screen(screens: &[Screen], pref: ScreenPref, cursor: Option<(f64, f64)>)
 /// The pill's window on `screen`: centered, against the top edge.
 fn frame_on(screen: &Screen, (width, height): (f64, f64)) -> Rect {
     let (width, height) = (width * screen.unit, height * screen.unit);
-    Rect { x: screen.area.x + (screen.area.width - width) / 2.0, y: screen.area.y, width, height }
+    Rect {
+        x: screen.area.x + (screen.area.width - width) / 2.0,
+        y: screen.area.y,
+        width,
+        height,
+    }
 }
 
 /// The pointer is near the top of `screen`, around its middle: within
 /// `half` logical pixels either side and `depth` down.
 fn near_top(screen: &Screen, (x, y): (f64, f64), half: f64, depth: f64) -> bool {
     let center = screen.area.x + screen.area.width / 2.0;
-    y >= screen.area.y && y <= screen.area.y + depth * screen.unit && (x - center).abs() <= half * screen.unit
+    y >= screen.area.y
+        && y <= screen.area.y + depth * screen.unit
+        && (x - center).abs() <= half * screen.unit
 }
 
 /// The strip along the top of the screen, around the notch: reaching for it
@@ -166,12 +180,19 @@ fn at_top(screen: &Screen, point: (f64, f64)) -> bool {
 /// the top there takes a moment's pause instead (`REACH_DWELL`).
 fn edge_open(screens: &[Screen], screen: &Screen, (x, _): (f64, f64)) -> bool {
     let above = (x, screen.area.y - 1.0);
-    !screens.iter().any(|s| s.id != screen.id && s.area.contains(above))
+    !screens
+        .iter()
+        .any(|s| s.id != screen.id && s.area.contains(above))
 }
 
 /// Where the pill's own area is, in screen units.
 fn pill_rect(frame: Rect, unit: f64, area: Area) -> Rect {
-    Rect { x: frame.x + area.x * unit, y: frame.y + area.y * unit, width: area.width * unit, height: area.height * unit }
+    Rect {
+        x: frame.x + area.x * unit,
+        y: frame.y + area.y * unit,
+        width: area.width * unit,
+        height: area.height * unit,
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -229,27 +250,31 @@ fn notch_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WebviewWindow<R
     }
     // Same bundle as the main window; main.tsx renders the pill for
     // `?window=notch` and loads only the pill's code.
-    let window = WebviewWindowBuilder::new(app, NOTCH_LABEL, WebviewUrl::App("index.html?window=notch".into()))
-        .title("Mali Notch")
-        .inner_size(START_SIZE.0, START_SIZE.1)
-        .decorations(false)
-        .resizable(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .visible_on_all_workspaces(true)
-        .visible(false)
-        // Showing the pill must not take the keyboard from what the user is
-        // typing in; only an approval makes it focusable (`notch_resize`).
-        .focused(false)
-        .focusable(false)
-        // A click on the pill acts even while Mali is in the background.
-        .accept_first_mouse(true)
-        .transparent(true)
-        .background_color(tauri::window::Color(0, 0, 0, 0))
-        // The page draws the shadow: a system shadow lags behind the
-        // animated shape.
-        .shadow(false)
-        .build()?;
+    let window = WebviewWindowBuilder::new(
+        app,
+        NOTCH_LABEL,
+        WebviewUrl::App("index.html?window=notch".into()),
+    )
+    .title("Mali Notch")
+    .inner_size(START_SIZE.0, START_SIZE.1)
+    .decorations(false)
+    .resizable(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .visible_on_all_workspaces(true)
+    .visible(false)
+    // Showing the pill must not take the keyboard from what the user is
+    // typing in; only an approval makes it focusable (`notch_resize`).
+    .focused(false)
+    .focusable(false)
+    // A click on the pill acts even while Mali is in the background.
+    .accept_first_mouse(true)
+    .transparent(true)
+    .background_color(tauri::window::Color(0, 0, 0, 0))
+    // The page draws the shadow: a system shadow lags behind the
+    // animated shape.
+    .shadow(false)
+    .build()?;
     #[cfg(target_os = "macos")]
     {
         let ns = window.clone();
@@ -268,7 +293,10 @@ fn apply_frame<R: Runtime>(window: &WebviewWindow<R>, rect: Rect) {
     #[cfg(not(target_os = "macos"))]
     {
         use tauri::{PhysicalPosition, PhysicalSize, Position, Size};
-        let _ = window.set_position(Position::Physical(PhysicalPosition { x: rect.x.round() as i32, y: rect.y.round() as i32 }));
+        let _ = window.set_position(Position::Physical(PhysicalPosition {
+            x: rect.x.round() as i32,
+            y: rect.y.round() as i32,
+        }));
         let _ = window.set_size(Size::Physical(PhysicalSize {
             width: rect.width.round() as u32,
             height: rect.height.round() as u32,
@@ -284,6 +312,7 @@ fn put<R: Runtime>(window: &WebviewWindow<R>, screen: Screen) {
         placed.screen = Some(screen);
         placed.frame = frame_on(&screen, placed.size);
         placed.stretched = false;
+        placed.intro_until = None;
         placed.frame
     };
     apply_frame(window, frame);
@@ -332,7 +361,13 @@ fn pref<R: Runtime>(app: &AppHandle<R>) -> ScreenPref {
 async fn geometry<R: Runtime>(window: &WebviewWindow<R>) -> NotchGeometry {
     #[cfg(target_os = "macos")]
     let read = {
-        let at = window.state::<NotchState>().placed.lock().unwrap().screen.map(|s| s.area);
+        let at = window
+            .state::<NotchState>()
+            .placed
+            .lock()
+            .unwrap()
+            .screen
+            .map(|s| s.area);
         let (tx, rx) = tokio::sync::oneshot::channel();
         let ns = window.clone();
         match window.run_on_main_thread(move || {
@@ -399,7 +434,10 @@ fn hide_pill<R: Runtime>(window: &WebviewWindow<R>) {
 ///
 /// Async: creating a window from a synchronous command deadlocks on Windows.
 #[tauri::command]
-pub async fn notch_show<R: Runtime>(app: AppHandle<R>, focus: Option<bool>) -> Result<NotchGeometry, String> {
+pub async fn notch_show<R: Runtime>(
+    app: AppHandle<R>,
+    focus: Option<bool>,
+) -> Result<NotchGeometry, String> {
     let window = notch_window(&app).map_err(|e| format!("Cannot open the notch pill: {e}"))?;
     if !app.state::<NotchState>().visible.load(Ordering::SeqCst) {
         if let Some(screen) = home_now(&app) {
@@ -438,8 +476,15 @@ pub async fn notch_geometry<R: Runtime>(app: AppHandle<R>) -> NotchGeometry {
 /// fixed size, because resizing a web view blanks it for a moment (the
 /// flicker). `focusable` is on only while the pill wants keys.
 #[tauri::command]
-pub fn notch_resize<R: Runtime>(app: AppHandle<R>, width: f64, height: f64, focusable: Option<bool>) {
-    let Some(window) = app.get_webview_window(NOTCH_LABEL) else { return };
+pub fn notch_resize<R: Runtime>(
+    app: AppHandle<R>,
+    width: f64,
+    height: f64,
+    focusable: Option<bool>,
+) {
+    let Some(window) = app.get_webview_window(NOTCH_LABEL) else {
+        return;
+    };
     let state = app.state::<NotchState>();
     if let Some(focusable) = focusable {
         let was = state.keys.load(Ordering::SeqCst);
@@ -458,6 +503,10 @@ pub fn notch_resize<R: Runtime>(app: AppHandle<R>, width: f64, height: f64, focu
             return;
         }
         placed.size = (width, height);
+        if placed.stretched && placed.intro_until.is_some_and(|until| Instant::now() < until) {
+            // The fly-in has the window; this size is put on when it ends.
+            return;
+        }
         placed.screen
     };
     if let Some(screen) = screen.or_else(|| home_now(&app)) {
@@ -469,9 +518,21 @@ pub fn notch_resize<R: Runtime>(app: AppHandle<R>, width: f64, height: f64, focu
 /// lets clicks through to the apps below (`watch_cursor`). `open`: the pill
 /// shows more than its wings, so it stays on its screen.
 #[tauri::command]
-pub fn notch_hit_area<R: Runtime>(app: AppHandle<R>, x: f64, y: f64, width: f64, height: f64, open: Option<bool>) {
+pub fn notch_hit_area<R: Runtime>(
+    app: AppHandle<R>,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    open: Option<bool>,
+) {
     let state = app.state::<NotchState>();
-    *state.hit.write().unwrap() = Some(Area { x, y, width, height });
+    *state.hit.write().unwrap() = Some(Area {
+        x,
+        y,
+        width,
+        height,
+    });
     if let Some(open) = open {
         state.open.store(open, Ordering::SeqCst);
     }
@@ -492,21 +553,32 @@ pub struct BackdropRect {
 /// `rect`; "black" or no rect takes it away. The page can only blur itself,
 /// so the system's blur of what's behind the window sits under the web view
 /// and follows the pill's shape. False where there's no such blur.
+///
+/// macOS: `from` is where it grows out of when it comes into view (the
+/// collapsed pill), and "black" with a `rect` shrinks it there as it fades,
+/// so the glass opens and folds with the pill instead of popping.
 #[tauri::command]
-pub async fn notch_backdrop<R: Runtime>(app: AppHandle<R>, look: String, rect: Option<BackdropRect>) -> bool {
+pub async fn notch_backdrop<R: Runtime>(
+    app: AppHandle<R>,
+    look: String,
+    rect: Option<BackdropRect>,
+    from: Option<BackdropRect>,
+) -> bool {
     #[cfg(target_os = "macos")]
     {
-        let Some(window) = app.get_webview_window(NOTCH_LABEL) else { return false };
-        let want = match (look.as_str(), rect) {
-            ("glass", Some(rect)) => Some((false, rect)),
-            ("light", Some(rect)) => Some((true, rect)),
+        let Some(window) = app.get_webview_window(NOTCH_LABEL) else {
+            return false;
+        };
+        let light = match look.as_str() {
+            "glass" => Some(false),
+            "light" => Some(true),
             _ => None,
         };
         let (tx, rx) = tokio::sync::oneshot::channel();
         let ns = window.clone();
         if window
             .run_on_main_thread(move || {
-                let _ = tx.send(mac::set_backdrop(&ns, want));
+                let _ = tx.send(mac::set_backdrop(&ns, light, rect, from));
             })
             .is_err()
         {
@@ -514,9 +586,45 @@ pub async fn notch_backdrop<R: Runtime>(app: AppHandle<R>, look: String, rect: O
         }
         rx.await.unwrap_or(false)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
     {
-        let _ = (app, look, rect);
+        use window_vibrancy::{apply_acrylic, apply_mica, clear_acrylic, clear_mica};
+        // The region slides from where it last was; it needs no start.
+        let _ = from;
+        let Some(window) = app.get_webview_window(NOTCH_LABEL) else {
+            return false;
+        };
+        let want = rect.filter(|_| look == "glass");
+        if let Some(rect) = want {
+            let light = look == "light";
+            // Mica / Acrylic fill the whole window, which is bigger than the
+            // pill: its region keeps them to the pill's shape.
+            win::clip_to_pill(&window, Some(rect));
+            let _ = clear_mica(&window);
+            let _ = clear_acrylic(&window);
+            if apply_mica(&window, Some(!light)).is_ok() {
+                return true;
+            }
+            let tint = if light {
+                (245, 245, 247, 200)
+            } else {
+                (12, 12, 16, 165)
+            };
+            let ok = apply_acrylic(&window, Some(tint)).is_ok();
+            if !ok {
+                win::clip_to_pill(&window, None);
+            }
+            ok
+        } else {
+            let _ = clear_mica(&window);
+            let _ = clear_acrylic(&window);
+            win::clip_to_pill(&window, None);
+            true
+        }
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        let _ = (app, look, rect, from);
         false
     }
 }
@@ -528,7 +636,9 @@ pub fn notch_set_screen<R: Runtime>(app: AppHandle<R>, pref: ScreenPref) {
     if state.pref.swap(pref.to_u8(), Ordering::SeqCst) == pref.to_u8() {
         return;
     }
-    let Some(window) = app.get_webview_window(NOTCH_LABEL) else { return };
+    let Some(window) = app.get_webview_window(NOTCH_LABEL) else {
+        return;
+    };
     let placed = state.placed.lock().unwrap().clone();
     if !state.visible.load(Ordering::SeqCst) || placed.stretched {
         return;
@@ -569,13 +679,22 @@ fn capture_name(app: &str, title: &str) -> String {
     };
     let clean: String = base
         .chars()
-        .map(|c| if matches!(c, '/' | '\\' | ':' | '\n' | '\r') { ' ' } else { c })
+        .map(|c| {
+            if matches!(c, '/' | '\\' | ':' | '\n' | '\r') {
+                ' '
+            } else {
+                c
+            }
+        })
         .take(60)
         .collect();
     format!("{}.png", clean.trim())
 }
 
-async fn screencapture(args: &[String], name: &str) -> Result<Option<super::attachments::Attachment>, String> {
+async fn screencapture(
+    args: &[String],
+    name: &str,
+) -> Result<Option<super::attachments::Attachment>, String> {
     // Its own folder, so the file can carry a readable name without clashing.
     let dir = std::env::temp_dir().join(format!("mali-notch-{}", uuid::Uuid::new_v4().simple()));
     std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot save the capture: {e}"))?;
@@ -597,45 +716,156 @@ async fn screencapture(args: &[String], name: &str) -> Result<Option<super::atta
 /// The bot was dragged out of the notch and let go: capture the window it
 /// was dropped on. `None` when it was dropped back on the notch.
 #[tauri::command]
-pub async fn notch_capture_at_cursor<R: Runtime>(app: AppHandle<R>) -> Result<Option<Capture>, String> {
+pub async fn notch_capture_at_cursor<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<Option<Capture>, String> {
     if app.state::<NotchState>().inside.load(Ordering::SeqCst) {
         return Ok(None);
     }
     #[cfg(target_os = "macos")]
     {
-        let window = app.get_webview_window(NOTCH_LABEL).ok_or("The notch isn't open")?;
+        let window = app
+            .get_webview_window(NOTCH_LABEL)
+            .ok_or("The notch isn't open")?;
         let (tx, rx) = tokio::sync::oneshot::channel();
         window
             .run_on_main_thread(move || {
-                let under = objc2::MainThreadMarker::new().and_then(mac::cursor_point).and_then(mac::window_at);
+                let under = objc2::MainThreadMarker::new()
+                    .and_then(mac::cursor_point)
+                    .and_then(mac::window_at);
                 let _ = tx.send(under);
             })
             .map_err(|e| e.to_string())?;
-        let under = rx.await.map_err(|e| e.to_string())?.ok_or("There's no window there to capture")?;
+        let under = rx
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or("There's no window there to capture")?;
         let name = capture_name(&under.app, &under.title);
         let attachment = screencapture(&["-x".into(), "-o".into(), format!("-l{}", under.number)], &name)
             .await?
             .ok_or("macOS didn't capture the window — allow Mali in System Settings → Privacy → Screen Recording")?;
-        Ok(Some(Capture { attachment, app: under.app, title: under.title }))
+        Ok(Some(Capture {
+            attachment,
+            app: under.app,
+            title: under.title,
+        }))
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        let window = app
+            .get_webview_window(NOTCH_LABEL)
+            .ok_or("The notch isn't open")?;
+        let under = win::window_at_cursor(&window).ok_or("There's no window there to capture")?;
+        let _ = capture_name(&under.app, &under.title);
+        let _ = window.hide();
+        tokio::time::sleep(std::time::Duration::from_millis(180)).await;
+        let attachment = match win::capture_screen_rect(&under.rect).await {
+            Ok(a) => a,
+            Err(e) => {
+                let _ = window.show();
+                return Err(e);
+            }
+        };
+        let _ = window.show();
+        Ok(Some(Capture {
+            attachment,
+            app: under.app,
+            title: under.title,
+        }))
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         let _ = app;
-        Err("Capturing a window by dropping the bot works on macOS for now".into())
+        Err("Capturing a window by dropping the bot works on macOS and Windows for now".into())
     }
 }
 
 /// The camera button: pick a window (Space switches to a region), Esc cancels.
 #[tauri::command]
-pub async fn notch_capture_pick() -> Result<Option<Capture>, String> {
+pub async fn notch_capture_pick<R: Runtime>(app: AppHandle<R>) -> Result<Option<Capture>, String> {
     #[cfg(target_os = "macos")]
     {
-        let attachment =
-            screencapture(&["-i".into(), "-W".into(), "-x".into(), "-o".into()], &capture_name("", "")).await?;
-        Ok(attachment.map(|attachment| Capture { attachment, app: String::new(), title: String::new() }))
+        let _ = app;
+        let attachment = screencapture(
+            &["-i".into(), "-W".into(), "-x".into(), "-o".into()],
+            &capture_name("", ""),
+        )
+        .await?;
+        Ok(attachment.map(|attachment| Capture {
+            attachment,
+            app: String::new(),
+            title: String::new(),
+        }))
     }
-    #[cfg(not(target_os = "macos"))]
-    Err("Picking a window works on macOS for now; use the Quick bar's capture".into())
+    #[cfg(windows)]
+    {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        *app.state::<NotchState>().pick_capture.lock().unwrap() = Some(tx);
+        if let Err(e) = win::open_capture_overlay(&app).await {
+            *app.state::<NotchState>().pick_capture.lock().unwrap() = None;
+            return Err(e);
+        }
+        match rx.await {
+            Ok(result) => result,
+            Err(_) => Ok(None),
+        }
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        let _ = app;
+        Err("Picking a window works on macOS and Windows for now".into())
+    }
+}
+
+/// Region picker for the notch (Windows): crop, return a capture, reopen the pill.
+#[tauri::command]
+pub async fn notch_capture_region<R: Runtime>(
+    app: AppHandle<R>,
+    rect: super::quick::CaptureRect,
+) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        if let Some(overlay) = app.get_webview_window(win::CAPTURE_OVERLAY) {
+            let _ = overlay.hide();
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        let result = tokio::task::spawn_blocking(move || super::quick::crop_region(rect))
+            .await
+            .map_err(|e| format!("Capture task failed: {e}"))
+            .and_then(|r| r)
+            .map(|attachment| Capture {
+                attachment,
+                app: String::new(),
+                title: String::new(),
+            });
+
+        let reply = match &result {
+            Ok(capture) => Ok(Some(capture.clone())),
+            Err(message) => Err(message.clone()),
+        };
+        if let Some(tx) = app
+            .state::<NotchState>()
+            .pick_capture
+            .lock()
+            .unwrap()
+            .take()
+        {
+            let _ = tx.send(reply);
+        }
+        if let Some(notch) = app.get_webview_window(NOTCH_LABEL) {
+            let _ = notch.show();
+        }
+        if let Some(overlay) = app.get_webview_window(win::CAPTURE_OVERLAY) {
+            let _ = overlay.destroy();
+        }
+        result.map(|_| ())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, rect);
+        Err("Notch region capture is only used on Windows".into())
+    }
 }
 
 // ── notch mode ──
@@ -666,6 +896,8 @@ pub struct NotchState {
     /// The pill wants Y / N while an approval is showing (`notch_resize`).
     keys: AtomicBool,
     placed: Mutex<Placed>,
+    /// Windows region picker: `notch_capture_pick` waits on this.
+    pick_capture: Mutex<Option<tokio::sync::oneshot::Sender<Result<Option<Capture>, String>>>>,
 }
 
 /// Where the pill's window is.
@@ -678,11 +910,21 @@ struct Placed {
     size: (f64, f64),
     /// An animation (`stretch`) has the window; the pill's frame comes back after.
     stretched: bool,
+    /// The fly-in is playing until then (or until the page says it's done):
+    /// the page's resizes wait, or they'd pull the window back to the pill's
+    /// frame mid-flight and cut the dot off to one side.
+    intro_until: Option<Instant>,
 }
 
 impl Default for Placed {
     fn default() -> Self {
-        Self { screen: None, frame: Rect::default(), size: START_SIZE, stretched: false }
+        Self {
+            screen: None,
+            frame: Rect::default(),
+            size: START_SIZE,
+            stretched: false,
+            intro_until: None,
+        }
     }
 }
 
@@ -737,7 +979,12 @@ async fn main_rect<R: Runtime>(app: &AppHandle<R>) -> Option<Rect> {
             return None;
         }
         let (pos, size) = (main.outer_position().ok()?, main.outer_size().ok()?);
-        Some(Rect { x: pos.x as f64, y: pos.y as f64, width: size.width as f64, height: size.height as f64 })
+        Some(Rect {
+            x: pos.x as f64,
+            y: pos.y as f64,
+            width: size.width as f64,
+            height: size.height as f64,
+        })
     }
 }
 
@@ -746,6 +993,8 @@ const GLOW_HEIGHT: f64 = 140.0;
 /// Where the dot starts without the main window on this screen (at login,
 /// or from another screen): this far down, as a share of the screen.
 const DOT_START: f64 = 0.42;
+/// Longest the fly-in holds the window, should the page never say it's done.
+const INTRO_HOLD: Duration = Duration::from_millis(4000);
 
 /// Cover the top of `screen` for the intro. The dot always rises from the
 /// middle of the screen, straight up into the notch: from the height the
@@ -761,10 +1010,27 @@ fn play_intro<R: Runtime>(window: &WebviewWindow<R>, screen: Screen, from: Optio
         .unwrap_or(height * DOT_START)
         .clamp(GLOW_HEIGHT, height * 0.7);
     let cover = (start + 80.0).max(GLOW_HEIGHT);
-    window.state::<NotchState>().placed.lock().unwrap().screen = Some(screen);
-    stretch(window, Rect { x: area.x, y: area.y, width: area.width, height: cover * screen.unit });
-    *window.state::<NotchState>().intro.lock().unwrap() =
-        Some(Intro { from: Some(Point { x: area.width / screen.unit / 2.0, y: start }) });
+    {
+        let state = window.state::<NotchState>();
+        let mut placed = state.placed.lock().unwrap();
+        placed.screen = Some(screen);
+        placed.intro_until = Some(Instant::now() + INTRO_HOLD);
+    }
+    stretch(
+        window,
+        Rect {
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: cover * screen.unit,
+        },
+    );
+    *window.state::<NotchState>().intro.lock().unwrap() = Some(Intro {
+        from: Some(Point {
+            x: area.width / screen.unit / 2.0,
+            y: start,
+        }),
+    });
 }
 
 /// Put the main window away and keep the pill at the top: the window has
@@ -807,6 +1073,16 @@ pub fn start_in_notch<R: Runtime>(app: &AppHandle<R>) {
         play_intro(&window, screen, None);
     }
     show_pill(&window);
+}
+
+/// The fly-in is over: the window goes back to the pill's own frame.
+#[tauri::command]
+pub fn notch_intro_done<R: Runtime>(app: AppHandle<R>) {
+    let Some(window) = app.get_webview_window(NOTCH_LABEL) else {
+        return;
+    };
+    app.state::<NotchState>().placed.lock().unwrap().intro_until = None;
+    unstretch(&window);
 }
 
 /// The fly-in to play, once; the page asks when it loads or is told.
@@ -852,12 +1128,25 @@ pub async fn notch_drop_out<R: Runtime>(app: AppHandle<R>) -> Option<DropTarget>
         // The app opens where the drop lands: this screen, in the middle.
         let width = rect.width.min(area.width - 40.0 * screen.unit);
         let height = rect.height.min(area.height - 80.0 * screen.unit);
-        rect = Rect { x: area.x + (area.width - width) / 2.0, y: area.y + (area.height - height) / 2.0, width, height };
+        rect = Rect {
+            x: area.x + (area.width - width) / 2.0,
+            y: area.y + (area.height - height) / 2.0,
+            width,
+            height,
+        };
         apply_frame(&main, rect);
     }
     let bottom = (rect.y + rect.height - area.y + 24.0 * screen.unit).min(area.height);
     let _ = window.set_focusable(false);
-    stretch(&window, Rect { x: area.x, y: area.y, width: area.width, height: bottom });
+    stretch(
+        &window,
+        Rect {
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: bottom,
+        },
+    );
     Some(DropTarget {
         x: (rect.x - area.x) / screen.unit,
         y: (rect.y - area.y) / screen.unit,
@@ -876,7 +1165,9 @@ fn hand_over<R: Runtime>(app: &AppHandle<R>, chat_id: Option<String>) {
     if let Some(chat_id) = chat_id {
         let _ = app.emit_to(MAIN_LABEL, "quick:open-chat", chat_id);
     }
-    let Some(window) = app.get_webview_window(NOTCH_LABEL) else { return };
+    let Some(window) = app.get_webview_window(NOTCH_LABEL) else {
+        return;
+    };
     let stretched = app.state::<NotchState>().placed.lock().unwrap().stretched;
     if !stretched {
         hide_pill(&window);
@@ -890,7 +1181,9 @@ fn hand_over<R: Runtime>(app: &AppHandle<R>, chat_id: Option<String>) {
         if round(&app) != started {
             return;
         }
-        let Some(window) = app.get_webview_window(NOTCH_LABEL) else { return };
+        let Some(window) = app.get_webview_window(NOTCH_LABEL) else {
+            return;
+        };
         if !mode_on(&app) {
             hide_pill(&window);
         }
@@ -927,7 +1220,9 @@ pub fn summon<R: Runtime>(app: &AppHandle<R>) -> bool {
     if !mode_on(app) {
         return false;
     }
-    let Ok(window) = notch_window(app) else { return false };
+    let Ok(window) = notch_window(app) else {
+        return false;
+    };
     let state = app.state::<NotchState>();
     let placed = state.placed.lock().unwrap().clone();
     if !placed.stretched {
@@ -998,21 +1293,30 @@ const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 
 #[cfg(windows)]
 fn run_value<R: Runtime>(app: &AppHandle<R>) -> String {
-    app.config().product_name.clone().unwrap_or_else(|| "Mali Cowork".into())
+    app.config()
+        .product_name
+        .clone()
+        .unwrap_or_else(|| "Mali Cowork".into())
 }
 
 #[cfg(windows)]
 fn reg(args: &[&str]) -> std::io::Result<std::process::ExitStatus> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    std::process::Command::new("reg").args(args).creation_flags(CREATE_NO_WINDOW).status()
+    std::process::Command::new("reg")
+        .args(args)
+        .creation_flags(CREATE_NO_WINDOW)
+        .status()
 }
 
 /// A LaunchAgent that starts Mali in the notch when you log in.
 #[cfg(target_os = "macos")]
 fn login_agent_plist(label: &str, exe: &str) -> String {
     let escape = |s: &str| {
-        s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
     };
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -1060,7 +1364,9 @@ pub fn notch_set_login_item<R: Runtime>(app: AppHandle<R>, on: bool) -> Result<(
         let path = login_agent(&app).ok_or("Cannot find your Library folder")?;
         if !on {
             return match std::fs::remove_file(&path) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(format!("Cannot remove the login item: {e}")),
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    Err(format!("Cannot remove the login item: {e}"))
+                }
                 _ => Ok(()),
             };
         }
@@ -1076,7 +1382,9 @@ pub fn notch_set_login_item<R: Runtime>(app: AppHandle<R>, on: bool) -> Result<(
         let name = run_value(&app);
         let status = if on {
             let command = format!("\"{}\" {START_IN_NOTCH}", exe.display());
-            reg(&["add", RUN_KEY, "/v", &name, "/t", "REG_SZ", "/d", &command, "/f"])
+            reg(&[
+                "add", RUN_KEY, "/v", &name, "/t", "REG_SZ", "/d", &command, "/f",
+            ])
         } else {
             reg(&["delete", RUN_KEY, "/v", &name, "/f"])
         };
@@ -1121,12 +1429,20 @@ const FOLLOW_AFTER: Duration = Duration::from_millis(700);
 const REACH_DWELL: Duration = Duration::from_millis(300);
 
 fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
-    if app.state::<NotchState>().watching.swap(true, Ordering::SeqCst) {
+    if app
+        .state::<NotchState>()
+        .watching
+        .swap(true, Ordering::SeqCst)
+    {
         return;
     }
+    #[cfg(windows)]
+    win::watch_wheel(app.clone());
     std::thread::spawn(move || {
         #[cfg(target_os = "macos")]
         let mut drags = mac::DragWatch::default();
+        #[cfg(windows)]
+        let mut drags = win::DragWatch::default();
         let mut dragging = false;
         let mut offered = false;
         let mut sleep_ms = POLL_NEAR_TOP_MS;
@@ -1136,6 +1452,11 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
         let mut away: Option<(u64, Instant)> = None;
         // The pointer at the top of a screen, since when.
         let mut topped: Option<(u64, Instant)> = None;
+        let mut accept_events = false;
+        #[cfg(target_os = "macos")]
+        let mut clicks = mac::ClickWatch::default();
+        #[cfg(windows)]
+        let mut clicks = win::ClickWatch::default();
         loop {
             std::thread::sleep(Duration::from_millis(sleep_ms));
             let Some(window) = app.get_webview_window(NOTCH_LABEL) else {
@@ -1148,7 +1469,9 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
             let state = app.state::<NotchState>();
             if synced.elapsed() >= RESYNC {
                 synced = Instant::now();
-                state.visible.store(window.is_visible().unwrap_or(false), Ordering::SeqCst);
+                state
+                    .visible
+                    .store(window.is_visible().unwrap_or(false), Ordering::SeqCst);
                 let now = screens(&app);
                 if now != all {
                     all = now;
@@ -1156,6 +1479,11 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
                 }
             }
             let visible = state.visible.load(Ordering::SeqCst);
+            // Looked at every pass, so a click from before the pill opened isn't news.
+            #[cfg(any(target_os = "macos", windows))]
+            let clicked = clicks.poll();
+            #[cfg(not(any(target_os = "macos", windows)))]
+            let clicked = false;
             let Some(point) = cursor(&app) else {
                 sleep_ms = POLL_AWAY_MS;
                 continue;
@@ -1188,6 +1516,14 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
                 match drags.poll() {
                     Some(mac::Drag::Started) => dragging = true,
                     Some(mac::Drag::Ended) => dragging = false,
+                    None => {}
+                }
+            }
+            #[cfg(windows)]
+            if dragging || near_strip || sleep_ms <= POLL_NEAR_TOP_MS {
+                match drags.poll(point) {
+                    Some(win::Drag::Started) => dragging = true,
+                    Some(win::Drag::Ended) => dragging = false,
                     None => {}
                 }
             }
@@ -1226,7 +1562,9 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
             // Following the pointer: once it settles on another screen (or
             // reaches for its top), the pill goes there — never while it's
             // open or in use.
-            let idle = !state.open.load(Ordering::SeqCst) && !state.inside.load(Ordering::SeqCst) && !dragging;
+            let idle = !state.open.load(Ordering::SeqCst)
+                && !state.inside.load(Ordering::SeqCst)
+                && !dragging;
             match (pref, under, placed.screen) {
                 (ScreenPref::Follow, Some(under), Some(on)) if idle && under.id != on.id => {
                     let since = match away {
@@ -1237,7 +1575,8 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
                             now
                         }
                     };
-                    if reached.is_some_and(|r| r.id == under.id) || since.elapsed() >= FOLLOW_AFTER {
+                    if reached.is_some_and(|r| r.id == under.id) || since.elapsed() >= FOLLOW_AFTER
+                    {
                         away = None;
                         move_to(&window, under);
                         sleep_ms = POLL_NEAR_TOP_MS;
@@ -1248,12 +1587,24 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
             }
             let area = *state.hit.read().unwrap();
             let unit = placed.screen.map_or(1.0, |s| s.unit);
-            let now = area.is_some_and(|area| pill_rect(placed.frame, unit, area).contains(point));
-            if state.inside.swap(now, Ordering::SeqCst) != now {
-                let _ = window.set_ignore_cursor_events(!now);
-                let _ = window.emit(HOVER, now);
+            let on_pill =
+                area.is_some_and(|area| pill_rect(placed.frame, unit, area).contains(point));
+            if state.inside.swap(on_pill, Ordering::SeqCst) != on_pill {
+                let _ = window.emit(HOVER, on_pill);
             }
-            sleep_ms = if now {
+            let open = state.open.load(Ordering::SeqCst);
+            // A click off the open pill (the desktop, another app) folds it right away.
+            if clicked && open && !on_pill && !dragging {
+                let _ = window.emit(CLICK_AWAY, ());
+            }
+            // The open ask box needs drag-and-drop on Windows; the hit area alone is easy to miss while dragging.
+            let want_events = on_pill || state.open.load(Ordering::SeqCst);
+            if accept_events != want_events {
+                accept_events = want_events;
+                let _ = window.set_ignore_cursor_events(!want_events);
+            }
+            // Open, a click away should fold it without a wait.
+            sleep_ms = if on_pill || open {
                 POLL_ON_PILL_MS
             } else if near_strip {
                 POLL_NEAR_TOP_MS
@@ -1261,7 +1612,9 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
                 POLL_AWAY_MS
             };
         }
-        app.state::<NotchState>().watching.store(false, Ordering::SeqCst);
+        app.state::<NotchState>()
+            .watching
+            .store(false, Ordering::SeqCst);
     });
 }
 
@@ -1275,7 +1628,9 @@ fn rehome<R: Runtime>(window: &WebviewWindow<R>, screens: &[Screen]) {
         .screen
         .and_then(|on| screens.iter().find(|s| s.id == on.id).copied())
         .filter(|_| pref == ScreenPref::Follow);
-    let Some(screen) = kept.or_else(|| home_screen(screens, pref, cursor(app))) else { return };
+    let Some(screen) = kept.or_else(|| home_screen(screens, pref, cursor(app))) else {
+        return;
+    };
     if placed.screen == Some(screen) && !placed.stretched {
         return;
     }
@@ -1296,9 +1651,17 @@ fn read_notch(width: f64, inset_top: f64, left: f64, right: f64, menu_bar: f64) 
     let gap = width - left - right;
     let bar_height = inset_top.max(menu_bar).max(0.0);
     if left > 0.0 && right > 0.0 && gap > 40.0 && gap < width * 0.4 {
-        NotchGeometry { has_notch: true, notch_width: gap, bar_height }
+        NotchGeometry {
+            has_notch: true,
+            notch_width: gap,
+            bar_height,
+        }
     } else {
-        NotchGeometry { has_notch: false, notch_width: 0.0, bar_height }
+        NotchGeometry {
+            has_notch: false,
+            notch_width: 0.0,
+            bar_height,
+        }
     }
 }
 
@@ -1310,10 +1673,12 @@ mod mac {
     use objc2::runtime::AnyObject;
     use objc2::MainThreadMarker;
     use objc2_app_kit::{
-        NSEvent, NSMainMenuWindowLevel, NSPasteboard, NSPasteboardNameDrag, NSPasteboardTypeFileURL, NSScreen,
-        NSWindow, NSWindowCollectionBehavior,
+        NSEvent, NSMainMenuWindowLevel, NSPasteboard, NSPasteboardNameDrag,
+        NSPasteboardTypeFileURL, NSScreen, NSWindow, NSWindowCollectionBehavior,
     };
-    use objc2_foundation::{ns_string, NSArray, NSDictionary, NSNumber, NSPoint, NSRect, NSSize, NSString};
+    use objc2_foundation::{
+        ns_string, NSArray, NSDictionary, NSNumber, NSPoint, NSRect, NSSize, NSString,
+    };
     use tauri::{Runtime, WebviewWindow};
 
     use super::{NotchGeometry, Rect, Screen};
@@ -1330,6 +1695,7 @@ mod mac {
         fn CGMainDisplayID() -> u32;
         fn CGEventCreate(source: *const c_void) -> *mut c_void;
         fn CGEventGetLocation(event: *const c_void) -> NSPoint;
+        fn CGEventSourceSecondsSinceLastEventType(state: i32, kind: u32) -> f64;
     }
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
@@ -1353,7 +1719,12 @@ mod mac {
                 let b = unsafe { CGDisplayBounds(id) };
                 Screen {
                     id: id as u64,
-                    area: Rect { x: b.origin.x, y: b.origin.y, width: b.size.width, height: b.size.height },
+                    area: Rect {
+                        x: b.origin.x,
+                        y: b.origin.y,
+                        width: b.size.width,
+                        height: b.size.height,
+                    },
                     unit: 1.0,
                     builtin: unsafe { CGDisplayIsBuiltin(id) } != 0,
                     main: id == main,
@@ -1374,6 +1745,37 @@ mod mac {
         Some((at.x, at.y))
     }
 
+    /// Clicks anywhere on screen, seen from the time since the last button
+    /// press: a press too quick for the poll to see held down still counts.
+    #[derive(Default)]
+    pub struct ClickWatch {
+        last: Option<std::time::Instant>,
+    }
+
+    impl ClickWatch {
+        /// A press since the last look.
+        pub fn poll(&mut self) -> bool {
+            // Combined session state; left, right and other mouse down.
+            let since = [1u32, 3, 25]
+                .iter()
+                .map(|&kind| unsafe { CGEventSourceSecondsSinceLastEventType(0, kind) })
+                .fold(f64::INFINITY, f64::min);
+            if !since.is_finite() || since < 0.0 {
+                return false;
+            }
+            let Some(at) = std::time::Instant::now().checked_sub(std::time::Duration::from_secs_f64(since)) else {
+                return false;
+            };
+            let fresh = self
+                .last
+                .is_some_and(|last| at > last + std::time::Duration::from_millis(20));
+            if self.last.is_none() || fresh {
+                self.last = Some(at);
+            }
+            fresh
+        }
+    }
+
     /// Cocoa frames start at the bottom left of the main display; CoreGraphics
     /// at its top left.
     fn primary_height() -> f64 {
@@ -1381,7 +1783,10 @@ mod mac {
     }
 
     fn to_cocoa(rect: Rect) -> NSRect {
-        NSRect::new(NSPoint::new(rect.x, primary_height() - rect.y - rect.height), NSSize::new(rect.width, rect.height))
+        NSRect::new(
+            NSPoint::new(rect.x, primary_height() - rect.y - rect.height),
+            NSSize::new(rect.width, rect.height),
+        )
     }
 
     fn from_cocoa(frame: NSRect) -> Rect {
@@ -1446,7 +1851,10 @@ mod mac {
     const EXCLUDE_DESKTOP: u32 = 1 << 4;
 
     fn number(dict: &NSDictionary<NSString, AnyObject>, key: &NSString) -> Option<f64> {
-        dict.objectForKey(key)?.downcast::<NSNumber>().ok().map(|n| n.doubleValue())
+        dict.objectForKey(key)?
+            .downcast::<NSNumber>()
+            .ok()
+            .map(|n| n.doubleValue())
     }
 
     fn text(dict: &NSDictionary<NSString, AnyObject>, key: &NSString) -> String {
@@ -1472,7 +1880,8 @@ mod mac {
         let raw = unsafe { CGWindowListCopyWindowInfo(ON_SCREEN_ONLY | EXCLUDE_DESKTOP, 0) };
         // SAFETY: a CFArray of CFDictionary, handed over retained (+1); both
         // are toll-free bridged to NSArray / NSDictionary.
-        let list: Retained<NSArray<NSDictionary<NSString, AnyObject>>> = unsafe { Retained::from_raw(raw.cast())? };
+        let list: Retained<NSArray<NSDictionary<NSString, AnyObject>>> =
+            unsafe { Retained::from_raw(raw.cast())? };
         let own = std::process::id() as f64;
         (0..list.count()).find_map(|i| {
             let info = list.objectAtIndex(i);
@@ -1483,9 +1892,16 @@ mod mac {
             }
             let bounds = info.objectForKey(ns_string!("kCGWindowBounds"))?;
             // SAFETY: kCGWindowBounds is a CFDictionary of numbers.
-            let bounds: Retained<NSDictionary<NSString, AnyObject>> = unsafe { Retained::cast_unchecked(bounds) };
-            let (bx, by) = (number(&bounds, ns_string!("X"))?, number(&bounds, ns_string!("Y"))?);
-            let (bw, bh) = (number(&bounds, ns_string!("Width"))?, number(&bounds, ns_string!("Height"))?);
+            let bounds: Retained<NSDictionary<NSString, AnyObject>> =
+                unsafe { Retained::cast_unchecked(bounds) };
+            let (bx, by) = (
+                number(&bounds, ns_string!("X"))?,
+                number(&bounds, ns_string!("Y"))?,
+            );
+            let (bw, bh) = (
+                number(&bounds, ns_string!("Width"))?,
+                number(&bounds, ns_string!("Height"))?,
+            );
             if x < bx || x > bx + bw || y < by || y > by + bh || bw < 40.0 || bh < 40.0 {
                 return None;
             }
@@ -1515,7 +1931,9 @@ mod mac {
     /// zoomed and dimmed the pill along with it, which flickered. A Transient
     /// window simply steps aside while Mission Control is up.
     pub fn float_above_menu_bar<R: Runtime>(window: &WebviewWindow<R>) {
-        let Some(ns_window) = ns_window(window) else { return };
+        let Some(ns_window) = ns_window(window) else {
+            return;
+        };
         ns_window.setLevel(NSMainMenuWindowLevel + 2);
         ns_window.setCollectionBehavior(
             NSWindowCollectionBehavior::CanJoinAllSpaces
@@ -1532,7 +1950,9 @@ mod mac {
     /// Move and size in one step: moving, then resizing, shows a frame where
     /// the pill sits off-center, which reads as a flicker.
     pub fn set_frame<R: Runtime>(window: &WebviewWindow<R>, rect: Rect) {
-        let Some(ns_window) = ns_window(window) else { return };
+        let Some(ns_window) = ns_window(window) else {
+            return;
+        };
         ns_window.setFrame_display(to_cocoa(rect), true);
     }
 
@@ -1552,22 +1972,78 @@ mod mac {
     const PIN_TOP: usize = 8;
     /// The layer's bottom corners (minY is the bottom in a non-flipped layer).
     const BOTTOM_CORNERS: usize = 1 | 2;
-    /// About the page's spring, so the blur keeps up with the shape.
-    const FOLLOW_S: f64 = 0.3;
+    /// The page's spring (stiffness 420, damping 34, mass 0.9) as a curve:
+    /// fitted to it, so the blur keeps up with the shape all the way.
+    const FOLLOW_S: f64 = 0.32;
+    const FOLLOW_CURVE: [f32; 4] = [0.4, 0.65, 0.15, 1.0];
 
-    /// The system's blur under the web view, shaped like the open pill; or
-    /// hidden (`want` none). Views are found and changed by message, so no
-    /// AppKit feature has to be compiled in for them.
-    pub fn set_backdrop<R: Runtime>(window: &WebviewWindow<R>, want: Option<(bool, super::BackdropRect)>) -> bool {
+    /// The view's frame for a rect in the page's coordinates (top-left origin).
+    unsafe fn frame_in(content: &AnyObject, rect: super::BackdropRect) -> NSRect {
+        use objc2::msg_send;
+        let bounds: NSRect = msg_send![content, bounds];
+        let flipped: bool = msg_send![content, isFlipped];
+        let y = if flipped {
+            rect.y
+        } else {
+            bounds.size.height - rect.y - rect.height
+        };
+        NSRect::new(
+            NSPoint::new(rect.x, y),
+            NSSize::new(rect.width, rect.height),
+        )
+    }
+
+    /// Moves `effect` to `frame` and `alpha` along the page's spring.
+    unsafe fn follow(effect: *mut AnyObject, frame: NSRect, alpha: f64) {
+        use objc2::msg_send;
+        use objc2::runtime::{AnyClass, MessageReceiver};
+        use objc2::sel;
+        let Some(animation) = AnyClass::get(c"NSAnimationContext") else {
+            let _: () = msg_send![effect, setFrame: frame];
+            let _: () = msg_send![effect, setAlphaValue: alpha];
+            return;
+        };
+        let _: () = msg_send![animation, beginGrouping];
+        let context: *mut AnyObject = msg_send![animation, currentContext];
+        let _: () = msg_send![context, setDuration: FOLLOW_S];
+        if let Some(timing) = AnyClass::get(c"CAMediaTimingFunction") {
+            let [a, b, c, d] = FOLLOW_CURVE;
+            let curve: *mut AnyObject =
+                timing.send_message(sel!(functionWithControlPoints::::), (a, b, c, d));
+            if !curve.is_null() {
+                let _: () = msg_send![context, setTimingFunction: curve];
+            }
+        }
+        let animator: *mut AnyObject = msg_send![effect, animator];
+        let _: () = msg_send![animator, setFrame: frame];
+        let _: () = msg_send![animator, setAlphaValue: alpha];
+        let _: () = msg_send![animation, endGrouping];
+    }
+
+    /// The system's blur under the web view, shaped like the open pill
+    /// (`light`: which glass), growing out of `from` when it comes into view.
+    /// Taken away (`light` none), it shrinks into `rect` as it fades, or
+    /// hides at once without one. Views are found and changed by message, so
+    /// no AppKit feature has to be compiled in for them.
+    pub fn set_backdrop<R: Runtime>(
+        window: &WebviewWindow<R>,
+        light: Option<bool>,
+        rect: Option<super::BackdropRect>,
+        from: Option<super::BackdropRect>,
+    ) -> bool {
         use objc2::msg_send;
         use objc2::runtime::AnyClass;
-        let Some(ns_window) = ns_window(window) else { return false };
+        let Some(ns_window) = ns_window(window) else {
+            return false;
+        };
         // SAFETY: on the main thread (ns_window checked), with AppKit classes
         // and selectors that exist on every macOS the app runs on; the view
         // made here is owned by its superview once added.
         unsafe {
             let content: *mut AnyObject = msg_send![ns_window, contentView];
-            let Some(content) = content.as_ref() else { return false };
+            let Some(content) = content.as_ref() else {
+                return false;
+            };
             let id = NSString::from_str(BACKDROP_ID);
             let subviews: *mut AnyObject = msg_send![content, subviews];
             let count: usize = msg_send![subviews, count];
@@ -1583,13 +2059,23 @@ mod mac {
                     }
                 }
             }
-            let Some((light, rect)) = want else {
-                if !effect.is_null() {
-                    let _: () = msg_send![effect, setHidden: true];
+            let (Some(light), Some(rect)) = (light, rect) else {
+                if effect.is_null() {
+                    return true;
+                }
+                let hidden: bool = msg_send![effect, isHidden];
+                match rect {
+                    // Folding back into the notch: shrink with the pill and fade under its black.
+                    Some(to) if !hidden => follow(effect, frame_in(content, to), 0.0),
+                    _ => {
+                        let _: () = msg_send![effect, setHidden: true];
+                    }
                 }
                 return true;
             };
-            let Some(class) = AnyClass::get(c"NSVisualEffectView") else { return false };
+            let Some(class) = AnyClass::get(c"NSVisualEffectView") else {
+                return false;
+            };
             let fresh = effect.is_null();
             if fresh {
                 let made: *mut AnyObject = msg_send![class, alloc];
@@ -1611,14 +2097,15 @@ mod mac {
             }
             let _: () = msg_send![effect, setMaterial: if light { POPOVER } else { HUD }];
             if let Some(appearances) = AnyClass::get(c"NSAppearance") {
-                let name = NSString::from_str(if light { "NSAppearanceNameAqua" } else { "NSAppearanceNameDarkAqua" });
+                let name = NSString::from_str(if light {
+                    "NSAppearanceNameAqua"
+                } else {
+                    "NSAppearanceNameDarkAqua"
+                });
                 let appearance: *mut AnyObject = msg_send![appearances, appearanceNamed: &*name];
                 let _: () = msg_send![effect, setAppearance: appearance];
             }
-            let bounds: NSRect = msg_send![content, bounds];
-            let flipped: bool = msg_send![content, isFlipped];
-            let y = if flipped { rect.y } else { bounds.size.height - rect.y - rect.height };
-            let frame = NSRect::new(NSPoint::new(rect.x, y), NSSize::new(rect.width, rect.height));
+            let frame = frame_in(content, rect);
             let layer: *mut AnyObject = msg_send![effect, layer];
             if !layer.is_null() {
                 let _: () = msg_send![layer, setCornerRadius: rect.radius];
@@ -1627,18 +2114,24 @@ mod mac {
             }
             let hidden: bool = msg_send![effect, isHidden];
             if hidden || fresh {
-                // Coming into view: in place at once, the page fades its tint in over it.
-                let _: () = msg_send![effect, setFrame: frame];
-                let _: () = msg_send![effect, setHidden: false];
-            } else if let Some(animation) = AnyClass::get(c"NSAnimationContext") {
-                let _: () = msg_send![animation, beginGrouping];
-                let context: *mut AnyObject = msg_send![animation, currentContext];
-                let _: () = msg_send![context, setDuration: FOLLOW_S];
-                let animator: *mut AnyObject = msg_send![effect, animator];
-                let _: () = msg_send![animator, setFrame: frame];
-                let _: () = msg_send![animation, endGrouping];
+                // Coming into view: out of the collapsed pill, growing with the
+                // page's shape; without a start, in place at once.
+                match from {
+                    Some(from) => {
+                        let _: () = msg_send![effect, setFrame: frame_in(content, from)];
+                        let _: () = msg_send![effect, setAlphaValue: 0.0f64];
+                        let _: () = msg_send![effect, setHidden: false];
+                        follow(effect, frame, 1.0);
+                    }
+                    None => {
+                        let _: () = msg_send![effect, setFrame: frame];
+                        let _: () = msg_send![effect, setAlphaValue: 1.0f64];
+                        let _: () = msg_send![effect, setHidden: false];
+                    }
+                }
             } else {
-                let _: () = msg_send![effect, setFrame: frame];
+                // Changing shape, or opened again while folding away: from where it is now.
+                follow(effect, frame, 1.0);
             }
         }
         true
@@ -1648,13 +2141,18 @@ mod mac {
     /// one): the top safe-area inset is its height, and the areas either
     /// side of it leave its width. Without a notch, the menu bar's height is
     /// the gap between the frame and the visible frame.
-    pub fn geometry<R: Runtime>(window: &WebviewWindow<R>, at: Option<Rect>) -> Option<NotchGeometry> {
+    pub fn geometry<R: Runtime>(
+        window: &WebviewWindow<R>,
+        at: Option<Rect>,
+    ) -> Option<NotchGeometry> {
         let mtm = MainThreadMarker::new()?;
         let all = NSScreen::screens(mtm);
         let matching = at.and_then(|at| {
             (0..all.count()).map(|i| all.objectAtIndex(i)).find(|s| {
                 let r = from_cocoa(s.frame());
-                (r.x - at.x).abs() < 1.0 && (r.y - at.y).abs() < 1.0 && (r.width - at.width).abs() < 1.0
+                (r.x - at.x).abs() < 1.0
+                    && (r.y - at.y).abs() < 1.0
+                    && (r.width - at.width).abs() < 1.0
             })
         });
         let screen = matching
@@ -1662,7 +2160,8 @@ mod mac {
             .or_else(|| NSScreen::mainScreen(mtm))?;
         let frame = screen.frame();
         let visible = screen.visibleFrame();
-        let menu_bar = (frame.origin.y + frame.size.height) - (visible.origin.y + visible.size.height);
+        let menu_bar =
+            (frame.origin.y + frame.size.height) - (visible.origin.y + visible.size.height);
         Some(super::read_notch(
             frame.size.width,
             screen.safeAreaInsets().top,
@@ -1670,6 +2169,393 @@ mod mac {
             screen.auxiliaryTopRightArea().size.width,
             menu_bar,
         ))
+    }
+}
+
+#[cfg(windows)]
+mod win {
+    use super::super::quick::CaptureRect;
+    use super::NOTCH_LABEL;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+    use tauri::{
+        AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Runtime, Size,
+        WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    };
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+    use windows_sys::Win32::Graphics::Gdi::{
+        CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, SetWindowRgn, RGN_AND,
+    };
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CallNextHookEx, GetAncestor, GetCursorPos, GetMessageW, GetWindowRect,
+        GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
+        SetWindowsHookExW, UnhookWindowsHookEx, WindowFromPoint, GA_ROOT, HC_ACTION, MSG,
+        MSLLHOOKSTRUCT, WH_MOUSE_LL, WM_MOUSEWHEEL,
+    };
+
+    pub const CAPTURE_OVERLAY: &str = "notch-capture-overlay";
+
+    pub struct Under {
+        pub app: String,
+        pub title: String,
+        pub rect: RECT,
+    }
+
+    fn window_title(hwnd: HWND) -> String {
+        unsafe {
+            let len = GetWindowTextLengthW(hwnd);
+            if len <= 0 {
+                return String::new();
+            }
+            let mut buf = vec![0u16; (len + 1) as usize];
+            let read = GetWindowTextW(hwnd, buf.as_mut_ptr(), len + 1);
+            String::from_utf16_lossy(&buf[..read.max(0) as usize])
+        }
+    }
+
+    /// The front-most visible window under the cursor, not one of Mali's own.
+    pub fn window_at_cursor<R: Runtime>(notch: &WebviewWindow<R>) -> Option<Under> {
+        unsafe {
+            let mut pt = POINT { x: 0, y: 0 };
+            if GetCursorPos(&mut pt) == 0 {
+                return None;
+            }
+            let mut hwnd = WindowFromPoint(pt);
+            if hwnd.is_null() {
+                return None;
+            }
+            let root = GetAncestor(hwnd, GA_ROOT);
+            if !root.is_null() {
+                hwnd = root;
+            }
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            if pid == GetCurrentProcessId() {
+                return None;
+            }
+            if IsWindowVisible(hwnd) == 0 {
+                return None;
+            }
+            let mut rect = RECT {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            };
+            if GetWindowRect(hwnd, &mut rect) == 0 {
+                return None;
+            }
+            let title = window_title(hwnd);
+            let app = title
+                .split(" - ")
+                .next()
+                .unwrap_or("Window")
+                .trim()
+                .to_string();
+            let _ = notch;
+            Some(Under { app, title, rect })
+        }
+    }
+
+    pub async fn capture_screen_rect(
+        rect: &RECT,
+    ) -> Result<super::super::attachments::Attachment, String> {
+        let capture = CaptureRect {
+            x: rect.left,
+            y: rect.top,
+            width: (rect.right - rect.left).max(0) as u32,
+            height: (rect.bottom - rect.top).max(0) as u32,
+        };
+        if capture.width == 0 || capture.height == 0 {
+            return Err("That window has no size to capture".into());
+        }
+        tokio::task::spawn_blocking(move || super::super::quick::crop_region(capture))
+            .await
+            .map_err(|e| format!("Capture task failed: {e}"))?
+    }
+
+    pub async fn open_capture_overlay<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+        if let Some(notch) = app.get_webview_window(NOTCH_LABEL) {
+            let _ = notch.hide();
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+
+        let cursor = app.cursor_position().ok().map(|p| (p.x, p.y));
+        let infos = tokio::task::spawn_blocking(|| {
+            screenshots::Screen::all().map(|screens| {
+                screens
+                    .into_iter()
+                    .map(|s| {
+                        let info = s.display_info;
+                        (info.x, info.y, info.width, info.height)
+                    })
+                    .collect::<Vec<_>>()
+            })
+        })
+        .await
+        .map_err(|e| format!("Screen listing failed: {e}"))?
+        .map_err(|e| format!("Cannot access screens: {e}"))?;
+
+        let target = infos
+            .iter()
+            .find(|(x, y, w, h)| {
+                if let Some((cx, cy)) = cursor {
+                    cx >= *x as f64
+                        && cx <= (*x as f64 + *w as f64)
+                        && cy >= *y as f64
+                        && cy <= (*y as f64 + *h as f64)
+                } else {
+                    false
+                }
+            })
+            .or_else(|| infos.first())
+            .ok_or("No screen found")?;
+
+        let (x, y, w, h) = *target;
+        if let Some(stale) = app.get_webview_window(CAPTURE_OVERLAY) {
+            let _ = stale.destroy();
+        }
+        let url = format!("index.html?window=quick-capture-overlay&pick=notch&x={x}&y={y}");
+        let window = WebviewWindowBuilder::new(app, CAPTURE_OVERLAY, WebviewUrl::App(url.into()))
+            .title("Capture region")
+            .decorations(false)
+            .transparent(true)
+            .background_color(tauri::window::Color(0, 0, 0, 0))
+            .shadow(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .visible(false)
+            .build()
+            .map_err(|e| format!("Cannot open capture overlay: {e}"))?;
+        let _ = window.set_position(Position::Physical(PhysicalPosition { x, y }));
+        let _ = window.set_size(Size::Physical(PhysicalSize {
+            width: w,
+            height: h,
+        }));
+        let _ = window.show();
+        let _ = window.set_focus();
+        Ok(())
+    }
+
+    /// The open pill's shape in its window (logical pixels), as last clipped to.
+    #[derive(Debug, Clone, Copy)]
+    struct Clip {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        radius: f64,
+    }
+
+    impl Clip {
+        fn lerp(self, to: Clip, t: f64) -> Clip {
+            let mix = |a: f64, b: f64| a + (b - a) * t;
+            Clip {
+                x: mix(self.x, to.x),
+                y: mix(self.y, to.y),
+                width: mix(self.width, to.width),
+                height: mix(self.height, to.height),
+                radius: mix(self.radius, to.radius),
+            }
+        }
+    }
+
+    static CLIP: Mutex<Option<Clip>> = Mutex::new(None);
+    /// Counts each new shape: a slide on its way to an older one stops.
+    static CLIP_ROUND: AtomicU64 = AtomicU64::new(0);
+    /// As long as the page's pill takes to change shape.
+    const CLIP_FOLLOW: Duration = Duration::from_millis(300);
+    const CLIP_FRAME: Duration = Duration::from_millis(16);
+
+    /// The window's region: the pill's shape, square at the top and round at
+    /// the bottom — or (None) the whole window. A shape that changes slides
+    /// there along with the pill, so the pill is never cut off mid-way.
+    pub fn clip_to_pill<R: Runtime>(window: &WebviewWindow<R>, rect: Option<super::BackdropRect>) {
+        let round = CLIP_ROUND.fetch_add(1, Ordering::SeqCst) + 1;
+        let Ok(hwnd) = window.hwnd() else { return };
+        // As a number, to hand to the thread that slides the region.
+        let hwnd = hwnd.0 as isize;
+        let scale = window.scale_factor().unwrap_or(1.0);
+        let mut clip = CLIP.lock().unwrap();
+        let Some(rect) = rect else {
+            *clip = None;
+            // SAFETY: a window of ours; a null region is the whole window.
+            unsafe { SetWindowRgn(hwnd as HWND, std::ptr::null_mut(), 1) };
+            return;
+        };
+        let to = Clip {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            radius: rect.radius,
+        };
+        let Some(from) = *clip else {
+            // Coming into view: in place at once.
+            set_region(hwnd, to, scale);
+            *clip = Some(to);
+            return;
+        };
+        drop(clip);
+        std::thread::spawn(move || {
+            let start = Instant::now();
+            loop {
+                let t = (start.elapsed().as_secs_f64() / CLIP_FOLLOW.as_secs_f64()).min(1.0);
+                {
+                    let mut clip = CLIP.lock().unwrap();
+                    if CLIP_ROUND.load(Ordering::SeqCst) != round {
+                        return;
+                    }
+                    let now = from.lerp(to, 1.0 - (1.0 - t).powi(3));
+                    set_region(hwnd, now, scale);
+                    *clip = Some(now);
+                }
+                if t >= 1.0 {
+                    return;
+                }
+                std::thread::sleep(CLIP_FRAME);
+            }
+        });
+    }
+
+    fn set_region(hwnd: isize, clip: Clip, scale: f64) {
+        let px = |v: f64| (v * scale).round() as i32;
+        let (left, top, right, bottom) = (
+            px(clip.x),
+            px(clip.y),
+            px(clip.x + clip.width),
+            px(clip.y + clip.height),
+        );
+        let corner = px(clip.radius * 2.0).max(1);
+        // SAFETY: regions made here are deleted here, except the one the
+        // window takes, which is then the system's.
+        unsafe {
+            let region = CreateRectRgn(left, top, right, bottom);
+            // Rounded all round, from above the top: only the bottom corners show.
+            let rounded =
+                CreateRoundRectRgn(left, top - corner, right + 1, bottom + 1, corner, corner);
+            CombineRgn(region, region, rounded, RGN_AND);
+            DeleteObject(rounded);
+            if SetWindowRgn(hwnd as HWND, region, 1) == 0 {
+                DeleteObject(region);
+            }
+        }
+    }
+
+    type OnWheel = Box<dyn Fn(i16) + Send + Sync>;
+    static ON_WHEEL: OnceLock<OnWheel> = OnceLock::new();
+
+    /// The mouse wheel over the pill, to the page. The pill's window never
+    /// activates, and WebView2 doesn't always get the wheel then; a low-level
+    /// hook hears it anyway (the page takes one turn once, from either).
+    pub fn watch_wheel<R: Runtime>(app: AppHandle<R>) {
+        let on: OnWheel = Box::new(move |delta| {
+            if app
+                .state::<super::NotchState>()
+                .inside
+                .load(Ordering::SeqCst)
+            {
+                // Windows counts a turn away from you as up; a page's deltaY, down.
+                let _ = app.emit_to(NOTCH_LABEL, super::WHEEL, -f64::from(delta));
+            }
+        });
+        if ON_WHEEL.set(on).is_err() {
+            return;
+        }
+        std::thread::spawn(|| {
+            // SAFETY: the hook lives as long as this thread, which pumps
+            // messages for it (a low-level hook needs that) until the app quits.
+            unsafe {
+                let hook = SetWindowsHookExW(
+                    WH_MOUSE_LL,
+                    Some(wheel_hook),
+                    GetModuleHandleW(std::ptr::null()),
+                    0,
+                );
+                if hook.is_null() {
+                    return;
+                }
+                let mut msg: MSG = std::mem::zeroed();
+                while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {}
+                UnhookWindowsHookEx(hook);
+            }
+        });
+    }
+
+    unsafe extern "system" fn wheel_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+        if code == HC_ACTION as i32 && wparam as u32 == WM_MOUSEWHEEL {
+            // SAFETY: for WM_MOUSEWHEEL, lparam is the hook's MSLLHOOKSTRUCT.
+            let info = &*(lparam as *const MSLLHOOKSTRUCT);
+            if let Some(on) = ON_WHEEL.get() {
+                on((info.mouseData >> 16) as u16 as i16);
+            }
+        }
+        CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam)
+    }
+
+    /// Clicks anywhere on screen: a mouse button that went down since the last look.
+    #[derive(Default)]
+    pub struct ClickWatch {
+        down: bool,
+    }
+
+    impl ClickWatch {
+        pub fn poll(&mut self) -> bool {
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
+            let held = |key: u16| unsafe { GetAsyncKeyState(key as i32) as u16 & 0x8000 != 0 };
+            let down = held(VK_LBUTTON) || held(VK_RBUTTON);
+            let pressed = down && !self.down;
+            self.down = down;
+            pressed
+        }
+    }
+
+    /// File drags and other drags toward the top: left button down and moved enough.
+    #[derive(Default)]
+    pub struct DragWatch {
+        origin: Option<(f64, f64)>,
+        active: bool,
+    }
+
+    pub enum Drag {
+        Started,
+        Ended,
+    }
+
+    impl DragWatch {
+        pub fn poll(&mut self, point: (f64, f64)) -> Option<Drag> {
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_LBUTTON;
+            let down = unsafe { GetAsyncKeyState(VK_LBUTTON as i32) as u16 & 0x8000 != 0 };
+            if !down {
+                self.origin = None;
+                if self.active {
+                    self.active = false;
+                    return Some(Drag::Ended);
+                }
+                return None;
+            }
+            if self.active {
+                return None;
+            }
+            if self.origin.is_none() {
+                self.origin = Some(point);
+                return None;
+            }
+            let Some(origin) = self.origin else {
+                return None;
+            };
+            let moved = (point.0 - origin.0).hypot(point.1 - origin.1) > 10.0;
+            if moved {
+                self.active = true;
+                return Some(Drag::Started);
+            }
+            None
+        }
     }
 }
 
@@ -1706,7 +2592,12 @@ mod tests {
 
     #[test]
     fn geometry_reads_as_the_page_expects() {
-        let json = serde_json::to_value(NotchGeometry { has_notch: true, notch_width: 185.0, bar_height: 32.0 }).unwrap();
+        let json = serde_json::to_value(NotchGeometry {
+            has_notch: true,
+            notch_width: 185.0,
+            bar_height: 32.0,
+        })
+        .unwrap();
         assert_eq!(json["hasNotch"], true);
         assert_eq!(json["notchWidth"], 185.0);
         assert_eq!(json["barHeight"], 32.0);
@@ -1717,14 +2608,24 @@ mod tests {
         vec![
             Screen {
                 id: 1,
-                area: Rect { x: 0.0, y: 0.0, width: 1512.0, height: 982.0 },
+                area: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1512.0,
+                    height: 982.0,
+                },
                 unit: 1.0,
                 builtin: true,
                 main: true,
             },
             Screen {
                 id: 2,
-                area: Rect { x: 1512.0, y: -300.0, width: 2560.0, height: 1440.0 },
+                area: Rect {
+                    x: 1512.0,
+                    y: -300.0,
+                    width: 2560.0,
+                    height: 1440.0,
+                },
                 unit: 1.0,
                 builtin: false,
                 main: false,
@@ -1736,11 +2637,31 @@ mod tests {
     fn the_pill_lives_where_the_setting_says() {
         let screens = desk();
         let on_external = Some((2500.0, 400.0));
-        assert_eq!(home_screen(&screens, ScreenPref::Follow, on_external).unwrap().id, 2);
-        assert_eq!(home_screen(&screens, ScreenPref::Builtin, on_external).unwrap().id, 1);
-        assert_eq!(home_screen(&screens, ScreenPref::Main, on_external).unwrap().id, 1);
+        assert_eq!(
+            home_screen(&screens, ScreenPref::Follow, on_external)
+                .unwrap()
+                .id,
+            2
+        );
+        assert_eq!(
+            home_screen(&screens, ScreenPref::Builtin, on_external)
+                .unwrap()
+                .id,
+            1
+        );
+        assert_eq!(
+            home_screen(&screens, ScreenPref::Main, on_external)
+                .unwrap()
+                .id,
+            1
+        );
         // Off every screen (between them), following falls back to the main one.
-        assert_eq!(home_screen(&screens, ScreenPref::Follow, Some((-50.0, -50.0))).unwrap().id, 1);
+        assert_eq!(
+            home_screen(&screens, ScreenPref::Follow, Some((-50.0, -50.0)))
+                .unwrap()
+                .id,
+            1
+        );
     }
 
     #[test]
@@ -1748,7 +2669,10 @@ mod tests {
         let mut screens = desk();
         screens.remove(0);
         screens[0].main = true;
-        assert_eq!(home_screen(&screens, ScreenPref::Builtin, None).unwrap().id, 2);
+        assert_eq!(
+            home_screen(&screens, ScreenPref::Builtin, None).unwrap().id,
+            2
+        );
         assert!(home_screen(&[], ScreenPref::Follow, None).is_none());
     }
 
@@ -1756,10 +2680,35 @@ mod tests {
     fn the_pill_hangs_centered_from_the_top_of_its_screen() {
         let external = desk()[1];
         let frame = frame_on(&external, (700.0, 400.0));
-        assert_eq!(frame, Rect { x: 1512.0 + (2560.0 - 700.0) / 2.0, y: -300.0, width: 700.0, height: 400.0 });
+        assert_eq!(
+            frame,
+            Rect {
+                x: 1512.0 + (2560.0 - 700.0) / 2.0,
+                y: -300.0,
+                width: 700.0,
+                height: 400.0
+            }
+        );
         // Windows: screen units are physical pixels, the size is logical.
-        let scaled = Screen { unit: 1.5, area: Rect { x: 0.0, y: 0.0, width: 3000.0, height: 1900.0 }, ..external };
-        assert_eq!(frame_on(&scaled, (200.0, 40.0)), Rect { x: 1350.0, y: 0.0, width: 300.0, height: 60.0 });
+        let scaled = Screen {
+            unit: 1.5,
+            area: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 3000.0,
+                height: 1900.0,
+            },
+            ..external
+        };
+        assert_eq!(
+            frame_on(&scaled, (200.0, 40.0)),
+            Rect {
+                x: 1350.0,
+                y: 0.0,
+                width: 300.0,
+                height: 60.0
+            }
+        );
     }
 
     #[test]
@@ -1780,7 +2729,12 @@ mod tests {
         let mac = desk()[0];
         let above = Screen {
             id: 3,
-            area: Rect { x: -247.0, y: -1080.0, width: 1920.0, height: 1080.0 },
+            area: Rect {
+                x: -247.0,
+                y: -1080.0,
+                width: 1920.0,
+                height: 1080.0,
+            },
             unit: 1.0,
             builtin: false,
             main: false,
@@ -1793,8 +2747,18 @@ mod tests {
 
     #[test]
     fn the_pill_takes_clicks_only_on_its_own_area() {
-        let frame = Rect { x: 100.0, y: 0.0, width: 700.0, height: 400.0 };
-        let area = Area { x: 200.0, y: 0.0, width: 300.0, height: 38.0 };
+        let frame = Rect {
+            x: 100.0,
+            y: 0.0,
+            width: 700.0,
+            height: 400.0,
+        };
+        let area = Area {
+            x: 200.0,
+            y: 0.0,
+            width: 300.0,
+            height: 38.0,
+        };
         let pill = pill_rect(frame, 1.0, area);
         assert!(pill.contains((350.0, 10.0)));
         assert!(!pill.contains((350.0, 60.0)));
@@ -1814,14 +2778,20 @@ mod tests {
     fn the_intro_says_where_the_dot_starts() {
         let json = serde_json::to_value(Intro { from: None }).unwrap();
         assert!(json["from"].is_null());
-        let json = serde_json::to_value(Intro { from: Some(Point { x: 1.0, y: 2.0 }) }).unwrap();
+        let json = serde_json::to_value(Intro {
+            from: Some(Point { x: 1.0, y: 2.0 }),
+        })
+        .unwrap();
         assert_eq!(json["from"]["y"], 2.0);
     }
 
     #[cfg(target_os = "macos")]
     #[test]
     fn the_login_item_starts_mali_in_the_notch() {
-        let plist = login_agent_plist("com.example.notch", "/Applications/A & B.app/Contents/MacOS/a");
+        let plist = login_agent_plist(
+            "com.example.notch",
+            "/Applications/A & B.app/Contents/MacOS/a",
+        );
         assert!(plist.contains("<string>/Applications/A &amp; B.app/Contents/MacOS/a</string>"));
         assert!(plist.contains("<string>--notch</string>"));
         assert!(plist.contains("<key>RunAtLoad</key>"));

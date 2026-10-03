@@ -92,7 +92,7 @@ export function TeammateDialog({
                       type="button"
                       role="radio"
                       aria-checked={on}
-                      title={`${bot.name} · ${bot.hint}`}
+                      title={bot.name}
                       onClick={() => set({ mascot: bot.id })}
                       className={cn(
                         "flex size-12 items-center justify-center rounded-xl transition",

@@ -86,14 +86,20 @@ const LOOK_KEY = "mali.notch.look";
  */
 const lookStore = createStore<NotchLook>("black", { key: LOOK_KEY });
 
+/** Glass is a system blur that fills more than the pill. It is not offered. */
+function supportedLook(look: NotchLook): NotchLook {
+  return look === "glass" ? "black" : look;
+}
+
 export const useNotchLook = lookStore.use;
-export const setNotchLook = (look: NotchLook) => lookStore.set(look);
+export const setNotchLook = (look: NotchLook) => lookStore.set(supportedLook(look));
 
 if (typeof window !== "undefined") {
+  if (lookStore.get() === "glass") lookStore.set("black");
   window.addEventListener("storage", (event) => {
     if (event.key !== LOOK_KEY || !event.newValue) return;
     try {
-      lookStore.set(JSON.parse(event.newValue) as NotchLook);
+      lookStore.set(supportedLook(JSON.parse(event.newValue) as NotchLook));
     } catch {
       // Not ours to fix; the next change writes it again.
     }
@@ -104,7 +110,9 @@ const GLASS_BLUR_KEY = "mali.notch.glassBlur";
 const GLASS_BLUR_DEFAULT = 55;
 
 /** Settings → Notch → Glass: 0 = softer tint, 100 = strongest frosted blur. */
-const glassBlurStore = createStore<number>(GLASS_BLUR_DEFAULT, { key: GLASS_BLUR_KEY });
+const glassBlurStore = createStore<number>(GLASS_BLUR_DEFAULT, {
+  key: GLASS_BLUR_KEY,
+});
 
 export const useNotchGlassBlur = glassBlurStore.use;
 
@@ -118,7 +126,9 @@ export function getNotchGlassBlur() {
     const raw = localStorage.getItem(GLASS_BLUR_KEY);
     if (raw === null) return GLASS_BLUR_DEFAULT;
     const n = JSON.parse(raw) as number;
-    return Number.isFinite(n) ? Math.round(Math.min(100, Math.max(0, n))) : GLASS_BLUR_DEFAULT;
+    return Number.isFinite(n)
+      ? Math.round(Math.min(100, Math.max(0, n)))
+      : GLASS_BLUR_DEFAULT;
   } catch {
     return glassBlurStore.get();
   }
@@ -154,6 +164,13 @@ const ratesStore = createStore<NotchRates>(DEFAULT_RATES, {
 
 export const useNotchRates = ratesStore.use;
 export function setNotchRates(rates: NotchRates) {
-  const clean = (n: number) => Math.round(Math.min(240, Math.max(0, Number.isFinite(n) ? n : 0)) * 10) / 10;
-  ratesStore.set({ task: clean(rates.task), created: clean(rates.created), edited: clean(rates.edited), command: clean(rates.command) });
+  const clean = (n: number) =>
+    Math.round(Math.min(240, Math.max(0, Number.isFinite(n) ? n : 0)) * 10) /
+    10;
+  ratesStore.set({
+    task: clean(rates.task),
+    created: clean(rates.created),
+    edited: clean(rates.edited),
+    command: clean(rates.command),
+  });
 }

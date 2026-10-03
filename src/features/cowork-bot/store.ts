@@ -4,6 +4,13 @@ export const BOT_IDS = ["mochi", "jelly", "petal", "nori", "sora", "momo", "mika
 
 export type CoworkBotId = (typeof BOT_IDS)[number];
 
+/** The app's bot: a built-in one, or one designed in Bot Studio (`custom:<id>`). */
+export type BotChoice = CoworkBotId | `custom:${string}`;
+
+export function customIdOf(choice: BotChoice | undefined) {
+  return choice?.startsWith("custom:") ? choice.slice(7) : undefined;
+}
+
 /**
  * Poses the bot animation understands (public/anim/cowork-bots.html).
  * `done` plays its celebration and falls back to `idle` on its own.
@@ -17,7 +24,8 @@ export type BotState =
   | "welcome"
   | "tool"
   | "connection"
-  | "permission";
+  | "permission"
+  | "question";
 
 export const BOTS: { id: CoworkBotId; name: string; color: string; hint: string }[] = [
   { id: "mochi", name: "Mochi", color: "#f5c518", hint: "ลูกเจี๊ยบ · เด้งคลื่น" },
@@ -30,22 +38,27 @@ export const BOTS: { id: CoworkBotId; name: string; color: string; hint: string 
   { id: "ichigo", name: "Ichigo", color: "#f0443a", hint: "แพนด้าแดง · หมุนรอบตัว" },
 ];
 
-function isBotId(value: unknown): value is CoworkBotId {
+export function isBotId(value: unknown): value is CoworkBotId {
   return typeof value === "string" && (BOT_IDS as readonly string[]).includes(value);
 }
 
-const botStore = createStore<{ bot: CoworkBotId }>(
+function isBotChoice(value: unknown): value is BotChoice {
+  return isBotId(value) || (typeof value === "string" && /^custom:[\w-]{1,40}$/.test(value));
+}
+
+const botStore = createStore<{ bot: BotChoice }>(
   { bot: "mochi" },
   {
     key: "mali_cowork_bot",
-    revive: (value) => ({ bot: isBotId(value?.bot) ? value.bot : "mochi" }),
+    revive: (value) => ({ bot: isBotChoice(value?.bot) ? value.bot : "mochi" }),
   },
 );
 
 export const useCoworkBot = () => botStore.use();
+export const getCoworkBot = () => botStore.get().bot;
 
-export function setCoworkBot(bot: CoworkBotId) {
-  if (isBotId(bot)) botStore.set({ bot });
+export function setCoworkBot(bot: BotChoice) {
+  if (isBotChoice(bot)) botStore.set({ bot });
 }
 
 // Other windows (the notch pill, the Quick bar) stay loaded while the bot is
@@ -56,7 +69,7 @@ if (typeof window !== "undefined") {
     if (event.key !== "mali_cowork_bot" || !event.newValue) return;
     try {
       const bot = (JSON.parse(event.newValue) as { bot?: unknown })?.bot;
-      if (isBotId(bot) && bot !== botStore.get().bot) botStore.set({ bot });
+      if (isBotChoice(bot) && bot !== botStore.get().bot) botStore.set({ bot });
     } catch {
       // Unreadable: keep the bot we have.
     }

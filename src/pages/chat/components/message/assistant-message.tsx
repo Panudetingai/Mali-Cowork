@@ -8,6 +8,7 @@ import {
     MessageResponse,
 } from "@/components/ai-elements/message";
 import { ChatRichBlocks } from "@/components/chat-blocks/chat-rich-blocks";
+import { SocialLinkCards } from "@/components/chat-blocks/social-link-cards";
 import { ZoomableImage } from "@/components/chat-blocks/zoomable-image";
 import { MarkdownSurface } from "@/components/chat/markdown-surface";
 import { CoworkBot } from "@/components/anim/cowork-bot";
@@ -31,6 +32,7 @@ import { ConnectorSuggestions } from "./connector-suggestions";
 import { extractConnectorBlocks } from "@/features/mcp/agent-install";
 import { ExpandableClamp } from "./expandable-clamp";
 import { MarkdownLink } from "./markdown-link";
+import { ReplyStatus } from "./reply-status";
 
 const markdownExtras = {
   a: MarkdownLink,
@@ -109,8 +111,6 @@ export function AssistantMessage({
   const contentIsAnimating = isCli ? false : isStreaming;
   const lastActivity = hasActivities ? activities![activities!.length - 1] : undefined;
   const waitingOnTool = Boolean(lastActivity && !lastActivity.done);
-  const showAgentSpinner =
-    isStreaming && (waitingOnTool || !hasContent);
   // The step still running, if any: only the last one can be.
   const runningIndex = isStreaming && waitingOnTool ? activities!.length - 1 : undefined;
 
@@ -167,31 +167,27 @@ export function AssistantMessage({
         {(authActions.length > 0 || mediaPreviews.length > 0 || galleries.length > 0) && (
           <ChatRichBlocks authActions={authActions} mediaPreviews={mediaPreviews} galleries={galleries} />
         )}
+        {/* Posts and videos it linked to, unfurled once the reply is done. */}
+        {!isStreaming && <SocialLinkCards text={visibleContent} className="mt-3" />}
         {suggestions.length > 0 && <ConnectorSuggestions suggestions={suggestions} />}
       </MessageContent>
 
-      {showAgentSpinner ? (
-        <div className="mb-2 flex items-center gap-2">
-          <CoworkBot size={32} state={waitingOnTool ? "tool" : "thinking"} />
-          <span className="text-[11px] text-muted-foreground animate-pulse">
-            {waitingOnTool
-              ? lastActivity?.title || "Using a tool…"
-              : isCli
-                ? "Running…"
-                : "Thinking…"}
-          </span>
-        </div>
-      ) : (
-        isStreaming && (
-          <div
-            role="status"
-            aria-label="Writing reply"
-            className="mt-2 flex h-7 items-center gap-1 text-muted-foreground"
-          >
-            <CoworkBot size={32} state="working" />
+      {isStreaming &&
+        (waitingOnTool ? (
+          <div className="mb-2 flex items-center gap-2">
+            <CoworkBot size={32} state="tool" />
+            <span className="text-[11px] text-muted-foreground animate-pulse">
+              {lastActivity?.title || "Using a tool…"}
+            </span>
           </div>
-        )
-      )}
+        ) : (
+          <ReplyStatus
+            growth={content.length + (activities?.length ?? 0)}
+            reasoning={reasoning}
+            hasContent={hasContent}
+            cli={isCli}
+          />
+        ))}
 
       {/* Copy, feedback, retry and usage only once the reply is complete. */}
       {(hasContent || hasReasoning) && !isStreaming && (

@@ -1,17 +1,34 @@
 import { describe, expect, test } from "bun:test";
 import type { ChatRun, ChatSession } from "@/features/chat-history";
-import type { PermissionRequest } from "@/pages/chat/api/chat";
+import type { PermissionRequest, QuestionRequest } from "@/pages/chat/api/chat";
 import type { ActivityItem, ChatMessage } from "@/pages/chat/types";
-import { hitArea, homeCards, mascotFrame, pillWindow, shapeSize, teamSlots, UNDER_NOTCH, windowSize } from "./layout";
+import {
+  hitArea,
+  homeCards,
+  mascotFrame,
+  pillWindow,
+  QUESTION,
+  questionHeight,
+  shapeSize,
+  teamSlots,
+  UNDER_NOTCH,
+  windowSize,
+} from "./layout";
 import { minutesSaved } from "./recap";
 import { editsOf, liveSnapshot, pillSyncKey, recapOf, sessionsOf, usageOf, weekStart, type MateInfo } from "./snapshot";
 import type { NotchSnapshot } from "./types";
 
-const run = (permissions: PermissionRequest[] = []): ChatRun => ({
+const run = (permissions: PermissionRequest[] = [], questions: QuestionRequest[] = []): ChatRun => ({
   token: "t",
   modelId: "m",
   permissions,
-  questions: [],
+  questions,
+});
+
+const question = (id: string, options = ["Espresso", "Latte"]): QuestionRequest => ({
+  id,
+  directory: "/repo",
+  questions: [{ question: "Which one?", options: options.map((label) => ({ label })), multiple: false, custom: true }],
 });
 
 const chat = (id: string, updatedAt: number, messages: ChatMessage[] = []): ChatSession => ({
@@ -62,6 +79,30 @@ describe("liveSnapshot", () => {
     expect(snapshot?.permission?.id).toBe("p1");
     expect(snapshot?.command).toBe("git push");
     expect(snapshot?.waiting).toBe(2);
+  });
+
+  test("a question brings its run to the pill, and counts as waiting", () => {
+    const snapshot = liveSnapshot({ a: run([], [question("q1")]), b: run() }, lookup([chat("a", 10), chat("b", 20)]));
+    expect(snapshot?.chatId).toBe("a");
+    expect(snapshot?.phase).toBe("working");
+    expect(snapshot?.question?.id).toBe("q1");
+    expect(snapshot?.waiting).toBe(1);
+  });
+
+  test("an approval still comes before a question", () => {
+    const snapshot = liveSnapshot(
+      { a: run([], [question("q1")]), b: run([ask("p1")]) },
+      lookup([chat("a", 20), chat("b", 10)]),
+    );
+    expect(snapshot?.chatId).toBe("b");
+    expect(snapshot?.permission?.id).toBe("p1");
+    expect(snapshot?.question).toBeUndefined();
+  });
+
+  test("a new question is news for the pill", () => {
+    const base = liveSnapshot({ a: run() }, lookup([chat("a", 10)]));
+    const asked = liveSnapshot({ a: run([], [question("q1")]) }, lookup([chat("a", 10)]));
+    expect(pillSyncKey(asked)).not.toBe(pillSyncKey(base));
   });
 
   test("steps are the lead's latest few, from the latest reply", () => {
@@ -232,6 +273,25 @@ describe("layout", () => {
         expect(area.x).toBeGreaterThanOrEqual(0);
         expect(area.x + area.width).toBeLessThanOrEqual(frame.width);
         expect(area.y).toBe(0);
+      }
+    }
+  });
+
+  test("the question card grows with its options, up to a cap, and the window holds it", () => {
+    const two = questionHeight(question("q", ["A", "B"]));
+    const four = questionHeight(question("q", ["A", "B", "C", "D"]));
+    const many = questionHeight(question("q", Array.from({ length: 30 }, (_, i) => `Option ${i}`)));
+    expect(four).toBeGreaterThan(two);
+    expect(many).toBeLessThanOrEqual(QUESTION.max);
+    expect(questionHeight(undefined)).toBe(0);
+    for (const geometry of [notched, windows]) {
+      const frame = pillWindow(geometry);
+      for (const shape of [
+        shapeSize("question", geometry, { question: many }),
+        shapeSize("chat", geometry, { thread: true, files: true, note: true, question: many }),
+      ]) {
+        expect(frame.width).toBeGreaterThanOrEqual(shape.width);
+        expect(frame.height).toBeGreaterThanOrEqual(shape.height);
       }
     }
   });

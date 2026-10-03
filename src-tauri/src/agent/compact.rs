@@ -79,6 +79,27 @@ pub fn trim_tight(msgs: &mut [Msg]) -> bool {
     trim_tool_output(msgs, 2, TIGHT_TOOL_CHARS)
 }
 
+/// Output the agent already worked from stays in the conversation and is sent
+/// again with every later step: a page fetched, a file read, a connector's
+/// answer. Past the newest few messages, long output is shortened (the agent
+/// can run the tool again) once enough of it has piled up — all at once, so
+/// the provider's prompt cache is broken rarely rather than every step.
+const STALE_KEEP: usize = 6;
+const STALE_CHARS: usize = 2_000;
+const STALE_BUDGET: usize = 12_000;
+
+pub fn trim_stale(msgs: &mut [Msg]) -> bool {
+    let cut = msgs.len().saturating_sub(STALE_KEEP);
+    let excess: usize = msgs[..cut]
+        .iter()
+        .filter_map(|m| match m {
+            Msg::Tool { content, .. } => Some(content.strip_suffix(SHORTENED).unwrap_or(content).chars().count().saturating_sub(STALE_CHARS)),
+            _ => None,
+        })
+        .sum();
+    excess > STALE_BUDGET && trim_tool_output(msgs, STALE_KEEP, STALE_CHARS)
+}
+
 /// Everything before the current prompt can be summarised; `None` when there's nothing before it.
 pub fn split_point(msgs: &[Msg]) -> Option<usize> {
     let last_user = msgs.iter().rposition(|m| matches!(m, Msg::User { .. }))?;
@@ -158,6 +179,23 @@ mod tests {
         assert!(!trim_tool_output(&mut msgs, 1, 100), "a second pass changes nothing");
         let mut recent = convo();
         assert!(!trim_tool_output(&mut recent, 8, 100));
+    }
+
+    #[test]
+    fn stale_output_is_shortened_only_once_enough_piles_up() {
+        let tool = |n: usize| Msg::Tool { call_id: "c".into(), name: "fetch".into(), content: "x".repeat(n), is_error: false, images: Vec::new() };
+        let filler = || Msg::Assistant { text: "ok".into(), tool_calls: vec![] };
+        // A little stale output: left alone, so the cache holds.
+        let mut msgs = vec![tool(5_000), filler(), filler(), filler(), filler(), filler(), filler()];
+        assert!(!trim_stale(&mut msgs));
+        // Enough of it: all shortened at once; the newest stay whole.
+        let mut msgs = vec![tool(9_000), tool(9_000), filler(), filler(), filler(), filler(), filler(), tool(9_000)];
+        assert!(trim_stale(&mut msgs));
+        let Msg::Tool { content, .. } = &msgs[0] else { panic!() };
+        assert!(content.chars().count() < 2_200);
+        let Msg::Tool { content, .. } = &msgs[7] else { panic!() };
+        assert_eq!(content.len(), 9_000);
+        assert!(!trim_stale(&mut msgs), "nothing left to trim");
     }
 
     #[test]

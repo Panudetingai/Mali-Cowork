@@ -28,6 +28,7 @@ export type MediaRequest = {
  * `max_references` in media/providers.rs, which enforces it.
  */
 export function maxReferencesFor(provider: string, model: string, kind: MediaKind) {
+  if (provider === "puter") return kind === "image" ? 3 : 1;
   if (provider === "xai") return 0;
   if (kind === "image") return model.includes("imagen") ? 0 : 3;
   // Veo and Wan animate from one picture: the first frame.

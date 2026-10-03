@@ -28,10 +28,22 @@ export function openOnboarding() {
   store.set((s) => ({ ...s, open: true }));
 }
 
+/** First-time finish or skip — won't auto-open on next launch. */
 export function finishOnboarding() {
   store.set({ done: true, open: false });
 }
 
+/** Close the setup page when replaying from Settings (keeps `done`). */
+export function dismissOnboarding() {
+  store.set((s) => ({ ...s, open: false }));
+}
+
 export function isOnboardingDone() {
   return store.get().done;
+}
+
+/** Must see the full setup page before the rest of the app. */
+export function mustShowOnboarding() {
+  const { done, open } = store.get();
+  return open || !done;
 }

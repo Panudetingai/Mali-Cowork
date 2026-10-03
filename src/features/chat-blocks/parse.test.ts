@@ -126,6 +126,14 @@ test("a gallery only shows https pictures", () => {
   expect(out.galleries[0].items).toEqual([{ image: "https://x.test/b.png" }]);
 });
 
+test("a gallery takes the app's short picture handles, and nothing like them", () => {
+  const key = "0123456789abcdef0123456789abcdef";
+  const out = extractChatBlocks(
+    `\`\`\`gallery\n{"items":[{"image":"mali-preview:${key}"},{"image":"mali-preview:../etc"},{"image":"mali-preview:${key}x"}]}\n\`\`\``,
+  );
+  expect(out.galleries[0].items).toEqual([{ image: `mali-preview:${key}` }]);
+});
+
 test("a gallery still being written is hidden, not shown as code", () => {
   const out = extractChatBlocks('Done!\n```gallery\n{"items":[{"image":"https://x');
   expect(out.text).toBe("Done!");

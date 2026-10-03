@@ -1,5 +1,5 @@
-import type { CoworkBotId } from "@/features/cowork-bot";
-import type { PermissionRequest, TodoItem } from "@/pages/chat/api/chat";
+import type { BotChoice } from "@/features/cowork-bot";
+import type { PermissionRequest, QuestionRequest, TodoItem } from "@/pages/chat/api/chat";
 
 /**
  * What the pill is about: a live run, an approval, a run that just ended,
@@ -9,8 +9,8 @@ export type NotchPhase = "working" | "permission" | "done" | "idle";
 
 /**
  * The pill's shape; the page sizes the window to it. `home` is the run (or a
- * greeting) and the team, `chat` asking in the notch, `drop` files dragged
- * over it, `welcome` the first open after going into notch mode, `done` a
+ * greeting) and the team, `chat` asking in the notch, `question` the agent
+ * asking the user to pick (or write) an answer, `drop` files dragged over it, `welcome` the first open after going into notch mode, `done` a
  * run that finished with something to see (it opens by itself).
  */
 export type NotchView =
@@ -18,6 +18,7 @@ export type NotchView =
   | "home"
   | "chat"
   | "permission"
+  | "question"
   | "drop"
   | "welcome"
   | "done"
@@ -37,7 +38,7 @@ export type NotchPeek = {
   title: string;
   detail?: string;
   /** Who it's about: the main spot shows this bot. */
-  bot?: { key: string; mascot: CoworkBotId; name: string };
+  bot?: { key: string; mascot: BotChoice; name: string };
   edit?: NotchEdit;
 };
 
@@ -138,6 +139,8 @@ export type NotchShowcaseItem = {
 export type NotchShowcase = {
   /** The app it lives in: `canva`, `notion`, `figma`, …; none for plain pictures. */
   source?: string;
+  /** The connector whose tools made it, so the pill shows that connector's own icon. */
+  connector?: string;
   title?: string;
   /** Opens it in its app. */
   url?: string;
@@ -151,7 +154,7 @@ export type NotchStep = { id: string; kind: string; title: string; done: boolean
 export type NotchMate = {
   id: string;
   name: string;
-  mascot: CoworkBotId;
+  mascot: BotChoice;
   color: string;
   /** What it is doing now, e.g. "Asking research"; its name before its first step. */
   status: string;
@@ -159,7 +162,7 @@ export type NotchMate = {
 };
 
 /** Who asks for an approval: a team bot, or the lead (the user's own bot) when unset. */
-export type NotchAsker = { id: string; name: string; mascot: CoworkBotId };
+export type NotchAsker = { id: string; name: string; mascot: BotChoice };
 
 /** One run, as the pill shows it. The main window builds it from its run store. */
 export type NotchSnapshot = {
@@ -172,6 +175,8 @@ export type NotchSnapshot = {
   team: NotchMate[];
   /** The approval on screen when `phase` is "permission". */
   permission?: PermissionRequest;
+  /** The agent's question, waiting for the user's pick (the run carries on once it's answered). */
+  question?: QuestionRequest;
   /** The approval's command without the "Bot · " in front of a team bot's. */
   command?: string;
   asker?: NotchAsker;
@@ -191,7 +196,7 @@ export type NotchSnapshot = {
   failed?: string;
   /** When the run's prompt was sent, to show how long it has been at it. */
   startedAt?: number;
-  /** Approvals waiting across every run, this one included. */
+  /** Approvals and questions waiting across every run, this one included. */
   waiting: number;
   /** Runs still going, this one included. */
   running: number;
@@ -221,6 +226,19 @@ export type NotchCoworkRequest = {
 
 /** Main → pill: the work started (or was queued), or why it didn't. */
 export type NotchCoworkStarted = { id: string; taskId?: string; chatId?: string; error?: string };
+
+/** Main → pill: first-run setup (system scan / downloads) while the app window is away. */
+export type NotchSetup = {
+  active: boolean;
+  phase: "scan" | "install" | "done";
+  title: string;
+  detail?: string;
+  /** 0–100 when known (e.g. install batch progress). */
+  progress?: number;
+};
+
+/** Pill → main: the labels picked (or written) for each of a question's questions; none withdraws it. */
+export type NotchAnswer = { chatId: string; id: string; answers: string[][] };
 
 /** Pill → main: Allow (Y) or Deny (N) on an approval. */
 export type NotchReply = { chatId: string; id: string; reply: "once" | "reject" };

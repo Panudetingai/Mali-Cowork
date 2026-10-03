@@ -2,31 +2,35 @@
 
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
-import { MicIcon, MicOffIcon } from "lucide-react";
-import type { useSpeechInput } from "./use-speech-input";
+import { LoaderIcon, MicIcon, SquareIcon } from "lucide-react";
+import type { VoiceInput } from "./use-voice-input";
+import { Waveform } from "./waveform";
 
-type Voice = ReturnType<typeof useSpeechInput>;
-
-/** Mic toggle for dictation; while listening it shows live bars and the language, tap to switch. */
+/**
+ * Mic toggle. Listening: red, with bars that follow the voice (and the
+ * language, tap to switch, for system dictation). A model then shows it's
+ * writing the words down.
+ */
 export function VoiceButton({
   voice,
   disabled,
   size = "md",
   className,
 }: {
-  voice: Voice;
+  voice: VoiceInput;
   disabled?: boolean;
   size?: "sm" | "md";
   className?: string;
 }) {
   if (!voice.supported) return null;
-  const { listening, lang } = voice;
+  const { listening, lang, phase } = voice;
   const box = size === "sm" ? "h-7" : "h-8";
+  const transcribing = phase === "transcribing";
 
   return (
     <div className={cn("flex items-center gap-1", className)}>
       <AnimatePresence initial={false}>
-        {listening && (
+        {listening && voice.engine === "system" && (
           <motion.button
             key="lang"
             type="button"
@@ -47,32 +51,31 @@ export function VoiceButton({
       </AnimatePresence>
       <button
         type="button"
-        disabled={disabled && !listening}
+        disabled={(disabled && !listening) || transcribing}
         onClick={voice.toggle}
         aria-pressed={listening}
-        aria-label={listening ? "Stop voice input" : "Voice input"}
-        title={listening ? "Listening… click to stop" : "Voice input — speak to type"}
+        aria-label={listening ? "Stop voice input" : transcribing ? "Writing down what you said" : "Voice input"}
+        title={listening ? "Listening… click to stop" : transcribing ? "Writing it down…" : "Voice input — speak to type"}
         className={cn(
           box,
-          "relative inline-flex items-center justify-center gap-1 rounded-full text-muted-foreground transition-all",
+          "relative inline-flex items-center justify-center gap-1.5 rounded-full text-muted-foreground transition-all",
           listening
             ? "bg-red-500 px-2.5 text-white shadow-[0_0_0_4px] shadow-red-500/15 hover:bg-red-600"
-            : "w-8 hover:bg-accent hover:text-foreground disabled:opacity-40",
-          size === "sm" && !listening && "w-7",
+            : transcribing
+              ? "bg-muted px-2.5 text-foreground"
+              : "w-8 hover:bg-accent hover:text-foreground disabled:opacity-40",
+          size === "sm" && !listening && !transcribing && "w-7",
         )}
       >
         {listening ? (
           <>
-            <MicOffIcon className="size-3.5" />
-            <span className="flex h-3 items-center gap-[2px]" aria-hidden>
-              {[0, 0.15, 0.3, 0.45].map((delay) => (
-                <span
-                  key={delay}
-                  className="h-full w-[2px] origin-center animate-[voice-bar_0.9s_ease-in-out_infinite] rounded-full bg-white"
-                  style={{ animationDelay: `${delay}s` }}
-                />
-              ))}
-            </span>
+            <SquareIcon className="size-2.5 fill-current" />
+            <Waveform level={voice.level} bars={4} className="h-3 gap-[2px]" barClassName="w-[2px] bg-white" />
+          </>
+        ) : transcribing ? (
+          <>
+            <LoaderIcon className="size-3.5 animate-spin" />
+            <span className="text-[11px] font-medium">Writing…</span>
           </>
         ) : (
           <MicIcon className="size-4" />

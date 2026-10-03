@@ -18,6 +18,8 @@ export type ChatRequest = {
   system?: string | null;
   /** How hard the model should think, as the provider spells the level. */
   effort?: string;
+  /** The chat's id, so Stop can end the reply. */
+  runId?: string;
 };
 
 export type StreamMetadata = {

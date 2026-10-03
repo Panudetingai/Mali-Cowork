@@ -9,6 +9,9 @@
 pub(crate) mod coach;
 mod compact;
 pub(crate) mod images;
+#[cfg(test)]
+mod bench;
+mod lazy_tools;
 pub(crate) mod paths;
 mod permissions;
 mod provider;
@@ -145,7 +148,11 @@ pub fn answer_question(id: &str, answers: Vec<Vec<String>>) -> bool {
 const DEFAULT_CONTEXT: u64 = 128_000;
 
 fn wire_for(provider: &str) -> Wire {
-    if provider == "anthropic" { Wire::Anthropic } else { Wire::OpenAi }
+    match provider {
+        "anthropic" => Wire::Anthropic,
+        "puter" => Wire::Puter,
+        _ => Wire::OpenAi,
+    }
 }
 
 /// Everything needed to call one model with the user's key.
@@ -165,6 +172,54 @@ pub(crate) fn target_for(
         api_key,
         effort: effort.filter(|e| !e.trim().is_empty()),
     })
+}
+
+/// What a stopped model call ends with.
+pub(crate) use provider::STOPPED;
+
+/// One reply with no tools, for a plain chat on a provider the chat SDK can't
+/// reach (Puter's free route, see `provider::puter_step`).
+pub(crate) async fn reply_once(
+    target: &ModelTarget,
+    system: &str,
+    msgs: &[Msg],
+    on_delta: &mut (dyn FnMut(Delta) + Send),
+    cancel: &mut watch::Receiver<bool>,
+) -> Result<wire::StepResult, String> {
+    provider::step(target, system, msgs, &[], on_delta, cancel).await
+}
+
+/// A reply that can be stopped: through [`abort`] by its chat id (the Stop
+/// button), or by `stop` (its window went away). Forgotten when dropped.
+pub(crate) struct Stoppable {
+    id: Option<String>,
+    tx: watch::Sender<bool>,
+}
+
+impl Stoppable {
+    pub(crate) fn new(run_id: Option<&str>) -> (Self, watch::Receiver<bool>) {
+        let (tx, rx) = watch::channel(false);
+        let id = run_id.map(str::trim).filter(|id| !id.is_empty()).map(str::to_string);
+        if let Some(id) = &id {
+            runs().lock().unwrap().insert(id.clone(), tx.clone());
+        }
+        (Self { id, tx }, rx)
+    }
+
+    pub(crate) fn stop(&self) {
+        let _ = self.tx.send(true);
+    }
+}
+
+impl Drop for Stoppable {
+    fn drop(&mut self) {
+        let Some(id) = &self.id else { return };
+        let mut runs = runs().lock().unwrap();
+        // Only ours: a newer run in the same chat may have taken the id.
+        if runs.get(id).is_some_and(|tx| tx.same_channel(&self.tx)) {
+            runs.remove(id);
+        }
+    }
 }
 
 fn os_name() -> &'static str {
@@ -441,11 +496,16 @@ async fn run(
     if request.vision {
         specs.push(images::spec());
     }
-    specs.extend(hub_tools.iter().map(|t| wire::ToolSpec {
-        name: t.name.clone(),
-        description: if t.description.is_empty() { format!("{} tool {}", t.server, t.tool) } else { t.description.clone() },
-        schema: t.schema.clone(),
-    }));
+    // Large connectors: their tools load on demand (`lazy_tools.rs`).
+    let lazy = lazy_tools::wanted(&hub_tools);
+    let base_specs = specs.clone();
+    let hub_names: Vec<&str> = hub_tools.iter().map(|t| t.name.as_str()).collect();
+    let mut loaded = if lazy { lazy_tools::used_in(&session.messages, |name| hub.contains_key(name)) } else { Vec::new() };
+    if lazy {
+        specs = lazy_tools::specs(&base_specs, &hub_tools, &hub, &loaded);
+    } else {
+        specs.extend(hub_tools.iter().map(lazy_tools::spec_of));
+    }
     let system = match &scope {
         Some(scope) => system_prompt(request, scope),
         None => chat_system_prompt(request),
@@ -513,6 +573,11 @@ async fn run(
                 // One very long turn: nothing before it to summarise.
                 compact::trim_tight(&mut session.messages);
             }
+            session.save()?;
+        }
+
+        // Long output the agent already used: shortened once enough piles up.
+        if lazy_tools::saver_on() && compact::trim_stale(&mut session.messages) {
             session.save()?;
         }
 
@@ -585,6 +650,7 @@ async fn run(
             };
             let title = match (hub_tool, &scope) {
                 _ if call.name == questions::NAME => "Ask: the user".to_string(),
+                _ if lazy && call.name == lazy_tools::NAME => "Load: connector tools".to_string(),
                 _ if call.name == team::DELEGATE => format!("Team: {}", mate.map(|m| m.name.as_str()).unwrap_or("teammate")),
                 _ if call.name == team::PROPOSE => format!(
                     "Team: propose {}",
@@ -639,6 +705,17 @@ async fn run(
                 }
                 _ if call.name == team::PROPOSE => team::propose(call, request, on_event, &mut usage, &mut *cancel).await,
                 _ if call.name == team::COACH => team::coach(call, request, on_event, &mut usage, &mut *cancel).await,
+                _ if lazy && call.name == lazy_tools::NAME => {
+                    let before = loaded.len();
+                    let out = match lazy_tools::load(&call.args, &hub_names, &mut loaded) {
+                        Ok(text) => tools::Outcome::ok(text),
+                        Err(e) => tools::Outcome::err(e),
+                    };
+                    if loaded.len() != before {
+                        specs = lazy_tools::specs(&base_specs, &hub_tools, &hub, &loaded);
+                    }
+                    out
+                }
                 _ if call.name == questions::NAME => {
                     let directory = scope.as_ref().map(|s| s.cwd.to_string_lossy().to_string()).unwrap_or_default();
                     match questions::ask(&call.args, &directory, on_event, cancel).await {
@@ -650,7 +727,14 @@ async fn run(
                     Ok((text, image)) => tools::Outcome { detail: Some(text.clone()), content: text, is_error: false, images: vec![image] },
                     Err(e) => tools::Outcome::err(e),
                 },
-                (Some(tool), _) => call_connector(tool, call, cancel).await,
+                (Some(tool), _) => {
+                    // Called straight from the catalog: it stays loaded from here on.
+                    if lazy && !loaded.contains(&tool.name) {
+                        loaded.push(tool.name.clone());
+                        specs = lazy_tools::specs(&base_specs, &hub_tools, &hub, &loaded);
+                    }
+                    call_connector(tool, call, cancel).await
+                }
                 (None, Some(scope)) => {
                     let mut always = std::mem::take(&mut session.always);
                     let out = {
@@ -1322,5 +1406,7 @@ done
     fn anthropic_speaks_its_own_wire() {
         assert_eq!(wire_for("anthropic"), Wire::Anthropic);
         assert_eq!(wire_for("google"), Wire::OpenAi);
+        assert_eq!(wire_for("puter"), Wire::Puter);
     }
 }
+

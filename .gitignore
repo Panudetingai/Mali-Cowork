@@ -33,3 +33,6 @@ _aisdk-upstream-pr/
 
 # Sidecar staged by scripts/build-sidecar.mjs
 src-tauri/binaries/
+
+# Token benchmark runs (the reported one is committed on purpose)
+scripts/token-bench/results/

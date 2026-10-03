@@ -65,9 +65,11 @@ function run(job: VisualJob) {
     }
   };
 
+  const onStep = (title: string) => patch(job.id, (j) => ({ ...j, step: title }));
+
   mediaGenerateStream(job.request, {
     onChunk: (chunk) => made.push(...pathsIn(chunk)),
-    onActivity: (activity) => !activity.done && patch(job.id, (j) => ({ ...j, step: activity.title })),
+    onActivity: (activity) => !activity.done && onStep(activity.title),
     onError: (message) => finish(message),
     onDone: () => finish(),
   })

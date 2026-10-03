@@ -3,14 +3,14 @@
  * it keeps, which screen it lives on, and starting Mali in it at login.
  */
 import { CoworkBot } from "@/components/anim/cowork-bot";
+import { useResolvedBot } from "@/features/bot-studio/resolve";
 import { Switch } from "@/components/ui/switch";
-import { BOTS, useCoworkBot } from "@/features/cowork-bot";
+import { useCoworkBot } from "@/features/cowork-bot";
 import {
   getNotchLoginItem,
+  glassBlurVisuals,
   setNotchEnabled,
   setNotchLoginItem,
-  glassBlurVisuals,
-  setNotchGlassBlur,
   setNotchLook,
   setNotchSaveChats,
   setNotchScreenPref,
@@ -26,7 +26,6 @@ import { isMacPlatform } from "@/features/quick";
 import { isTauri } from "@tauri-apps/api/core";
 import {
   ActivityIcon,
-  DropletsIcon,
   HistoryIcon,
   KeyboardIcon,
   LaptopIcon,
@@ -42,7 +41,6 @@ const mac = isMacPlatform();
 
 const LOOKS: { value: NotchLook; label: string }[] = [
   { value: "black", label: "Black" },
-  { value: "glass", label: "Glass" },
   { value: "light", label: "Light" },
 ];
 
@@ -72,46 +70,40 @@ export function NotchSettings() {
           htmlFor="notch-enabled"
           label="Show agent status at the top of the screen"
           description="While Mali is in the background, the pill shows the step the agent is on and lets you Allow or Deny without switching windows."
-          control={<Switch id="notch-enabled" checked={enabled} onCheckedChange={setNotchEnabled} />}
+          control={
+            <Switch
+              id="notch-enabled"
+              checked={enabled}
+              onCheckedChange={setNotchEnabled}
+            />
+          }
         />
         <SettingRow
           icon={<LaptopIcon />}
           label="Screen"
           description="With more than one screen: follow the pointer to the one you're working on, or stay on the Mac's own display (with the notch) or the main one (with the menu bar)."
           control={
-            <Segmented label="Screen for the notch" value={screen} onChange={setNotchScreenPref} options={SCREENS} />
+            <Segmented
+              label="Screen for the notch"
+              value={screen}
+              onChange={setNotchScreenPref}
+              options={SCREENS}
+            />
           }
         />
         <SettingRow
           icon={<PaletteIcon />}
           label="Look"
-          description={`How the pill looks when it opens: the notch's own black, frosted glass${mac ? " that blurs what's behind it" : ""}, or light. Folded up, it stays black — part of the notch.`}
-          control={<Segmented label="Notch look" value={look} onChange={setNotchLook} options={LOOKS} />}
+          description="How the pill looks when it opens: black, or light — the same layout with the colors reversed. Folded up, it stays black."
+          control={
+            <Segmented
+              label="Notch look"
+              value={look === "glass" ? "black" : look}
+              onChange={setNotchLook}
+              options={LOOKS}
+            />
+          }
         />
-        {look === "glass" && (
-          <SettingRow
-            icon={<DropletsIcon />}
-            htmlFor="notch-glass-blur"
-            label="Glass blur"
-            description="How strongly the pill frosts what's behind it when open. Turn it down if the desktop feels too soft; up for a heavier glass look."
-            control={
-              <div className="flex w-full min-w-[11rem] max-w-xs flex-col gap-1.5 sm:items-end">
-                <input
-                  id="notch-glass-blur"
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={5}
-                  value={glassBlur}
-                  onChange={(e) => setNotchGlassBlur(Number(e.target.value))}
-                  className="h-2 w-full cursor-pointer accent-foreground"
-                  aria-valuetext={`${glassBlur}% blur`}
-                />
-                <span className="text-xs tabular-nums text-muted-foreground">{glassBlur}%</span>
-              </div>
-            }
-          />
-        )}
         <LoginRow />
       </SettingsGroup>
 
@@ -124,7 +116,13 @@ export function NotchSettings() {
           htmlFor="notch-save"
           label="Save what you ask"
           description="Off for quick questions you don't need to keep; on, each conversation becomes a chat you can continue in the app."
-          control={<Switch id="notch-save" checked={save} onCheckedChange={setNotchSaveChats} />}
+          control={
+            <Switch
+              id="notch-save"
+              checked={save}
+              onCheckedChange={setNotchSaveChats}
+            />
+          }
         />
         <SettingRow
           icon={<KeyboardIcon />}
@@ -173,15 +171,28 @@ function LoginRow() {
         error ??
         "Mali starts with your computer and waits in the notch. Open the app only when you want it — it drops out of the notch into the middle of the screen."
       }
-      control={<Switch id="notch-login" checked={!!on} disabled={on === undefined} onCheckedChange={change} />}
+      control={
+        <Switch
+          id="notch-login"
+          checked={!!on}
+          disabled={on === undefined}
+          onCheckedChange={change}
+        />
+      }
     />
   );
 }
 
 /** The pill as it looks: hanging from the top edge, opening now and then to show it's there to ask. */
-function NotchPreview({ look, glassBlur }: { look: NotchLook; glassBlur: number }) {
+function NotchPreview({
+  look,
+  glassBlur,
+}: {
+  look: NotchLook;
+  glassBlur: number;
+}) {
   const { bot } = useCoworkBot();
-  const color = BOTS.find((b) => b.id === bot)?.color ?? "#3aa3f5";
+  const color = useResolvedBot(bot).color;
   const reduced = useReducedMotion();
   const [open, setOpen] = useState(false);
   const glass = look === "glass" ? glassBlurVisuals(glassBlur) : undefined;
@@ -213,26 +224,46 @@ function NotchPreview({ look, glassBlur }: { look: NotchLook; glassBlur: number 
                   WebkitBackdropFilter: `blur(${glass!.blurPx}px) saturate(150%)`,
                 }
               : {
-                  background: "linear-gradient(#000 22px, rgba(250,250,252,0.86) 44px)",
+                  background: "#ffffff",
                   color: "#16161b",
                   ["--color-white" as string]: "#16161b",
+                  ["--color-black" as string]: "#ffffff",
                 }
         }
         initial={false}
         animate={
           open
-            ? { width: 300, height: 104, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 }
-            : { width: 168, height: 24, borderBottomLeftRadius: 10, borderBottomRightRadius: 10 }
+            ? {
+                width: 300,
+                height: 104,
+                borderBottomLeftRadius: 24,
+                borderBottomRightRadius: 24,
+              }
+            : {
+                width: 168,
+                height: 24,
+                borderBottomLeftRadius: 10,
+                borderBottomRightRadius: 10,
+              }
         }
         transition={{ type: "spring", stiffness: 380, damping: 32 }}
       >
         <motion.div
           className="absolute"
           initial={false}
-          animate={open ? { x: 18, y: 34, width: 56, height: 56 } : { x: 6, y: 2, width: 20, height: 20 }}
+          animate={
+            open
+              ? { x: 18, y: 34, width: 56, height: 56 }
+              : { x: 6, y: 2, width: 20, height: 20 }
+          }
           transition={{ type: "spring", stiffness: 380, damping: 32 }}
         >
-          <CoworkBot size="100%" bot={bot} state={open ? "welcome" : "idle"} theme="dark" />
+          <CoworkBot
+            size="100%"
+            bot={bot}
+            state={open ? "welcome" : "idle"}
+            theme="dark"
+          />
         </motion.div>
         <motion.div
           className="absolute top-9 right-5 left-[92px] flex flex-col gap-1.5"

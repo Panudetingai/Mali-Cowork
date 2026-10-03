@@ -6,20 +6,26 @@ export type InstallRow = { status: InstallStatus; log: string[]; error?: string 
 
 export type Wizard = {
   scan?: SetupScan;
+  /** The last scan failed (e.g. outside the desktop app). */
+  scanError?: string;
+  scanning: boolean;
   rescan: () => Promise<SetupScan | undefined>;
   /** Agents the user picked to install. */
   selected: ToolId[];
   setSelected: (ids: ToolId[]) => void;
-  plan?: SetupPlan;
-  setPlan: (plan: SetupPlan | undefined) => void;
-  installs: Partial<Record<ToolId, InstallRow>>;
-  setInstalls: (fn: (prev: Wizard["installs"]) => Wizard["installs"]) => void;
-  /** MCP servers to switch on at the end. */
+  /** MCP servers to switch on once installed. */
   mcp: string[];
   setMcp: (ids: string[]) => void;
-  /** Whether "Continue" is allowed on the current step. */
-  setCanContinue: (ok: boolean) => void;
-  next: () => void;
+  plan?: SetupPlan;
+  planError?: string;
+  planning: boolean;
+  replan: () => Promise<boolean>;
+  installs: Partial<Record<ToolId, InstallRow>>;
+  installing: boolean;
+  retry: (tool: ToolId) => void;
+  cancel: (tool: ToolId) => void;
+  /** Close setup and open a page of the app. */
+  leaveTo: (path: string) => void;
 };
 
 export const WizardContext = createContext<Wizard | null>(null);

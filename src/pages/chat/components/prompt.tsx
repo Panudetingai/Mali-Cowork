@@ -35,7 +35,7 @@ import { cn } from "@/lib/utils";
 import { CoworkBot } from "@/components/anim/cowork-bot";
 import { McpToolIcon, useInstalledConnectors, useMcpConnections } from "@/features/mcp";
 import { InboxDropdownButton } from "@/features/tasks";
-import { useSpeechInput, VoiceButton } from "@/features/voice";
+import { useVoiceInput, VoiceButton } from "@/features/voice";
 import { onCompose } from "@/features/command-palette";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -72,13 +72,14 @@ import {
 } from "../models";
 import type { ChatMessage } from "../types";
 import { useDebouncedValue } from "../hooks/use-debounced-value";
-import { effortFor, effortLevels, setEffortFor, useEffortChoices } from "@/features/effort";
+import { effortFor, effortLevels, isMaxEffort, setEffortFor, useEffortChoices } from "@/features/effort";
 import { ContextMeter } from "./context-meter";
 import { buildMentionAppendix, parseMentions } from "./mention/mentions";
 import { filterMentions, MentionPopup } from "./mention/mention-popup";
 import { SkillPopup, slashItems, type SlashItem } from "./mention/skill-popup";
 import { useWorkspaceFiles } from "./mention/use-workspace-files";
-import { EffortPicker } from "./effort-picker";
+import { ContextNearMaxGlow, EffortMaxGlow, EffortPicker } from "./effort-picker";
+import { CONTEXT_WARN_RATIO } from "./context-meter";
 import { ModelPicker } from "./model-picker";
 import { PromptOptionsMenu } from "./prompt-options-menu";
 
@@ -176,9 +177,14 @@ export default function PromptInput({
   // Re-reads when the user moves the slider; the store keeps it per model.
   useEffortChoices();
   const effort = effortFor(selected.id, selected.efforts);
+  const effortOpts = effortLevels(selected.efforts);
+  const maxEffort = isMaxEffort(effortOpts, effort);
   const budget = contextBudgetFor(selected);
-  const usageLive = useMemo(() => contextUsage(messages), [messages]);
+  const usageLive = useMemo(() => contextUsage(messages, prompt), [messages, prompt]);
   const usage = useDebouncedValue(usageLive, 400, !!isLoading);
+  const contextRatio = Math.min(1, usageLive.usedTokens / budget.maxTokens);
+  const contextNearMax = contextRatio >= CONTEXT_WARN_RATIO;
+  const contextFull = contextRatio >= 0.95;
 
   const isCowork = mode === "cowork";
   // A chat keeps the folder its agent session started in; new chats use the default.
@@ -461,7 +467,7 @@ export default function PromptInput({
   // Voice: words land after whatever was typed when dictation started.
   const promptNow = useLatest(prompt);
   const voiceBase = useRef("");
-  const voice = useSpeechInput({
+  const voice = useVoiceInput({
     onStart: () => {
       const typed = promptNow.current;
       voiceBase.current = typed && !/\s$/.test(typed) ? `${typed} ` : typed;
@@ -555,8 +561,31 @@ export default function PromptInput({
   return (
     <form
       onSubmit={handleSubmit}
-      className="relative w-full rounded-xl border bg-card p-3 shadow-sm transition-shadow focus-within:ring-1 focus-within:ring-amber-300"
+      className={cn(
+        "relative w-full rounded-xl border bg-card p-3 shadow-sm transition-[box-shadow,border-color] duration-300 focus-within:ring-1",
+        maxEffort || contextFull
+          ? "border-amber-300/45 shadow-[0_0_28px_-6px_rgba(251,191,36,0.4)] focus-within:ring-amber-400/70 dark:border-amber-400/35 dark:shadow-[0_0_32px_-6px_rgba(251,191,36,0.28)]"
+          : contextNearMax
+            ? "border-amber-200/50 shadow-[0_0_20px_-8px_rgba(251,191,36,0.28)] focus-within:ring-amber-300/60 dark:border-amber-500/25"
+            : "focus-within:ring-amber-300",
+        contextFull && "border-red-300/40 dark:border-red-400/30",
+      )}
     >
+      {contextNearMax && (
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden rounded-t-xl bg-muted/60" aria-hidden>
+          <div
+            className={cn(
+              "h-full transition-[width] duration-500 ease-out",
+              contextFull
+                ? "bg-linear-to-r from-red-500 via-amber-500 to-violet-500"
+                : "bg-linear-to-r from-amber-400 to-violet-400",
+            )}
+            style={{ width: `${Math.round(contextRatio * 100)}%` }}
+          />
+        </div>
+      )}
+      <ContextNearMaxGlow ratio={contextRatio} active={contextNearMax && !maxEffort} />
+      <EffortMaxGlow active={maxEffort} />
       {dragging && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-amber-400 bg-amber-50/90 text-sm font-medium text-amber-800 dark:bg-amber-950/90 dark:text-amber-200">
           <UploadIcon className="size-4" />
@@ -826,7 +855,7 @@ export default function PromptInput({
             }}
           />
           <EffortPicker
-            levels={effortLevels(selected.efforts)}
+            levels={effortOpts}
             value={effort ?? ""}
             onChange={(level) => setEffortFor(selected.id, level)}
             disabled={isLoading}

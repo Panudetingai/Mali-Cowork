@@ -4,6 +4,8 @@ import type { OpencodeModel, OpencodeModelsResult, WorkMode } from "@/features/o
 import type { AntigravityModel } from "@/features/antigravity";
 import { effortFor, storedEffortFor } from "@/features/effort";
 import type { MediaKind } from "@/features/media";
+import type { PuterModel } from "@/features/media/puter-catalog";
+import { brandLogoForModelName } from "@/features/providers/model-logo";
 import { providerContextLimit, type ProviderDef } from "@/features/providers";
 
 /**
@@ -63,8 +65,9 @@ const VIDEO_PROVIDERS = new Set(["google", "alibaba"]);
 /** Why a model that draws can't run here, or undefined when it can. */
 export function mediaIssue(providerId: string, media: MediaKind | undefined) {
   if (!media) return undefined;
+  if (providerId === "puter") return undefined;
   if (media === "video" && !VIDEO_PROVIDERS.has(providerId)) {
-    return "Mali can't ask this provider for video yet — Gemini and Qwen can";
+    return "Mali can't ask this provider for video yet — Gemini, Qwen, or Puter can";
   }
   return undefined;
 }
@@ -82,8 +85,10 @@ export function buildMediaCatalog(
   opencode: OpencodeModelsResult | null,
   providers: ConfiguredProvider[],
   kind: MediaKind,
+  /** Puter's current list for `kind`; used once Puter has a token. */
+  puter: PuterModel[] = [],
 ): AiModel[] {
-  return providers.flatMap(({ provider, models }) => {
+  const fromKeys = providers.flatMap(({ provider, models }) => {
     if (!MEDIA_PROVIDERS.has(provider.id)) return [];
     const prefix = `${provider.id}/`;
     const fromCatalogue = (opencode?.models ?? [])
@@ -108,6 +113,20 @@ export function buildMediaCatalog(
       ];
     });
   });
+  // Puter's models come from Puter's own list, not from Settings → Models.
+  const onPuter = providers.some(({ provider }) => provider.id === "puter");
+  const seen = new Set(fromKeys.map((m) => m.id));
+  const fromPuter: AiModel[] = (onPuter ? puter : [])
+    .map((m) => ({
+      id: apiModelId("puter", m.id),
+      name: m.name,
+      provider: brandLogoForModelName(m.id, "puter"),
+      source: "api" as const,
+      group: "Puter",
+      media: kind,
+    }))
+    .filter((m) => !seen.has(m.id));
+  return [...fromKeys, ...fromPuter];
 }
 
 /**
@@ -305,7 +324,7 @@ export function buildModelCatalog(
       return {
         id: apiModelId(provider.id, model),
         name: model,
-        provider: provider.logo,
+        provider: brandLogoForModelName(model, provider.logo),
         source: provider.group === "local" ? "local" : ("api" as const),
         group: provider.name,
         contextLimit: meta?.contextLimit ?? undefined,
@@ -521,7 +540,12 @@ export function modelMetaFromId(
 ): Pick<AiModel, "name" | "provider" | "source" | "free"> {
   const api = apiModelOf(modelId);
   if (api) {
-    return { name: api.model, provider: api.provider, source: "api", free: false };
+    return {
+      name: api.model,
+      provider: brandLogoForModelName(api.model, api.provider),
+      source: "api",
+      free: false,
+    };
   }
   if (isCursorModel(modelId)) {
     const model = cursorModelOf(modelId);

@@ -10,13 +10,18 @@ import { extractChatBlocks } from "./parse";
 /** At most this many at once: a deck of fifty pages shouldn't flood the network. */
 const AT_ONCE = 4;
 
+/** `![alt](https://…)` or `![alt](<mali-preview:…> "title")` in a reply's markdown. */
+const MARKDOWN_IMAGE = /!\[[^\]]*\]\(\s*<?((?:https:\/\/|mali-preview:)[^\s)>]+)>?/g;
+
 export function keepPreviews(content: string) {
-  if (!isTauri() || !content.includes("```")) return;
-  const { galleries, mediaPreviews } = extractChatBlocks(content);
+  if (!isTauri()) return;
+  const blocks = content.includes("```") ? extractChatBlocks(content) : { galleries: [], mediaPreviews: [] };
   const links = [
-    ...galleries.flatMap((g) => g.items.map((item) => item.image)),
-    ...mediaPreviews.filter((m) => m.kind === "image" && !m.local).map((m) => m.thumbnail ?? m.url),
-  ].filter((url) => url.startsWith("https://"));
+    ...blocks.galleries.flatMap((g) => g.items.map((item) => item.image)),
+    ...blocks.mediaPreviews.filter((m) => m.kind === "image" && !m.local).map((m) => m.thumbnail ?? m.url),
+    // Plain markdown pictures (generated images often come this way) expire too.
+    ...[...content.matchAll(MARKDOWN_IMAGE)].map((m) => m[1]!),
+  ].filter((url) => url.startsWith("https://") || url.startsWith("mali-preview:"));
   if (!links.length) return;
   const queue = [...new Set(links)];
   const next = async (): Promise<void> => {

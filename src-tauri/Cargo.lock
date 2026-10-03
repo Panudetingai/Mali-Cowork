@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "Mali"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "aisdk",
  "base64 0.22.1",
@@ -43,6 +43,7 @@ dependencies = [
  "trash",
  "uuid",
  "walkdir",
+ "window-vibrancy",
  "windows-sys 0.59.0",
  "zip 8.6.0",
 ]

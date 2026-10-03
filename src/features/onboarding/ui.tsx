@@ -95,7 +95,7 @@ export function Terminal({ lines, className }: { lines: string[]; className?: st
     <pre
       ref={ref}
       className={cn(
-        "max-h-40 overflow-auto rounded-xl bg-zinc-950 px-3 py-2 font-mono text-[11px] leading-relaxed text-zinc-300",
+        "max-h-40 select-text overflow-auto rounded-xl bg-zinc-950 px-3 py-2 font-mono text-[11px] leading-relaxed text-zinc-300",
         className,
       )}
     >

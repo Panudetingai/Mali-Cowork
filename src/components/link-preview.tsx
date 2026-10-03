@@ -1,5 +1,6 @@
 "use client";
 
+import { loadImage } from "@/features/chat-blocks/load-image";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
 import { invoke } from "@tauri-apps/api/core";
@@ -13,9 +14,12 @@ export type LinkPreviewData = {
   description?: string | null;
   image?: string | null;
   siteName?: string | null;
+  /** Who posted it (a channel, an account), when the site says. */
+  author?: string | null;
 };
 
-type Result = { data: LinkPreviewData } | { error: string };
+export type LinkPreviewResult = { data: LinkPreviewData } | { error: string };
+type Result = LinkPreviewResult;
 
 const cache = new Map<string, Result>();
 // Two links to the same page in one reply is common; fetch it once.
@@ -38,7 +42,7 @@ function faviconOf(url: string) {
   }
 }
 
-function fetchPreview(url: string): Promise<Result> {
+export function fetchPreview(url: string): Promise<Result> {
   const cached = cache.get(url);
   if (cached) return Promise.resolve(cached);
   const running = inFlight.get(url);
@@ -191,12 +195,35 @@ function PreviewSkeleton({ href }: { href: string }) {
   );
 }
 
-/** The card's picture, replaced by a placeholder when it 404s or is blocked. */
-function PreviewImage({ src }: { src?: string }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [src]);
+/**
+ * A site's picture as the page can draw it: the app fetches it (other hosts
+ * aren't in the page's policy), as for gallery pages.
+ */
+export function useSiteImage(url: string | undefined) {
+  const [state, setState] = useState<{ src?: string; failed?: boolean }>({});
+  useEffect(() => {
+    if (!url) return setState({ failed: true });
+    let live = true;
+    setState({});
+    loadImage(url).then(
+      (src) => live && setState({ src }),
+      () => live && setState({ failed: true }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [url]);
+  return state;
+}
 
-  if (!src || failed) {
+/** The card's picture, replaced by a placeholder when it 404s or is blocked. */
+function PreviewImage({ src: url }: { src?: string }) {
+  const image = useSiteImage(url);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [url]);
+  const src = image.src;
+
+  if (!url || image.failed || failed) {
     return (
       <div className="flex aspect-[1.91/1] items-center justify-center bg-muted/60">
         <GlobeIcon className="size-8 text-muted-foreground/50" />
@@ -205,13 +232,11 @@ function PreviewImage({ src }: { src?: string }) {
   }
   return (
     <div className="relative aspect-[1.91/1] w-full overflow-hidden bg-muted">
-      <img
-        src={src}
-        alt=""
-        loading="lazy"
-        onError={() => setFailed(true)}
-        className="size-full object-cover"
-      />
+      {src ? (
+        <img src={src} alt="" onError={() => setFailed(true)} className="size-full object-cover" />
+      ) : (
+        <div className="size-full animate-pulse bg-muted/70" />
+      )}
     </div>
   );
 }

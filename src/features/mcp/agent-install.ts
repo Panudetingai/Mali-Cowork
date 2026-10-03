@@ -41,7 +41,7 @@ When you create or change something with pages or slides in another app (a Canva
 \`\`\`
 
 - \`source\`: the app, lowercase (\`canva\`, \`notion\`, \`figma\`, \`google-slides\`, …). \`connector\`: the id of the connector whose tools you used (the part of the tool name before \`_\`, e.g. \`custom-canva\`), so the app shows its icon. \`url\`: the link that opens it in that app.
-- \`items\`: one per page, in order; \`image\` is the https thumbnail exactly as the tool returned it, with \`width\` and \`height\` when the tool gives them. Never invent an image URL; if no thumbnail is available, leave the block out and just give the link.`;
+- \`items\`: one per page, in order; \`image\` is the thumbnail exactly as the tool returned it, with \`width\` and \`height\` when the tool gives them. Thumbnails usually come back as short \`mali-preview:…\` handles: copy the handle as is (the app holds the picture). Never invent or edit an image link; if no thumbnail is available, leave the block out and just give the link.`;
 
 /** The same rules teammates get (`CONNECTOR_WORK` in team.rs): connector jobs done quickly, in one go. */
 const WORK_BLOCK = `# Working with connectors

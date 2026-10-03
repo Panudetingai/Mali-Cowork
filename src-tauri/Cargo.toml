@@ -1,6 +1,6 @@
 [package]
 name = "Mali"
-version = "0.1.6"
+version = "0.1.7"
 description = "Desktop coworking app for AI chat and agent-assisted work on your files."
 authors = ["panudetingai"]
 edition = "2021"
@@ -30,7 +30,11 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-aisdk = { version = "0.5.2", features = ["anthropic", "openai", "openaicompatible"] }
+aisdk = { version = "0.5.2", features = [
+    "anthropic",
+    "openai",
+    "openaicompatible",
+] }
 dotenvy = "0.15"
 futures = "0.3"
 tokio = { version = "1", features = ["full"] }
@@ -67,11 +71,36 @@ mac-notification-sys = "0.6"
 # The notch pill sits above the menu bar and reads the notch's size from
 # NSScreen. Already in the tree under tao/wry.
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSResponder", "NSWindow", "NSScreen", "NSGraphics", "NSPasteboard", "NSEvent"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSArray", "NSDictionary", "NSString", "NSValue"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSResponder",
+    "NSWindow",
+    "NSScreen",
+    "NSGraphics",
+    "NSPasteboard",
+    "NSEvent",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSGeometry",
+    "NSArray",
+    "NSDictionary",
+    "NSString",
+    "NSValue",
+] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+window-vibrancy = "0.6"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_System_LibraryLoader",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+] }
 keyring = { version = "3", features = ["windows-native"] }
 
 [patch.crates-io]

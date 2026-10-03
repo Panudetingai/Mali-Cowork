@@ -18,6 +18,7 @@ import {
   type MediaKind,
 } from "@/features/visual";
 import { apiModelOf, buildMediaCatalog, type AiModel } from "@/pages/chat/models";
+import { puterModels, refreshPuterModels, usePuterModels } from "@/features/media/puter-catalog";
 import { cn } from "@/lib/utils";
 import { ArrowUpIcon } from "lucide-react";
 import { AnimatePresence } from "motion/react";
@@ -61,9 +62,16 @@ export default function VisualPage() {
   const items = useVisualItems();
   const jobs = useVisualJobs();
 
+  // Puter's models are whatever Puter offers now: asked for once it has a token.
+  const puterLists = usePuterModels();
+  const configured = useMemo(() => listConfiguredProviders(configs, envKeys), [configs, envKeys]);
+  const onPuter = configured.some(({ provider }) => provider.id === "puter");
+  useEffect(() => {
+    if (onPuter) void refreshPuterModels(kind, requestConfigFor("puter").baseUrl).catch(() => undefined);
+  }, [onPuter, kind]);
   const models = useMemo(
-    () => buildMediaCatalog(opencode.models, listConfiguredProviders(configs, envKeys), kind),
-    [opencode.models, configs, envKeys, kind],
+    () => buildMediaCatalog(opencode.models, configured, kind, puterLists[kind].length ? puterLists[kind] : puterModels(kind)),
+    [opencode.models, configured, kind, puterLists],
   );
   const settings = kind === "image" ? image : video;
   const selected =

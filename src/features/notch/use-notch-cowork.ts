@@ -7,6 +7,7 @@
 import type { Attachment } from "@/features/attachments";
 import { useEffect, useRef, useState } from "react";
 import { requestCowork, requestStop } from "./bridge";
+import type { QuestionRequest } from "@/pages/chat/api/chat";
 import type { NotchEdit, NotchPhase, NotchShowcase, NotchSnapshot, NotchStep } from "./types";
 
 export type CoworkTurn = {
@@ -32,6 +33,8 @@ export type CoworkTurn = {
   edits?: NotchEdit[];
   /** It ended on an error (the run's own, not the notch's). */
   failed?: string;
+  /** The agent asked something and waits for the answer. */
+  question?: QuestionRequest;
   /** When it finished: an answer that lands whole with the finish still writes itself out. */
   endedAt?: number;
 };
@@ -58,6 +61,7 @@ export function useNotchCowork(snapshot: NotchSnapshot | null) {
       showcase: snapshot.showcase ?? t.showcase,
       edits: snapshot.edits ?? t.edits,
       failed: snapshot.phase === "done" ? snapshot.failed : undefined,
+      question: snapshot.phase === "done" ? undefined : snapshot.question,
     }));
   }, [snapshot]);
 

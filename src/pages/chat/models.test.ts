@@ -162,6 +162,16 @@ describe("models that draw", () => {
     expect(buildMediaCatalog(catalogue, [], "image")).toEqual([]);
   });
 
+  // Puter's models are Puter's current list, shown once Puter has a token.
+  test("Puter's come from its own list, once it's set up", () => {
+    const list = [{ id: "gpt-image-2", name: "GPT Image 2" }];
+    expect(buildMediaCatalog(catalogue, [], "image", list)).toEqual([]);
+    const puter = [{ provider: provider("puter", "Puter"), models: ["gpt-5.4-nano"] }];
+    const made = buildMediaCatalog(catalogue, puter, "image", list);
+    expect(ids(made)).toEqual([apiModelId("puter", "gpt-image-2")]);
+    expect(made[0]?.group).toBe("Puter");
+  });
+
   test("a chat model is never one of them", () => {
     const listed = ids(buildMediaCatalog(catalogue, gemini, "image"));
     expect(listed).not.toContain(apiModelId("google", "gemini-3-pro"));

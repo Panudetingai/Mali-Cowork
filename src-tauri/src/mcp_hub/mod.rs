@@ -179,8 +179,17 @@ pub struct HubTool {
 
 impl HubTool {
     /// Call the tool. Arguments it turns down come back with its schema, and
-    /// a call asking after a long job waits for it (`patience.rs`).
+    /// a call asking after a long job waits for it (`patience.rs`). Thumbnail
+    /// links in what comes back reach the model as short handles, kept by the
+    /// app (`preview_image.rs`).
     pub async fn call(&self, args: Value) -> Result<client::ToolResult, String> {
+        let args = crate::commands::preview_image::expand_previews(args);
+        let result = self.call_raw(args).await?;
+        let text = crate::commands::preview_image::shorten_and_keep(&compact_json(&result.text));
+        Ok(client::ToolResult { text, ..result })
+    }
+
+    async fn call_raw(&self, args: Value) -> Result<client::ToolResult, String> {
         let result = match self.conn.call(&self.tool, args.clone()).await {
             Ok(result) => result,
             Err(e) if patience::bad_arguments(&e) => return Err(patience::with_schema(&e, &self.schema)),
@@ -196,6 +205,19 @@ impl HubTool {
             async move { conn.call(&tool, args).await }
         })
         .await
+    }
+}
+
+/// Pretty-printed JSON on one line: the same answer in fewer tokens.
+fn compact_json(text: &str) -> String {
+    let trimmed = text.trim();
+    let looks_json = (trimmed.starts_with('{') && trimmed.ends_with('}')) || (trimmed.starts_with('[') && trimmed.ends_with(']'));
+    if !looks_json || !trimmed.contains('\n') {
+        return text.to_string();
+    }
+    match serde_json::from_str::<Value>(trimmed) {
+        Ok(value) => value.to_string(),
+        Err(_) => text.to_string(),
     }
 }
 
@@ -250,6 +272,13 @@ pub async fn tools(servers: &[McpServerEntry]) -> (Vec<HubTool>, Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pretty_json_is_compacted_and_other_text_kept() {
+        assert_eq!(compact_json("{\n  \"a\": [1, 2]\n}"), r#"{"a":[1,2]}"#);
+        assert_eq!(compact_json("Done.\n{not json}"), "Done.\n{not json}");
+        assert_eq!(compact_json("{\n broken"), "{\n broken");
+    }
 
     #[test]
     fn tool_names_fit_provider_rules() {

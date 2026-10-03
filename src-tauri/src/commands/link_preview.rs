@@ -1,4 +1,7 @@
-//! Fetch Open Graph metadata for a public https URL (link hover previews).
+//! Fetch Open Graph metadata for a public https URL (link hover previews and
+//! the cards under a reply). Video, music and social sites that hide their
+//! pages from plain fetches (YouTube, TikTok, X, Spotify, …) are asked through
+//! their public oEmbed endpoints first, which need no sign-in.
 
 use std::net::IpAddr;
 
@@ -15,6 +18,74 @@ pub struct LinkPreview {
     pub description: Option<String>,
     pub image: Option<String>,
     pub site_name: Option<String>,
+    /// Who posted it (a channel, an account), when the site says.
+    pub author: Option<String>,
+}
+
+/// The public oEmbed endpoint for a link, when its site has one.
+fn oembed_endpoint(url: &Url) -> Option<(Url, &'static str)> {
+    let host = url.host_str()?.trim_start_matches("www.").trim_start_matches("m.");
+    let (endpoint, site) = match host {
+        "youtube.com" | "youtu.be" | "music.youtube.com" => ("https://www.youtube.com/oembed?format=json", "YouTube"),
+        "tiktok.com" | "vm.tiktok.com" => ("https://www.tiktok.com/oembed", "TikTok"),
+        "x.com" | "twitter.com" => ("https://publish.twitter.com/oembed?omit_script=1", "X"),
+        "vimeo.com" => ("https://vimeo.com/api/oembed.json", "Vimeo"),
+        "open.spotify.com" => ("https://open.spotify.com/oembed", "Spotify"),
+        "soundcloud.com" => ("https://soundcloud.com/oembed?format=json", "SoundCloud"),
+        "reddit.com" | "old.reddit.com" => ("https://www.reddit.com/oembed", "Reddit"),
+        "flickr.com" => ("https://www.flickr.com/services/oembed/?format=json", "Flickr"),
+        "dailymotion.com" | "dai.ly" => ("https://www.dailymotion.com/services/oembed", "Dailymotion"),
+        _ => return None,
+    };
+    Some((Url::parse_with_params(endpoint, [("url", url.as_str())]).ok()?, site))
+}
+
+/// A post's words from an oEmbed `html` (X gives the tweet as a blockquote).
+fn text_of_html(html: &str) -> Option<String> {
+    let para = html.split("<p").nth(1).and_then(|rest| rest.split_once('>')).map(|(_, rest)| rest)?;
+    let para = para.split("</p>").next()?;
+    let mut out = String::new();
+    let mut in_tag = false;
+    for c in para.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    let text = decode_meta(out.trim());
+    (!text.is_empty()).then_some(text)
+}
+
+async fn oembed(client: &reqwest::Client, url: &Url) -> Option<LinkPreview> {
+    let (endpoint, site) = oembed_endpoint(url)?;
+    let value: serde_json::Value = client
+        .get(endpoint)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .ok()?
+        .error_for_status()
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+    let text = |key: &str| value[key].as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    let title = text("title");
+    let description = text("html").as_deref().and_then(text_of_html);
+    let image = text("thumbnail_url").filter(|u| u.starts_with("https://"));
+    if title.is_none() && description.is_none() && image.is_none() {
+        return None;
+    }
+    Some(LinkPreview {
+        url: url.to_string(),
+        title,
+        description,
+        image,
+        site_name: Some(text("provider_name").unwrap_or_else(|| site.to_string())),
+        author: text("author_name"),
+    })
 }
 
 fn public_http_url(raw: &str) -> Result<Url, String> {
@@ -138,6 +209,9 @@ pub async fn link_preview(url: String) -> Result<LinkPreview, String> {
         .user_agent("Mali-Cowork/1.0 (link preview)")
         .build()
         .map_err(|e| e.to_string())?;
+    if let Some(found) = oembed(&client, &parsed).await {
+        return Ok(found);
+    }
     let response = client
         .get(parsed.clone())
         .header("Accept", "text/html,application/xhtml+xml")
@@ -169,5 +243,6 @@ pub async fn link_preview(url: String) -> Result<LinkPreview, String> {
         description,
         image,
         site_name,
+        author: pick_meta(&html, &["author", "article:author", "twitter:creator"]),
     })
 }

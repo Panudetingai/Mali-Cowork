@@ -5,3 +5,8 @@ export * from "./store";
 export * from "./ui";
 export * from "./wizard";
 export * from "./first-run-wizard";
+export * from "./onboarding-gate";
+export * from "./notch-setup";
+export * from "./onboarding-intro";
+export * from "./onboarding-shell";
+export * from "./window-controls";

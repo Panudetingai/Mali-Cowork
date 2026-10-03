@@ -50,6 +50,7 @@ pub struct ToolCall {
 }
 
 /// A tool as the model sees it.
+#[derive(Clone)]
 pub struct ToolSpec {
     pub name: String,
     pub description: String,
@@ -95,6 +96,8 @@ pub struct StepResult {
 pub enum Wire {
     OpenAi,
     Anthropic,
+    /// Puter's own driver route, the one free accounts may use (see `provider::puter_step`).
+    Puter,
 }
 
 /// Everything needed to call one model.

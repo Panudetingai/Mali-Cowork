@@ -18,6 +18,7 @@ import {
   ReceiptIcon,
   SparklesIcon,
   UsersIcon,
+  AudioLinesIcon,
   ZapIcon,
 } from "lucide-react";
 import { motion } from "motion/react";
@@ -35,6 +36,7 @@ import { ReceiptSettings } from "./receipt-settings";
 import { SkillsSettings } from "./skills/skills-settings";
 import { TeamSettings } from "./team/team-settings";
 import { TemplatesSettings } from "./templates-settings";
+import { VoiceSettings } from "./voice-settings";
 import { useTranslation, type TranslationKey } from "@/features/i18n";
 
 // Nav order; `group` opens a labelled section in the sidebar.
@@ -42,6 +44,7 @@ const TABS = [
   { id: "general", label: "tabGeneral", description: "tabGeneralDesc", icon: GlobeIcon, group: "settingsGroupApp" },
   { id: "quick", label: "tabQuick", description: "tabQuickDesc", icon: ZapIcon },
   { id: "notch", label: "tabNotch", description: "tabNotchDesc", icon: PanelTopIcon },
+  { id: "voice", label: "tabVoice", description: "tabVoiceDesc", icon: AudioLinesIcon },
   { id: "receipt", label: "tabReceipt", description: "tabReceiptDesc", icon: ReceiptIcon },
   // Providers and CLI agents are one page: both answer "where do the models
   // in the chat box come from", and split across two tabs the same key had
@@ -147,6 +150,11 @@ export default function SettingsPage() {
             <TabPanel>
               <Enter>
                 <NotchSettings />
+              </Enter>
+            </TabPanel>
+            <TabPanel>
+              <Enter>
+                <VoiceSettings />
               </Enter>
             </TabPanel>
             <TabPanel>

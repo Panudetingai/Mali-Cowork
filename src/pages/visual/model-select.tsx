@@ -4,13 +4,12 @@ import {
   ModelSelectorInput,
   ModelSelectorItem,
   ModelSelectorList,
-  ModelSelectorLogo,
-  type ModelSelectorLogoProps,
   ModelSelectorName,
   ModelSelectorTrigger,
 } from "@/components/ai-elements/model-selector";
 import { Button } from "@/components/ui/button";
 import type { AiModel } from "@/pages/chat/models";
+import { ModelBrandIcon } from "@/features/providers";
 import { cn } from "@/lib/utils";
 import { CheckIcon, ChevronDownIcon } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -60,7 +59,7 @@ export function VisualModelSelect({
           className="h-8 max-w-64 min-w-0 gap-1.5 rounded-full text-muted-foreground hover:text-foreground"
           aria-label="Select the model that draws"
         >
-          {selected && <Logo provider={selected.provider} />}
+          {selected && <ModelBrandIcon model={selected} className="size-4" />}
           <ModelSelectorName className="text-sm font-normal">
             {selected?.name ?? (models.length === 0 ? "No model yet" : "Choose a model")}
           </ModelSelectorName>
@@ -101,7 +100,7 @@ export function VisualModelSelect({
                       model.id === selected?.id && "bg-muted",
                     )}
                   >
-                    <Logo provider={model.provider} />
+                    <ModelBrandIcon model={model} className="size-4" />
                     <ModelSelectorName className="min-w-0">{model.name}</ModelSelectorName>
                     {model.id === selected?.id && (
                       <CheckIcon className="ml-auto size-4 shrink-0 text-foreground" />
@@ -117,14 +116,3 @@ export function VisualModelSelect({
   );
 }
 
-function Logo({ provider }: { provider: string }) {
-  return (
-    <ModelSelectorLogo
-      provider={provider as ModelSelectorLogoProps["provider"]}
-      className="size-4 shrink-0"
-      onError={(event) => {
-        event.currentTarget.style.visibility = "hidden";
-      }}
-    />
-  );
-}

@@ -6,6 +6,7 @@ mod chat_stream;
 mod commands;
 pub mod mcp_runner;
 mod media;
+mod puter;
 pub mod panic_log;
 mod sandbox;
 mod templates;
@@ -21,7 +22,7 @@ use commands::templates::{
 use commands::voice::voice_input_status;
 use commands::attachments::{attachment_from_url, attachment_import, attachment_read, attachment_save};
 use commands::link_preview::link_preview;
-use commands::chat::{chat_generate, ollama_list_models, provider_check_key, provider_env_keys};
+use commands::chat::{chat_generate, ollama_list_models, provider_check_key, provider_env_keys, provider_test_model};
 use commands::media::media_generate;
 use commands::checkpoint::{
     checkpoint_add_folder, checkpoint_begin, checkpoint_diff, checkpoint_finish, checkpoint_open,
@@ -44,9 +45,10 @@ use commands::mcp_oauth::mcp_auth_cancel;
 use commands::mcp_registry::{mcp_fetch_icon, mcp_registry_get, mcp_registry_icon, mcp_registry_search};
 use commands::native_alert::native_alert;
 use commands::notch::{
-    notch_backdrop, notch_capture_at_cursor, notch_capture_pick, notch_drop_out, notch_enter_mode, notch_exit_mode, notch_geometry,
+    notch_backdrop, notch_capture_at_cursor, notch_capture_pick, notch_capture_region, notch_drop_out, notch_enter_mode,
+    notch_exit_mode, notch_geometry,
     notch_hide, notch_hit_area, notch_login_item, notch_mode, notch_open_main, notch_release, notch_resize,
-    notch_set_login_item, notch_set_screen, notch_show, notch_take_intro, NotchState,
+    notch_set_login_item, notch_set_screen, notch_show, notch_intro_done, notch_take_intro, NotchState,
 };
 use commands::outputs::{outputs_stat, outputs_trash};
 use commands::preview_image::preview_image;
@@ -191,6 +193,8 @@ pub fn run() {
             attachment_read,
             attachment_from_url,
             voice_input_status,
+            commands::speech::speech_transcribe,
+            commands::speech::speech_synthesize,
             templates_list,
             templates_inspect,
             templates_add,
@@ -215,7 +219,12 @@ pub fn run() {
             mcp_hub_sign_out,
             link_preview,
             chat_generate,
+            provider_test_model,
             media_generate,
+            puter::puter_models,
+            puter::puter_account,
+            puter::puter_sign_in,
+            puter::puter_sign_in_cancel,
             checkpoint_begin,
             checkpoint_add_folder,
             checkpoint_finish,
@@ -242,9 +251,11 @@ pub fn run() {
             notch_backdrop,
             notch_capture_at_cursor,
             notch_capture_pick,
+            notch_capture_region,
             notch_enter_mode,
             notch_exit_mode,
             notch_take_intro,
+            notch_intro_done,
             notch_mode,
             notch_release,
             notch_open_main,

@@ -88,7 +88,7 @@ export function UserMessage({ content, attachments, skills, connectors, projectI
       )}
       <MessageContent
         className={cn(
-          "relative max-w-[min(85%,100%)] rounded-2xl rounded-tr-sm bg-primary/20! px-5 py-3 text-primary-foreground! dark:text-white",
+          "relative max-w-[min(85%,100%)] rounded-2xl rounded-tr-sm bg-neutral-900/[0.07] px-5 py-3 text-neutral-900 dark:bg-primary/20 dark:text-white",
           "wrap-break-word",
           isEditing && "w-full bg-card! px-3 py-2.5 ring-1 ring-primary/40",
         )}
