@@ -133,8 +133,8 @@ fn app_menu<R: tauri::Runtime>(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // ติดตั้งก่อนอย่างอื่นทั้งหมด: release ใช้ panic = "abort" panic ที่ไหนก็ตาม
-    // (รวม tokio worker) จะ abort ทันที hook นี้คือที่เดียวที่บันทึกสาเหตุได้
+    // ติดตั้งก่อนอย่างอื่นทั้งหมด: บันทึกทุก panic (รวม tokio worker) ลงไฟล์
+    // ทั้งที่แอปรอดและที่ทำให้แอปตาย — ที่เดียวที่บอกสาเหตุได้
     panic_log::install();
 
     // โหลด .env ที่ root ของโปรเจค เฉพาะตอน dev เท่านั้น

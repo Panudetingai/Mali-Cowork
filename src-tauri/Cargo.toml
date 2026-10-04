@@ -112,7 +112,10 @@ aisdk = { path = "vendor/aisdk" }
 codegen-units = 1
 lto = true
 opt-level = 3
-panic = "abort"
+# unwind ไม่ใช่ abort: panic ใน tokio task ตายแค่ task นั้น ไม่ลากทั้งแอปไปด้วย
+# และ wry ดัก exception ของ WebKit (เช่น ตอบ IPC ที่ถูกยกเลิกไปแล้ว) ได้ —
+# ถ้า abort ทุก unwind ที่ผ่าน frame ของ Rust จะ SIGABRT ทันที (issue #26)
+panic = "unwind"
 # ต้องมี debug info ไม่งั้น crash log จาก production symbolicate ไม่ได้เลย
 # split-debuginfo = "packed" ทำให้ cargo เรียก dsymutil ออกมาเป็น target/release/Mali.dSYM
 # ส่วน binary ยัง strip เท่าเดิม ขนาดที่ส่งให้ผู้ใช้จึงไม่เปลี่ยน — เก็บ .dSYM แนบไปกับทุก release

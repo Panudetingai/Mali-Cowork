@@ -170,7 +170,13 @@ pub fn shorten_previews(text: &str, mut on_link: impl FnMut(String, reqwest::Url
     let mut out = String::with_capacity(text.len());
     let mut last = 0;
     for found in link_pattern().find_iter(text) {
-        let before = &text[found.start().saturating_sub(48)..found.start()];
+        // About 48 bytes before the link, backed off to a whole character:
+        // Thai is 3 bytes a letter, and slicing mid-letter panics.
+        let mut from = found.start().saturating_sub(48);
+        while !text.is_char_boundary(from) {
+            from -= 1;
+        }
+        let before = &text[from..found.start()];
         // JSON may escape the `&`s and `/`s; the link is read unescaped.
         let raw = found.as_str().replace("\\u0026", "&").replace("\\/", "/");
         let Some(url) = public_https(&raw).filter(|url| is_preview_link(url, before)) else {
@@ -251,6 +257,18 @@ mod tests {
         assert!(out.contains(export) && out.contains(edit));
         assert_eq!(seen.len(), 1);
         assert_eq!(seen[0].1.as_str(), thumb);
+    }
+
+    #[test]
+    fn thai_before_a_link_is_not_cut_mid_letter() {
+        let thumb = "https://media.canva.com/v2/document-image/hash:1/id:D/width:387?brand=B&csig=AAAAAAAAAAAAAAAAAAAAAJGxNRnzyD6AsPEW3J4Ck6hpcMYybxIoa0Ns4cJS8hTE&exp=100&page=1";
+        // Every offset, so the 48-byte look-back lands inside a letter at least once.
+        for pad in 0..3 {
+            let text = format!("{}ภาพตัวอย่างของงานออกแบบชิ้นนี้ {thumb}", "a".repeat(pad));
+            let mut seen = 0;
+            let out = shorten_previews(&text, |_, _| seen += 1);
+            assert_eq!(seen, 1, "{out}");
+        }
     }
 
     #[test]
