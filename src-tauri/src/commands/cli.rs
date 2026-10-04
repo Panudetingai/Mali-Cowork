@@ -211,6 +211,7 @@ fn parse_cursor_line(v: &Value) -> Option<ChatStreamEvent> {
                 reasoning_tokens: None,
                 total_tokens: None,
                 cost: None,
+                context_tokens: None,
             });
             let session_id = v.get("session_id").and_then(|x| x.as_str()).map(|s| s.to_string());
             let duration_ms = v.get("duration_ms").and_then(|x| x.as_u64());
@@ -255,6 +256,7 @@ fn parse_opencode_line(v: &Value) -> Option<ChatStreamEvent> {
                 reasoning_tokens: tokens.get("reasoning").and_then(|x| x.as_u64()),
                 total_tokens: tokens.get("total").and_then(|x| x.as_u64()),
                 cost: part.get("cost").and_then(|x| x.as_f64()),
+                context_tokens: None,
             };
             let session_id = v.get("sessionID").and_then(|x| x.as_str()).map(|s| s.to_string());
             return Some(ChatStreamEvent::Metadata { session_id, usage: Some(usage), duration_ms: None, model: None });

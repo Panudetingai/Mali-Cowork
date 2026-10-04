@@ -1,8 +1,8 @@
 //! เก็บ panic ลงไฟล์ก่อนโปรเซสตาย
 //!
-//! release profile ตั้ง `panic = "abort"` ไว้ ดังนั้น panic ทุกครั้ง = SIGABRT ทันที
-//! ไม่มี unwind ไม่มีใคร catch — hook ตัวนี้คือโอกาสเดียวที่จะบันทึกว่าเกิดอะไรขึ้น
-//! (hook ถูกเรียกก่อน abort เสมอ แม้ panic strategy จะเป็น abort ก็ตาม)
+//! release ใช้ `panic = "unwind"`: panic ใน tokio task จะตายแค่ task นั้น แอปยังอยู่
+//! แต่ panic ที่ข้าม FFI (callback ของ AppKit/WebKit) ยัง abort ทั้งโปรเซสได้ —
+//! hook ตัวนี้บันทึกทุก panic ไว้ ไม่ว่าแอปจะรอดหรือไม่ (hook ถูกเรียกก่อน unwind/abort เสมอ)
 
 use std::backtrace::Backtrace;
 use std::fs::OpenOptions;

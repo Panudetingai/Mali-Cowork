@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -153,6 +154,19 @@ pub fn prompt_with_notes(request: &CursorRequest) -> String {
     )
 }
 
+/// `--print` takes no pictures; Cursor reads one from a path in the prompt
+/// with its own file tool (cursor.com/docs/cli/headless).
+pub fn with_pictures(prompt: String, pictures: &[PathBuf]) -> String {
+    if pictures.is_empty() {
+        return prompt;
+    }
+    let paths: Vec<String> = pictures.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+    format!(
+        "{prompt}\n\n[The user attached these pictures. Open each one with your file-reading tool to look at it:\n- {}]",
+        paths.join("\n- ")
+    )
+}
+
 #[tauri::command]
 pub async fn cursor_generate(
     request: CursorRequest,
@@ -207,7 +221,17 @@ async fn run_prompt(
         Ok(dir) => args.extend(["--plugin-dir".into(), dir.to_string_lossy().into_owned()]),
         Err(e) => eprintln!("[cursor] connectors unavailable this run: {e}"),
     }
-    args.push(prompt_with_notes(request));
+    // Each picture sits in its own folder under Mali's attachments, so adding
+    // that folder lets Cursor read the picture and nothing else.
+    let pictures = request
+        .images
+        .iter()
+        .map(|p| crate::commands::attachments::resolve(p))
+        .collect::<Result<Vec<_>, _>>()?;
+    for dir in pictures.iter().filter_map(|p| p.parent()) {
+        args.extend(["--add-dir".into(), dir.to_string_lossy().into_owned()]);
+    }
+    args.push(with_pictures(prompt_with_notes(request), &pictures));
 
     // Registered for the whole turn, including the pauses between tries, so
     // Stop reaches a retry that hasn't started yet.
@@ -475,6 +499,7 @@ mod tests {
             mode: Some(mode.into()),
             folders,
             run_id: "run1".into(),
+            images: Vec::new(),
         }
     }
 
@@ -550,6 +575,14 @@ mod tests {
     }
 
     #[test]
+    fn pictures_are_named_in_the_prompt() {
+        assert_eq!(with_pictures("do it".into(), &[]), "do it");
+        let prompt = with_pictures("what's this?".into(), &[PathBuf::from("/a/1/shot.png")]);
+        assert!(prompt.starts_with("what's this?"));
+        assert!(prompt.contains("- /a/1/shot.png"));
+    }
+
+    #[test]
     fn auto_model_is_left_to_cursor() {
         let mut req = request("cowork", vec![grant("/w", "write")]);
         req.model = Some("auto".into());
@@ -595,6 +628,7 @@ mod live_tests {
             mode: Some("chat".into()),
             folders: vec![],
             run_id: "live-chat".into(),
+            images: Vec::new(),
         };
 
         let result = run_prompt(&request, &channel).await;
@@ -627,6 +661,7 @@ mod live_tests {
                 access: "write".into(),
             }],
             run_id: "live-run".into(),
+            images: Vec::new(),
         };
 
         let result = run_prompt(&request, &channel).await;

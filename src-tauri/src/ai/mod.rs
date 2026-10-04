@@ -40,6 +40,9 @@ pub struct ChatRequest {
     /// The chat's id: Stop reaches the reply through it (see `agent::abort`).
     #[serde(default)]
     pub run_id: Option<String>,
+    /// The model's window. Puter's route leaves out the oldest turns past it.
+    #[serde(default)]
+    pub context_limit: Option<u64>,
 }
 
 pub(crate) struct ProviderInfo {
@@ -195,6 +198,7 @@ async fn consume_stream(
                             reasoning_tokens: usage.reasoning_tokens.map(|n| n as u64),
                             total_tokens: input.zip(output).map(|(i, o)| i + o),
                             cost: None,
+                            context_tokens: None,
                         }),
                         duration_ms: None,
                         model: None,
@@ -317,10 +321,15 @@ async fn puter_reply(request: &ChatRequest, prompt: &str, on_event: &Channel<Cha
         })
         .collect();
     msgs.push(Msg::User { text: prompt.to_string(), images: Vec::new() });
-    let system = match non_empty(request.system.as_deref()) {
+    let mut system = match non_empty(request.system.as_deref()) {
         Some(extra) => format!("{SYSTEM_PROMPT}\n\n{extra}"),
         None => SYSTEM_PROMPT.to_string(),
     };
+    // A long chat goes on rather than running past the model's window.
+    let limit = request.context_limit.filter(|l| *l > 4_000).unwrap_or(crate::agent::DEFAULT_CONTEXT);
+    if crate::agent::compact::fit_history(&system, &mut msgs, limit) {
+        system.push_str("\n\nThe oldest messages of this chat were left out to fit your context window.");
+    }
 
     on_event.send(ChatStreamEvent::Started).map_err(|e| e.to_string())?;
     // Stop (the chat's id) or a closed window ends the reply — and Puter's
@@ -357,6 +366,7 @@ async fn puter_reply(request: &ChatRequest, prompt: &str, on_event: &Channel<Cha
             reasoning_tokens: (usage.reasoning > 0).then_some(usage.reasoning),
             total_tokens: Some(usage.input + usage.output),
             cost: None,
+            context_tokens: (usage.context() > 0).then(|| usage.context()),
         }),
         duration_ms: None,
         model: None,

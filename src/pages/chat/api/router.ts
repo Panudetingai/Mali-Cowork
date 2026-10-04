@@ -99,7 +99,7 @@ function withHandoff(prompt: string, request: GenerateRequest) {
 }
 
 const NO_IMAGES = (name: string) =>
-  `${name} can't look at pictures here. Remove the picture, or pick an OpenCode or Codex model.`;
+  `${name} can't look at pictures here. Remove the picture, or pick an OpenCode, Codex or Cursor model.`;
 
 /**
  * The model id a prompt actually runs on. An API model stays on the user's
@@ -296,7 +296,6 @@ async function routeStream(
 
   // Cursor Agent CLI: cursor:<model>
   if (isCursorModel(modelId)) {
-    if (images.length) return handlers.onError(NO_IMAGES("Cursor"));
     return cursorGenerateStream(
       {
         prompt: withInstructions(prompt, request),
@@ -306,6 +305,7 @@ async function routeStream(
         mode: request.mode,
         folders: request.folders,
         runId: request.runId,
+        images,
       },
       handlers,
     );
@@ -371,6 +371,7 @@ async function routeStream(
       effort,
       // Stop reaches the reply through the chat's id (Puter's route reads it).
       runId: request.runId,
+      contextLimit: request.maxTokens,
       history: [
         ...(request.summary
           ? ([

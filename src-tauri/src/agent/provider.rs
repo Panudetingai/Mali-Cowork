@@ -275,6 +275,7 @@ async fn openai_step(
                 cache_read: usage["prompt_tokens_details"]["cached_tokens"].as_u64().unwrap_or(0),
                 cache_write: 0,
                 reasoning: usage["completion_tokens_details"]["reasoning_tokens"].as_u64().unwrap_or(0),
+                cache_in_input: true,
             };
         }
         let delta = &event["choices"][0]["delta"];
@@ -330,6 +331,8 @@ fn puter_usage(usage: &Value) -> Usage {
         cache_read: n(&["cached_tokens", "cache_read_input_tokens"]),
         cache_write: n(&["cache_creation_input_tokens"]),
         reasoning: n(&["reasoning_tokens"]),
+        // OpenAI-style counts include the cached part; Anthropic-style don't.
+        cache_in_input: usage.get("prompt_tokens").is_some(),
     }
 }
 
@@ -374,6 +377,31 @@ fn puter_line(line: &Value, result: &mut StepResult, on_delta: &mut (dyn FnMut(D
     Ok(())
 }
 
+/// Puter refuses a message with empty content unless it carries tool calls
+/// ("each message must have a 'content' property"): an assistant step that
+/// said nothing, a tool that printed nothing.
+fn puter_messages(messages: Vec<Value>) -> Vec<Value> {
+    messages
+        .into_iter()
+        .filter_map(|mut m| {
+            let empty = match &m["content"] {
+                Value::Null => true,
+                Value::String(text) => text.trim().is_empty(),
+                Value::Array(parts) => parts.is_empty(),
+                _ => false,
+            };
+            if !empty || m.get("tool_calls").is_some() {
+                return Some(m);
+            }
+            if m["role"] == "assistant" {
+                return None;
+            }
+            m["content"] = json!("(empty)");
+            Some(m)
+        })
+        .collect()
+}
+
 /// Puter through `/drivers/call`, the route puter.js uses. Unlike Puter's
 /// OpenAI-compatible endpoint (paid plans only: free accounts get 402
 /// `subscription_required` there), free accounts may use it, with the same
@@ -389,7 +417,7 @@ async fn puter_step(
 ) -> Result<StepResult, String> {
     let mut args = json!({
         "model": target.model,
-        "messages": openai_messages(system, msgs),
+        "messages": puter_messages(openai_messages(system, msgs)),
         "stream": true,
     });
     if !tools.is_empty() {
@@ -839,6 +867,36 @@ mod tests {
         assert_eq!(sent["args"]["stream"], true);
         assert_eq!(sent["args"]["messages"][0]["role"], "system");
         assert_eq!(sent["args"]["tools"][0]["function"]["name"], "read_file");
+    }
+
+    #[test]
+    fn puter_gets_no_message_without_content() {
+        let msgs = [
+            Msg::User { text: "hi".into(), images: vec![] },
+            Msg::Assistant {
+                text: String::new(),
+                tool_calls: vec![ToolCall { id: "a".into(), name: "run".into(), args: json!({}) }],
+            },
+            Msg::Tool { call_id: "a".into(), name: "run".into(), content: String::new(), is_error: false, images: vec![] },
+            // A step that said nothing, then the nudge after it.
+            Msg::Assistant { text: String::new(), tool_calls: vec![] },
+            Msg::User { text: "go on".into(), images: vec![] },
+        ];
+        let out = puter_messages(openai_messages("sys", &msgs));
+        let roles: Vec<&str> = out.iter().map(|m| m["role"].as_str().unwrap()).collect();
+        assert_eq!(roles, ["system", "user", "assistant", "tool", "user"]);
+        assert!(out[2]["tool_calls"].is_array());
+        assert_eq!(out[3]["content"], "(empty)");
+    }
+
+    #[test]
+    fn context_counts_cached_tokens_once() {
+        let openai = Usage { input: 1_000, output: 50, cache_read: 800, cache_in_input: true, ..Usage::default() };
+        assert_eq!(openai.context(), 1_050);
+        let anthropic = Usage { input: 200, output: 50, cache_read: 800, cache_write: 100, ..Usage::default() };
+        assert_eq!(anthropic.context(), 1_150);
+        assert!(puter_usage(&json!({"prompt_tokens": 10, "cached_tokens": 4})).cache_in_input);
+        assert!(!puter_usage(&json!({"input_tokens": 10, "cache_read_input_tokens": 4})).cache_in_input);
     }
 
     #[tokio::test]

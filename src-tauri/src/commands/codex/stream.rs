@@ -188,6 +188,7 @@ fn usage(usage: &Value) -> Option<AgentUsage> {
         reasoning_tokens: usage["reasoning_output_tokens"].as_u64(),
         total_tokens: input.zip(output).map(|(i, o)| i + o),
         cost: None,
+        context_tokens: None,
     })
 }
 

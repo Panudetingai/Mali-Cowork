@@ -20,6 +20,8 @@ export type ChatRequest = {
   effort?: string;
   /** The chat's id, so Stop can end the reply. */
   runId?: string;
+  /** The model's window; Puter's route leaves out the oldest turns past it. */
+  contextLimit?: number;
 };
 
 export type StreamMetadata = {

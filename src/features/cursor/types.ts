@@ -14,6 +14,8 @@ export type CursorRequest = {
   folders?: FolderGrantInput[];
   /** Identifies the run so it can be stopped. */
   runId: string;
+  /** Attached pictures; Cursor opens them from their paths. */
+  images?: string[];
 };
 
 export type CursorCheckResult = {

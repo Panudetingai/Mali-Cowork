@@ -139,6 +139,23 @@ pub fn transcript(msgs: &[Msg]) -> String {
     out.join("\n")
 }
 
+/// A plain chat sends its whole history each time and keeps no session to
+/// summarise into: past the window, the oldest turns are left out instead,
+/// so the chat can go on. The current prompt always stays, and what's left
+/// starts with a user turn. True when anything was left out.
+pub fn fit_history(system: &str, msgs: &mut Vec<Msg>, limit: u64) -> bool {
+    let budget = (limit as f64 * TRIGGER) as u64;
+    let mut cut = 0;
+    while cut + 1 < msgs.len() && estimate_tokens(system, &msgs[cut..], 0) > budget {
+        cut += 1;
+    }
+    while cut + 1 < msgs.len() && !matches!(msgs[cut], Msg::User { .. }) {
+        cut += 1;
+    }
+    msgs.drain(..cut);
+    cut > 0
+}
+
 /// Swap everything before `cut` for the summary.
 pub fn replace_with_summary(msgs: &mut Vec<Msg>, cut: usize, summary: &str) {
     let rest = msgs.split_off(cut);
@@ -210,6 +227,24 @@ mod tests {
         assert!(matches!(&msgs[2], Msg::User { text, .. } if text == "second"));
         // A single prompt has nothing before it to summarise.
         assert_eq!(split_point(&msgs[2..]), None);
+    }
+
+    #[test]
+    fn history_past_the_window_loses_its_oldest_turns() {
+        let turn = |n: usize| {
+            vec![Msg::User { text: format!("q{n} {}", "x".repeat(4_000)), images: vec![] }, Msg::Assistant { text: "y".repeat(4_000), tool_calls: vec![] }]
+        };
+        let mut msgs: Vec<Msg> = (0..10).flat_map(turn).collect();
+        msgs.push(Msg::User { text: "now".into(), images: vec![] });
+        assert!(!fit_history("s", &mut msgs.clone(), 1_000_000), "fits: nothing left out");
+        assert!(fit_history("s", &mut msgs, 8_000));
+        assert!(estimate_tokens("s", &msgs, 0) <= 6_000);
+        assert!(matches!(&msgs[0], Msg::User { .. }));
+        assert!(matches!(msgs.last(), Some(Msg::User { text, .. }) if text == "now"));
+        // A prompt too big on its own is still sent.
+        let mut huge = vec![Msg::User { text: "z".repeat(100_000), images: vec![] }];
+        assert!(!fit_history("s", &mut huge, 8_000));
+        assert_eq!(huge.len(), 1);
     }
 
     #[test]

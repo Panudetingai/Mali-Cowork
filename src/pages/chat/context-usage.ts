@@ -64,6 +64,8 @@ export function contextUsage(messages: ChatMessage[], pendingPrompt = ""): Conte
 }
 
 function reportedContextSize(usage: AgentUsage) {
+  // An agent's counts add up every step of the turn; its last step's size is the real one.
+  if (usage.contextTokens) return usage.contextTokens;
   const input = (usage.inputTokens ?? 0) + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0);
   return input > 0 ? input + (usage.outputTokens ?? 0) : 0;
 }

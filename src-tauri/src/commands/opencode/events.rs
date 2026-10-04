@@ -325,6 +325,7 @@ fn step_usage(session_id: &str, part: &Value) -> ChatStreamEvent {
             reasoning_tokens: tokens["reasoning"].as_u64(),
             total_tokens: tokens["total"].as_u64(),
             cost: part["cost"].as_f64(),
+            context_tokens: None,
         }),
         duration_ms: None,
         model: None,
