@@ -12,6 +12,8 @@ export type AgentUsage = {
   reasoningTokens?: number;
   totalTokens?: number;
   cost?: number;
+  /** Size of the conversation on the turn's last model call (Mali's agent). */
+  contextTokens?: number;
 };
 
 export type ActivityItem = {

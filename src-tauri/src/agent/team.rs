@@ -606,6 +606,7 @@ fn relay_channel(parent: Channel<ChatStreamEvent>, relay: Arc<Mutex<Relay>>, mat
                         cache_read: u.cache_read_tokens.unwrap_or(0),
                         cache_write: u.cache_write_tokens.unwrap_or(0),
                         reasoning: u.reasoning_tokens.unwrap_or(0),
+                        cache_in_input: false,
                     });
                 }
                 None

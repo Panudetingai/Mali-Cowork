@@ -124,6 +124,7 @@ export function buildMediaCatalog(
       source: "api" as const,
       group: "Puter",
       media: kind,
+      contextLimit: m.context,
     }))
     .filter((m) => !seen.has(m.id));
   return [...fromKeys, ...fromPuter];

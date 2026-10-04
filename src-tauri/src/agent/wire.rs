@@ -65,9 +65,19 @@ pub struct Usage {
     pub cache_read: u64,
     pub cache_write: u64,
     pub reasoning: u64,
+    /// `input` already counts the cached tokens (OpenAI's `prompt_tokens`);
+    /// Anthropic reports them apart.
+    pub cache_in_input: bool,
 }
 
 impl Usage {
+    /// How big the conversation was on this call: what went in plus the reply.
+    /// Only meaningful for one call; summed usage counts each step's input again.
+    pub fn context(&self) -> u64 {
+        let prompt = if self.cache_in_input { self.input } else { self.input + self.cache_read + self.cache_write };
+        prompt + self.output
+    }
+
     pub fn add(&mut self, other: &Usage) {
         self.input += other.input;
         self.output += other.output;

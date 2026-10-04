@@ -111,6 +111,7 @@ fn usage(usage: &Value) -> Option<AgentUsage> {
         reasoning_tokens: None,
         total_tokens: input.zip(output).map(|(i, o)| i + o),
         cost: None,
+        context_tokens: None,
     })
 }
 

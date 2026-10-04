@@ -371,6 +371,7 @@ async function routeStream(
       effort,
       // Stop reaches the reply through the chat's id (Puter's route reads it).
       runId: request.runId,
+      contextLimit: request.maxTokens,
       history: [
         ...(request.summary
           ? ([

@@ -27,6 +27,10 @@ pub struct AgentUsage {
     pub total_tokens: Option<u64>,
     #[serde(rename = "cost")]
     pub cost: Option<f64>,
+    /// Size of the conversation on the last model call. The other counts add
+    /// up every call of a turn, so with tools they run far past the window.
+    #[serde(rename = "contextTokens", default, skip_serializing_if = "Option::is_none")]
+    pub context_tokens: Option<u64>,
 }
 
 /// A teammate the lead would like on the team (see `agent::team`).

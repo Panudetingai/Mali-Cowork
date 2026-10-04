@@ -7,7 +7,7 @@
 //! its steps, the permission cards and the Task Inbox work unchanged.
 
 pub(crate) mod coach;
-mod compact;
+pub(crate) mod compact;
 pub(crate) mod images;
 #[cfg(test)]
 mod bench;
@@ -145,7 +145,7 @@ pub fn answer_question(id: &str, answers: Vec<Vec<String>>) -> bool {
 }
 
 /// Used when the app doesn't know the model's window.
-const DEFAULT_CONTEXT: u64 = 128_000;
+pub(crate) const DEFAULT_CONTEXT: u64 = 128_000;
 
 fn wire_for(provider: &str) -> Wire {
     match provider {
@@ -373,7 +373,7 @@ fn chrono_like_today() -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-fn usage_event(usage: &Usage) -> AgentUsage {
+fn usage_event(usage: &Usage, context: u64) -> AgentUsage {
     AgentUsage {
         input_tokens: Some(usage.input),
         output_tokens: Some(usage.output),
@@ -382,6 +382,7 @@ fn usage_event(usage: &Usage) -> AgentUsage {
         reasoning_tokens: (usage.reasoning > 0).then_some(usage.reasoning),
         total_tokens: Some(usage.input + usage.output),
         cost: None,
+        context_tokens: (context > 0).then_some(context),
     }
 }
 
@@ -513,6 +514,8 @@ async fn run(
         + &if request.lead { team::lead_note(request) } else { String::new() };
 
     let mut usage = Usage::default();
+    // The conversation's size on the latest call, for the context meter.
+    let mut context = 0;
     let mut outcome: Result<(), String> = Ok(());
     let mut steps = 0;
     let mut nudges = 0;
@@ -596,6 +599,9 @@ async fn run(
             }
         };
         usage.add(&result.usage);
+        if result.usage.context() > 0 {
+            context = result.usage.context();
+        }
         let calls = result.tool_calls.clone();
         // Text before tool calls reads as its own paragraph.
         if !result.text.is_empty() && !calls.is_empty() {
@@ -780,7 +786,7 @@ async fn run(
     session.save()?;
     let _ = on_event.send(ChatStreamEvent::Metadata {
         session_id: Some(session.id.clone()),
-        usage: Some(usage_event(&usage)),
+        usage: Some(usage_event(&usage, context)),
         duration_ms: Some(started.elapsed().as_millis() as u64),
         model: Some(format!("{}/{}", target.provider, target.model)),
     });
@@ -924,6 +930,8 @@ mod tests {
         assert!(events.contains("List: ."), "{events}");
         assert!(events.contains("There is hello.txt."), "{events}");
         assert!(events.contains("\"inputTokens\":30"), "{events}");
+        // The meter gets the last step's size, not both steps added up.
+        assert!(events.contains("\"contextTokens\":24"), "{events}");
         assert!(events.contains("\"event\":\"done\""), "{events}");
         assert!(!events.contains("\"event\":\"error\""), "{events}");
 
