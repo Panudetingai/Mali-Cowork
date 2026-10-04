@@ -41,6 +41,9 @@ pub struct CursorRequest {
     pub folders: Vec<FolderGrant>,
     /// Identifies this run so it can be stopped.
     pub run_id: String,
+    /// Attached pictures (paths from `attachment_import`).
+    #[serde(default)]
+    pub images: Vec<String>,
 }
 
 impl CursorRequest {
