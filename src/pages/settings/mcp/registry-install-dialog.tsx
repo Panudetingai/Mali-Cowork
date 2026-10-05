@@ -1,3 +1,4 @@
+import { useToastError } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -82,6 +83,7 @@ function PickServer({ query, onPick, onClose }: { query: string; onPick: (s: Reg
       .then((page) => setResults(page.servers))
       .catch((e) => setError(String(e)));
   }, [query]);
+  useToastError(error, () => setError(null));
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
@@ -89,7 +91,6 @@ function PickServer({ query, onPick, onClose }: { query: string; onPick: (s: Reg
         <DialogTitle>Choose a connector</DialogTitle>
         <DialogDescription>Results for “{query}” in the MCP Registry.</DialogDescription>
       </DialogHeader>
-      {error && <Notice tone="warning">{error}</Notice>}
       {!results && !error && (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <LoaderIcon className="size-4 animate-spin" /> Searching…
@@ -148,6 +149,7 @@ function InstallForm({ server, fromChat, onClose }: { server: RegistryServer; fr
   const [phase, setPhase] = useState<"form" | "installing" | "signing-in">("form");
   const [status, setStatus] = useState<McpServerStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useToastError(error, () => setError(null));
   const [missingBinary, setMissingBinary] = useState<string | null>(null);
   const [signInFailed, setSignInFailed] = useState(false);
   const [icon, setIcon] = useState<string | null>(null);
@@ -367,7 +369,6 @@ function InstallForm({ server, fromChat, onClose }: { server: RegistryServer; fr
         </Notice>
       )}
       {status?.status === "failed" && status.error && <McpErrorHelp error={status.error} />}
-      {error && <Notice tone="danger">{error}</Notice>}
       {phase === "signing-in" && (
         <div className="flex flex-col gap-2 text-sm text-muted-foreground">
           {/* The consent page names Mali Cowork as the app asking for access. */}

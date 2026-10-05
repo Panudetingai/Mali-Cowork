@@ -22,20 +22,30 @@ import {
   type NotchLook,
   type NotchScreen,
 } from "@/features/notch";
-import { isMacPlatform } from "@/features/quick";
+import { useAntigravity } from "@/features/antigravity";
+import { useCursor } from "@/features/cursor";
+import { useOpencode } from "@/features/opencode";
+import { listConfiguredProviders, useEnvKeys, useProviderConfigs } from "@/features/providers";
+import { isMacPlatform, setQuickConfig, useQuickConfig, useQuickStatus } from "@/features/quick";
 import { isTauri } from "@tauri-apps/api/core";
+import { ModelPicker } from "@/pages/chat/components/model-picker";
+import { buildModelCatalog, loadSelectedModelId, OPENCODE_DEFAULT_ID, type AiModel } from "@/pages/chat/models";
+import { Button } from "@/components/ui/button";
 import {
   ActivityIcon,
   HistoryIcon,
-  KeyboardIcon,
   LaptopIcon,
   LogInIcon,
+  MonitorIcon,
   MousePointer2Icon,
   PaletteIcon,
+  RotateCcwIcon,
+  SparklesIcon,
 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
-import { useEffect, useState } from "react";
-import { SectionHeader, Segmented, SettingRow, SettingsGroup } from "./ui";
+import { useEffect, useMemo, useState } from "react";
+import { GlobalShortcutGroup } from "./global-shortcut-group";
+import { Notice, SectionHeader, Segmented, SettingRow, SettingsGroup } from "./ui";
 
 const mac = isMacPlatform();
 
@@ -56,11 +66,50 @@ export function NotchSettings() {
   const screen = useNotchScreen();
   const look = useNotchLook();
   const glassBlur = useNotchGlassBlur();
+  const quickConfig = useQuickConfig();
+  const quickStatus = useQuickStatus();
+  const opencode = useOpencode();
+  const cursor = useCursor();
+  const antigravity = useAntigravity();
+  const providerConfigs = useProviderConfigs();
+  const envKeys = useEnvKeys();
+
+  const catalog = useMemo(
+    () =>
+      buildModelCatalog(
+        opencode.models,
+        listConfiguredProviders(providerConfigs, envKeys),
+        "chat",
+        { models: cursor.models, loggedIn: !!cursor.check?.loggedIn },
+        { models: [], loggedIn: false },
+        { models: antigravity.models, loggedIn: !!antigravity.check?.loggedIn },
+      ),
+    [opencode.models, providerConfigs, envKeys, cursor, antigravity],
+  );
+
+  const followsChat = !quickConfig.modelId;
+  const effectiveId = quickConfig.modelId ?? loadSelectedModelId("chat");
+  const effective = catalog.find((m) => m.id === effectiveId);
+  const usable = useMemo(() => catalog.filter((m) => !m.issue), [catalog]);
+  const shown: AiModel = effective ?? {
+    id: effectiveId,
+    name: effectiveId === OPENCODE_DEFAULT_ID ? "Auto — OpenCode picks" : effectiveId,
+    provider: "opencode",
+    source: "opencode",
+    group: "OpenCode",
+  };
+
   return (
     <div className="flex flex-col gap-8">
       <SectionHeader
         title="Notch"
         description="A small pill at the top of the screen: what the agent is doing, approvals you can answer in place, and a place to ask without opening the app."
+      />
+      <GlobalShortcutGroup
+        mac={mac}
+        enabled={quickConfig.enabled}
+        shortcut={quickConfig.shortcut}
+        status={quickStatus}
       />
       <NotchPreview look={look} glassBlur={glassBlur} />
 
@@ -109,7 +158,7 @@ export function NotchSettings() {
 
       <SettingsGroup
         title="Asking in the notch"
-        footer={`Open it with ${mac ? "⌥⌘M" : "the Quick bar shortcut"} in notch mode, or move the pointer to the top of the screen. The button at the top of the main window puts Mali into notch mode.`}
+        footer={`Press ${mac ? "⌥⌘M" : "Ctrl+Alt+M"} from anywhere to open the ask box, or move the pointer to the top of the screen in notch mode. The button at the top of the main window puts Mali into notch mode.`}
       >
         <SettingRow
           icon={<HistoryIcon />}
@@ -125,13 +174,16 @@ export function NotchSettings() {
           }
         />
         <SettingRow
-          icon={<KeyboardIcon />}
-          label="Open the ask box"
-          description="In notch mode the Quick bar's shortcut opens the notch instead, ready to type."
+          icon={<MonitorIcon />}
+          htmlFor="notch-tray"
+          label={mac ? "Keep running in the menu bar" : "Keep running in the system tray"}
+          description="Closing the main window keeps Mali running, so the shortcut still works."
           control={
-            <kbd className="rounded-md border border-border bg-muted px-2 py-0.5 font-mono text-xs text-muted-foreground">
-              {mac ? "⌥ ⌘ M" : "Alt Ctrl M"}
-            </kbd>
+            <Switch
+              id="notch-tray"
+              checked={quickConfig.trayMode}
+              onCheckedChange={(trayMode) => void setQuickConfig({ trayMode })}
+            />
           }
         />
         <SettingRow
@@ -139,6 +191,51 @@ export function NotchSettings() {
           label="Capture a window"
           description="Drag the bot out of the notch onto any window to ask about it, or use the camera button."
         />
+      </SettingsGroup>
+
+      <SettingsGroup
+        title="Model for quick asks"
+        footer={
+          followsChat
+            ? "Following the model picked on the Chat page."
+            : "A fixed model for questions in the notch; changing the Chat page's model doesn't affect it."
+        }
+      >
+        <SettingRow
+          icon={<SparklesIcon />}
+          label="Answer with"
+          description="The model used when you ask from the notch (Chat mode, no files on disk)."
+          control={
+            <>
+              {!followsChat && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  title="Use the Chat page's model"
+                  aria-label="Use the Chat page's model"
+                  onClick={() => void setQuickConfig({ modelId: undefined })}
+                >
+                  <RotateCcwIcon />
+                </Button>
+              )}
+              <div className="w-full sm:w-64">
+                <ModelPicker
+                  appearance="field"
+                  models={usable}
+                  selected={shown}
+                  loading={opencode.loading}
+                  onSelect={(model) => void setQuickConfig({ modelId: model.id })}
+                />
+              </div>
+            </>
+          }
+        >
+          {effective?.issue && (
+            <Notice tone="warning" title="This model can't answer from the notch">
+              {effective.issue}. Pick a paid model or another provider.
+            </Notice>
+          )}
+        </SettingRow>
       </SettingsGroup>
     </div>
   );

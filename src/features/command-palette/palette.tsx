@@ -15,7 +15,7 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from "@/components/ui/command";
-import { isListedChat, useChatSessions } from "@/features/chat-history";
+import { isListedChat, newChatHomeUrl, useChatSessions } from "@/features/chat-history";
 import { useTranslation, type TranslationKey } from "@/features/i18n";
 import { skillSlug, useInstructions } from "@/features/instructions";
 import { useProjects } from "@/features/projects";
@@ -25,6 +25,7 @@ import {
   Code2Icon,
   FileTextIcon,
   FolderKanbanIcon,
+  GhostIcon,
   ImageIcon,
   InboxIcon,
   LanguagesIcon,
@@ -134,6 +135,12 @@ export function CommandPalette() {
         <CommandGroup heading={th ? "เริ่มใหม่" : "Start"}>
           <CommandItem value="new chat แชทใหม่" onSelect={() => run(() => navigate("/?mode=chat"))}>
             <Row icon={<MessageSquareIcon />}>{t("newChat")}</Row>
+          </CommandItem>
+          <CommandItem
+            value="temporary chat แชทชั่วคราว private"
+            onSelect={() => run(() => navigate(newChatHomeUrl("chat", { temporary: true })))}
+          >
+            <Row icon={<GhostIcon />}>{t("newTemporaryChat")}</Row>
           </CommandItem>
           <CommandItem value="new cowork งานใหม่ cowork" onSelect={() => run(() => navigate("/?mode=cowork"))}>
             <Row icon={<UsersIcon />}>{th ? "Cowork ใหม่" : "New Cowork"}</Row>

@@ -1,6 +1,6 @@
-import { apiModelOf, type AiModel } from "@/pages/chat/models";
 import { cn } from "@/lib/utils";
-import { modelMappings, ModelIcon } from "@lobehub/icons";
+import { apiModelOf, type AiModel } from "@/pages/chat/models";
+import { ModelIcon, modelMappings } from "@lobehub/icons";
 import { useMemo } from "react";
 import { brandLogoForModelName } from "./model-logo";
 import { ProviderLogo } from "./provider-logo";

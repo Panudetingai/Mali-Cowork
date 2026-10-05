@@ -1,6 +1,11 @@
 "use client";
 
-import { createChat } from "@/features/chat-history";
+import {
+  createChat,
+  isTemporaryChatIntent,
+  newChatHomeUrl,
+  useChatSessions,
+} from "@/features/chat-history";
 import { CursorLoginDialog } from "@/features/cursor";
 import { GitBar, GitPanel, GitProvider } from "@/features/git";
 import { ProviderKeyDialog, saveOpencodeSettings, useDefaultCwd } from "@/features/opencode";
@@ -68,11 +73,16 @@ export default function ChatLayout() {
   const defaultCwd = useDefaultCwd();
   useProjects(); // re-render when a project is renamed or deleted
 
+  const project = getProject(params.get("project") ?? undefined);
+  const sessions = useChatSessions();
+  const sessionPreview = chatId ? sessions.find((s) => s.id === chatId) : undefined;
+  const temporaryChat = isTemporaryChatIntent(params, sessionPreview);
   const chat = useChat(
     chatId,
     newChatMode,
-    getProject(params.get("project") ?? undefined)?.id,
+    project?.id,
     newChatView === "code" ? "code" : undefined,
+    temporaryChat,
   );
   const {
     session,
@@ -97,9 +107,7 @@ export default function ChatLayout() {
     canStop,
     stop,
   } = chat;
-  const project = getProject(session ? session.projectId : (params.get("project") ?? undefined));
-  const projectQuery = project ? `&project=${project.id}` : "";
-
+  const activeTemporary = isTemporaryChatIntent(params, session);
   const view: ViewMode = session ? (session.view === "code" ? "code" : mode) : newChatView;
   const reduceMotion = useReducedMotion();
   const viewSlide = useRef(0);
@@ -107,7 +115,9 @@ export default function ChatLayout() {
   const openNewChatIn = (next: ViewMode) => {
     viewSlide.current = Math.sign(VIEW_ORDER[next] - VIEW_ORDER[view]);
     saveWorkMode(next);
-    startTransition(() => navigate(`/?mode=${next}${projectQuery}`, { replace: !chatId }));
+    startTransition(() =>
+      navigate(newChatHomeUrl(next, { projectId: project?.id }), { replace: !chatId }),
+    );
   };
   // Switching starts a new chat of the other type — except Chat → Cowork in
   // a chat that has started: that one can move over with its conversation.
@@ -127,11 +137,17 @@ export default function ChatLayout() {
         view: view === "code" ? "code" : undefined,
         cwd: path,
         projectId: project?.id,
+        ephemeral: activeTemporary,
       });
       navigate(`/chat/${chat.id}?mode=${view}`);
       return;
     }
-    navigate(`/?mode=${view}${projectQuery}`);
+    navigate(newChatHomeUrl(view, { projectId: project?.id, temporary: activeTemporary }));
+  };
+
+  const setTemporaryChat = (on: boolean) => {
+    if (hasMessages) return;
+    navigate(newChatHomeUrl(view, { projectId: project?.id, temporary: on }), { replace: true });
   };
 
   // Cowork only: the Git panel works on the chat's folder.
@@ -233,7 +249,7 @@ export default function ChatLayout() {
 
                     {/* The bots play around these, never over them. */}
                     <div data-bot-avoid="children" className="flex flex-col items-center gap-4">
-                      <ChatTitle mode={mode} project={project} />
+                      <ChatTitle mode={mode} project={project} temporary={activeTemporary} />
                     </div>
                     <div data-bot-avoid>
                       <FirstRunWizard />
@@ -313,6 +329,9 @@ export default function ChatLayout() {
                 onModeChange={changeMode}
                 onSubmit={sendMessage}
                 onSubmitBackground={sendInBackground}
+                temporaryChat={activeTemporary}
+                onTemporaryChatChange={setTemporaryChat}
+                canChangeTemporary={!hasMessages}
               />
             </div>
           </div>

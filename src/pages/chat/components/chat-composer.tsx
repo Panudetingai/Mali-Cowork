@@ -41,6 +41,9 @@ type Props = {
   onSubmitBackground?: (payload: SendMessage) => Promise<boolean>;
   /** Narrow column (Code mode). */
   compact?: boolean;
+  temporaryChat?: boolean;
+  onTemporaryChatChange?: (on: boolean) => void;
+  canChangeTemporary?: boolean;
 };
 
 export function ChatComposer({
@@ -64,6 +67,9 @@ export function ChatComposer({
   onSubmit,
   onSubmitBackground,
   compact,
+  temporaryChat,
+  onTemporaryChatChange,
+  canChangeTemporary,
 }: Props) {
   const permissionRequests = permissions;
   const hasPermission = permissionRequests.length > 0;
@@ -134,6 +140,9 @@ export function ChatComposer({
           onSubmit={onSubmit}
           onSubmitBackground={onSubmitBackground}
           compact={compact}
+          temporaryChat={temporaryChat}
+          onTemporaryChatChange={onTemporaryChatChange}
+          canChangeTemporary={canChangeTemporary}
         />
       </motion.div>
     </div>

@@ -12,12 +12,9 @@ import {
   type McpConnection,
   type McpServerStatus,
 } from "@/features/mcp";
+import { toastFailure } from "@/components/ui/sonner";
 import { useOpencode } from "@/features/opencode";
-import { useCallback, useEffect, useState } from "react";
-
-function message(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
+import { useCallback, useEffect } from "react";
 
 /** Saved connector choices plus live status from OpenCode (shared with the chat's install cards). */
 export function useMcpManager() {
@@ -26,7 +23,6 @@ export function useMcpManager() {
   const custom = useCustomMcps();
   const live = useMcpLive();
   const busyMap = useMcpBusy();
-  const [error, setError] = useState<string | null>(null);
   const available = !!opencode.check?.available;
 
   useEffect(() => {
@@ -34,12 +30,11 @@ export function useMcpManager() {
   }, [available, opencode.cwd]);
 
   const run = useCallback(async (work: () => Promise<unknown>) => {
-    setError(null);
     try {
       await work();
       return true;
     } catch (e) {
-      setError(message(e));
+      toastFailure("Couldn't save or connect", e);
       return false;
     }
   }, []);
@@ -60,8 +55,6 @@ export function useMcpManager() {
     live,
     busy: new Set(Object.keys(busyMap)) as ReadonlySet<string>,
     busyMap,
-    error,
-    clearError: () => setError(null),
     apply,
     removeCustom: (id: string) => run(() => removeConnector(id)).then(() => undefined),
     // Cancelling the browser sign-in isn't an error worth showing.

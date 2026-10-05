@@ -1,7 +1,17 @@
 import { cn } from "@/lib/utils";
-import { ProviderIcon } from "@lobehub/icons";
-import { useState } from "react";
+import { Antigravity, Codex, Cursor, OpenCode, ProviderIcon } from "@lobehub/icons";
+import { useState, type ComponentType } from "react";
 import { lobeProviderKey } from "./lobe";
+
+type CliIcon = ComponentType<{ size?: number }>;
+
+/** CLI agents aren't in models.dev; LobeHub ships their marks. */
+const CLI_AGENT_ICON: Record<string, CliIcon> = {
+  cursor: Cursor,
+  codex: Codex,
+  antigravity: Antigravity,
+  opencode: OpenCode,
+};
 
 type Props = {
   /** Our provider id from catalog.ts (e.g. "openai", "zai"). */
@@ -18,6 +28,15 @@ type Props = {
  */
 export function ProviderLogo({ logo, name, className, size = 24 }: Props) {
   const [imgFailed, setImgFailed] = useState(false);
+  const cli = CLI_AGENT_ICON[logo];
+  if (cli) {
+    const Icon = cli;
+    return (
+      <span className={cn("flex shrink-0 items-center justify-center", className)} aria-hidden>
+        <Icon size={size} />
+      </span>
+    );
+  }
   const lobeKey = lobeProviderKey(logo);
 
   if (lobeKey) {

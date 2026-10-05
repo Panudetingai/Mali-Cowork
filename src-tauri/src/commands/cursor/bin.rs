@@ -50,6 +50,7 @@ pub fn search_dirs() -> Vec<PathBuf> {
             home.join(".cursor/bin"),
             home.join(".bun/bin"),
             home.join(".npm-global/bin"),
+            home.join("AppData/Local/cursor-agent"),
             home.join("AppData/Local/Programs/cursor-agent"),
         ]);
     }

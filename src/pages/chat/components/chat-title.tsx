@@ -2,12 +2,20 @@ import { useTranslation } from "@/features/i18n";
 import type { WorkMode } from "@/features/opencode";
 import type { Project } from "@/features/projects";
 import { cn } from "@/lib/utils";
-import { FolderKanbanIcon } from "lucide-react";
+import { FolderKanbanIcon, GhostIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { Link } from "react-router-dom";
 
 /** Empty chat headline — centered above the composer, like the visual gallery welcome. */
-export default function ChatTitle({ mode, project }: { mode: WorkMode; project?: Project }) {
+export default function ChatTitle({
+  mode,
+  project,
+  temporary,
+}: {
+  mode: WorkMode;
+  project?: Project;
+  temporary?: boolean;
+}) {
   const { t } = useTranslation();
 
   if (project) {
@@ -40,8 +48,14 @@ export default function ChatTitle({ mode, project }: { mode: WorkMode; project?:
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -12 }}
       transition={{ duration: 0.35, ease: "easeOut" }}
-      className="max-w-xl px-4 text-center"
+      className="flex max-w-xl flex-col items-center gap-3 px-4 text-center"
     >
+      {temporary && (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-muted/50 px-2.5 py-1 text-xs font-medium text-muted-foreground">
+          <GhostIcon className="size-3.5" />
+          {t("temporaryChatHint")}
+        </span>
+      )}
       <p className="mb-32 text-2xl leading-relaxed text-muted-foreground sm:text-3xl">
         {t("chatEmptyWelcomePrefix")}{" "}
         <motion.span

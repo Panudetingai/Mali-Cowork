@@ -15,6 +15,7 @@ import { skillSlug, type Skill } from "@/features/instructions";
 import { applyConnector, McpToolIcon, useInstalledConnectors, useMcpBusy } from "@/features/mcp";
 import type { OpencodeState, WorkMode } from "@/features/opencode";
 import { CoworkBot } from "@/components/anim/cowork-bot";
+import { useTranslation } from "@/features/i18n";
 import { setOnTeam, setTeamEnabled, useTeam } from "@/features/team";
 import { cn } from "@/lib/utils";
 import {
@@ -29,6 +30,7 @@ import {
   PlusIcon,
   RefreshCwIcon,
   ScrollTextIcon,
+  GhostIcon,
   ShieldCheckIcon,
   TerminalIcon,
   UsersIcon,
@@ -49,6 +51,9 @@ type Props = {
   onToggleSkill: (skill: Skill) => void;
   pickedConnectors: string[];
   onToggleConnector: (id: string) => void;
+  temporaryChat?: boolean;
+  onTemporaryChatChange?: (on: boolean) => void;
+  canChangeTemporary?: boolean;
 };
 
 const itemClass =
@@ -84,7 +89,11 @@ export function PromptOptionsMenu({
   onToggleSkill,
   pickedConnectors,
   onToggleConnector,
+  temporaryChat,
+  onTemporaryChatChange,
+  canChangeTemporary = true,
 }: Props) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const connectors = useInstalledConnectors();
   const busy = useMcpBusy();
@@ -113,6 +122,28 @@ export function PromptOptionsMenu({
         )}
 
         <DropdownMenuSeparator className={separatorClass} />
+
+        {onTemporaryChatChange && (
+          <DropdownMenuItem
+            className={cn(itemClass, "gap-2")}
+            disabled={!canChangeTemporary}
+            onSelect={(event) => event.preventDefault()}
+          >
+            <GhostIcon className={iconClass} />
+            <span className="min-w-0 flex-1 leading-snug">
+              {t("temporaryChat")}
+              <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">{t("temporaryChatHint")}</span>
+            </span>
+            <Switch
+              checked={!!temporaryChat}
+              disabled={!canChangeTemporary}
+              onCheckedChange={onTemporaryChatChange}
+              aria-label={t("temporaryChat")}
+            />
+          </DropdownMenuItem>
+        )}
+
+        {onTemporaryChatChange && <DropdownMenuSeparator className={separatorClass} />}
 
         <DropdownMenuSub>
           <SubTrigger icon={<ScrollTextIcon className={iconClass} />} count={pickedSkills.length}>

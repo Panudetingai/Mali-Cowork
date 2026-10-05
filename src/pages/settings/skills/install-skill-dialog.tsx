@@ -1,22 +1,22 @@
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
 } from "@/components/ui/dialog";
 import { skillSlug, type Skill, type SkillCandidate } from "@/features/instructions";
 import { readSkillAsset, type SkillAsset } from "@/features/skills";
 import { cn } from "@/lib/utils";
 import {
-  CheckIcon,
-  ChevronRightIcon,
-  FileTextIcon,
-  LoaderCircleIcon,
-  SlashIcon,
-  TerminalIcon,
+    CheckIcon,
+    ChevronRightIcon,
+    FileTextIcon,
+    LoaderCircleIcon,
+    SlashIcon,
+    TerminalIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -92,7 +92,7 @@ export function InstallSkillDialog({
             onChange={(e) => setQuery(e.target.value)}
             placeholder={`Filter ${all.length} skills…`}
             aria-label="Filter the skills found"
-            className="h-9 w-full rounded-lg border bg-transparent px-3 text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            className="h-9 w-full rounded-lg border bg-transparent px-3 py-4 text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
           />
         )}
 

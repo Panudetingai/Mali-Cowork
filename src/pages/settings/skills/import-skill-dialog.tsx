@@ -1,3 +1,4 @@
+import { useToastError } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { fetchSkillsFromNpm, fetchSkillsFromUrl, pickSkillsFolder, type SkillCandidate } from "@/features/instructions";
 import { FolderOpenIcon, LinkIcon, LoaderCircleIcon, PackageIcon } from "lucide-react";
 import { useEffect, useId, useState, type FormEvent } from "react";
-import { Field, Notice } from "../ui";
+import { Field } from "../ui";
 
 /**
  * Where to find skills: a GitHub repository or folder, a link to a SKILL.md,
@@ -33,6 +34,7 @@ export function ImportSkillDialog({
   const [npmPackage, setNpmPackage] = useState("");
   const [busy, setBusy] = useState<"url" | "folder" | "npm" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useToastError(error, () => setError(null));
 
   useEffect(() => {
     if (open) return;
@@ -158,11 +160,6 @@ export function ImportSkillDialog({
             Choose a folder…
           </Button>
 
-          {error && (
-            <Notice tone="danger" onDismiss={() => setError(null)}>
-              {error}
-            </Notice>
-          )}
         </div>
 
         <DialogFooter>

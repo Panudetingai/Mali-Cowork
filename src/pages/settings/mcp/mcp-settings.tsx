@@ -5,6 +5,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/animate-ui/primitives/radix/dropdown-menu";
+import { toastFailure } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -80,7 +81,6 @@ export function McpSettings() {
   const [checking, setChecking] = useState(false);
   const featured = useFeaturedServers();
   const [exported, setExported] = useState<number | null>(null);
-  const [exportError, setExportError] = useState<string | null>(null);
 
   const runDiagnose = useCallback(async () => {
     setChecking(true);
@@ -176,7 +176,7 @@ export function McpSettings() {
               onSelect={() =>
                 void exportMcpServers()
                   .then((count) => count !== null && setExported(count))
-                  .catch((e) => setExportError(String(e)))
+                  .catch((e) => toastFailure("Couldn't export", e))
               }
             >
               <FileOutputIcon className="size-4 text-muted-foreground" />
@@ -206,16 +206,6 @@ export function McpSettings() {
           Works with Claude Code (<code className="font-mono">.mcp.json</code> in a project), Claude Desktop, VS Code and
           other MCP apps. Keys aren’t included: set the <code className="font-mono">${"{NAME}"}</code> variables or fill
           in the headers there.
-        </Notice>
-      )}
-      {exportError && (
-        <Notice tone="danger" title="Couldn’t export" onDismiss={() => setExportError(null)}>
-          {exportError}
-        </Notice>
-      )}
-      {mcp.error && (
-        <Notice tone="danger" title="Couldn’t save or connect" onDismiss={mcp.clearError}>
-          {mcp.error}
         </Notice>
       )}
       {(uvMissing || nodeMissing) && (

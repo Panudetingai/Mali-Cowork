@@ -15,6 +15,7 @@ import { loadOpencodeSettings } from "@/features/opencode";
 import { folderName, normalizeFolder } from "@/features/workspace";
 import { cn } from "@/lib/utils";
 import { open } from "@tauri-apps/plugin-dialog";
+import { toastFailure } from "@/components/ui/sonner";
 import { ArrowRightIcon, FolderIcon, SparklesIcon, XIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
@@ -126,14 +127,12 @@ export function MoveToCoworkDialog({ onNewCoworkChat }: { onNewCoworkChat: () =>
   const [folder, setFolder] = useState("");
   const [runLast, setRunLast] = useState(true);
   const [moving, setMoving] = useState(false);
-  const [problem, setProblem] = useState<string>();
 
   useEffect(() => {
     if (!request) return;
     setFolder(normalizeFolder(loadOpencodeSettings().cwd || ""));
     setRunLast(true);
     setMoving(false);
-    setProblem(undefined);
   }, [request]);
 
   const last = chat ? lastRequestOf(chat.messages) : undefined;
@@ -152,7 +151,6 @@ export function MoveToCoworkDialog({ onNewCoworkChat }: { onNewCoworkChat: () =>
   const confirm = async () => {
     if (!request || !folder) return;
     setMoving(true);
-    setProblem(undefined);
     const result = await moveChatToCowork(request.chatId, folder, { runLast: runLast && !!last && !!resend }).catch(
       (error) => String(error),
     );
@@ -161,7 +159,7 @@ export function MoveToCoworkDialog({ onNewCoworkChat }: { onNewCoworkChat: () =>
       closeMoveToCowork();
       return;
     }
-    setProblem(REFUSALS[result] ?? result);
+    toastFailure("Couldn't move to Cowork", REFUSALS[result] ?? result);
   };
 
   return (
@@ -219,12 +217,6 @@ export function MoveToCoworkDialog({ onNewCoworkChat }: { onNewCoworkChat: () =>
             </label>
           )}
         </div>
-
-        {problem && (
-          <p role="alert" className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-400">
-            {problem}
-          </p>
-        )}
 
         <DialogFooter className="items-center gap-2 sm:justify-between">
           {request?.fromSwitch ? (

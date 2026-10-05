@@ -1,3 +1,4 @@
+import { toast, useToastError } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { fetchSkillsFromUrl, foundVia, skillSlug, type Skill, type SkillCandidate } from "@/features/instructions";
 import {
@@ -25,8 +26,6 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { SmitheryCard, SourceBadge } from "../smithery-card";
-import { Notice } from "../ui";
-
 /** A collection in the list: one the app suggests, or one a search turned up. */
 type Collection = {
   /** `owner/repo`. */
@@ -83,6 +82,14 @@ export function DiscoverSkills({
   const [fromSmithery, setFromSmithery] = useState<SmitherySkill[]>([]);
   const [smitheryError, setSmitheryError] = useState<string | null>(null);
   const smitheryOn = useSmitheryReady();
+  useToastError(error, () => setError(null));
+  useEffect(() => {
+    if (!smitheryError) return;
+    toast.warning("Couldn't search Smithery", {
+      description: `${smitheryError} The sources below are unaffected.`,
+    });
+    setSmitheryError(null);
+  }, [smitheryError]);
 
   // Smithery is a separate catalogue with its own key, so it has its own
   // search — and its own failures, which mustn't empty the GitHub results.
@@ -173,13 +180,6 @@ export function DiscoverSkills({
       </p>
 
       <SmitheryCard what="skills" />
-
-      {error && <Notice tone="danger">{error}</Notice>}
-      {smitheryError && (
-        <Notice tone="warning" title="Couldn’t search Smithery" onDismiss={() => setSmitheryError(null)}>
-          {smitheryError} The sources below are unaffected.
-        </Notice>
-      )}
 
       {fromSmithery.length > 0 && (
         <section className="flex flex-col gap-2">
@@ -273,6 +273,7 @@ function CollectionRow({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  useToastError(error, () => setError(null));
 
   const toggle = async () => {
     const next = !open;
@@ -340,11 +341,6 @@ function CollectionRow({
 
       {open && (
         <div className="border-t border-border/40 bg-muted/20 px-3 py-2.5">
-          {error && (
-            <Notice tone="danger" onDismiss={() => setError(null)}>
-              {error}
-            </Notice>
-          )}
           {skills && skills.length > 8 && (
             <input
               value={query}
@@ -431,6 +427,7 @@ function SmitherySkillRow({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const have = installed.some((s) => skillSlug(s) === skillSlug({ name: skill.name }));
+  useToastError(error, () => setError(null));
 
   const review = async () => {
     setBusy(true);
@@ -493,13 +490,6 @@ function SmitherySkillRow({
           </Button>
         )}
       </div>
-      {error && (
-        <div className="px-3 pb-2.5">
-          <Notice tone="danger" onDismiss={() => setError(null)}>
-            {error}
-          </Notice>
-        </div>
-      )}
     </li>
   );
 }

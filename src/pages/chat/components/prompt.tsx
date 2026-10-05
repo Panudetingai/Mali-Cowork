@@ -1,87 +1,92 @@
+import { CoworkBot } from "@/components/anim/cowork-bot";
 import { Button } from "@/components/ui/button";
-import {
-  AttachmentChip,
-  importAttachment,
-  saveAttachment,
-  type Attachment,
-} from "@/features/attachments";
+import { toast, useToastError } from "@/components/ui/sonner";
 import { Textarea } from "@/components/ui/textarea";
-import { attachFolder, detachFolder, type ChatSession } from "@/features/chat-history";
-import { requestCursorLogin, useCursor } from "@/features/cursor";
 import { useAntigravity } from "@/features/antigravity";
 import {
-  opencodeWarm,
-  requestProviderKey,
-  useOpencode,
-  type OpencodeState,
-  type WorkMode,
-} from "@/features/opencode";
-import {
-  getProvider,
-  listConfiguredProviders,
-  useEnvKeys,
-  useProviderConfigs,
-} from "@/features/providers";
-import {
-  findGrant,
-  folderName,
-  normalizeFolder,
-  requestFolderAccess,
-  useFolderGrants,
-} from "@/features/workspace";
-import { filterSkills, skillSlug, useInstructions, type Skill } from "@/features/instructions";
-import { useProjects } from "@/features/projects";
-import { cn } from "@/lib/utils";
-import { CoworkBot } from "@/components/anim/cowork-bot";
-import { McpToolIcon, useInstalledConnectors, useMcpConnections } from "@/features/mcp";
-import { InboxDropdownButton } from "@/features/tasks";
-import { useVoiceInput, VoiceButton } from "@/features/voice";
+    AttachmentChip,
+    importAttachment,
+    saveAttachment,
+    type Attachment,
+} from "@/features/attachments";
+import { attachFolder, detachFolder, type ChatSession } from "@/features/chat-history";
 import { onCompose } from "@/features/command-palette";
+import { requestCursorLogin, useCursor } from "@/features/cursor";
+import { effortFor, effortLevels, isMaxEffort, setEffortFor, useEffortChoices } from "@/features/effort";
+import { filterSkills, skillSlug, useInstructions, type Skill } from "@/features/instructions";
+import { McpToolIcon, useInstalledConnectors, useMcpConnections } from "@/features/mcp";
+import {
+    opencodeWarm,
+    requestProviderKey,
+    useOpencode,
+    type OpencodeState,
+    type WorkMode,
+} from "@/features/opencode";
+import { useProjects } from "@/features/projects";
+import {
+    getProvider,
+    listConfiguredProviders,
+    useEnvKeys,
+    useProviderConfigs,
+} from "@/features/providers";
+import { InboxDropdownButton } from "@/features/tasks";
+import { useVoiceInput } from "@/features/voice";
+import {
+    findGrant,
+    folderName,
+    normalizeFolder,
+    requestFolderAccess,
+    useFolderGrants,
+} from "@/features/workspace";
+import { useTranslation } from "@/features/i18n";
+import { cn } from "@/lib/utils";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
-  ArrowUpIcon,
-  EyeIcon,
-  FolderIcon,
-  FolderLockIcon,
-  LoaderIcon,
-  ScrollTextIcon,
-  SquareIcon,
-  UploadIcon,
-  XIcon,
+    ArrowUpIcon,
+    AudioLinesIcon,
+    EyeIcon,
+    FolderIcon,
+    GhostIcon,
+    FolderLockIcon,
+    LoaderIcon,
+    ScrollTextIcon,
+    SquareIcon,
+    UploadIcon,
+    XIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type RefObject } from "react";
 import { contextUsage } from "../context-usage";
 import type { SendMessage } from "../hooks/use-chat";
+import { useDebouncedValue } from "../hooks/use-debounced-value";
 import {
-  buildModelCatalog,
-  agentNameOf,
-  apiModelId,
-  opencodeModelOf,
-  agentOf,
-  contextBudgetFor,
-  findModel,
-  isCursorModel,
-  isOpencodeModel,
-  loadSelectedModelId,
-  opencodeProviderOf,
-  saveSelectedModelId,
-  type AiModel,
-  type ContextBudget,
+    agentNameOf,
+    agentOf,
+    apiModelId,
+    buildModelCatalog,
+    contextBudgetFor,
+    findModel,
+    isCursorModel,
+    isOpencodeModel,
+    loadSelectedModelId,
+    opencodeModelOf,
+    opencodeProviderOf,
+    saveSelectedModelId,
+    type AiModel,
+    type ContextBudget,
 } from "../models";
 import type { ChatMessage } from "../types";
-import { useDebouncedValue } from "../hooks/use-debounced-value";
-import { effortFor, effortLevels, isMaxEffort, setEffortFor, useEffortChoices } from "@/features/effort";
-import { ContextMeter } from "./context-meter";
-import { buildMentionAppendix, parseMentions } from "./mention/mentions";
+import { CONTEXT_WARN_RATIO, ContextMeter } from "./context-meter";
+import { ContextNearMaxGlow, EffortMaxGlow, EffortPicker } from "./effort-picker";
 import { filterMentions, MentionPopup } from "./mention/mention-popup";
+import { buildMentionAppendix, parseMentions } from "./mention/mentions";
 import { SkillPopup, slashItems, type SlashItem } from "./mention/skill-popup";
 import { useWorkspaceFiles } from "./mention/use-workspace-files";
-import { ContextNearMaxGlow, EffortMaxGlow, EffortPicker } from "./effort-picker";
-import { CONTEXT_WARN_RATIO } from "./context-meter";
 import { ModelPicker } from "./model-picker";
 import { PromptOptionsMenu } from "./prompt-options-menu";
+import { mergeReplyExcerpt } from "./reply-excerpt";
+import { ReplyExcerptBar } from "./reply-excerpt-bar";
 
 type Props = {
   ref: RefObject<HTMLTextAreaElement | null>;
@@ -103,6 +108,9 @@ type Props = {
   onSubmitBackground?: (payload: SendMessage) => Promise<boolean>;
   /** Narrow column (Code mode): one toolbar row, folder shown elsewhere. */
   compact?: boolean;
+  temporaryChat?: boolean;
+  onTemporaryChatChange?: (on: boolean) => void;
+  canChangeTemporary?: boolean;
 };
 
 const NO_FOLDERS: string[] = [];
@@ -128,10 +136,15 @@ export default function PromptInput({
   onSubmit,
   onSubmitBackground,
   compact = false,
+  temporaryChat,
+  onTemporaryChatChange,
+  canChangeTemporary = true,
 }: Props) {
+  const { t } = useTranslation();
   const [prompt, setPrompt] = useState("");
+  /** Text the user highlighted in the thread — shown above the box, merged on send. */
+  const [replyExcerpt, setReplyExcerpt] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [attachError, setAttachError] = useState<string | null>(null);
   const [importing, setImporting] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [modelId, setModelId] = useState(() => loadSelectedModelId(mode));
@@ -295,9 +308,8 @@ export default function PromptInput({
 
   /** Copy files into the app and show them above the text box. */
   async function addAttachments(sources: (string | File)[]) {
-    setAttachError(null);
     const room = MAX_ATTACHMENTS - attachments.length;
-    if (sources.length > room) setAttachError(`Up to ${MAX_ATTACHMENTS} files per message.`);
+    if (sources.length > room) toast.error(`Up to ${MAX_ATTACHMENTS} files per message.`);
     const accepted = sources.slice(0, Math.max(room, 0));
     setImporting((n) => n + accepted.length);
     await Promise.all(
@@ -307,7 +319,7 @@ export default function PromptInput({
             typeof source === "string" ? await importAttachment(source) : await saveAttachment(source);
           setAttachments((prev) => [...prev, attachment]);
         } catch (error) {
-          setAttachError(String(error));
+          toast.error(String(error));
         } finally {
           setImporting((n) => n - 1);
         }
@@ -479,16 +491,18 @@ export default function PromptInput({
     voice.cancel();
     const files = attachments;
     const picks = { skills: pickedSkills, connectors: pickedConnectors };
+    const excerpt = replyExcerpt;
     setPrompt("");
+    setReplyExcerpt(null);
     setAttachments([]);
     setPickedSkills([]);
     setPickedConnectors([]);
-    setAttachError(null);
     setMention(null);
     setSlash(null);
     const skillNames = picks.skills.map((slug) => skillBySlug(slug)?.name ?? slug);
     const fallback = skillNames.length ? `Use ${skillNames.join(", ")}.` : ATTACHMENTS_ONLY_PROMPT;
-    const shown = text || fallback;
+    const body = text || fallback;
+    const shown = excerpt ? mergeReplyExcerpt(body, excerpt) : body;
     const context = await mentionContext(shown);
     const submit = background && onSubmitBackground ? onSubmitBackground : onSubmit;
     const sent = await submit({
@@ -502,6 +516,7 @@ export default function PromptInput({
     });
     if (!sent) {
       setPrompt((current) => current || text);
+      if (excerpt) setReplyExcerpt(excerpt);
       setAttachments((current) => (current.length ? current : files));
       setPickedSkills((current) => (current.length ? current : picks.skills));
       setPickedConnectors((current) => (current.length ? current : picks.connectors));
@@ -509,13 +524,19 @@ export default function PromptInput({
   }
 
   const canSend = (!!prompt.trim() || attachments.length > 0 || pickedSkills.length > 0) && importing === 0;
+  const voiceBusy = voice.listening || voice.phase === "transcribing";
+  const showVoicePrimary =
+    voice.supported && (!canSend || voiceBusy) && importing === 0;
+
+  useToastError(voice.error, voice.clearError);
 
   // The ⌘K palette and the empty-state cards fill the box (never send).
   useEffect(
     () =>
-      onCompose(({ text, skill }) => {
+      onCompose(({ text, skill, replyExcerpt: excerpt }) => {
         if (skill) setPickedSkills((prev) => (prev.includes(skill) ? prev : [...prev, skill]));
-        if (text) setPrompt(text);
+        if (excerpt) setReplyExcerpt(excerpt);
+        if (text !== undefined) setPrompt(text);
         requestAnimationFrame(() => {
           const box = ref.current;
           if (!box) return;
@@ -571,6 +592,15 @@ export default function PromptInput({
         contextFull && "border-red-300/40 dark:border-red-400/30",
       )}
     >
+      {(temporaryChat || session?.ephemeral) && messages.length > 0 && (
+        <p className="mb-2 flex items-center gap-1.5 px-0.5 text-xs text-muted-foreground">
+          <GhostIcon className="size-3.5 shrink-0" />
+          {t("temporaryChatOn")}
+        </p>
+      )}
+      {replyExcerpt && (
+        <ReplyExcerptBar excerpt={replyExcerpt} onClear={() => setReplyExcerpt(null)} />
+      )}
       {contextNearMax && (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden rounded-t-xl bg-muted/60" aria-hidden>
           <div
@@ -693,7 +723,9 @@ export default function PromptInput({
           onSelect={(event) => {
             if (mention) updateMention(prompt, event.currentTarget.selectionStart ?? undefined);
           }}
-          placeholder={placeholder ?? defaultPlaceholder}
+          placeholder={
+            replyExcerpt ? t("selectionReplyPlaceholder") : (placeholder ?? defaultPlaceholder)
+          }
           rows={2}
           disabled={isLoading}
           onPaste={pasteFiles}
@@ -765,34 +797,6 @@ export default function PromptInput({
         />
       </div>
 
-      {voice.listening && (
-        <p className="mt-1 flex items-center gap-1.5 px-1 text-xs text-red-600 dark:text-red-400" aria-live="polite">
-          <span className="relative flex size-2">
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-400 opacity-75" />
-            <span className="relative inline-flex size-2 rounded-full bg-red-500" />
-          </span>
-          Listening… speak, then press Enter to send
-        </p>
-      )}
-
-      {voice.error && (
-        <p className="mt-1 flex items-start gap-1 px-1 text-xs text-red-600 dark:text-red-400">
-          <span className="min-w-0 flex-1">{voice.error}</span>
-          <button type="button" aria-label="Dismiss" onClick={voice.clearError}>
-            <XIcon className="size-3" />
-          </button>
-        </p>
-      )}
-
-      {attachError && (
-        <p className="mt-1 flex items-start gap-1 px-1 text-xs text-red-600 dark:text-red-400">
-          <span className="min-w-0 flex-1">{attachError}</span>
-          <button type="button" aria-label="Dismiss" onClick={() => setAttachError(null)}>
-            <XIcon className="size-3" />
-          </button>
-        </p>
-      )}
-
       {opencodeMissing && (
         <p className="mt-1 flex items-center gap-1.5 px-1 text-xs text-red-600 dark:text-red-400">
           <CoworkBot state="connection" size={28} className="-my-1" />
@@ -820,6 +824,9 @@ export default function PromptInput({
             onToggleSkill={toggleSkill}
             pickedConnectors={pickedConnectors}
             onToggleConnector={toggleConnector}
+            temporaryChat={temporaryChat}
+            onTemporaryChatChange={onTemporaryChatChange}
+            canChangeTemporary={canChangeTemporary && !messages.length}
           />
           {compact ? null : isCowork ? (
             <FolderChip
@@ -868,7 +875,6 @@ export default function PromptInput({
               title={`Run in background (${/Mac/.test(navigator.platform) ? "⌘" : "Ctrl+"}Enter) — the agent works on it in the Inbox, with this chat as context, while you keep chatting here`}
             />
           )}
-          <VoiceButton voice={voice} disabled={isLoading} />
           {canStop ? (
             <Button
               type="button"
@@ -879,6 +885,17 @@ export default function PromptInput({
               aria-label="Stop"
             >
               <SquareIcon className="size-3 fill-current" />
+            </Button>
+          ) : showVoicePrimary ? (
+            <Button
+              type="button"
+              size="icon-sm"
+              className="rounded-full"
+              onClick={() => voice.start()}
+              disabled={isLoading}
+              aria-label="Start voice input"
+            >
+              <AudioLinesIcon className="size-3.5" />
             </Button>
           ) : (
             <Button

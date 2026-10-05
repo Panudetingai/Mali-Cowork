@@ -5,6 +5,7 @@
  * steps and the answer as they come.
  */
 import { ModelSelectorLogo } from "@/components/ai-elements/model-selector";
+import { useToastError } from "@/components/ui/sonner";
 import { CoworkBot } from "@/components/anim/cowork-bot";
 import type { BotState } from "@/features/cowork-bot";
 import { MessageResponse } from "@/components/ai-elements/message";
@@ -244,11 +245,7 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
     }
     wasListening.current = voice.listening;
   }, [voice.listening]);
-  useEffect(() => {
-    if (!voice.error) return;
-    chat.setNote(voice.error);
-    voice.clearError();
-  }, [voice.error, voice, chat]);
+  useToastError(voice.error, voice.clearError);
 
   const lastAsk = chat.turns.at(-1);
   const lastWork = cowork.turns.at(-1);

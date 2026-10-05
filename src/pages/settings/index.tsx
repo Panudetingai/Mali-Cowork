@@ -19,7 +19,6 @@ import {
   SparklesIcon,
   UsersIcon,
   AudioLinesIcon,
-  ZapIcon,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { useSearchParams } from "react-router-dom";
@@ -31,7 +30,6 @@ import { McpTabIcon } from "./mcp/mcp-icon";
 import { McpSettings } from "./mcp/mcp-settings";
 import { ModelsSettings } from "./models-settings";
 import { NotchSettings } from "./notch-settings";
-import { QuickSettings } from "./quick-settings";
 import { ReceiptSettings } from "./receipt-settings";
 import { SkillsSettings } from "./skills/skills-settings";
 import { TeamSettings } from "./team/team-settings";
@@ -42,7 +40,6 @@ import { useTranslation, type TranslationKey } from "@/features/i18n";
 // Nav order; `group` opens a labelled section in the sidebar.
 const TABS = [
   { id: "general", label: "tabGeneral", description: "tabGeneralDesc", icon: GlobeIcon, group: "settingsGroupApp" },
-  { id: "quick", label: "tabQuick", description: "tabQuickDesc", icon: ZapIcon },
   { id: "notch", label: "tabNotch", description: "tabNotchDesc", icon: PanelTopIcon },
   { id: "voice", label: "tabVoice", description: "tabVoiceDesc", icon: AudioLinesIcon },
   { id: "receipt", label: "tabReceipt", description: "tabReceiptDesc", icon: ReceiptIcon },
@@ -75,7 +72,9 @@ const TAB = cn(
 export default function SettingsPage() {
   const { t } = useTranslation();
   const [params, setParams] = useSearchParams();
-  const tab: TabId = TABS.find((t) => t.id === params.get("tab"))?.id ?? "general";
+  const rawTab = params.get("tab");
+  const tab: TabId =
+    TABS.find((t) => t.id === (rawTab === "quick" ? "notch" : rawTab))?.id ?? "general";
   const selectedIndex = Math.max(0, TABS.findIndex((t) => t.id === tab));
   const active = TABS[selectedIndex];
 
@@ -140,11 +139,6 @@ export default function SettingsPage() {
             <TabPanel>
               <Enter>
                 <GeneralSettings />
-              </Enter>
-            </TabPanel>
-            <TabPanel>
-              <Enter>
-                <QuickSettings />
               </Enter>
             </TabPanel>
             <TabPanel>

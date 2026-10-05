@@ -61,7 +61,7 @@ function App() {
 
   // Keep Quick bar threads as chats (this window owns history).
   useEffect(() => listenForQuickSaves(), []);
-  useEffect(() => onOpenQuickSettings(() => navigate("/settings?tab=quick")), [navigate]);
+  useEffect(() => onOpenQuickSettings(() => navigate("/settings?tab=notch")), [navigate]);
   // "New bot" in the notch: Settings → Team, with the new-bot form open.
   useEffect(
     () => onOpenTeam(({ create }) => navigate(`/settings?tab=team${create ? "&new=1" : ""}`)),

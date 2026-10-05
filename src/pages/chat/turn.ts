@@ -73,6 +73,8 @@ export type TurnTarget = {
   newChatMode: WorkMode;
   newChatProjectId?: string;
   newChatView?: ChatSession["view"];
+  /** Not saved to history or the sidebar (see `ChatSession.ephemeral`). */
+  newChatEphemeral?: boolean;
   /** A new chat was made for this turn (the chat page opens it). */
   onChatCreated?: (chat: ChatSession, info: { mode: WorkMode; projectId?: string }) => void;
 };
@@ -86,7 +88,7 @@ export type TurnTarget = {
  * Resolves false when the message was not sent (e.g. folder access declined).
  */
 export async function sendTurn(
-  { chatId, newChatMode, newChatProjectId, newChatView, onChatCreated }: TurnTarget,
+  { chatId, newChatMode, newChatProjectId, newChatView, newChatEphemeral, onChatCreated }: TurnTarget,
   { prompt, resend, attachments = [], context = "" }: TurnInput,
 ): Promise<boolean> {
   const modelId = resend.modelId;
@@ -129,6 +131,7 @@ export async function sendTurn(
       cwd: folders[0],
       continuedFrom,
       projectId: project?.id,
+      ephemeral: previous?.ephemeral ?? newChatEphemeral,
     });
     onChatCreated?.(chat, { mode: chatMode, projectId: project?.id });
   } else if (chatMode === "cowork" && !chat.cwd) {

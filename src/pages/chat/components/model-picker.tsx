@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollMore, useScrollFade } from "@/components/ui/scroll-fade";
 import { cn } from "@/lib/utils";
-import { ModelBrandIcon } from "@/features/providers";
+import { getProvider, ModelBrandIcon, PROVIDERS, ProviderLogo } from "@/features/providers";
 import { CheckIcon, ChevronDownIcon, FilmIcon, ImageIcon, KeyRoundIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { OPENCODE_DEFAULT_ID, type AiModel } from "../models";
@@ -268,13 +268,32 @@ function RailItem({
       ) : (
         <span className="size-1.5 shrink-0" aria-hidden />
       )}
-      <ModelBrandIcon model={group.items[0] ?? { id: "api:opencode/default", name: "OpenCode", provider: "opencode" }} className="size-4" />
+      <GroupProviderIcon group={group} className="size-4" />
       <span className="min-w-0 truncate sm:flex-1">{group.label}</span>
       <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
         {group.items.length}
       </span>
     </button>
   );
+}
+
+const CLI_GROUP_LOGO: Record<string, string> = {
+  "Cursor CLI": "cursor",
+  "Codex CLI": "codex",
+  "Antigravity CLI": "antigravity",
+  OpenCode: "opencode",
+};
+
+/** Provider rail: brand for the host (Ollama Cloud, OpenAI…), not the first model's family art. */
+function GroupProviderIcon({ group, className }: { group: Group; className?: string }) {
+  const sample = group.items[0];
+  const logo =
+    CLI_GROUP_LOGO[group.label] ??
+    (sample && getProvider(sample.provider)?.logo) ??
+    PROVIDERS.find((p) => p.name === group.label)?.logo ??
+    sample?.provider ??
+    "opencode";
+  return <ProviderLogo logo={logo} name={group.label} className={className} size={16} />;
 }
 
 function ModelList({
@@ -292,7 +311,7 @@ function ModelList({
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex min-w-0 items-center gap-2 border-b px-3 py-2">
-        <ModelBrandIcon model={group.items[0] ?? { id: "api:opencode/default", name: "OpenCode", provider: "opencode" }} className="size-4" />
+        <GroupProviderIcon group={group} className="size-4" />
         <span className="min-w-0 flex-1 truncate text-sm font-medium">
           {group.label}
           {group.note && (

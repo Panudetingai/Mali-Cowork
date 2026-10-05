@@ -21,12 +21,13 @@ import {
   type PuterVoices,
   type VoiceSettings,
 } from "@/features/voice";
+import { useToastError } from "@/components/ui/sonner";
 import { MALI_EASE } from "@/lib/motion-presets";
 import { cn } from "@/lib/utils";
 import { CheckIcon, CpuIcon, MessageSquareTextIcon, MicIcon, PlayIcon, SendIcon, SquareIcon, Volume2Icon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Notice, SectionHeader, Segmented, SettingRow, SettingsGroup, StatusPill } from "./ui";
+import { SectionHeader, Segmented, SettingRow, SettingsGroup } from "./ui";
 
 type Choice<T extends string> = {
   id: T;
@@ -380,6 +381,7 @@ function VoicePicker({ settings, lang }: { settings: VoiceSettings; lang: string
 function TryListening() {
   const [heard, setHeard] = useState("");
   const voice = useVoiceInput({ onText: (text) => setHeard(text), onStart: () => setHeard(""), autoStop: true });
+  useToastError(voice.error, voice.clearError);
   return (
     <SettingRow
       icon={<MicIcon />}
@@ -388,18 +390,14 @@ function TryListening() {
       control={<VoiceButton voice={voice} />}
     >
       <AnimatePresence initial={false}>
-        {(heard || voice.error) && (
+        {heard && (
           <motion.div
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2, ease: MALI_EASE }}
           >
-            {voice.error ? (
-              <Notice tone="danger">{voice.error}</Notice>
-            ) : (
-              <p className="rounded-xl bg-muted/40 px-3 py-2 text-sm">“{heard}”</p>
-            )}
+            <p className="rounded-xl bg-muted/40 px-3 py-2 text-sm">“{heard}”</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -410,6 +408,7 @@ function TryListening() {
 function TrySpeaking({ settings, lang }: { settings: VoiceSettings; lang: "th" | "en" }) {
   const state = useSyncExternalStore(subscribeSpeaker, speakerState);
   const busy = state.speaking || state.loading;
+  useToastError(state.error && !busy ? state.error : undefined);
   return (
     <SettingRow
       icon={<Volume2Icon />}
@@ -439,7 +438,6 @@ function TrySpeaking({ settings, lang }: { settings: VoiceSettings; lang: "th" |
         </Button>
       }
     >
-      {state.error && !busy && <StatusPill tone="danger">Couldn't speak</StatusPill>}
     </SettingRow>
   );
 }

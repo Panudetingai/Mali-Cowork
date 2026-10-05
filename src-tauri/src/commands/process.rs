@@ -82,9 +82,16 @@ fn windows_command(bin: &str, args: &[&str]) -> Command {
         return cmd;
     }
 
+    if let Some(ps1) = powershell_shim_script(path, &contents) {
+        let mut cmd = Command::new(powershell_exe());
+        cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]);
+        cmd.arg(ps1).args(args);
+        return cmd;
+    }
+
     // Last resort: through `cmd.exe`, with nothing left for it to interpret.
     let mut cmd = Command::new("cmd");
-    cmd.raw_arg(cmd_line(bin, args));
+    cmd.arg("/D").arg("/S").arg("/C").raw_arg(cmd_line_body(bin, args));
     cmd
 }
 
@@ -144,17 +151,73 @@ fn quote_argument(arg: &str) -> String {
     out
 }
 
-/// `/D /S /C "<bin> <args>"` with every metacharacter escaped. Arguments are
-/// escaped twice because the batch file re-parses them when it passes `%*`
+/// `"<bin> <args>"` with every metacharacter escaped for `/D /S /C`. Arguments
+/// are escaped twice because the batch file re-parses them when it passes `%*`
 /// on. `cmd.exe` cannot carry line breaks in an argument, so they become spaces.
 #[cfg_attr(not(windows), allow(dead_code))]
-fn cmd_line(bin: &str, args: &[&str]) -> String {
+fn cmd_line_body(bin: &str, args: &[&str]) -> String {
     let mut line = caret_escape(bin);
     for arg in args {
         line.push(' ');
         line.push_str(&cmd_argument(arg));
     }
-    format!("/D /S /C \"{line}\"")
+    format!("\"{line}\"")
+}
+
+/// Full legacy one-argument form (tests only).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn cmd_line(bin: &str, args: &[&str]) -> String {
+    format!("/D /S /C {}", cmd_line_body(bin, args))
+}
+
+/// Cursor and other installers ship `.cmd` shims that delegate to PowerShell,
+/// e.g. `powershell.exe -File "%SCRIPT_DIR%\cursor-agent.ps1" %*`. Run the
+/// script directly so arguments are not double-escaped through `cmd.exe`.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn powershell_shim_script(shim: &Path, contents: &str) -> Option<PathBuf> {
+    let dir = shim.parent()?;
+    let lower = contents.to_ascii_lowercase();
+    if !lower.contains("-file") {
+        return None;
+    }
+    let marker = "-file";
+    let idx = lower.find(marker)?;
+    let rest = contents[idx + marker.len()..].trim_start();
+    let quoted = rest.strip_prefix('"')?;
+    let end = quoted.find('"')?;
+    let mut script_ref = quoted[..end].to_string();
+    if script_ref.to_ascii_lowercase().ends_with(".ps1") {
+        // ok
+    } else {
+        return None;
+    }
+    let dir_str = dir.to_string_lossy();
+    script_ref = script_ref.replace("%SCRIPT_DIR%", dir_str.as_ref());
+    let dp0 = format!("{dir_str}\\");
+    for token in ["%~dp0\\", "%~dp0", "%dp0%\\", "%dp0%"] {
+        script_ref = script_ref.replace(token, &dp0);
+    }
+    let script = Path::new(&script_ref);
+    let script = if script.is_absolute() {
+        script.to_path_buf()
+    } else {
+        dir.join(script)
+    };
+    script.is_file().then_some(script)
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn powershell_exe() -> PathBuf {
+    std::env::var_os("SystemRoot")
+        .map(PathBuf::from)
+        .map(|root| {
+            root.join("System32")
+                .join("WindowsPowerShell")
+                .join("v1.0")
+                .join("powershell.exe")
+        })
+        .filter(|p| p.is_file())
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"))
 }
 
 fn cmd_argument(arg: &str) -> String {
@@ -205,6 +268,23 @@ mod tests {
         assert_eq!(quote_argument(r#"say "hi""#), r#""say \"hi\"""#);
         assert_eq!(quote_argument(r"C:\dir\"), r#""C:\dir\\""#);
         assert_eq!(quote_argument(r#"a\"b"#), r#""a\\\"b""#);
+    }
+
+    #[test]
+    fn cursor_agent_cmd_shim_points_at_powershell_script() {
+        let dir = std::env::temp_dir().join(format!("mali-ps-shim-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ps1 = dir.join("cursor-agent.ps1");
+        std::fs::write(&ps1, "exit 0").unwrap();
+        let shim = dir.join("cursor-agent.cmd");
+        let body = r#"@echo off
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%\cursor-agent.ps1" %*"#;
+        std::fs::write(&shim, body).unwrap();
+        let contents = std::fs::read_to_string(&shim).unwrap();
+        assert_eq!(powershell_shim_script(&shim, &contents), Some(ps1));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
