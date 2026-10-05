@@ -93,10 +93,9 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 pub fn shortcut_plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri_plugin_global_shortcut::Builder::new()
         .with_handler(|app, _shortcut, event: ShortcutEvent| {
-            // Only one shortcut is ever registered, and it's ours.
-            // In notch mode the shortcut opens the notch instead.
-            if event.state() == ShortcutState::Pressed && !super::notch::summon(app) {
-                toggle_quick(app);
+            // Only one shortcut is ever registered, and it's ours — opens the notch ask box.
+            if event.state() == ShortcutState::Pressed {
+                let _ = super::notch::summon(app);
             }
         })
         .build()
@@ -234,16 +233,18 @@ fn set_tray<R: Runtime>(app: &AppHandle<R>, on: bool) -> tauri::Result<()> {
         return Ok(());
     }
     let open = MenuItem::with_id(app, "tray-open", "Open Mali Cowork", true, None::<&str>)?;
-    let quick = MenuItem::with_id(app, "tray-quick", "Quick bar", true, None::<&str>)?;
+    let ask = MenuItem::with_id(app, "tray-ask", "Ask in notch", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "tray-quit", "Quit Mali Cowork", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &quick, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &ask, &quit])?;
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("Mali Cowork")
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "tray-open" => super::notch::reopen(app),
-            "tray-quick" => open_quick(app),
+            "tray-ask" => {
+                let _ = super::notch::summon(app);
+            }
             "tray-quit" => app.exit(0),
             _ => {}
         });

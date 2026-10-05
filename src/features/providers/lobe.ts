@@ -2,7 +2,8 @@
 // Ref: https://lobehub.com/only-ai/skills/icons/reference/providers
 export const LOBE_PROVIDER_KEY: Record<string, string> = {
   ollama: "ollama",
-  "ollama-cloud": "ollamacloud",
+  // Lobe's `ollamacloud` glyph doesn't match Ollama's brand; use the local Ollama mark.
+  "ollama-cloud": "ollama",
   google: "google",
   openai: "openai",
   anthropic: "anthropic",

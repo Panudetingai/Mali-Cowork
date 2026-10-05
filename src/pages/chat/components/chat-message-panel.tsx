@@ -13,6 +13,7 @@ import { Link } from "react-router-dom";
 import type { ChatMessage } from "../types";
 import { ChatMessages } from "./chat-messages";
 import { ProjectChip } from "./chat-title";
+import { MessageSelectionToolbar } from "./message-selection-toolbar";
 
 type Props = {
   messages: ChatMessage[];
@@ -74,6 +75,7 @@ export function ChatMessagePanel({
         </div>
       )}
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+        <MessageSelectionToolbar containerRef={containerRef} />
         <div
           ref={containerRef}
           tabIndex={0}

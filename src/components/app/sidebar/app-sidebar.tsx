@@ -29,7 +29,17 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { deleteChats, getRuns, isListedChat, sessionMode, useChatRuns, useChatSessions, type ChatSession } from "@/features/chat-history";
+import {
+  deleteChats,
+  getRuns,
+  isListedChat,
+  newChatHomeUrl,
+  TEMPORARY_CHAT_QUERY,
+  sessionMode,
+  useChatRuns,
+  useChatSessions,
+  type ChatSession,
+} from "@/features/chat-history";
 import { useInboxAttention } from "@/features/tasks";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
@@ -40,6 +50,7 @@ import {
   CodeXmlIcon,
   FilesIcon,
   ChartColumnIcon,
+  GhostIcon,
   InboxIcon,
   LayoutGridIcon,
   FolderKanbanIcon,
@@ -57,12 +68,22 @@ import { useTranslation } from "@/features/i18n";
 import { ChatHistoryItem } from "./chat-history-item";
 import { sidebarItemClass } from "./sidebar-styles";
 
+/** Home (`/`): mode and temporary flag must both match so New chat ≠ Temporary chat. */
+function homeNavActive(pathname: string, current: URLSearchParams, itemQuery: string) {
+  if (pathname !== "/") return false;
+  const item = new URLSearchParams(itemQuery);
+  const mode = (p: URLSearchParams) => p.get("mode") ?? "chat";
+  if (mode(current) !== mode(item)) return false;
+  const temp = (p: URLSearchParams) => p.get(TEMPORARY_CHAT_QUERY) === "1";
+  return temp(current) === temp(item);
+}
+
 function NavItem({ title, url, icon: Icon, badge }: { title: string; url: string; icon: LucideIcon; badge?: number }) {
   const { pathname, search } = useLocation();
   const [path, query = ""] = url.split("?");
   const isActive =
     path === "/"
-      ? pathname === "/" && new URLSearchParams(search).get("mode") === new URLSearchParams(query).get("mode")
+      ? homeNavActive(pathname, new URLSearchParams(search), query)
       : pathname.startsWith(path);
 
   return (
@@ -309,6 +330,7 @@ export function AppSidebar() {
         <SidebarHeader className="gap-1 pb-1">
           <SidebarMenu className="gap-0.5">
             <NavItem title={t("newChat")} url="/?mode=chat" icon={SquarePenIcon} />
+            <NavItem title={t("newTemporaryChat")} url={newChatHomeUrl("chat", { temporary: true })} icon={GhostIcon} />
             <NavItem title={t("cowork")} url="/?mode=cowork" icon={SparklesIcon} />
             <NavItem title={t("code")} url="/?mode=code" icon={CodeXmlIcon} />
             <NavItem title={t("visual")} url="/visual" icon={ImagesIcon} />

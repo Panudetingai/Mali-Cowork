@@ -1202,8 +1202,9 @@ pub fn notch_exit_mode<R: Runtime>(app: AppHandle<R>, chat_id: Option<String>) {
 /// (or the drop into the app is still playing; it hides after).
 #[tauri::command]
 pub fn notch_release<R: Runtime>(app: AppHandle<R>) {
-    let stretched = app.state::<NotchState>().placed.lock().unwrap().stretched;
-    if !mode_on(&app) && !stretched {
+    let state = app.state::<NotchState>();
+    let stretched = state.placed.lock().unwrap().stretched;
+    if !mode_on(&app) && !stretched && !state.open.load(Ordering::SeqCst) {
         notch_hide(app);
     }
 }
@@ -1214,12 +1215,8 @@ pub fn notch_open_main<R: Runtime>(app: AppHandle<R>, chat_id: Option<String>) {
     hand_over(&app, chat_id);
 }
 
-/// ⌥⌘M in notch mode: open the pill ready to type, or close it if it is.
-/// Returns false outside notch mode, so the Quick bar opens instead.
+/// ⌥⌘M / Ctrl+Alt+M: open the pill ready to type, or close it if it is.
 pub fn summon<R: Runtime>(app: &AppHandle<R>) -> bool {
-    if !mode_on(app) {
-        return false;
-    }
     let Ok(window) = notch_window(app) else {
         return false;
     };
@@ -1239,6 +1236,8 @@ pub fn summon<R: Runtime>(app: &AppHandle<R>) -> bool {
     }
     let _ = window.set_focusable(true);
     show_pill(&window);
+    // Keep the pill up while the ask box opens (the relay may release otherwise).
+    state.open.store(true, Ordering::SeqCst);
     let _ = window.set_focus();
     let _ = window.emit(SUMMON, ());
     true

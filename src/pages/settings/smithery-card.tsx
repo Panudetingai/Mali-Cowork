@@ -1,3 +1,4 @@
+import { toastFailure } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -11,7 +12,7 @@ import { SmitheryIcon } from "@/components/app/smithery-icon";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { CheckIcon, LoaderCircleIcon, PlugZapIcon, XIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { Notice, SecretInput } from "./ui";
+import { SecretInput } from "./ui";
 
 const KEYS_URL = "https://smithery.ai/account/api-keys";
 
@@ -31,28 +32,23 @@ export function SmitheryCard({ what }: { what: "skills" | "connectors" }) {
   const [open, setOpen] = useState(false);
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const connected = useSmitheryConnected();
 
   useEffect(() => {
     if (open) input.current?.focus();
-    else {
-      setKey("");
-      setError(null);
-    }
+    else setKey("");
   }, [open]);
 
   const connect = async (event: FormEvent) => {
     event.preventDefault();
     if (!key.trim() || busy) return;
     setBusy(true);
-    setError(null);
     try {
       await connectSmithery(key);
       setOpen(false);
     } catch (e) {
-      setError(String(e));
+      toastFailure("Couldn't connect Smithery", e);
     } finally {
       setBusy(false);
     }
@@ -153,11 +149,6 @@ export function SmitheryCard({ what }: { what: "skills" | "connectors" }) {
               {busy ? "Checking…" : "Connect"}
             </Button>
           </div>
-          {error && (
-            <Notice tone="danger" onDismiss={() => setError(null)}>
-              {error}
-            </Notice>
-          )}
         </form>
       )}
     </div>

@@ -3,7 +3,12 @@
  * empty-state cards): the text to type, or a skill to add as a badge. Nothing
  * is sent — the user reads it and presses Enter.
  */
-export type ComposeRequest = { text?: string; skill?: string };
+export type ComposeRequest = {
+  text?: string;
+  skill?: string;
+  /** Highlighted text — shown in the reply bar, merged when the user sends. */
+  replyExcerpt?: string;
+};
 
 const EVENT = "mali:compose";
 

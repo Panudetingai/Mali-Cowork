@@ -12,6 +12,7 @@ import {
   saveAttachment,
   type Attachment,
 } from "@/features/attachments";
+import { toast, useToastError } from "@/components/ui/sonner";
 import { useVoiceInput, VoiceButton } from "@/features/voice";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -90,7 +91,6 @@ export function QuickBarRoot() {
   const [input, setInput] = useState("");
   const [turns, setTurns] = useState<QuickTurn[]>([]);
   const [chatId, setChatId] = useState(() => crypto.randomUUID());
-  const [note, setNote] = useState<string>();
   const [copied, setCopied] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [modelInfo, setModelInfo] = useState<QuickModelInfo>();
@@ -119,7 +119,6 @@ export function QuickBarRoot() {
     setInput("");
     setTurns([]);
     setDragging(false);
-    setNote(undefined);
     setCopied(false);
     setChatId(crypto.randomUUID());
     threadRef.current = { history: [] };
@@ -150,9 +149,8 @@ export function QuickBarRoot() {
   useEffect(() => {
     const stopDone = onQuickCaptureDone((attachment) => {
       setShots((prev) => [...prev, attachment]);
-      setNote(undefined);
     });
-    const stopFailed = onQuickCaptureFailed((message) => setNote(message));
+    const stopFailed = onQuickCaptureFailed((message) => toast.error(message));
     return () => {
       stopDone();
       stopFailed();
@@ -167,7 +165,7 @@ export function QuickBarRoot() {
   /** Pasted or dropped files join the screenshots, shown above the box and in the bubble. */
   const addFiles = useCallback(async (sources: (string | File)[]) => {
     const accepted = sources.slice(0, MAX_FILES);
-    if (sources.length > MAX_FILES) setNote(`แนบได้สูงสุด ${MAX_FILES} ไฟล์ต่อครั้ง`);
+    if (sources.length > MAX_FILES) toast.error(`แนบได้สูงสุด ${MAX_FILES} ไฟล์ต่อครั้ง`);
     setImporting((n) => n + accepted.length);
     await Promise.all(
       accepted.map(async (source) => {
@@ -176,7 +174,7 @@ export function QuickBarRoot() {
             typeof source === "string" ? await importAttachment(source) : await saveAttachment(source);
           setShots((prev) => (prev.length >= MAX_FILES ? prev : [...prev, attachment]));
         } catch (error) {
-          setNote(error instanceof Error ? error.message : String(error));
+          toast.error(error instanceof Error ? error.message : String(error));
         } finally {
           setImporting((n) => n - 1);
         }
@@ -225,6 +223,7 @@ export function QuickBarRoot() {
     },
     onText: (text) => setInput(voiceBase.current + text),
   });
+  useToastError(voice.error, voice.clearError);
 
   const send = async (action?: QuickAction) => {
     if (streaming || importing > 0) return;
@@ -255,7 +254,6 @@ export function QuickBarRoot() {
     setTurns((prev) => [...prev, turn]);
     setInput("");
     setShots([]);
-    setNote(undefined);
     setCopied(false);
 
     const controller = new AbortController();
@@ -313,7 +311,7 @@ export function QuickBarRoot() {
       setCopied(true);
       setTimeout(() => void hideQuick(), 350);
     } catch {
-      setNote("คัดลอกไม่สำเร็จ ลองเลือกข้อความแล้วกด ⌘C");
+      toast.error("คัดลอกไม่สำเร็จ ลองเลือกข้อความแล้วกด ⌘C");
     }
   };
 
@@ -325,7 +323,6 @@ export function QuickBarRoot() {
 
   const capture = async () => {
     setCapturing(true);
-    setNote(undefined);
     try {
       if (isMac) {
         const shot = await captureScreen();
@@ -334,7 +331,7 @@ export function QuickBarRoot() {
         await startCaptureOverlay();
       }
     } catch (error) {
-      setNote(error instanceof Error ? error.message : String(error));
+      toast.error(error instanceof Error ? error.message : String(error));
     } finally {
       setCapturing(false);
       requestAnimationFrame(() => inputRef.current?.focus());
@@ -638,12 +635,6 @@ export function QuickBarRoot() {
             </div>
           </div>
 
-          {voice.error && (
-            <p className="text-xs text-red-600 dark:text-red-400">{voice.error}</p>
-          )}
-          {note && (
-            <p className="text-xs text-red-600 dark:text-red-400">{note}</p>
-          )}
           {!hasThread && (
             <p className="text-[11px] text-muted-foreground">
               Enter ส่ง · Shift+Enter ขึ้นบรรทัดใหม่ · วางหรือลากรูป/ไฟล์มาแนบได้ · Esc ปิด

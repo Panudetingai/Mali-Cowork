@@ -278,6 +278,7 @@ export function useChat(
   newChatMode: WorkMode,
   newChatProjectId?: string,
   newChatView?: ChatSession["view"],
+  newChatEphemeral?: boolean,
 ) {
   const navigate = useNavigate();
   const sessions = useChatSessions();
@@ -303,6 +304,7 @@ export function useChat(
           newChatMode,
           newChatProjectId,
           newChatView,
+          newChatEphemeral,
           onChatCreated: (chat, { mode: chatMode, projectId }) => {
             const modeQuery = chatMode === "cowork" ? "cowork" : "chat";
             navigate(`/chat/${chat.id}?mode=${modeQuery}${projectId ? `&project=${projectId}` : ""}`);
@@ -310,7 +312,7 @@ export function useChat(
         },
         input,
       ),
-    [chatId, newChatMode, newChatProjectId, newChatView, navigate],
+    [chatId, newChatMode, newChatProjectId, newChatView, newChatEphemeral, navigate],
   );
 
   /** Resolves false when the message was not sent (e.g. folder access declined). */

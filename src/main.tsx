@@ -11,38 +11,25 @@ const root = () =>
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement);
 
 // Every window runs this bundle, and each loads only its own code: the notch
-// pill and the Quick bar stay small (they open instantly and sit in memory
-// all day), while the app's pages load in the main window alone.
+// pill stays small (it opens instantly and sits in memory all day), while
+// the app's pages load in the main window alone.
 const windowParam = new URLSearchParams(window.location.search).get("window");
 
-if (windowParam === "quick") {
-  // The Quick bar (Epic A) skips the history/projects load: it opens on a
-  // shortcut and must be instant. No main-window chrome here: its vibrancy
-  // and system shadow drew a dark edge around the Quick bar, which draws
-  // its own frame (index.css).
-  document.documentElement.dataset.window = "quick";
-  void import("@/features/quick").then(({ QuickBarRoot }) =>
-    root().render(
-      <React.StrictMode>
-        <ThemeProvider>
-          <QuickBarRoot />
-        </ThemeProvider>
-      </React.StrictMode>,
-    ),
-  );
-} else if (windowParam === "notch") {
-  // The pill mirrors the main window's runs; like the Quick bar it must open
-  // instantly, so it loads no history and draws its own frame.
+if (windowParam === "notch") {
+  // The pill mirrors the main window's runs; it must open instantly, so it
+  // loads no history and draws its own frame.
   document.documentElement.dataset.window = "notch";
-  void import("@/features/notch/notch-root").then(({ NotchRoot }) =>
-    root().render(
-      <React.StrictMode>
-        {/* The pill is part of the notch: always dark. */}
-        <ThemeProvider forcedTheme="dark">
-          <NotchRoot />
-        </ThemeProvider>
-      </React.StrictMode>,
-    ),
+  void Promise.all([import("@/features/notch/notch-root"), import("@/components/ui/sonner")]).then(
+    ([{ NotchRoot }, { Toaster }]) =>
+      root().render(
+        <React.StrictMode>
+          {/* The pill is part of the notch: always dark. */}
+          <ThemeProvider forcedTheme="dark">
+            <NotchRoot />
+            <Toaster />
+          </ThemeProvider>
+        </React.StrictMode>,
+      ),
   );
 } else if (windowParam === "quick-capture-overlay") {
   document.documentElement.dataset.window = "quick-capture-overlay";
@@ -95,7 +82,7 @@ async function startMainWindow() {
   ]);
   // Hidden at the start (Mali started at login, in the notch): the pages wait.
   await Promise.allSettled([loadChatHistory(), loadProjects(), keys, checkMainAwake()]);
-  // Register the saved Quick bar shortcut and tray mode.
+  // Register the global notch shortcut and tray mode.
   void applyQuickConfig();
   root().render(
     <React.StrictMode>

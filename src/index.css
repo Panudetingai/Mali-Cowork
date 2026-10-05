@@ -651,6 +651,21 @@ html[lang="th"] {
   .effort-rise-track { animation: none !important; opacity: 0.35; }
 }
 
+/* Sonner — app font and readable error copy (title + description). */
+[data-sonner-toaster].toaster {
+  font-family: var(--font-app);
+}
+
+[data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] {
+  align-items: flex-start;
+  -webkit-backdrop-filter: blur(12px) saturate(1.5);
+  backdrop-filter: blur(12px) saturate(1.5);
+}
+
+[data-sonner-toaster].toaster [data-sonner-toast][data-styled="true"] [data-title] {
+  overflow-wrap: anywhere;
+}
+
 @layer utilities {
   .bg-mali-ambient {
     background-image:

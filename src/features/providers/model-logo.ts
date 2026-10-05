@@ -10,8 +10,12 @@ function inferBrandLogo(raw: string): string | undefined {
   if (/claude|anthropic/.test(slug)) return "anthropic";
   if (/^(gpt|chatgpt|o[0-9]|sora|dall-e|gpt-image|text-embedding)/.test(tail) || /^gpt/.test(tail)) return "openai";
   if (/gemini|veo|imagen|palm|bard/.test(slug)) return "google";
+  if (/antigravity/.test(slug)) return "antigravity";
+  if (/cursor|composer/.test(slug)) return "cursor";
   if (/^qwen|\/qwen|wan2|wan-/.test(slug)) return "alibaba";
   if (/grok|x-ai|xai/.test(slug)) return "xai";
+  if (/^ollama\//.test(slug)) return "ollama";
+  if (/^ollama-cloud\//.test(slug) || /^gpt-oss(?::|$)/.test(tail)) return "ollama-cloud";
   if (/deepseek/.test(slug)) return "deepseek";
   if (/mistral|mixtral|codestral|pixtral|ministral/.test(slug)) return "mistral";
   if (/llama|meta-llama|\bllama\b/.test(slug)) return "meta";
