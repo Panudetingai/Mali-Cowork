@@ -37,6 +37,7 @@ import {
   CheckIcon,
   ChevronsUpDownIcon,
   CircleAlertIcon,
+  ArrowLeftIcon,
   CodeXmlIcon,
   CrosshairIcon,
   EyeIcon,
@@ -59,6 +60,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { ChatComposer } from "./chat-composer";
 import { ChatMessagePanel } from "./chat-message-panel";
 import { CodeChatContext } from "./message/code-chat-context";
@@ -168,6 +170,7 @@ function languageTag(rel: string) {
 }
 
 export function CodeView({ chat, chatId, project, root, withGit, initialOpen, onModeChange, onNewChat, onPickDefaultFolder }: Props) {
+  const navigate = useNavigate();
   const {
     session,
     mode,
@@ -544,6 +547,19 @@ export function CodeView({ chat, chatId, project, root, withGit, initialOpen, on
         {/* Toolbar: project · mode · run and view controls */}
         <div className="flex h-11 shrink-0 items-center gap-x-2 overflow-hidden border-b px-2">
           <div className="flex min-w-0 flex-1 basis-0 items-center gap-1 overflow-hidden">
+          {inSkillsLibrary && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="shrink-0 gap-1.5"
+              title="Back to Skills"
+              onClick={() => navigate("/settings?tab=skills")}
+            >
+              <ArrowLeftIcon className="size-4" />
+              Skills
+            </Button>
+          )}
           <ToolbarToggle on={explorerOpen} hint="Explorer" onClick={() => setExplorerOpen(!explorerOpen)}>
             <PanelLeftIcon className="size-4" />
           </ToolbarToggle>

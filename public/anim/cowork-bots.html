@@ -173,7 +173,12 @@ document.getElementById("bot").contentWindow
   var HAPPY = "M-11 4Q0 -10 11 4";
   var LABELS = { idle:"รอคำสั่ง", thinking:"กำลังคิด…", working:"กำลังทำงาน…", done:"เสร็จแล้ว!",
                  alert:"แจ้งเตือน!", welcome:"สวัสดี!", tool:"กำลังใช้เครื่องมือ…", connection:"รอเชื่อมต่อใหม่…", permission:"รออนุญาตคำสั่ง…",
-                 question:"รอคำตอบ…" };
+                 question:"รอคำตอบ…", listening:"กำลังฟัง…", speaking:"กำลังพูด…" };
+
+  // The voice to follow while listening or speaking (0–1), sent by the host
+  // each frame as { level }. None lately (a voice that can't be measured):
+  // the bot makes up a talking rhythm of its own.
+  var VOICE = { level: 0, at: -1e9 };
 
   // alert: blink between deep red and bright red
   var ALERT_DEEP   = ["#ff9a9a","#e53935","#b71c1c","#5c0808"];
@@ -526,9 +531,14 @@ document.getElementById("bot").contentWindow
     var stretch = Spring(0, 0.07, 0.78);
     var twL     = Spring(0, 0.25, 0.60);
     var twR     = Spring(0, 0.25, 0.60);
+    // voice chat: ears up and tilted toward you, or a mouth that moves with the voice
+    var listenOn = Spring(0, 0.07, 0.80);
+    var speakOn  = Spring(0, 0.09, 0.75);
+    var vox      = Spring(0, 0.35, 0.55);
     var wiggleAt = -10, stepP = 0;
     var springs = [bodyS, spread, dotS, eyeOpen, happy, squint, lookX, lookY, morph, work, hopY, dance, ringOn,
-                   alertOn, handOn, waveOn, toolOn, connOn, permOn, headTilt, walkX, walkOn, stretch, twL, twR];
+                   alertOn, handOn, waveOn, toolOn, connOn, permOn, headTilt, walkX, walkOn, stretch, twL, twR,
+                   listenOn, speakOn, vox];
 
     var t = Math.random()*10, colorP = Math.random()*pals.length, colorRate = 0.05;
     var orbitA = 0, ringA = Math.random()*TAU, blinkY = 1, blinkOK = true, ambient = true;
@@ -642,6 +652,33 @@ document.getElementById("bot").contentWindow
       after(5400, permLoop);
     }
 
+    // listening: ears perk up, head tilts one way then the other, eyes on you
+    function listenLoop(){
+      ambient=false; blinkOK=true; happy.t=0; eyeOpen.t=1.1; squint.t=1; lookX.t=0; lookY.t=1.5;
+      bodyS.t=1.02; morph.t=0.05; listenOn.t=1; headTilt.t=7;
+      (function sway(){
+        after(2200 + Math.random()*1400, function(){
+          headTilt.t = headTilt.t > 0 ? -6 : 7;
+          var ear = Math.random() < 0.5 ? twL : twR; ear.vel += 1.2;
+          sway();
+        });
+      })();
+    }
+    // speaking: the mouth follows the voice; a nod, a glance or a little hop now and then
+    function speakLoop(){
+      ambient=false; blinkOK=true; happy.t=0; eyeOpen.t=1; squint.t=1; lookX.t=0; lookY.t=0;
+      bodyS.t=1; morph.t=0.1; speakOn.t=1;
+      (function gesture(){
+        after(1400 + Math.random()*1200, function(){
+          var r = Math.random();
+          if (r < 0.4) headTilt.t = (Math.random()*2-1)*5;
+          else if (r < 0.7){ lookX.t = (Math.random()*2-1)*4; after(700, function(){ lookX.t = 0; }); }
+          else { hopY.t = -4; after(160, function(){ hopY.t = 0; }); }
+          gesture();
+        });
+      })();
+    }
+
     function setState(s){
       if (!LABELS[s]) return;
       if (s === state && s !== "done") return;
@@ -649,6 +686,7 @@ document.getElementById("bot").contentWindow
       if (onChange) onChange(s);
       dance.t = 0; ringOn.t = 0; hopY.t = 0;
       alertOn.t = 0; handOn.t = 0; waveOn.t = 0; toolOn.t = 0; connOn.t = 0; permOn.t = 0; headTilt.t = 0;
+      listenOn.t = 0; speakOn.t = 0;
       lookX.t = 0; lookY.t = 0; squint.t = 1;
       work.t = (s === "working") ? 1 : 0;
       if (s === "idle"){
@@ -682,6 +720,12 @@ document.getElementById("bot").contentWindow
       } else if (s === "question"){
         colorRate = 0.08;
         ensureFace(permLoop);
+      } else if (s === "listening"){
+        colorRate = 0.08;
+        ensureFace(listenLoop);
+      } else if (s === "speaking"){
+        colorRate = 0.12;
+        ensureFace(speakLoop);
       }
     }
 
@@ -766,7 +810,13 @@ document.getElementById("bot").contentWindow
 
     function update(dt, f){
       t += dt;
+      // the voice: the host's level while it's sending one, else a made-up rhythm
+      if (performance.now() - VOICE.at < 400) vox.t = VOICE.level;
+      else if (REDUCED) vox.t = 0.3;
+      else if (state === "speaking") vox.t = 0.2 + 0.55*Math.abs(Math.sin(t*8.5))*(0.55 + 0.45*Math.sin(t*1.9));
+      else vox.t = 0.08 + 0.06*Math.sin(t*2);
       for (var i=0; i<springs.length; i++) stepSpring(springs[i], f);
+      var lsn = clamp01(listenOn.v), spk = clamp01(speakOn.v), vl = clamp01(vox.v);
       var motion = REDUCED ? 0.2 : 1;
 
       // colors
@@ -792,7 +842,8 @@ document.getElementById("bot").contentWindow
       var w = Math.sin(t*2.4) * P.squash * motion;
       puff *= Math.pow(0.85, f);
       var st = Math.max(0, stretch.v);
-      var sx = P.aspect[0]*(1 + w + landSquash + 0.07*puff + 0.03*co - 0.06*st), sy = P.aspect[1]*(1 - w - landSquash - 0.07*puff - 0.04*co + 0.09*st);
+      var sx = P.aspect[0]*(1 + w + landSquash + 0.07*puff + 0.03*co - 0.06*st - 0.03*spk*vl + 0.03*lsn*vl),
+          sy = P.aspect[1]*(1 - w - landSquash - 0.07*puff - 0.04*co + 0.09*st + 0.05*spk*vl);
       body.setAttribute("d", bs < 0.015 ? "M0 0" : blobPath(84*bs, amps, ph, sx, sy));
 
       // float + hop + dance
@@ -802,7 +853,8 @@ document.getElementById("bot").contentWindow
       var wo = clamp01(walkOn.v) * motion;
       stepP += dt * TAU * 3.2 * Math.max(wo, dn);
       var step = Math.sin(stepP);
-      var y = bob + hopY.v + danceY - 2.5*wo*Math.abs(step);
+      // talking lifts it with each word; listening leans it in when you speak up
+      var y = bob + hopY.v + danceY - 2.5*wo*Math.abs(step) - 4*spk*vl + 2*lsn*vl;
       var wx = walkX.v;
       // a quick happy shake that dies away
       var wg = t - wiggleAt < 0.9 ? 9*Math.sin((t - wiggleAt)*26)*(1 - (t - wiggleAt)/0.9) : 0;
@@ -823,9 +875,10 @@ document.getElementById("bot").contentWindow
         if (partsOn < 0.02){ el.setAttribute("transform", "scale(0)"); if (inner) inner.setAttribute("transform", "scale(0)"); return; }
         var a = EAR.single ? EAR.at : side*EAR.at;
         var bx = Math.sin(a)*R*sx*0.9, by = -Math.cos(a)*R*sy*0.9;
-        var flop = EAR.flop ? side*(6 + 4*Math.sin(t*1.7 + side)) : 0;
-        var rot = a*180/Math.PI*0.75 + flop + tw*18*side + (EAR.single ? 6*Math.sin(t*1.3) : 0);
-        var tf = "translate(" + bx.toFixed(2) + "," + by.toFixed(2) + ") rotate(" + rot.toFixed(2) + ") scale(" + (bs*partsOn*(P.earScale || 1)).toFixed(3) + ")";
+        var flop = EAR.flop ? side*(6 + 4*Math.sin(t*1.7 + side))*(1 - 0.7*lsn) : 0;
+        // listening: ears stand up straighter and a little bigger
+        var rot = a*180/Math.PI*(0.75 - 0.25*lsn) + flop + tw*18*side + (EAR.single ? 6*Math.sin(t*1.3) : 0);
+        var tf = "translate(" + bx.toFixed(2) + "," + by.toFixed(2) + ") rotate(" + rot.toFixed(2) + ") scale(" + (bs*partsOn*(P.earScale || 1)*(1 + 0.12*lsn)).toFixed(3) + ")";
         el.setAttribute("transform", tf);
         if (inner) inner.setAttribute("transform", tf);
       }
@@ -870,8 +923,9 @@ document.getElementById("bot").contentWindow
         fe.setAttribute("ry", (F.len*0.7*hg*hs).toFixed(2));
         fe.setAttribute("transform", "rotate(" + ang.toFixed(2) + " " + fcx.toFixed(2) + " " + fcy.toFixed(2) + ")");
       }
-      waves.setAttribute("opacity", (wv*(0.35 + 0.65*Math.abs(Math.sin(TAU*t/1.44)))).toFixed(3));
-      waves.setAttribute("transform", "translate(0," + y.toFixed(2) + ")");
+      // the same arcs beside the head: a wave hello, or your voice reaching its ears
+      waves.setAttribute("opacity", Math.max(wv*(0.35 + 0.65*Math.abs(Math.sin(TAU*t/1.44))), lsn*(0.15 + 0.85*vl)).toFixed(3));
+      waves.setAttribute("transform", "translate(0," + y.toFixed(2) + ") scale(" + (1 + 0.1*lsn*vl).toFixed(3) + ")");
 
       // alert: pulsing halo + badge
       if (ao < 0.01){ halo.style.display = "none"; badge.setAttribute("opacity", 0); }
@@ -1001,10 +1055,14 @@ document.getElementById("bot").contentWindow
       var mx = ((P.eyes.L.x + P.eyes.R.x)/2)*es + lx*0.8, my = (Math.max(P.eyes.L.y, P.eyes.R.y) + 19)*es + ly*0.6;
       var mo2 = partsOn * clamp01(bs);
       var mt = "translate(" + mx.toFixed(2) + "," + my.toFixed(2) + ") scale(" + es.toFixed(3) + ")";
+      // speaking: the open mouth opens as far as the voice is loud
+      var talk = spk*clamp01(vl*1.5), tv = clamp01(talk*3), open = Math.max(hp, tv);
       mouth.setAttribute("transform", mt);
-      mouthOpen.setAttribute("transform", mt);
-      mouth.setAttribute("opacity", (mo2*(1 - hp)).toFixed(3));
-      mouthOpen.setAttribute("opacity", (mo2*hp).toFixed(3));
+      mouthOpen.setAttribute("transform", tv > hp
+        ? "translate(" + mx.toFixed(2) + "," + my.toFixed(2) + ") scale(" + (es*(0.9 + 0.5*talk)).toFixed(3) + "," + (es*(0.3 + 2*talk)).toFixed(3) + ")"
+        : mt);
+      mouth.setAttribute("opacity", (mo2*(1 - open)).toFixed(3));
+      mouthOpen.setAttribute("opacity", (mo2*open).toFixed(3));
 
       // ground shadow
       shadow.setAttribute("cx", wx.toFixed(2));
@@ -1125,6 +1183,7 @@ document.getElementById("bot").contentWindow
           '<button data-state="alert">เตือน</button><button data-state="welcome">ทักทาย</button>' +
           '<button data-state="tool">เครื่องมือ</button><button data-state="connection">เชื่อมต่อ</button>' +
           '<button data-state="permission">อนุญาต</button>' +
+          '<button data-state="listening">ฟัง</button><button data-state="speaking">พูด</button>' +
         '</div>';
       stageEl.appendChild(wrap);
       var label = wrap.querySelector(".bot-state");
@@ -1165,6 +1224,7 @@ document.getElementById("bot").contentWindow
     var d = e.data; if (!d) return;
     if (typeof d === "string") return apply("all", d);
     if (typeof d.paused === "boolean") setPaused(d.paused);
+    if (typeof d.level === "number" && isFinite(d.level)){ VOICE.level = clamp01(d.level); VOICE.at = performance.now(); }
     if (d.state) apply(d.bot || "all", d.state);
   });
   window.CoworkBots = {

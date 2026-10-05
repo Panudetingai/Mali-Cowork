@@ -13,9 +13,9 @@ import {
 import { cn } from "@/lib/utils";
 import { CheckIcon } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 
-export const EMBED_VERSION = "13";
+export const EMBED_VERSION = "14";
 
 /**
  * Who the animation draws: a built-in bot by name, or a Studio bot as its
@@ -49,6 +49,7 @@ export function CoworkBot({
   theme: themeProp,
   paused = false,
   design,
+  level,
 }: {
   /** Pixels, or a CSS length such as "100%" to fill a parent that animates its size. */
   size?: number | string;
@@ -62,6 +63,8 @@ export function CoworkBot({
   paused?: boolean;
   /** Draw this design instead (Bot Studio's preview, before it's saved). */
   design?: Design;
+  /** A voice to follow (0–1, read each frame) while listening or speaking; without one the bot makes up its own. */
+  level?: RefObject<number>;
 }) {
   const { bot: stored } = useCoworkBot();
   const { bots: studio } = useBotStudio();
@@ -78,6 +81,25 @@ export function CoworkBot({
   useEffect(() => {
     frameRef.current?.contentWindow?.postMessage({ paused }, "*");
   }, [paused, embed]);
+  // Hand the voice level over each frame it moves, and now and then while it holds
+  // (the bot makes up its own rhythm once none has come for a moment).
+  useEffect(() => {
+    if (!level || paused) return;
+    let frame = 0;
+    let sent = -1;
+    let sentAt = 0;
+    const tick = (now: number) => {
+      const value = Math.round((level.current ?? 0) * 100) / 100;
+      if (value !== sent || now - sentAt > 200) {
+        frameRef.current?.contentWindow?.postMessage({ level: value }, "*");
+        sent = value;
+        sentAt = now;
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [level, paused, embed]);
 
   return (
     <div

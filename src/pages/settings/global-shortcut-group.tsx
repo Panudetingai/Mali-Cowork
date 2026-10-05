@@ -53,7 +53,7 @@ export function GlobalShortcutGroup({
   }, [recording, mac]);
 
   return (
-    <SettingsGroup title="Shortcut">
+    <SettingsGroup title="Shortcut" description="Open the ask box from any app, even when Mali is in the background.">
       <SettingRow
         icon={<PowerIcon />}
         htmlFor="notch-shortcut-enabled"
@@ -71,7 +71,7 @@ export function GlobalShortcutGroup({
             )}
           </span>
         }
-        description="Works from any app, even when Mali is in the background. Opens the ask box at the top of the screen."
+        description="Opens the ask box at the top of the screen."
         control={
           <Switch
             id="notch-shortcut-enabled"

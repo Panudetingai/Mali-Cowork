@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cowork Bot 3D - Jelly</title>
+<style>
+  *{box-sizing:border-box}html,body{margin:0;padding:0}
+  body{background:#eef0f5;color:#2a2d3a;font-family:system-ui,"IBM Plex Sans Thai",sans-serif;display:flex;flex-direction:column;align-items:center;min-height:100vh}
+  .page{max-width:720px;width:100%;padding:28px 20px 40px;text-align:center}
+  h1{font-size:28px;margin:0 0 4px}.lede{color:#6f7488;font-size:14px;margin:0 0 14px}
+  #wrap{width:min(430px,92vw);aspect-ratio:1/1;margin:0 auto;position:relative;touch-action:none;cursor:grab}
+  #wrap:active{cursor:grabbing}
+  canvas{display:block;width:100%!important;height:100%!important}
+  #bubble{position:absolute;top:6%;right:8%;background:#fff;border:2px solid #2a2d3a;border-radius:14px;
+    padding:6px 12px;font-size:20px;line-height:1;display:none;box-shadow:0 4px 14px rgba(0,0,0,.15)}
+  #bubble small{font-size:12px;display:block;color:#6f7488}
+  .seg{display:inline-flex;flex-wrap:wrap;gap:4px;background:#f3f4f8;padding:4px;border-radius:999px;justify-content:center;margin-top:12px}
+  .seg button{font:inherit;font-size:13px;border:0;background:transparent;padding:6px 12px;border-radius:999px;cursor:pointer}
+  .seg button[aria-pressed="true"]{background:#2a2d3a;color:#fff}
+  .state{font-size:14px;color:#6f7488;min-height:1.6em;margin-top:6px}
+  .hint{font-size:12px;color:#9a9fb3;margin-top:4px}
+  pre{background:#f5f6fa;border-radius:12px;padding:12px;text-align:left;font-size:12.5px;overflow-x:auto}
+  html.embed,html.embed body{background:transparent!important;min-height:0}
+  html.embed .page{display:none!important}
+  html.embed #embed{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;touch-action:none}
+  html.embed #embed canvas{width:100%!important;height:100%!important}
+  #embed{display:none}
+</style>
+<script>
+(function(){var p=new URLSearchParams(location.search);if(!p.get("embed"))return;document.documentElement.classList.add("embed");})();
+</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
+</head>
+<body>
+<div class="page">
+  <h1>Jelly 3D ขนฟู</h1>
+  <p class="lede">Jelly เขียวจาก <code>cowork-bots.html</code> — ท่าครบเหมือนตัว 2D ทุกแอ็กชัน ลากหมุนได้ เอาเมาส์ลูบขนได้</p>
+  <div id="wrap"><div id="bubble">🔒<small>ขออนุญาตก่อนนะ</small></div></div>
+  <div class="state" id="label">รอคำสั่ง</div>
+  <div class="hint">ลากเพื่อหมุนดูรอบตัว • เอาเคอร์เซอร์ลูบขน ขนจะแหวกตาม • สกรอลล์เพื่อซูม</div>
+  <div class="seg" id="seg">
+    <button data-state="idle">รอคำสั่ง</button>
+    <button data-state="thinking">กำลังคิด</button>
+    <button data-state="working">กำลังทำงาน</button>
+    <button data-state="done">เสร็จแล้ว</button>
+    <button data-state="alert">แจ้งเตือน</button>
+    <button data-state="welcome">ทักทาย</button>
+    <button data-state="tool">ใช้เครื่องมือ</button>
+    <button data-state="connection">รอเชื่อมต่อ</button>
+    <button data-state="permission">รออนุญาต</button>
+    <button data-state="question">คำถาม</button>
+  </div>
+<pre><code>&lt;iframe src="/anim/cowork-bots-3d.html?embed=jelly&state=idle"
+  style="border:0;width:160px;height:160px;background:transparent"&gt;&lt;/iframe&gt;
+&lt;script&gt;iframe.contentWindow.postMessage({state:"working"},"*")&lt;/script&gt;</code></pre>
+</div>
+<div id="embed"></div>
+<script type="module">
+import * as THREE from 'three';
+
+/* ============ state / labels (ตรงกับไฟล์ 2D) ============ */
+const LABELS={idle:"รอคำสั่ง",thinking:"กำลังคิด…",working:"กำลังทำงาน…",done:"เสร็จแล้ว!",alert:"แจ้งเตือน!",welcome:"สวัสดี!",tool:"กำลังใช้เครื่องมือ…",connection:"รอเชื่อมต่อใหม่…",permission:"รออนุญาตคำสั่ง…",question:"รอคำตอบ…"};
+const qp=new URLSearchParams(location.search);
+const embedMode=document.documentElement.classList.contains("embed");
+let state=qp.get("state")||"idle";
+if(!LABELS[state])state="idle";
+
+const mount=embedMode?document.getElementById("embed"):document.getElementById("wrap");
+const bubble=document.getElementById("bubble");
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setClearColor(0x000000,0);
+mount.appendChild(renderer.domElement);
+if(embedMode&&bubble)bubble.remove();
+
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(32,1,0.1,20);
+camera.position.set(0,0.05,4.6);
+
+scene.add(new THREE.HemisphereLight(0xffffff,0x9fd8b8,1.05));
+const key=new THREE.DirectionalLight(0xffffff,1.5);key.position.set(2,3,4);scene.add(key);
+const rim=new THREE.DirectionalLight(0xdcfff0,0.65);rim.position.set(-3,1,-2);scene.add(rim);
+const fill=new THREE.DirectionalLight(0xffffff,0.3);fill.position.set(0,-2,3);scene.add(fill);
+
+const rig=new THREE.Group();scene.add(rig);   // หมุนเอียงทั้งตัว
+const bot=new THREE.Group();rig.add(bot);     // ขยับท่าทาง
+
+/* ============ base blob (Jelly) ============ */
+function makeBlob(){
+  const g=new THREE.SphereGeometry(0.92,96,96);
+  const pos=g.attributes.position,v=new THREE.Vector3(),n=new THREE.Vector3();
+  for(let i=0;i<pos.count;i++){
+    v.fromBufferAttribute(pos,i);n.copy(v).normalize();
+    const th=Math.atan2(v.y,v.x);
+    const polar=Math.acos(THREE.MathUtils.clamp(n.z,-1,1));
+    const star=Math.sin(5*th+1.2)*Math.sin(polar);
+    let r=1+0.028*Math.sin(2*th+0.6)+0.010*Math.sin(4*th)+0.075*star;
+    v.multiplyScalar(r);v.x*=1.05;v.y*=0.95;
+    pos.setXYZ(i,v.x,v.y,v.z);
+  }
+  g.computeVertexNormals();return g;
+}
+const blobGeo=makeBlob();
+const ROOT=new THREE.Color("#0e7a48"),MID=new THREE.Color("#34d48c"),TIP=new THREE.Color("#dcffef");
+const baseMat=new THREE.MeshStandardMaterial({color:MID.clone(),roughness:0.95,metalness:0});
+const baseMesh=new THREE.Mesh(blobGeo,baseMat);bot.add(baseMesh);
+
+/* ============ fur shells (นุ่ม: noise ละเอียด + เส้นยาวไม่เท่ากัน + แหวกตามเมาส์) ============ */
+const SHELLS=44,FUR_LEN=0.11;
+const furVert=`
+varying vec2 vUv;varying float vLayer;varying float vShade;
+uniform float uLayer,uLen,uTime,uBrushStr;uniform vec3 uBrush;
+float hash3(vec3 p){return fract(sin(dot(p,vec3(12.9898,78.233,37.719)))*43758.5453);}
+void main(){
+  vUv=uv;vLayer=uLayer;
+  float jitter=0.80+0.40*hash3(position*3.1);          // เส้นยาวไม่เท่ากัน -> ดูฟูนุ่ม
+  vec3 p=position+normal*(uLen*uLayer*jitter);
+  p+=normal*(sin(uTime*2.0+position.x*5.0+position.y*6.0)*0.006*uLayer);  // ลมพัดเบาๆ
+  vec3 d=position-uBrush;                              // เมาส์ลูบขนแหวก
+  float dist=length(d);
+  float infl=exp(-dist*dist/0.10)*uBrushStr*uLayer;
+  p+=normalize(d+vec3(0.0001))*infl*0.24;
+  p+=normal*infl*0.05;
+  vShade=0.72+0.28*hash3(position*7.7);
+  gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);
+}`;
+const furFrag=`
+varying vec2 vUv;varying float vLayer;varying float vShade;
+uniform vec3 uRoot,uMid,uTip;uniform float uAlert,uPale;
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123);}
+void main(){
+  vec2 g1=floor(vUv*vec2(1100.0,1100.0));
+  vec2 g2=floor(vUv*vec2(430.0,430.0)+11.7);
+  float n=hash(g1)*0.62+hash(g2)*0.38;
+  float keep=1.0-vLayer;
+  if(n>keep*keep*0.96+0.04)discard;
+  vec3 c=mix(uRoot,uMid,smoothstep(0.0,0.5,vLayer));
+  c=mix(c,uTip,smoothstep(0.5,1.0,vLayer));
+  c*=0.92+0.16*hash(g2);                               // สีแต่ละเส้นไม่เท่ากัน
+  c*=(0.80+0.26*vLayer)*vShade;
+  float lum=dot(c,vec3(0.3,0.59,0.11));
+  c=mix(c,vec3(lum+0.06,lum+0.08,lum+0.14),uPale*0.8);  // ซีดตอนรอเชื่อมต่อ
+  vec3 ac=mix(vec3(0.85,0.10,0.10),vec3(1.0,0.38,0.38),vLayer);
+  c=mix(c,ac,uAlert);                                  // แดงกระพริบตอน alert
+  gl_FragColor=vec4(c,1.0);
+}`;
+const furMats=[],furMeshes=[];
+const brushLocal=new THREE.Vector3(99,99,99);
+for(let i=1;i<=SHELLS;i++){
+  const m=new THREE.ShaderMaterial({vertexShader:furVert,fragmentShader:furFrag,
+    uniforms:{uLayer:{value:i/SHELLS},uLen:{value:FUR_LEN},uTime:{value:0},
+      uRoot:{value:ROOT},uMid:{value:MID},uTip:{value:TIP},
+      uAlert:{value:0},uPale:{value:0},uBrush:{value:brushLocal},uBrushStr:{value:0}}});
+  furMats.push(m);
+  const mesh=new THREE.Mesh(blobGeo,m);mesh.renderOrder=i;mesh.frustumCulled=false;
+  furMeshes.push(mesh);bot.add(mesh);
+}
+
+/* ============ face (วาดทับขนเสมอ) ============ */
+const face=new THREE.Group();bot.add(face);
+function onTop(mat){mat.depthTest=false;mat.transparent=true;return mat;}
+const eyeMat=onTop(new THREE.MeshPhysicalMaterial({color:0x0a0a0a,roughness:0.12,clearcoat:1}));
+function makeEye(x){
+  const g=new THREE.Group();
+  const e=new THREE.Mesh(new THREE.SphereGeometry(0.105,24,24),eyeMat);e.scale.set(0.72,1,0.45);g.add(e);
+  const h=new THREE.Mesh(new THREE.SphereGeometry(0.028,12,12),onTop(new THREE.MeshBasicMaterial({color:0xffffff})));
+  h.position.set(-0.028,0.032,0.085);g.add(h);
+  g.position.set(x,0.12,1.0);g.renderOrder=999;g.traverse(o=>o.renderOrder=999);
+  face.add(g);return g;
+}
+const eL=makeEye(-0.30),eR=makeEye(0.30);
+const blushMat=onTop(new THREE.MeshBasicMaterial({color:0xff8fab,transparent:true,opacity:0.8}));
+const blushes=[];
+[[-0.56],[0.56]].forEach(([x])=>{const b=new THREE.Mesh(new THREE.SphereGeometry(0.085,16,16),blushMat);
+  b.position.set(x,-0.06,0.88);b.scale.set(1,0.55,0.3);b.renderOrder=998;face.add(b);blushes.push(b);});
+const mouthMat=onTop(new THREE.MeshBasicMaterial({color:0x111111}));
+const mouth=new THREE.Mesh(new THREE.TorusGeometry(0.085,0.016,8,24,Math.PI),mouthMat);
+mouth.position.set(0,-0.10,1.0);mouth.rotation.z=Math.PI;mouth.renderOrder=999;face.add(mouth);
+const mouthOpen=new THREE.Mesh(new THREE.SphereGeometry(0.07,16,16),mouthMat.clone());
+mouthOpen.position.set(0,-0.13,0.98);mouthOpen.scale.set(1,0.7,0.4);mouthOpen.visible=false;mouthOpen.renderOrder=999;face.add(mouthOpen);
+// happy eyes ^^ (ตอน working/done)
+function happyEyes(on){
+  [eL,eR].forEach(e=>e.children.forEach(c=>c.visible=!on));
+}
+// ใบไม้ Jelly
+const leafMat=new THREE.MeshStandardMaterial({color:0x1fb877,roughness:0.9});
+const leaf=new THREE.Mesh(new THREE.ConeGeometry(0.13,0.42,10),leafMat);
+leaf.position.set(-0.26,1.0,0.05);leaf.rotation.z=0.5;leaf.scale.set(1,1,0.5);bot.add(leaf);
+
+/* ============ ร่างสามจุด (thinking/working split) — Jelly: เรียงแถว กระโดด ============ */
+const dotsGroup=new THREE.Group();dotsGroup.visible=false;scene.add(dotsGroup);
+const dotMat=new THREE.MeshStandardMaterial({color:MID.clone(),roughness:0.95});
+const dots=[-0.5,0,0.5].map(x=>{
+  const d=new THREE.Mesh(new THREE.SphereGeometry(0.17,24,24),dotMat);
+  d.position.set(x,0,0);dotsGroup.add(d);return d;
+});
+
+/* ============ มือโบก (welcome) ============ */
+const hand=new THREE.Group();hand.visible=false;scene.add(hand);
+{
+  const skin=new THREE.MeshStandardMaterial({color:MID.clone(),roughness:0.9});
+  const palm=new THREE.Mesh(new THREE.SphereGeometry(0.42,24,24),skin);
+  palm.scale.set(1,1.15,0.55);hand.add(palm);
+  const fingers=[[-0.36,-0.35,0.30,10],[-0.13,-0.48,0.36,4],[0.12,-0.49,0.38,-4],[0.35,-0.42,0.33,-14],[-0.48,-0.02,0.28,58]];
+  fingers.forEach(([x,y,len,tilt])=>{
+    const f=new THREE.Mesh(new THREE.CapsuleGeometry(0.075,len,6,12),skin);
+    f.position.set(x,y,0);f.rotation.z=tilt*Math.PI/180;hand.add(f);
+  });
+  hand.position.set(0,-0.1,0.3);
+}
+
+/* ============ วงรุ้ง (working) / คลื่นสัญญาณ (connection) ============ */
+const RING_COLORS=["#f5c518","#ff9a2e","#f0443a","#f7609f","#8b5cf6","#3aa3f5","#34c77b"];
+const ring=new THREE.Group();ring.visible=false;scene.add(ring);
+for(let i=0;i<28;i++){
+  const s=new THREE.Mesh(new THREE.TorusGeometry(1.55,0.028,8,4,Math.PI*2/28),
+    new THREE.MeshBasicMaterial({color:RING_COLORS[i%RING_COLORS.length],transparent:true,opacity:0.85}));
+  s.rotation.z=i/28*Math.PI*2;ring.add(s);
+}
+const sig=new THREE.Group();sig.visible=false;scene.add(sig);
+const sigParts=[];
+for(let i=0;i<3;i++){
+  const a=new THREE.Mesh(new THREE.TorusGeometry(0.28+i*0.16,0.022,8,24,Math.PI),
+    new THREE.MeshBasicMaterial({color:0x6f7488,transparent:true,opacity:1}));
+  a.position.y=1.25;a.rotation.z=0;sig.add(a);sigParts.push(a);
+}
+const sigDot=new THREE.Mesh(new THREE.SphereGeometry(0.045,12,12),new THREE.MeshBasicMaterial({color:0x6f7488}));
+sigDot.position.y=1.25;sig.add(sigDot);
+
+/* ============ ละอองเครื่องมือ (tool) — confetti + แท่งเครื่องมือ ============ */
+const P_COUNT=30;
+const confetti=new THREE.InstancedMesh(new THREE.BoxGeometry(0.07,0.07,0.02),
+  new THREE.MeshBasicMaterial({transparent:true}),P_COUNT);
+confetti.visible=false;confetti.instanceMatrix.setUsage(THREE.DynamicDrawUsage);scene.add(confetti);
+const parts=Array.from({length:P_COUNT},()=>({life:9,max:1,x:0,y:0,vx:0,vy:0,rot:0,vr:0,s:1,c:new THREE.Color()}));
+const dummy=new THREE.Object3D();let puffGap=0;
+
+/* ============ interaction: ลากหมุน + เมาส์ลูบขน + ตาตาม ============ */
+const ray=new THREE.Raycaster(),ndc=new THREE.Vector2();
+let yaw=0,pitch=0,tYaw=0,tPitch=0,dragging=false,px=0,py=0,moved=0;
+let brushStr=0,lookX=0,lookY=0,tLookX=0,tLookY=0;
+function setNDC(e){const r=renderer.domElement.getBoundingClientRect();
+  ndc.x=((e.clientX-r.left)/r.width)*2-1;ndc.y=-((e.clientY-r.top)/r.height)*2+1;}
+renderer.domElement.addEventListener("pointerdown",e=>{dragging=true;moved=0;px=e.clientX;py=e.clientY;
+  renderer.domElement.setPointerCapture(e.pointerId);});
+renderer.domElement.addEventListener("pointermove",e=>{
+  setNDC(e);
+  ray.setFromCamera(ndc,camera);
+  const hit=ray.intersectObject(baseMesh,false)[0];
+  if(hit){brushLocal.copy(bot.worldToLocal(hit.point.clone()));brushStr=Math.min(1,brushStr+0.25);}
+  tLookX=THREE.MathUtils.clamp(ndc.x*6,-6,6);tLookY=THREE.MathUtils.clamp(ndc.y*4,-4,4);
+  if(dragging){const dx=e.clientX-px,dy=e.clientY-py;moved+=Math.abs(dx)+Math.abs(dy);
+    tYaw+=dx*0.008;tPitch=THREE.MathUtils.clamp(tPitch+dy*0.005,-0.6,0.6);px=e.clientX;py=e.clientY;}
+});
+addEventListener("pointerup",()=>dragging=false);
+renderer.domElement.addEventListener("pointerleave",()=>{tLookX=0;tLookY=0;});
+renderer.domElement.addEventListener("wheel",e=>{e.preventDefault();
+  camera.position.z=THREE.MathUtils.clamp(camera.position.z+e.deltaY*0.002,3.2,6.5);},{passive:false});
+
+/* ============ state machine (ล้อตามไฟล์ 2D) ============ */
+let form="face";            // face | split | dots | merge
+let timers=[];let bodyS=1,alertMix=0,paleMix=0,happyMix=0,ringMix=0,handMix=0,waveMix=0;
+let hopY=0,tiltZ=0,toolMix=0,sigMix=0,danceT=0;
+const after=(ms,fn)=>timers.push(setTimeout(fn,ms));
+const clearTimers=()=>{timers.forEach(clearTimeout);timers=[];};
+function showBubble(html){if(!bubble)return;if(!html){bubble.style.display="none";return;}
+  bubble.innerHTML=html;bubble.style.display="block";}
+
+function toDots(fast,cb){
+  form="split";
+  after(fast?500:550,()=>{bodyS=1.15;});
+  after(fast?950:1300,()=>{bodyS=0.3;});
+  after(fast?1250:1750,()=>{form="dots";bodyS=0;if(cb)cb();});
+}
+function toFace(cb){form="merge";bodyS=0.5;
+  after(350,()=>{bodyS=1;form="face";happyEyes(false);if(cb)cb();});}
+
+function thinkLoop(){toDots(false,()=>{after(2600,()=>toFace(()=>after(1200,()=>{if(state==="thinking")thinkLoop();})));});}
+function workLoop(){
+  happyMix=1;ringMix=1;happyEyes(true);
+  after(2800,()=>{ringMix=0;happyMix=0;happyEyes(false);});
+  after(3300,()=>{if(state!=="working")return;
+    toDots(true,()=>{after(2600,()=>{if(state!=="working")return;toFace(()=>{if(state==="working")workLoop();});});});});
+}
+function celebrate(){
+  happyMix=1;happyEyes(true);hopY=-0.35;
+  after(220,()=>hopY=0);after(480,()=>hopY=-0.18);after(660,()=>hopY=0);
+  after(2000,()=>{if(state==="done")setState("idle");});
+}
+function alertLoop(){(function look(){tLookX=tLookX>0?-5:5;after(450,()=>{if(state==="alert")look();});})();}
+function welcomeLoop(){
+  handMix=1;
+  after(700,()=>{if(state==="welcome")waveMix=1;});
+  after(3600,()=>waveMix=0);
+  after(4000,()=>{handMix=0;});
+  after(6200,()=>{if(state==="welcome")welcomeLoop();});
+}
+function toolLoop(){(function glance(){tLookX=(Math.random()*2-1)*6;after(600+Math.random()*500,()=>{if(state==="tool")glance();});})();}
+function connLoop(){
+  tLookY=-4;
+  after(1300,()=>{tLookX=-5;});
+  after(2400,()=>{tLookX=5;});
+  after(3500,()=>{tLookX=0;tLookY=-5;hopY=-0.12;});
+  after(3800,()=>hopY=0);
+  after(5400,()=>{if(state==="connection")connLoop();});
+}
+function permLoop(){
+  after(900,()=>{tiltZ=0.16;tLookX=3;});
+  after(2500,()=>{tiltZ=-0.1;tLookX=-3;});
+  after(3900,()=>{tiltZ=0;tLookX=0;hopY=-0.12;});
+  after(4080,()=>hopY=0);
+  after(4300,()=>hopY=-0.1);
+  after(4480,()=>hopY=0);
+  after(5400,()=>{if(state==="permission"||state==="question")permLoop();});
+}
+
+function setState(s){
+  if(!LABELS[s]||(s===state&&s!=="done"))return;
+  clearTimers();state=s;
+  bodyS=1;alertMix=0;paleMix=0;happyMix=0;ringMix=0;handMix=0;waveMix=0;toolMix=0;sigMix=0;
+  hopY=0;tiltZ=0;tLookX=0;tLookY=0;happyEyes(false);
+  showBubble(null);
+  const lb=document.getElementById("label");if(lb)lb.textContent=LABELS[s];
+  document.querySelectorAll("#seg button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.state===s?"true":"false"));
+  if(s==="idle"){if(form!=="face")toFace();else{form="face";bodyS=1;}}
+  else if(s==="thinking"){form==="face"?thinkLoop():toFace(()=>after(600,()=>{if(state==="thinking")thinkLoop();}));}
+  else if(s==="working"){form==="face"?workLoop():toFace(()=>{if(state==="working")workLoop();});}
+  else if(s==="done"){form==="face"?celebrate():toFace(()=>{if(state==="done")celebrate();});}
+  else if(s==="alert"){if(form!=="face")toFace();form="face";bodyS=1;alertLoop();}
+  else if(s==="welcome"){if(form!=="face")toFace();form="face";bodyS=1;happyMix=1;happyEyes(true);welcomeLoop();}
+  else if(s==="tool"){if(form!=="face")toFace();form="face";bodyS=1;toolMix=1;toolLoop();}
+  else if(s==="connection"){if(form!=="face")toFace();form="face";bodyS=1;paleMix=1;sigMix=1;connLoop();}
+  else if(s==="permission"){if(form!=="face")toFace();form="face";bodyS=1;showBubble('🔒<small>ขออนุญาตก่อนนะ</small>');permLoop();}
+  else if(s==="question"){if(form!=="face")toFace();form="face";bodyS=1;showBubble('❓<small>ว่าไง?</small>');permLoop();}
+}
+document.querySelectorAll("#seg button").forEach(b=>b.onclick=()=>setState(b.dataset.state));
+addEventListener("message",e=>{if(e.data&&typeof e.data.state==="string")setState(e.data.state);});
+window.CoworkBots={set:(b,s)=>setState(s)};
+
+/* habits ตอน idle: กระโดด / สะบัดหู / ยืดตัว */
+(function habits(){
+  setTimeout(()=>{
+    if(state==="idle"&&form==="face"&&!dragging){
+      const r=Math.random();
+      if(r<0.35){hopY=-0.22;setTimeout(()=>hopY=0,200);}
+      else if(r<0.6){leaf.rotation.x=0.5;setTimeout(()=>leaf.rotation.x=0,300);}
+      else{tYaw+=0.4;}
+    }
+    habits();
+  },2800+Math.random()*3200);
+})();
+
+/* ============ resize + render loop ============ */
+function resize(){const w=mount.clientWidth||300,h=mount.clientHeight||300;
+  renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}
+new ResizeObserver(resize).observe(mount);addEventListener("resize",resize);resize();
+setState(state);
+
+const clock=new THREE.Clock();
+function tick(){
+  requestAnimationFrame(tick);
+  const dt=Math.min(clock.getDelta(),0.05),t=clock.elapsedTime;
+  // หมุนตามมือ (damping)
+  yaw+=(tYaw-yaw)*Math.min(1,dt*8);pitch+=(tPitch-pitch)*Math.min(1,dt*8);
+  // ตา/ขนตามเมาส์ (damping)
+  lookX+=(tLookX-lookX)*Math.min(1,dt*6);lookY+=(tLookY-lookY)*Math.min(1,dt*6);
+  brushStr=Math.max(0,brushStr-dt*1.4);
+  furMats.forEach(m=>{m.uniforms.uTime.value=t;
+    m.uniforms.uBrushStr.value+=(brushStr-m.uniforms.uBrushStr.value)*Math.min(1,dt*10);});
+  const targetAlert=state==="alert"?(0.5+0.5*Math.sin(t*13.8)):0;
+  alertMix+=(targetAlert-alertMix)*Math.min(1,dt*10);
+  furMats.forEach(m=>{m.uniforms.uAlert.value=alertMix;m.uniforms.uPale.value+=( (state==="connection"?1:0)-m.uniforms.uPale.value)*Math.min(1,dt*4);});
+  baseMat.color.copy(MID).lerp(new THREE.Color("#e53935"),alertMix);
+  if(state==="connection")baseMat.color.lerp(new THREE.Color("#9aa0b0"),0.4);
+  dotMat.color.copy(baseMat.color);
+
+  const isDots=form==="dots"||form==="split";
+  const faceS=form==="face"?Math.min(1,bodyS):form==="merge"?bodyS:Math.max(0,1-bodyS*2);
+  bot.visible=!isDots||bodyS>0.02;
+  bot.scale.setScalar(Math.max(0.001,bodyS));
+  dotsGroup.visible=isDots;
+  face.visible=faceS>0.3;
+  hand.visible=handMix>0.02;
+  ring.visible=ringMix>0.02;
+  sig.visible=sigMix>0.02;
+  confetti.visible=toolMix>0&&form==="face";
+
+  // ท่าทาง
+  danceT+=dt*((state==="working"&&happyMix)?3.2:0);
+  const bounce=happyMix*Math.abs(Math.sin(t*5.1));
+  const y=(state==="idle"?Math.sin(t*1.6)*0.05:0)+hopY-happyMix*bounce*0.3;
+  const squash=1+Math.sin(t*1.6)*0.015+happyMix*Math.sin(t*10)*0.04;
+  bot.position.y=y;
+  if(form==="face")bot.scale.set(2-squash,squash,1).multiplyScalar(Math.max(0.001,bodyS));
+  rig.rotation.y=yaw+(state==="welcome"&&!dragging?Math.sin(t*3)*0.2:0);
+  rig.rotation.x=pitch;
+  bot.rotation.z=tiltZ+(happyMix?Math.sin(t*5.1)*0.10:0)+(state==="thinking"?Math.sin(t*1.2)*0.10:0);
+  if(state==="alert")bot.position.x=Math.sin(t*30)*0.03;else bot.position.x=0;
+  // หน้า: ตาตามเมาส์ + กระพริบ + ปาก
+  eL.position.x=-0.30+lookX*0.012;eR.position.x=0.30+lookX*0.012;
+  eL.position.y=eR.position.y=0.12+lookY*0.010;
+  const bl=(t%3.4)<0.12?0.12:1;
+  if(happyMix<0.5){eL.scale.y=bl;eR.scale.y=bl;}
+  mouth.visible=happyMix<0.5;mouthOpen.visible=happyMix>=0.5;
+  mouth.scale.y=state==="working"?1.4:1;
+  leaf.rotation.z=0.5+Math.sin(t*1.7)*0.06;
+  // ร่างสามจุด: Jelly เรียงแถว + กระโดดสลับ
+  if(dotsGroup.visible){
+    const wk=state==="working"?1:0;
+    dots.forEach((d,i)=>{
+      d.position.x=(i-1)*0.5;
+      d.position.y=wk?Math.abs(Math.sin(t*5+i*1.1))*-0.35:Math.sin(t*2+i*2.1)*0.06;
+      const s=0.8+0.2*Math.sin(t*3+i);d.scale.setScalar(s);
+    });
+  }
+  // มือโบก
+  if(hand.visible){
+    const s=handMix;hand.scale.setScalar(Math.max(0.001,s));
+    hand.rotation.z=waveMix*Math.sin(t*8.7)*0.35;
+    hand.position.y=-0.1+Math.sin(t*2)*0.03;
+  }
+  // วงรุ้งหมุน
+  if(ring.visible){ring.rotation.z=t*1.4;ring.rotation.x=Math.sin(t)*0.25;
+    const s=0.6+0.4*ringMix;ring.scale.setScalar(s);}
+  // สัญญาณ connection ไล่ทีละขีด
+  if(sig.visible){const lvl=Math.floor(t*2.2)%4;
+    sigParts.forEach((a,i)=>a.material.opacity=lvl>i?1:0.18);
+    sig.position.y=Math.sin(t*2)*0.05;}
+  // พ่นเครื่องมือ
+  if(confetti.visible){
+    puffGap-=dt;
+    if(puffGap<=0){puffGap=0.3;
+      let n=0;
+      for(const p of parts){if(p.life>=p.max&&n<3){n++;
+        p.life=0;p.max=1.3+Math.random()*0.7;
+        p.x=(Math.random()-0.5)*0.3;p.y=0.9;p.vx=(Math.random()-0.5)*2.4;p.vy=-(1.5+Math.random()*1.3);
+        p.vr=(Math.random()-0.5)*9;p.s=0.8+Math.random()*0.8;
+        p.c.setHSL(Math.random(),0.88,0.58);}}
+    }
+    let k=0;
+    for(const p of parts){
+      if(p.life<p.max){p.life+=dt;p.vy+=3.3*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.rot+=p.vr*dt;}
+      dummy.position.set(p.x,p.y,0.6);dummy.rotation.set(0,0,p.rot);
+      const pop=Math.min(1,p.life/0.15);
+      dummy.scale.setScalar(Math.max(0.001,p.s*pop*(p.life>=p.max?0:1)));
+      dummy.updateMatrix();confetti.setMatrixAt(k,dummy.matrix);
+      confetti.setColorAt(k,p.c);k++;
+    }
+    confetti.instanceMatrix.needsUpdate=true;if(confetti.instanceColor)confetti.instanceColor.needsUpdate=true;
+  }
+  renderer.render(scene,camera);
+}
+tick();
+</script>
+</body>
+</html>

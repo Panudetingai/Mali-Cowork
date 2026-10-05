@@ -97,7 +97,7 @@ function App() {
           <Route path="usage" element={<UsagePage />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:projectId" element={<ProjectPage />} />
-          <Route path="settings" element={<SettingsPage />} />
+          <Route path="settings/*" element={<SettingsPage />} />
           {import.meta.env.DEV ? (
             <>
               <Route path="dev/chat-blocks" element={<ChatBlocksPreviewPage />} />

@@ -22,7 +22,7 @@ use commands::templates::{
 use commands::voice::voice_input_status;
 use commands::attachments::{attachment_from_url, attachment_import, attachment_read, attachment_save};
 use commands::link_preview::link_preview;
-use commands::chat::{chat_generate, ollama_list_models, provider_check_key, provider_env_keys, provider_test_model};
+use commands::chat::{chat_generate, ollama_list_models, provider_check_key, provider_env_keys, provider_list_models, provider_test_model};
 use commands::media::media_generate;
 use commands::checkpoint::{
     checkpoint_add_folder, checkpoint_begin, checkpoint_diff, checkpoint_finish, checkpoint_open,
@@ -195,6 +195,11 @@ pub fn run() {
             voice_input_status,
             commands::speech::speech_transcribe,
             commands::speech::speech_synthesize,
+            commands::speech::speech_models,
+            commands::speech::speech_voices,
+            commands::speech::speech_preview,
+            commands::speech::speech_voice_library,
+            commands::speech::speech_voice_add,
             templates_list,
             templates_inspect,
             templates_add,
@@ -333,6 +338,7 @@ pub fn run() {
             git_push,
             provider_env_keys,
             provider_check_key,
+            provider_list_models,
             ollama_list_models,
             history_load,
             app_cache_size,

@@ -13,16 +13,20 @@ import { ZoomableImage } from "@/components/chat-blocks/zoomable-image";
 import { MarkdownSurface } from "@/components/chat/markdown-surface";
 import { CoworkBot } from "@/components/anim/cowork-bot";
 import { extractChatBlocks } from "@/features/chat-blocks";
+import { useToastError } from "@/components/ui/sonner";
+import { speak, speakerLevel, speakerState, stopSpeaking, subscribeSpeaker, Waveform } from "@/features/voice";
 import { cn } from "@/lib/utils";
 import {
     CheckIcon,
     CopyIcon,
+    LoaderIcon,
     ReceiptIcon,
     RotateCcwIcon,
     ThumbsDownIcon,
     ThumbsUpIcon,
+    Volume2Icon,
 } from "lucide-react";
-import { useMemo, useState, type ComponentProps } from "react";
+import { useId, useMemo, useState, useSyncExternalStore, type ComponentProps } from "react";
 import type { TodoItem } from "../../api/chat";
 import type { ActivityItem } from "../../types";
 import { AgentSteps, segmentReply } from "./agent-steps";
@@ -228,6 +232,7 @@ export function AssistantMessage({
               </MessageAction>
             </>
           )}
+          {hasContent && <ListenAction text={afterRichBlocks} />}
           {onRetry && (
             <MessageAction tooltip="Retry" onClick={onRetry}>
               <RotateCcwIcon className="size-3.5" />
@@ -261,5 +266,34 @@ export function AssistantMessage({
         </MessageActions>
       )}
     </Message>
+  );
+}
+
+/** Read the reply aloud in the voice from Settings → Voice; again to stop. */
+function ListenAction({ text }: { text: string }) {
+  const id = useId();
+  const state = useSyncExternalStore(subscribeSpeaker, speakerState);
+  const mine = state.id === id;
+  const loading = mine && state.loading;
+  const speaking = mine && state.speaking;
+  useToastError(mine && state.error ? state.error : undefined);
+  return (
+    <MessageAction
+      tooltip={speaking ? "Stop reading" : loading ? "Getting the voice ready…" : "Read aloud"}
+      onClick={() => (loading || speaking ? stopSpeaking() : void speak(text, undefined, { id }))}
+    >
+      {loading ? (
+        <LoaderIcon className="size-3.5 animate-spin" />
+      ) : speaking ? (
+        <Waveform
+          level={state.metered ? speakerLevel : undefined}
+          bars={3}
+          className="h-3.5 gap-[2px] text-foreground"
+          barClassName="w-[2px]"
+        />
+      ) : (
+        <Volume2Icon className="size-3.5" />
+      )}
+    </MessageAction>
   );
 }

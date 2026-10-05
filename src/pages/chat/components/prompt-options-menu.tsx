@@ -202,11 +202,18 @@ export function PromptOptionsMenu({
                   <DropdownMenuItem
                     key={c.id}
                     className={itemClass}
-                    title={on ? `Stop using ${c.name} for this message` : `Use ${c.name} for this message`}
+                    title={
+                      !c.enabled
+                        ? `Turn on ${c.name} first — switched-off connectors can't be picked or called`
+                        : on
+                          ? `Stop using ${c.name} for this message`
+                          : `Use ${c.name} for this message`
+                    }
                     onSelect={(event) => {
                       event.preventDefault();
-                      // Picking a switched-off connector turns it on too.
-                      if (!on && !c.enabled) void applyConnector(c.id, { enabled: true }).catch(() => undefined);
+                      // A switched-off connector can't be picked or called:
+                      // turn it on with its switch first.
+                      if (!c.enabled) return;
                       onToggleConnector(c.id);
                     }}
                   >
@@ -214,7 +221,7 @@ export function PromptOptionsMenu({
                       <McpToolIcon mcp={c.ref} size={14} />
                     </span>
                     <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                    {on && <CheckIcon className="size-4 text-primary" />}
+                    {on && c.enabled && <CheckIcon className="size-4 text-primary" />}
                     {working ? (
                       <LoaderIcon className="size-4 animate-spin text-muted-foreground" />
                     ) : (
@@ -224,7 +231,12 @@ export function PromptOptionsMenu({
                         aria-label={c.enabled ? `Turn off ${c.name}` : `Turn on ${c.name}`}
                         onClick={(event) => event.stopPropagation()}
                         onPointerDown={(event) => event.stopPropagation()}
-                        onCheckedChange={(enabled) => void applyConnector(c.id, { enabled }).catch(() => undefined)}
+                        onCheckedChange={(enabled) => {
+                          void applyConnector(c.id, { enabled }).catch(() => undefined);
+                          // Switching off also unpicks it, so an off
+                          // connector is never sent or called.
+                          if (!enabled && on) onToggleConnector(c.id);
+                        }}
                       />
                     )}
                   </DropdownMenuItem>

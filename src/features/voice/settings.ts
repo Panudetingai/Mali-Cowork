@@ -7,9 +7,9 @@
 import { createStore } from "@/lib/local-store";
 
 /** Who turns speech into text. */
-export type InputEngine = "system" | "groq" | "puter" | "openai";
+export type InputEngine = "system" | "groq" | "puter" | "openai" | "elevenlabs" | "fishaudio";
 /** Who reads replies aloud. */
-export type OutputEngine = "system" | "puter" | "openai";
+export type OutputEngine = "system" | "puter" | "openai" | "elevenlabs" | "fishaudio";
 /** Puter speaks with one of these vendors' voices. */
 export type PuterVoices = "openai" | "gemini" | "elevenlabs" | "aws-polly";
 
@@ -20,12 +20,16 @@ export type VoiceSettings = {
     /** Puter only: whose voices. */
     puterVoices: PuterVoices;
     voice: string;
+    /** ElevenLabs and Fish Audio: the voice's name, for the picker before its list loads. */
+    voiceName?: string;
+    /** ElevenLabs and Fish Audio: which of their models speaks; empty for the default. */
+    model?: string;
     /** The system voice's name (`speechSynthesis`), when one was picked. */
     systemVoice?: string;
   };
   /** When replies are read aloud: after a question asked by voice, always, or never. */
   speakReplies: "voice" | "always" | "never";
-  /** The notch sends a spoken task as soon as the user stops talking. */
+  /** Listening ends by itself when the user stops talking, and what was said is sent. */
   autoSend: boolean;
   /** What's spoken: `auto` lets the model tell. */
   language: "auto" | "th" | "en";
@@ -46,7 +50,37 @@ export const INPUT_MODELS: Record<Exclude<InputEngine, "system">, { id: string; 
     { id: "gpt-4o-transcribe", name: "GPT-4o transcribe" },
     { id: "whisper-1", name: "Whisper" },
   ],
+  elevenlabs: [
+    { id: "scribe_v2", name: "Scribe v2" },
+    { id: "scribe_v1", name: "Scribe v1" },
+  ],
+  fishaudio: [
+    { id: "transcribe-1-pro", name: "Transcribe 1 Pro" },
+    { id: "transcribe-1", name: "Transcribe 1" },
+  ],
 };
+
+/** The models that speak, for the engines that offer a choice (first is the default). */
+export const OUTPUT_MODELS: Partial<Record<OutputEngine, { id: string; name: string; note?: string }[]>> = {
+  openai: [
+    { id: "gpt-4o-mini-tts", name: "GPT-4o mini TTS" },
+    { id: "tts-1-hd", name: "TTS-1 HD" },
+    { id: "tts-1", name: "TTS-1" },
+  ],
+  elevenlabs: [
+    { id: "eleven_v3", name: "Eleven v3", note: "Speaks Thai" },
+    { id: "eleven_flash_v2_5", name: "Flash v2.5", note: "Fastest · no Thai" },
+    { id: "eleven_multilingual_v2", name: "Multilingual v2", note: "No Thai" },
+  ],
+  fishaudio: [
+    { id: "s2.1-pro", name: "S2.1 Pro" },
+    { id: "s1", name: "S1" },
+  ],
+};
+
+export function outputModel(output: VoiceSettings["output"]) {
+  return output.model || OUTPUT_MODELS[output.engine]?.[0]?.id || "";
+}
 
 const OPENAI_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer"];
 
@@ -59,6 +93,37 @@ export const VOICES: Record<PuterVoices | "openai-direct", string[]> = {
   "aws-polly": ["Joanna", "Matthew", "Amy", "Brian"],
 };
 
+/** What the fixed voices sound like, for the picker (the services list the rest themselves). */
+export const VOICE_TAGS: Record<string, string[]> = {
+  alloy: ["neutral", "balanced"],
+  ash: ["male", "clear"],
+  ballad: ["male", "soft"],
+  coral: ["female", "warm"],
+  echo: ["male", "calm"],
+  fable: ["neutral", "british"],
+  nova: ["female", "bright"],
+  onyx: ["male", "deep"],
+  sage: ["female", "calm"],
+  shimmer: ["female", "light"],
+  Kore: ["female", "firm"],
+  Puck: ["male", "upbeat"],
+  Charon: ["male", "informative"],
+  Aoede: ["female", "breezy"],
+  Fenrir: ["male", "excitable"],
+  Leda: ["female", "youthful"],
+  Orus: ["male", "firm"],
+  Zephyr: ["female", "bright"],
+  Joanna: ["female", "american"],
+  Matthew: ["male", "american"],
+  Amy: ["female", "british"],
+  Brian: ["male", "british"],
+  "21m00Tcm4TlvDq8ikWAM": ["female", "american"],
+};
+
+/** Voices whose id isn't their name. */
+export const VOICE_NAMES: Record<string, string> = { "21m00Tcm4TlvDq8ikWAM": "Rachel" };
+
+/** The fixed voices of OpenAI and Puter; ElevenLabs and Fish Audio list the account's own. */
 export function voicesFor(output: VoiceSettings["output"]) {
   return output.engine === "openai" ? VOICES["openai-direct"] : VOICES[output.puterVoices];
 }

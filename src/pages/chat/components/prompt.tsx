@@ -4,10 +4,10 @@ import { toast, useToastError } from "@/components/ui/sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { useAntigravity } from "@/features/antigravity";
 import {
-    AttachmentChip,
-    importAttachment,
-    saveAttachment,
-    type Attachment,
+  AttachmentChip,
+  importAttachment,
+  saveAttachment,
+  type Attachment,
 } from "@/features/attachments";
 import { attachFolder, detachFolder, type ChatSession } from "@/features/chat-history";
 import { onCompose } from "@/features/command-palette";
@@ -16,27 +16,27 @@ import { effortFor, effortLevels, isMaxEffort, setEffortFor, useEffortChoices } 
 import { filterSkills, skillSlug, useInstructions, type Skill } from "@/features/instructions";
 import { McpToolIcon, useInstalledConnectors, useMcpConnections } from "@/features/mcp";
 import {
-    opencodeWarm,
-    requestProviderKey,
-    useOpencode,
-    type OpencodeState,
-    type WorkMode,
+  opencodeWarm,
+  requestProviderKey,
+  useOpencode,
+  type OpencodeState,
+  type WorkMode,
 } from "@/features/opencode";
 import { useProjects } from "@/features/projects";
 import {
-    getProvider,
-    listConfiguredProviders,
-    useEnvKeys,
-    useProviderConfigs,
+  getProvider,
+  listConfiguredProviders,
+  useEnvKeys,
+  useProviderConfigs,
 } from "@/features/providers";
 import { InboxDropdownButton } from "@/features/tasks";
-import { useVoiceInput } from "@/features/voice";
+import { useVoiceInput, useVoiceSettings, VoiceButton, VoiceMode } from "@/features/voice";
 import {
-    findGrant,
-    folderName,
-    normalizeFolder,
-    requestFolderAccess,
-    useFolderGrants,
+  findGrant,
+  folderName,
+  normalizeFolder,
+  requestFolderAccess,
+  useFolderGrants,
 } from "@/features/workspace";
 import { useTranslation } from "@/features/i18n";
 import { cn } from "@/lib/utils";
@@ -44,37 +44,38 @@ import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
-    ArrowUpIcon,
-    AudioLinesIcon,
-    EyeIcon,
-    FolderIcon,
-    GhostIcon,
-    FolderLockIcon,
-    LoaderIcon,
-    ScrollTextIcon,
-    SquareIcon,
-    UploadIcon,
-    XIcon,
+  ArrowUpIcon,
+  AudioLinesIcon,
+  EyeIcon,
+  FolderIcon,
+  GhostIcon,
+  FolderLockIcon,
+  LoaderIcon,
+  ScrollTextIcon,
+  SquareIcon,
+  UploadIcon,
+  XIcon,
 } from "lucide-react";
+import { AnimatePresence } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type RefObject } from "react";
 import { contextUsage } from "../context-usage";
 import type { SendMessage } from "../hooks/use-chat";
 import { useDebouncedValue } from "../hooks/use-debounced-value";
 import {
-    agentNameOf,
-    agentOf,
-    apiModelId,
-    buildModelCatalog,
-    contextBudgetFor,
-    findModel,
-    isCursorModel,
-    isOpencodeModel,
-    loadSelectedModelId,
-    opencodeModelOf,
-    opencodeProviderOf,
-    saveSelectedModelId,
-    type AiModel,
-    type ContextBudget,
+  agentNameOf,
+  agentOf,
+  apiModelId,
+  buildModelCatalog,
+  contextBudgetFor,
+  findModel,
+  isCursorModel,
+  isOpencodeModel,
+  loadSelectedModelId,
+  opencodeModelOf,
+  opencodeProviderOf,
+  saveSelectedModelId,
+  type AiModel,
+  type ContextBudget,
 } from "../models";
 import type { ChatMessage } from "../types";
 import { CONTEXT_WARN_RATIO, ContextMeter } from "./context-meter";
@@ -476,18 +477,41 @@ export default function PromptInput({
     }
   }
 
-  // Voice: words land after whatever was typed when dictation started.
+  // Voice: words land after whatever was typed when dictation started. With
+  // "Send when I stop talking" (Settings → Voice, on by default) a pause ends
+  // dictation and sends the box; before, the mic stayed on until clicked and
+  // nothing was sent.
+  const voiceSettings = useVoiceSettings();
   const promptNow = useLatest(prompt);
   const voiceBase = useRef("");
   const voice = useVoiceInput({
+    autoStop: voiceSettings.autoSend,
+    // Opened by mistake: the mic goes off by itself.
+    idleMs: 10_000,
     onStart: () => {
       const typed = promptNow.current;
       voiceBase.current = typed && !/\s$/.test(typed) ? `${typed} ` : typed;
     },
     onText: (text) => setPrompt(voiceBase.current + text),
+    onEnd: (text) => {
+      if (voiceSettings.autoSend && text.trim()) void submitText((voiceBase.current + text).trim());
+    },
   });
+  /** The voice conversation over the chat (the round button when the box is empty). */
+  const [voiceMode, setVoiceMode] = useState(false);
+  const lastReply = useMemo(() => {
+    const last = [...messages].reverse().find((m) => m.role === "assistant");
+    return last && { id: last.id, text: last.content, streaming: !!last.isStreaming };
+  }, [messages]);
 
-  async function send(text: string, model: AiModel, background = false) {
+  /** Send `text` as if typed and sent; false when it can't go now. */
+  async function submitText(text: string): Promise<boolean> {
+    if (!text || isLoading || attaching || opencodeMissing || importing > 0) return false;
+    if (askForAccess(selected, (ready) => void send(text, ready))) return true;
+    return send(text, selected);
+  }
+
+  async function send(text: string, model: AiModel, background = false): Promise<boolean> {
     voice.cancel();
     const files = attachments;
     const picks = { skills: pickedSkills, connectors: pickedConnectors };
@@ -521,12 +545,12 @@ export default function PromptInput({
       setPickedSkills((current) => (current.length ? current : picks.skills));
       setPickedConnectors((current) => (current.length ? current : picks.connectors));
     }
+    return sent;
   }
 
   const canSend = (!!prompt.trim() || attachments.length > 0 || pickedSkills.length > 0) && importing === 0;
   const voiceBusy = voice.listening || voice.phase === "transcribing";
-  const showVoicePrimary =
-    voice.supported && (!canSend || voiceBusy) && importing === 0;
+  const showVoicePrimary = voice.supported && !canSend && !voiceBusy && importing === 0;
 
   useToastError(voice.error, voice.clearError);
 
@@ -602,7 +626,7 @@ export default function PromptInput({
         <ReplyExcerptBar excerpt={replyExcerpt} onClear={() => setReplyExcerpt(null)} />
       )}
       {contextNearMax && (
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden rounded-t-xl bg-muted/60" aria-hidden>
+        <div aria-hidden>
           <div
             className={cn(
               "h-full transition-[width] duration-500 ease-out",
@@ -614,7 +638,7 @@ export default function PromptInput({
           />
         </div>
       )}
-      <ContextNearMaxGlow ratio={contextRatio} active={contextNearMax && !maxEffort} />
+      <ContextNearMaxGlow ratio={contextRatio} active={false} />
       <EffortMaxGlow active={maxEffort} />
       {dragging && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-amber-400 bg-amber-50/90 text-sm font-medium text-amber-800 dark:bg-amber-950/90 dark:text-amber-200">
@@ -660,6 +684,13 @@ export default function PromptInput({
             </span>
           ))}
         </div>
+      )}
+
+{!opencodeMissing && switchesAgent && (
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground mb-2 border-b border-muted-foreground/10 pb-2">
+          <CoworkBot state="alert" size={28} className="-my-1" />
+          {`${switchesAgent.to} picks up this conversation — it gets what was said, not ${switchesAgent.from}'s own tool steps.`}
+        </p>
       )}
 
       {(pickedSkills.length > 0 || pickedConnectors.length > 0) && (
@@ -804,13 +835,6 @@ export default function PromptInput({
         </p>
       )}
 
-      {!opencodeMissing && switchesAgent && (
-        <p className="mt-1 flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
-          <CoworkBot state="alert" size={28} className="-my-1" />
-          {`${switchesAgent.to} picks up this conversation — it gets what was said, not ${switchesAgent.from}'s own tool steps.`}
-        </p>
-      )}
-
       <div className={cn("mt-2 flex items-center gap-2", compact ? "flex-nowrap" : "flex-wrap")}>
         <div className={cn("flex items-center gap-2", compact ? "shrink-0" : "min-w-0")}>
           <PromptOptionsMenu
@@ -887,16 +911,35 @@ export default function PromptInput({
               <SquareIcon className="size-3 fill-current" />
             </Button>
           ) : showVoicePrimary ? (
-            <Button
-              type="button"
-              size="icon-sm"
-              className="rounded-full"
-              onClick={() => voice.start()}
-              disabled={isLoading}
-              aria-label="Start voice input"
-            >
-              <AudioLinesIcon className="size-3.5" />
-            </Button>
+            <>
+              <Button
+                type="button"
+                size="icon-sm"
+                className="rounded-full"
+                onClick={() => {
+                  voice.cancel();
+                  setVoiceMode(true);
+                }}
+                disabled={isLoading || opencodeMissing}
+                aria-label={t("voiceModeOpen")}
+                title={t("voiceModeOpen")}
+              >
+                <AudioLinesIcon className="size-3.5" />
+              </Button>
+            </>
+          ) : voiceBusy ? (
+            <>
+              <VoiceButton voice={voice} size="sm" />
+              <Button
+                type="submit"
+                size="icon-sm"
+                className="rounded-full"
+                disabled={!canSend || isLoading || attaching || opencodeMissing}
+                aria-label="Send"
+              >
+                <ArrowUpIcon />
+              </Button>
+            </>
           ) : (
             <Button
               type="submit"
@@ -910,6 +953,16 @@ export default function PromptInput({
           )}
         </div>
       </div>
+      <AnimatePresence>
+        {voiceMode && (
+          <VoiceMode
+            onClose={() => setVoiceMode(false)}
+            send={submitText}
+            reply={lastReply}
+            busy={!!isLoading}
+          />
+        )}
+      </AnimatePresence>
     </form>
   );
 }

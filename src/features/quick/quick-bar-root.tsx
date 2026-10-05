@@ -13,7 +13,7 @@ import {
   type Attachment,
 } from "@/features/attachments";
 import { toast, useToastError } from "@/components/ui/sonner";
-import { useVoiceInput, VoiceButton } from "@/features/voice";
+import { useVoiceInput, useVoiceSettings, VoiceButton } from "@/features/voice";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { cn } from "@/lib/utils";
@@ -216,19 +216,27 @@ export function QuickBarRoot() {
   const inputNow = useRef(input);
   inputNow.current = input;
   const voiceBase = useRef("");
+  // A pause ends dictation and sends it (Settings → Voice → Send when I stop talking).
+  const voiceSettings = useVoiceSettings();
   const voice = useVoiceInput({
+    autoStop: voiceSettings.autoSend,
+    idleMs: 10_000,
     onStart: () => {
       const typed = inputNow.current;
       voiceBase.current = typed && !/\s$/.test(typed) ? `${typed} ` : typed;
     },
     onText: (text) => setInput(voiceBase.current + text),
+    onEnd: (text) => {
+      if (voiceSettings.autoSend && text.trim()) void send(undefined, (voiceBase.current + text).trim());
+    },
   });
   useToastError(voice.error, voice.clearError);
 
-  const send = async (action?: QuickAction) => {
+  /** `said`: dictated words, sent before the box has caught up with them. */
+  const send = async (action?: QuickAction, said?: string) => {
     if (streaming || importing > 0) return;
     voice.cancel();
-    const typed = input.trim();
+    const typed = (said ?? input).trim();
     const request: QuickRequest = {
       prompt: typed,
       action,

@@ -169,6 +169,71 @@ pub async fn provider_check_key(
     Ok(KeyCheck { status: "rejected", message: error_message(&body) })
 }
 
+/// The chat models a provider's own `/models` lists for this key, newest
+/// first, so Settings offers them to tick instead of asking for ids by hand.
+#[tauri::command]
+pub async fn provider_list_models(
+    provider: String,
+    api_key: Option<String>,
+    base_url: Option<String>,
+) -> Result<Vec<String>, String> {
+    let (base, key) = ai::endpoint(&provider, api_key.as_deref(), base_url.as_deref())?;
+    let mut url = format!("{}/models", base.trim_end_matches('/'));
+    let client = reqwest::Client::new();
+    let request = if provider == "anthropic" {
+        // Twenty a page otherwise.
+        url.push_str("?limit=1000");
+        client.get(&url).header("x-api-key", &key).header("anthropic-version", "2023-06-01")
+    } else {
+        client.get(&url).bearer_auth(&key)
+    }
+    .timeout(std::time::Duration::from_secs(20));
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("Cannot reach {provider}: {e}"))?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        let detail = error_message(&body).unwrap_or_else(|| body.chars().take(200).collect());
+        let hint = if matches!(status.as_u16(), 401 | 403) { " — check the API key" } else { "" };
+        return Err(format!("{provider} answered {status}{hint}: {detail}"));
+    }
+    let value: serde_json::Value = serde_json::from_str(&body).map_err(|_| format!("{provider} sent no model list."))?;
+    Ok(chat_models(&value))
+}
+
+/// Ids from an OpenAI-style (`data`) or Gemini-style (`models`) list, minus
+/// what can't chat (embeddings, speech, images), newest first when dated.
+fn chat_models(value: &serde_json::Value) -> Vec<String> {
+    const NOT_CHAT: &[&str] = &[
+        "embed", "tts", "whisper", "transcribe", "dall-e", "moderation", "davinci", "babbage", "realtime", "imagen",
+        "image-gen", "veo", "rerank",
+    ];
+    let items = value["data"].as_array().or_else(|| value["models"].as_array());
+    let mut models: Vec<(i64, String)> = items
+        .into_iter()
+        .flatten()
+        .filter_map(|m| {
+            let id = m["id"].as_str().or_else(|| m["name"].as_str())?;
+            // Gemini names its models `models/gemini-…`; the chat endpoint takes either.
+            let id = id.strip_prefix("models/").unwrap_or(id).trim();
+            let lower = id.to_lowercase();
+            if id.is_empty() || NOT_CHAT.iter().any(|w| lower.contains(w)) {
+                return None;
+            }
+            let created = m["created"].as_i64().unwrap_or_else(|| {
+                // Anthropic dates its models as text; the year and month are enough to order them.
+                m["created_at"].as_str().and_then(|d| d.get(..7)).map(|ym| ym.replace('-', "").parse().unwrap_or(0)).unwrap_or(0)
+            });
+            Some((created, id.to_string()))
+        })
+        .collect();
+    models.sort_by(|a, b| b.0.cmp(&a.0));
+    let mut seen = std::collections::HashSet::new();
+    models.into_iter().map(|(_, id)| id).filter(|id| seen.insert(id.clone())).collect()
+}
+
 /// How one model answered a test message.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -216,7 +281,25 @@ pub async fn provider_test_model(
 
 #[cfg(test)]
 mod tests {
-    use super::check_url;
+    use super::{chat_models, check_url};
+
+    #[test]
+    fn model_lists_keep_chat_models_newest_first() {
+        let openai = serde_json::json!({ "data": [
+            { "id": "gpt-4o", "created": 10 },
+            { "id": "text-embedding-3-small", "created": 30 },
+            { "id": "gpt-5", "created": 20 },
+            { "id": "tts-1", "created": 40 },
+        ] });
+        assert_eq!(chat_models(&openai), ["gpt-5", "gpt-4o"]);
+        let gemini = serde_json::json!({ "data": [{ "id": "models/gemini-2.5-flash" }, { "id": "models/text-embedding-004" }] });
+        assert_eq!(chat_models(&gemini), ["gemini-2.5-flash"]);
+        let anthropic = serde_json::json!({ "data": [
+            { "id": "claude-a", "created_at": "2025-02-01T00:00:00Z" },
+            { "id": "claude-b", "created_at": "2026-05-01T00:00:00Z" },
+        ] });
+        assert_eq!(chat_models(&anthropic), ["claude-b", "claude-a"]);
+    }
 
     #[test]
     fn checks_each_key_where_a_bad_one_is_refused() {

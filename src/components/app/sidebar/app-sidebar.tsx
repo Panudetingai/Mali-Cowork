@@ -3,20 +3,25 @@ import {
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
   SidebarMenuSubItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/animate-ui/components/radix/sidebar";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/animate-ui/primitives/radix/collapsible";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/animate-ui/primitives/radix/dropdown-menu";
 import { SidebarTokenFooter } from "./sidebar-token-footer";
 import { Button } from "@/components/ui/button";
 import { Checkbox, CheckboxIndicator } from "@/components/animate-ui/primitives/radix/checkbox";
@@ -45,16 +50,19 @@ import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import {
   BotIcon,
+  ChartColumnIcon,
   CheckSquareIcon,
+  ChevronDownIcon,
   ChevronRightIcon,
   CodeXmlIcon,
   FilesIcon,
-  ChartColumnIcon,
+  FolderKanbanIcon,
   GhostIcon,
+  ImagesIcon,
   InboxIcon,
   LayoutGridIcon,
-  FolderKanbanIcon,
-  ImagesIcon,
+  MoreVerticalIcon,
+  PlusIcon,
   SearchIcon,
   Settings2Icon,
   SparklesIcon,
@@ -62,11 +70,28 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "@/features/i18n";
 import { ChatHistoryItem } from "./chat-history-item";
+import { ActiveIndicatorList } from "./active-indicator";
 import { sidebarItemClass } from "./sidebar-styles";
+
+const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+/** "⌘1" on a Mac, "Ctrl+1" elsewhere. */
+const combo = (key: string) => (MAC ? `⌘${key}` : `Ctrl+${key}`);
+
+/** Where each number key goes, in the order the nav lists them. */
+const NAV_SHORTCUTS: Record<string, string> = {
+  "1": "/?mode=chat",
+  "2": newChatHomeUrl("chat", { temporary: true }),
+  "3": "/?mode=cowork",
+  "4": "/?mode=code",
+  "5": "/visual",
+  "6": "/bots",
+  ",": "/settings",
+};
 
 /** Home (`/`): mode and temporary flag must both match so New chat ≠ Temporary chat. */
 function homeNavActive(pathname: string, current: URLSearchParams, itemQuery: string) {
@@ -78,7 +103,31 @@ function homeNavActive(pathname: string, current: URLSearchParams, itemQuery: st
   return temp(current) === temp(item);
 }
 
-function NavItem({ title, url, icon: Icon, badge }: { title: string; url: string; icon: LucideIcon; badge?: number }) {
+/** A key hint that shows when the row is hovered. */
+function Hint({ keys }: { keys: string }) {
+  return (
+    <kbd className="relative ml-auto hidden shrink-0 font-sans text-[10.5px] tracking-wide text-muted-foreground/70 group-hover/nav:inline group-data-[collapsible=icon]:hidden!">
+      {keys}
+    </kbd>
+  );
+}
+
+/** A label that fades out, rather than vanishing, as the sidebar folds. */
+const fadeLabel = "relative truncate transition-opacity duration-200 group-data-[collapsible=icon]:opacity-0";
+
+function NavItem({
+  title,
+  url,
+  icon: Icon,
+  badge,
+  shortcut,
+}: {
+  title: string;
+  url: string;
+  icon: LucideIcon;
+  badge?: number;
+  shortcut?: string;
+}) {
   const { pathname, search } = useLocation();
   const [path, query = ""] = url.split("?");
   const isActive =
@@ -88,58 +137,54 @@ function NavItem({ title, url, icon: Icon, badge }: { title: string; url: string
 
   return (
     <SidebarMenuItem>
-      <NavLink to={url} title={title} data-active={isActive} className={sidebarItemClass}>
+      <NavLink to={url} title={shortcut ? `${title} (${shortcut})` : title} data-active={isActive} className={sidebarItemClass}>
         <Icon strokeWidth={1.75} />
-        <span className="truncate group-data-[collapsible=icon]:hidden">{title}</span>
+        <span className={fadeLabel}>{title}</span>
         {!!badge && (
-          <span className="ml-auto flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold tabular-nums text-white group-data-[collapsible=icon]:hidden">
+          <span className="relative ml-auto flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold tabular-nums text-white group-hover/nav:hidden group-data-[collapsible=icon]:hidden">
             {badge}
           </span>
         )}
+        {shortcut && <Hint keys={shortcut} />}
       </NavLink>
     </SidebarMenuItem>
   );
 }
 
-type SubItem = { title: string; url: string; icon: LucideIcon; badge?: number };
+type SubItem = { title: string; url: string; icon: LucideIcon; badge?: number; shortcut?: string };
 
-function NavItemWithSub({
-  title,
-  icon: Icon,
-  items,
-}: {
-  title: string;
-  icon: LucideIcon;
-  items: SubItem[];
-}) {
+/** "More": the places that aren't for starting work, folded away. */
+function NavItemWithSub({ title, icon: Icon, items }: { title: string; icon: LucideIcon; items: SubItem[] }) {
   const { pathname } = useLocation();
   const childActive = items.some((item) => pathname.startsWith(item.url.split("?")[0]));
   const [open, setOpen] = useState(childActive);
+  const badge = items.reduce((sum, item) => sum + (item.badge ?? 0), 0);
+  useEffect(() => {
+    if (childActive) setOpen(true);
+  }, [childActive]);
 
   return (
     <SidebarMenuItem>
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger asChild>
-          <SidebarMenuButton
-            data-active={childActive}
-            className={cn(
-              "w-full text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-              "data-[active=true]:bg-background data-[active=true]:font-medium data-[active=true]:text-foreground data-[active=true]:shadow-xs dark:data-[active=true]:bg-sidebar-accent",
-            )}
-          >
+          <button type="button" data-active={childActive && !open} className={sidebarItemClass}>
             <Icon strokeWidth={1.75} />
-            <span className="truncate group-data-[collapsible=icon]:hidden">{title}</span>
+            <span className={fadeLabel}>{title}</span>
+            {!open && badge > 0 && (
+              <span className="relative ml-auto size-2 shrink-0 rounded-full bg-amber-500 group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:top-1 group-data-[collapsible=icon]:right-1" />
+            )}
             <ChevronRightIcon
               strokeWidth={1.75}
               className={cn(
-                "ml-auto size-4 shrink-0 transition-transform duration-200 group-data-[collapsible=icon]:hidden",
+                "relative size-4! shrink-0 text-muted-foreground transition-transform duration-200 group-data-[collapsible=icon]:hidden",
+                !(!open && badge > 0) && "ml-auto",
                 open && "rotate-90",
               )}
             />
-          </SidebarMenuButton>
+          </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <SidebarMenuSub>
+          <SidebarMenuSub className="mr-0 gap-0.5 border-sidebar-border/80 py-0.5 pr-0">
             {items.map((item) => {
               const SubIcon = item.icon;
               const active = pathname.startsWith(item.url.split("?")[0]);
@@ -147,21 +192,18 @@ function NavItemWithSub({
                 <SidebarMenuSubItem key={item.title}>
                   <NavLink
                     to={item.url}
-                    title={item.title}
+                    title={item.shortcut ? `${item.title} (${item.shortcut})` : item.title}
                     data-active={active}
-                    className={cn(
-                      "flex h-7 w-full items-center gap-2 overflow-hidden rounded-md px-2 text-[13px] text-sidebar-foreground/80 outline-hidden ring-sidebar-ring transition-colors",
-                      "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2",
-                      "data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground",
-                    )}
+                    className={cn(sidebarItemClass, "h-8")}
                   >
-                    <SubIcon strokeWidth={1.75} className="size-4 shrink-0" />
-                    <span className="truncate">{item.title}</span>
+                    <SubIcon strokeWidth={1.75} className="size-4!" />
+                    <span className="relative truncate">{item.title}</span>
                     {!!item.badge && (
-                      <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-semibold tabular-nums text-white">
+                      <span className="relative ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-semibold tabular-nums text-white group-hover/nav:hidden">
                         {item.badge}
                       </span>
                     )}
+                    {item.shortcut && <Hint keys={item.shortcut} />}
                   </NavLink>
                 </SidebarMenuSubItem>
               );
@@ -179,6 +221,22 @@ function matches(session: ChatSession, query: string) {
   return session.messages.some((m) => m.content.toLowerCase().includes(query));
 }
 
+type Day = "today" | "yesterday" | "week" | "month" | "older";
+
+/** Which "Today / Yesterday / 7 days…" heading a chat goes under. */
+function dayOf(time: number, now = new Date()): Day {
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const day = 86_400_000;
+  if (time >= start) return "today";
+  if (time >= start - day) return "yesterday";
+  if (time >= start - 7 * day) return "week";
+  if (time >= start - 30 * day) return "month";
+  return "older";
+}
+
+/** Rows shown before "Show N more". */
+const FOLDED = { pinned: 4, other: 8 };
+
 function HistoryGroup({
   label,
   sessions,
@@ -186,6 +244,8 @@ function HistoryGroup({
   selected,
   onToggleSession,
   onToggleGroup,
+  limit,
+  actions,
 }: {
   label: string;
   sessions: ChatSession[];
@@ -193,43 +253,142 @@ function HistoryGroup({
   selected: Set<string>;
   onToggleSession: (id: string) => void;
   onToggleGroup: (ids: string[]) => void;
+  /** Rows shown folded; all of them when searching. */
+  limit?: number;
+  actions?: ReactNode;
 }) {
+  const { t } = useTranslation();
   const runs = useChatRuns();
+  const { pathname } = useLocation();
+  const [open, setOpen] = useState(true);
+  const [all, setAll] = useState(false);
   if (sessions.length === 0) return null;
 
   const selectableIds = sessions.filter((s) => !runs[s.id]).map((s) => s.id);
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
   const someSelected = selectableIds.some((id) => selected.has(id)) && !allSelected;
+  // The open chat always shows, even past the fold.
+  const cut = limit && !all ? limit : sessions.length;
+  const shown = sessions.filter((s, i) => i < cut || pathname === `/chat/${s.id}`);
+  const hidden = sessions.length - shown.length;
 
   return (
-    <SidebarGroup className="py-1 group-data-[collapsible=icon]:hidden">
-      <SidebarGroupLabel className="flex h-7 items-center gap-2 text-xs font-normal text-sidebar-foreground/55">
+    <SidebarGroup className="py-1.5">
+      <div className="group/label flex h-7 items-center gap-1 pr-1 pl-1">
         {selecting && selectableIds.length > 0 && (
           <Checkbox
             checked={someSelected ? "indeterminate" : allSelected}
             onCheckedChange={() => onToggleGroup(selectableIds)}
             aria-label={`Select all ${label.toLowerCase()}`}
+            className="mr-1"
           >
             <CheckboxIndicator className="size-3.5" />
           </Checkbox>
         )}
-        <span>{label}</span>
-      </SidebarGroupLabel>
-      <SidebarGroupContent>
-        <SidebarMenu className="gap-0.5">
-          {sessions.map((session) => (
-            <ChatHistoryItem
-              key={session.id}
-              session={session}
-              running={!!runs[session.id]}
-              selecting={selecting}
-              selected={selected.has(session.id)}
-              onToggleSelected={() => onToggleSession(session.id)}
-            />
-          ))}
-        </SidebarMenu>
-      </SidebarGroupContent>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-0.5 text-left text-xs font-medium text-sidebar-foreground/55 hover:text-sidebar-foreground"
+        >
+          <ChevronDownIcon className={cn("size-3.5 shrink-0 transition-transform", !open && "-rotate-90")} />
+          <span className="truncate">{label}</span>
+        </button>
+        {actions && <div className="flex shrink-0 items-center gap-0.5">{actions}</div>}
+      </div>
+      {open && (
+        <SidebarGroupContent className="pt-0.5">
+          <SidebarMenu className="gap-1">
+            {shown.map((session) => (
+              <ChatHistoryItem
+                key={session.id}
+                session={session}
+                running={!!runs[session.id]}
+                selecting={selecting}
+                selected={selected.has(session.id)}
+                onToggleSelected={() => onToggleSession(session.id)}
+              />
+            ))}
+          </SidebarMenu>
+          {(hidden > 0 || all) && limit && sessions.length > limit && (
+            <button
+              type="button"
+              onClick={() => setAll((v) => !v)}
+              className="mt-1 flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-xs font-medium text-sidebar-foreground/60 hover:text-sidebar-foreground"
+            >
+              <ChevronDownIcon className={cn("size-3.5", all && "rotate-180")} />
+              {all ? t("showLess") : t("showMore", { count: String(hidden) })}
+            </button>
+          )}
+        </SidebarGroupContent>
+      )}
     </SidebarGroup>
+  );
+}
+
+/** A small square button in a group's heading (+, ⋮). */
+function GroupAction({ label, onClick, children }: { label: string; onClick?: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className="flex size-6 items-center justify-center rounded-md text-sidebar-foreground/55 hover:bg-sidebar-accent hover:text-sidebar-foreground [&_svg]:size-3.5"
+    >
+      {children}
+    </button>
+  );
+}
+
+const menuItemClass =
+  "flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground";
+
+/**
+ * The sidebar's keys: "/" jumps to the search (opening a folded sidebar
+ * first), ⌘1–⌘6 to the nav rows in order, ⌘, to Settings.
+ */
+function useShortcuts(search: RefObject<HTMLInputElement | null>, collapsed: boolean, expand: () => void) {
+  const navigate = useNavigate();
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat) return;
+      const mod = MAC ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+      if (mod && !event.shiftKey && !event.altKey && NAV_SHORTCUTS[event.key]) {
+        event.preventDefault();
+        navigate(NAV_SHORTCUTS[event.key]);
+        return;
+      }
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable=''], [contenteditable='true']")) return;
+      event.preventDefault();
+      if (collapsed) {
+        expand();
+        // After the sidebar has opened and the box is back.
+        setTimeout(() => search.current?.focus(), 320);
+      } else search.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [search, collapsed, expand, navigate]);
+}
+
+/** Parts that leave as the sidebar folds, and come back as it opens. */
+function Unfolded({ show, children, className }: { show: boolean; children: ReactNode; className?: string }) {
+  return (
+    <AnimatePresence initial={false}>
+      {show && (
+        <motion.div
+          className={className}
+          initial={{ opacity: 0, x: -10 }}
+          animate={{ opacity: 1, x: 0, transition: { duration: 0.24, delay: 0.12, ease: [0.2, 0.8, 0.2, 1] } }}
+          exit={{ opacity: 0, x: -10, transition: { duration: 0.14 } }}
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -245,22 +404,23 @@ export function AppSidebar() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const { pinned, chats, cowork, code } = useMemo(() => {
+  const searchRef = useRef<HTMLInputElement>(null);
+  const { state: sidebarState, isMobile, setOpen } = useSidebar();
+  const collapsed = sidebarState === "collapsed" && !isMobile;
+  useShortcuts(searchRef, collapsed, () => setOpen(true));
+
+  const { pinned, days, visibleSessions } = useMemo(() => {
     const q = query.trim().toLowerCase();
     const sorted = sessions
       // Background tasks live in the Inbox (and on the chat they came from).
       .filter((s) => isListedChat(s) && matches(s, q))
       .sort((a, b) => b.updatedAt - a.updatedAt);
-    const unpinned = sorted.filter((s) => !s.pinned);
-    return {
-      pinned: sorted.filter((s) => s.pinned),
-      chats: unpinned.filter((s) => sessionMode(s) === "chat"),
-      cowork: unpinned.filter((s) => sessionMode(s) === "cowork" && s.view !== "code"),
-      code: unpinned.filter((s) => s.view === "code"),
-    };
+    const now = new Date();
+    const days: Record<Day, ChatSession[]> = { today: [], yesterday: [], week: [], month: [], older: [] };
+    for (const s of sorted) if (!s.pinned) days[dayOf(s.updatedAt, now)].push(s);
+    return { pinned: sorted.filter((s) => s.pinned), days, visibleSessions: sorted };
   }, [sessions, query]);
 
-  const visibleSessions = useMemo(() => [...pinned, ...chats, ...cowork, ...code], [pinned, chats, cowork, code]);
   const selectableIds = useMemo(
     () => visibleSessions.filter((s) => !runs[s.id]).map((s) => s.id),
     [visibleSessions, runs],
@@ -319,7 +479,48 @@ export function AppSidebar() {
     }
   };
 
-  const nothingFound = sessions.length > 0 && pinned.length + chats.length + cowork.length + code.length === 0;
+  const searching = !!query.trim();
+  const nothingFound = sessions.length > 0 && visibleSessions.length === 0;
+  const dayGroups: { id: Day; label: string }[] = [
+    { id: "today", label: t("historyToday") },
+    { id: "yesterday", label: t("historyYesterday") },
+    { id: "week", label: t("historyWeek") },
+    { id: "month", label: t("historyMonth") },
+    { id: "older", label: t("historyOlder") },
+  ];
+  const firstGroup = pinned.length > 0 ? "pinned" : dayGroups.find((g) => days[g.id].length > 0)?.id;
+
+  // "+" and "⋮" ride on the first heading, as in the reference.
+  const headActions = (
+    <>
+      <GroupAction label={t("newChat")} onClick={() => navigate("/?mode=chat")}>
+        <PlusIcon />
+      </GroupAction>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={t("more")}
+            className="flex size-6 items-center justify-center rounded-md text-sidebar-foreground/55 hover:bg-sidebar-accent hover:text-sidebar-foreground data-[state=open]:bg-sidebar-accent"
+          >
+            <MoreVerticalIcon className="size-3.5" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" sideOffset={6} className="z-50 w-44 rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg">
+          <DropdownMenuItem
+            className={menuItemClass}
+            onSelect={() => {
+              setSelecting((v) => !v);
+              setSelected(new Set());
+            }}
+          >
+            <CheckSquareIcon className="size-4 text-muted-foreground" />
+            {selecting ? t("doneSelecting") : t("selectChats")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  );
 
   return (
     <>
@@ -327,18 +528,47 @@ export function AppSidebar() {
         collapsible="icon"
         className="top-(--titlebar-height) bottom-0 h-auto max-h-[calc(100svh-var(--titlebar-height))] border-r-0"
       >
-        <SidebarHeader className="gap-1 pb-1">
+        <SidebarHeader className="gap-2.5 px-3 pt-3 pb-1 group-data-[collapsible=icon]:px-2">
+          <Unfolded show={!collapsed} className="relative">
+            <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              ref={searchRef}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setQuery("");
+                  event.currentTarget.blur();
+                }
+              }}
+              placeholder={t("searchChatsPlaceholder")}
+              aria-label={t("searchChats")}
+              className="h-9 rounded-lg border-sidebar-border bg-background pr-9 pl-9 text-[13px] shadow-none dark:bg-sidebar-accent/60"
+            />
+            {query ? (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label={t("cancel")}
+                className="absolute top-1/2 right-2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+              >
+                <XIcon className="size-3.5" />
+              </button>
+            ) : (
+              <kbd className="pointer-events-none absolute top-1/2 right-2 flex h-5 min-w-5 -translate-y-1/2 items-center justify-center rounded-md border border-sidebar-border bg-sidebar px-1 font-mono text-[11px] text-muted-foreground">
+                /
+              </kbd>
+            )}
+          </Unfolded>
+
+          <ActiveIndicatorList>
           <SidebarMenu className="gap-0.5">
-            <NavItem title={t("newChat")} url="/?mode=chat" icon={SquarePenIcon} />
-            <NavItem title={t("newTemporaryChat")} url={newChatHomeUrl("chat", { temporary: true })} icon={GhostIcon} />
-            <NavItem title={t("cowork")} url="/?mode=cowork" icon={SparklesIcon} />
-            <NavItem title={t("code")} url="/?mode=code" icon={CodeXmlIcon} />
-            <NavItem title={t("visual")} url="/visual" icon={ImagesIcon} />
-            <NavItem title={t("botStudio")} url="/bots" icon={BotIcon} />
-          </SidebarMenu>
-          {/* Places to go, apart from the ways to start work above. */}
-          <div className="mx-2 my-1 h-px bg-sidebar-border/70 group-data-[collapsible=icon]:mx-1" aria-hidden />
-          <SidebarMenu className="gap-0.5">
+            <NavItem title={t("newChat")} url="/?mode=chat" icon={SquarePenIcon} shortcut={combo("1")} />
+            <NavItem title={t("newTemporaryChat")} url={newChatHomeUrl("chat", { temporary: true })} icon={GhostIcon} shortcut={combo("2")} />
+            <NavItem title={t("cowork")} url="/?mode=cowork" icon={SparklesIcon} shortcut={combo("3")} />
+            <NavItem title={t("code")} url="/?mode=code" icon={CodeXmlIcon} shortcut={combo("4")} />
+            <NavItem title={t("visual")} url="/visual" icon={ImagesIcon} shortcut={combo("5")} />
+            <NavItem title={t("botStudio")} url="/bots" icon={BotIcon} shortcut={combo("6")} />
             <NavItemWithSub
               title={t("more")}
               icon={LayoutGridIcon}
@@ -347,40 +577,16 @@ export function AppSidebar() {
                 { title: t("outputs"), url: "/outputs", icon: FilesIcon },
                 { title: t("usage"), url: "/usage", icon: ChartColumnIcon },
                 { title: t("projects"), url: "/projects", icon: FolderKanbanIcon },
-                { title: t("settings"), url: "/settings", icon: Settings2Icon },
+                { title: t("settings"), url: "/settings", icon: Settings2Icon, shortcut: combo(",") },
               ]}
             />
           </SidebarMenu>
-          <div className="relative mt-1 group-data-[collapsible=icon]:hidden">
-            <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => event.key === "Escape" && setQuery("")}
-              placeholder={t("searchChats")}
-              aria-label={t("searchChats")}
-              className="h-8 rounded-lg border-transparent bg-sidebar-accent/70 pl-8 pr-8 text-[13px] shadow-none focus-visible:bg-background"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                setSelecting((v) => !v);
-                setSelected(new Set());
-              }}
-              title={selecting ? t("doneSelecting") : t("selectChats")}
-              className={cn(
-                "absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-md",
-                selecting
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-              )}
-            >
-              <CheckSquareIcon className="size-3.5" />
-            </button>
-          </div>
+          </ActiveIndicatorList>
         </SidebarHeader>
 
-        <SidebarContent className="relative gap-0 pb-3">
+        <SidebarContent className="relative gap-0 px-1 pt-1 pb-3">
+          <Unfolded show={!collapsed} className="flex flex-col">
+          <ActiveIndicatorList className="flex flex-col">
           <HistoryGroup
             label={t("pinned")}
             sessions={pinned}
@@ -388,39 +594,36 @@ export function AppSidebar() {
             selected={selected}
             onToggleSession={toggleSession}
             onToggleGroup={toggleGroup}
+            limit={searching ? undefined : FOLDED.pinned}
+            actions={firstGroup === "pinned" ? headActions : undefined}
           />
-          <HistoryGroup
-            label={t("chats")}
-            sessions={chats}
-            selecting={selecting}
-            selected={selected}
-            onToggleSession={toggleSession}
-            onToggleGroup={toggleGroup}
-          />
-          <HistoryGroup
-            label={t("cowork")}
-            sessions={cowork}
-            selecting={selecting}
-            selected={selected}
-            onToggleSession={toggleSession}
-            onToggleGroup={toggleGroup}
-          />
-          <HistoryGroup
-            label={t("code")}
-            sessions={code}
-            selecting={selecting}
-            selected={selected}
-            onToggleSession={toggleSession}
-            onToggleGroup={toggleGroup}
-          />
+          {dayGroups.map((group) => (
+            <HistoryGroup
+              key={group.id}
+              label={group.label}
+              sessions={days[group.id]}
+              selecting={selecting}
+              selected={selected}
+              onToggleSession={toggleSession}
+              onToggleGroup={toggleGroup}
+              limit={searching ? undefined : FOLDED.other}
+              actions={firstGroup === group.id ? headActions : undefined}
+            />
+          ))}
 
+          {!firstGroup && (
+            <div className="flex h-7 items-center justify-between pr-1 pl-2 pt-1.5">
+              <span className="text-xs font-medium text-sidebar-foreground/55">{t("chats")}</span>
+              <span className="flex items-center gap-0.5">{headActions}</span>
+            </div>
+          )}
           {sessions.length === 0 && (
-            <p className="px-4 py-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
+            <p className="px-4 py-2 text-xs text-muted-foreground">
               {t("yourChatsWillShowUpHere")}
             </p>
           )}
           {nothingFound && (
-            <p className="px-4 py-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
+            <p className="px-4 py-2 text-xs text-muted-foreground">
               {t("noChatsMatch")} “{query.trim()}”.
             </p>
           )}
@@ -453,6 +656,8 @@ export function AppSidebar() {
               </div>
             </div>
           )}
+          </ActiveIndicatorList>
+          </Unfolded>
         </SidebarContent>
 
         <SidebarTokenFooter />

@@ -15,7 +15,7 @@ function inferBrandLogo(raw: string): string | undefined {
   if (/^qwen|\/qwen|wan2|wan-/.test(slug)) return "alibaba";
   if (/grok|x-ai|xai/.test(slug)) return "xai";
   if (/^ollama\//.test(slug)) return "ollama";
-  if (/^ollama-cloud\//.test(slug) || /^gpt-oss(?::|$)/.test(tail)) return "ollama-cloud";
+  if (/^ollama-cloud\/|ollama-cloud\//.test(slug)) return "ollama-cloud";
   if (/deepseek/.test(slug)) return "deepseek";
   if (/mistral|mixtral|codestral|pixtral|ministral/.test(slug)) return "mistral";
   if (/llama|meta-llama|\bllama\b/.test(slug)) return "meta";

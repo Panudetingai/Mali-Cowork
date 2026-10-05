@@ -172,6 +172,15 @@ export function testProviderModel(providerId: string, model: string, apiKey: str
   });
 }
 
+/** The chat models the provider's own API lists for this key, newest first. */
+export function listProviderModels(providerId: string, apiKey: string, baseUrl?: string) {
+  return invoke<string[]>("provider_list_models", {
+    provider: providerId,
+    apiKey: cleanApiKey(apiKey) || null,
+    baseUrl: baseUrl?.trim() || null,
+  });
+}
+
 export function ollamaListModels(baseUrl: string, apiKey?: string) {
   return invoke<string[]>("ollama_list_models", {
     baseUrl: baseUrl || null,

@@ -1,16 +1,19 @@
 import { cn } from "@/lib/utils";
-import { Antigravity, Codex, Cursor, OpenCode, ProviderIcon } from "@lobehub/icons";
+import { Antigravity, Codex, Cursor, ElevenLabs, FishAudio, OpenCode, ProviderIcon } from "@lobehub/icons";
+import { Sparkles } from "lucide-react";
 import { useState, type ComponentType } from "react";
 import { lobeProviderKey } from "./lobe";
 
 type CliIcon = ComponentType<{ size?: number }>;
 
-/** CLI agents aren't in models.dev; LobeHub ships their marks. */
+/** CLI agents and voice services aren't in models.dev; LobeHub ships their marks. */
 const CLI_AGENT_ICON: Record<string, CliIcon> = {
   cursor: Cursor,
   codex: Codex,
   antigravity: Antigravity,
   opencode: OpenCode,
+  elevenlabs: ElevenLabs,
+  fishaudio: FishAudio,
 };
 
 type Props = {
@@ -24,7 +27,8 @@ type Props = {
 /**
  * Brand icon from LobeHub (inline SVG, works offline in Tauri) with a
  * models.dev image fallback and a letter tile as last resort.
- * Browse: https://lobehub.com/icons
+ * Brands with no real mark (Puter) use the default tile instead of a
+ * network image. Browse: https://lobehub.com/icons
  */
 export function ProviderLogo({ logo, name, className, size = 24 }: Props) {
   const [imgFailed, setImgFailed] = useState(false);
@@ -34,6 +38,19 @@ export function ProviderLogo({ logo, name, className, size = 24 }: Props) {
     return (
       <span className={cn("flex shrink-0 items-center justify-center", className)} aria-hidden>
         <Icon size={size} />
+      </span>
+    );
+  }
+  // No brand mark exists: a default tile, offline-safe and unmistakable.
+  if (logo === "puter") {
+    return (
+      <span
+        className={cn("flex shrink-0 items-center justify-center rounded-[4px] bg-muted text-muted-foreground", className)}
+        style={{ width: size, height: size }}
+        title={name}
+        aria-hidden
+      >
+        <Sparkles style={{ width: Math.max(10, Math.round(size * 0.62)), height: Math.max(10, Math.round(size * 0.62)) }} />
       </span>
     );
   }

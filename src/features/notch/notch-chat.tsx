@@ -17,6 +17,7 @@ import { ensureOpencodeModels, getOpencodeModels, loadOpencodeSettings } from "@
 import { normalizeFolder } from "@/features/workspace";
 import {
   speak,
+  speakerLevel,
   speakerState,
   stopSpeaking,
   subscribeSpeaker,
@@ -226,25 +227,24 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
   const fromVoice = useRef(false);
   /** The last ask that was spoken: its reply is read aloud. */
   const spokenAsk = useRef<string>(undefined);
+  /** A spoken ask is out: "thinking" until its reply has been read back. */
+  const [voiceTurn, setVoiceTurn] = useState(false);
   const voice = useVoiceInput({
     autoStop: voiceSettings.autoSend,
+    // Asked to listen again after a reply and nothing comes: stop quietly.
+    idleMs: 8_000,
     onStart: () => stopSpeaking(),
     onText: (text) => {
       fromVoice.current = true;
       onInput(text);
     },
-    onTranscribed: (text) => {
-      if (voiceSettings.autoSend) void submit(text);
+    // Both engines end here once the user stops talking.
+    onEnd: (text) => {
+      if (voiceSettings.autoSend && text.trim()) void submit(text);
     },
   });
-  // System dictation streams words; it's sent when the user stops it.
-  const wasListening = useRef(false);
-  useEffect(() => {
-    if (voice.engine === "system" && wasListening.current && !voice.listening && voiceSettings.autoSend && input.trim()) {
-      void submit();
-    }
-    wasListening.current = voice.listening;
-  }, [voice.listening]);
+  const voiceRef = useRef(voice);
+  voiceRef.current = voice;
   useToastError(voice.error, voice.clearError);
 
   const lastAsk = chat.turns.at(-1);
@@ -261,7 +261,15 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
     for (const turn of finished) {
       if (!turn || spoken.current!.has(turn.id) || !turn.reply.trim()) continue;
       spoken.current!.add(turn.id);
-      if (mode === "always" || (mode === "voice" && turn.asked.trim() === spokenAsk.current?.trim())) void speak(turn.reply);
+      const askedByVoice = turn.asked.trim() === spokenAsk.current?.trim();
+      if (mode === "always" || (mode === "voice" && askedByVoice)) {
+        void speak(turn.reply).then((finished) => {
+          setVoiceTurn(false);
+          // A spoken conversation goes on: listen for the next thing, hands-free
+          // (not after Stop, nor when the voice failed).
+          if (finished && askedByVoice && voiceSettings.autoSend) void voiceRef.current.start();
+        });
+      } else setVoiceTurn(false);
     }
   }, [lastAsk?.id, lastAsk?.status, lastWork?.id, lastWork?.status, voiceSettings.speakReplies]);
   // The notch closing ends what it was saying.
@@ -276,6 +284,7 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
       return;
     }
     spokenAsk.current = fromVoice.current ? text : undefined;
+    setVoiceTurn(fromVoice.current && voiceSettings.speakReplies !== "never");
     fromVoice.current = false;
     onInput("");
     onPanel(null);
@@ -411,7 +420,7 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
           </motion.div>
         )}
       </AnimatePresence>
-      <SpeakingPill />
+      <SpeakingPill thinking={voiceTurn && busy} />
       <AnimatePresence initial={false}>
         {inputNote && (
           <motion.div
@@ -1256,12 +1265,16 @@ function VoiceBar({
   );
 }
 
-/** While a reply is read aloud: what's happening, bars that breathe, and Stop. */
-function SpeakingPill() {
+/**
+ * A spoken conversation's state, between listening and listening again:
+ * thinking about the ask, getting the voice ready, then reading the reply
+ * aloud — with bars that breathe, and Stop.
+ */
+function SpeakingPill({ thinking }: { thinking: boolean }) {
   const t = useNotchText();
   const ink = useChatInk();
   const state = useSyncExternalStore(subscribeSpeaker, speakerState);
-  const on = state.speaking || state.loading;
+  const on = state.speaking || state.loading || thinking;
   return (
     <AnimatePresence initial={false}>
       {on && (
@@ -1274,17 +1287,19 @@ function SpeakingPill() {
           transition={FLOW}
           role="status"
         >
-          {state.loading ? <Loader2Icon className="size-3.5 animate-spin" /> : <Volume2Icon className="size-3.5" />}
-          <span className="text-[12px]">{state.loading ? t("voicePreparing") : t("voiceSpeaking")}</span>
-          {state.speaking && <Waveform bars={5} className="h-3 gap-[2px]" barClassName="w-[2px]" />}
-          <button
+          {state.speaking ? <Volume2Icon className="size-3.5" /> : <Loader2Icon className="size-3.5 animate-spin" />}
+          <span className="text-[12px]">
+            {state.speaking ? t("voiceSpeaking") : state.loading ? t("voicePreparing") : t("voiceThinking")}
+          </span>
+          {state.speaking && <Waveform level={state.metered ? speakerLevel : undefined} bars={5} className="h-3 gap-[2px]" barClassName="w-[2px]" />}
+          {(state.speaking || state.loading) && <button
             type="button"
             onClick={stopSpeaking}
             className={cn("ml-0.5 flex h-6 items-center gap-1 rounded-full px-2 text-[11px] font-medium", ink.chipOn)}
           >
             <SquareIcon className="size-2.5 fill-current" />
             {t("voiceStop")}
-          </button>
+          </button>}
         </motion.div>
       )}
     </AnimatePresence>
