@@ -7,8 +7,8 @@
 //! - diffs pass `--no-ext-diff --no-textconv` (see [`DIFF_FLAGS`]).
 //! - `--literal-pathspecs`: file names are never globs or pathspec magic.
 //! - no prompts (`GIT_TERMINAL_PROMPT=0`, SSH in batch mode), no pager, no
-//!   colors; output is read with a size cap and the process is killed on
-//!   timeout.
+//!   colors; output is read with a size cap and the process (on Windows, its
+//!   whole tree) is killed on timeout.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -130,6 +130,12 @@ async fn run(
     }
 
     let mut child = cmd.spawn().map_err(|e| format!("Can't run git: {e}"))?;
+    // Windows: `Git\cmd\git.exe` is a launcher that starts the real git, and
+    // killing the launcher on a timeout left that one running (with its
+    // console host) for good. The job ends the whole tree when it drops, on
+    // every return from here.
+    #[cfg(windows)]
+    let _tree = child.raw_handle().and_then(crate::mcp_runner::job::kill_on_close);
     if let (Some(text), Some(mut stdin)) = (input, child.stdin.take()) {
         stdin.write_all(text.as_bytes()).await.map_err(|e| e.to_string())?;
         drop(stdin);

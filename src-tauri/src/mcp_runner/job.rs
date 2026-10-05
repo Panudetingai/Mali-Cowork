@@ -53,6 +53,21 @@ impl Drop for Job {
 /// Put `process` into a new kill-on-close job and apply resource limits.
 #[cfg(windows)]
 pub fn contain(process: RawHandle, policy_limits: &ResourceLimits) -> Option<Job> {
+    create(process, Some(policy_limits))
+}
+
+/// Put `process` into a new kill-on-close job with no other limit: the tree
+/// is stopped as a whole, but it may use as much memory and as many processes
+/// as it needs. For the app's own agents (OpenCode, Codex…), installers and
+/// commands the user runs, which routinely go past the MCP sandbox limits
+/// (a Bun server or a build easily commits over 1 GB).
+#[cfg(windows)]
+pub fn kill_on_close(process: RawHandle) -> Option<Job> {
+    create(process, None)
+}
+
+#[cfg(windows)]
+fn create(process: RawHandle, policy_limits: Option<&ResourceLimits>) -> Option<Job> {
     use windows_sys::Win32::Foundation::HANDLE;
     use windows_sys::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
@@ -69,15 +84,17 @@ pub fn contain(process: RawHandle, policy_limits: &ResourceLimits) -> Option<Job
         }
         let job = Job(handle);
         let mut job_limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-        job_limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-            | JOB_OBJECT_LIMIT_ACTIVE_PROCESS
-            | JOB_OBJECT_LIMIT_PROCESS_MEMORY;
-        job_limits.BasicLimitInformation.ActiveProcessLimit = policy_limits.max_processes;
-        job_limits.ProcessMemoryLimit = policy_limits
-            .max_memory_mb
-            .saturating_mul(1024 * 1024)
-            .try_into()
-            .ok()?;
+        job_limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if let Some(limits) = policy_limits {
+            job_limits.BasicLimitInformation.LimitFlags |=
+                JOB_OBJECT_LIMIT_ACTIVE_PROCESS | JOB_OBJECT_LIMIT_PROCESS_MEMORY;
+            job_limits.BasicLimitInformation.ActiveProcessLimit = limits.max_processes;
+            job_limits.ProcessMemoryLimit = limits
+                .max_memory_mb
+                .saturating_mul(1024 * 1024)
+                .try_into()
+                .ok()?;
+        }
         let ok = SetInformationJobObject(
             job.0,
             JobObjectExtendedLimitInformation,

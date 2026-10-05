@@ -112,10 +112,11 @@ pub fn spawn(cmd: &mut Command, label: &'static str) -> io::Result<(Child, Tree)
             .ok_or_else(|| io::Error::other("child exited at once"))?;
         // OpenCode owns the MCP child processes, so its Job Object is the
         // process-tree boundary that also contains every local MCP server.
-        let limits = crate::sandbox::SandboxPolicy::default().resources;
-        let job = child
-            .raw_handle()
-            .and_then(|handle| crate::mcp_runner::job::contain(handle, &limits));
+        // Only kill-on-close: the MCP sandbox's 1 GB / 20-process limits made
+        // Windows refuse memory to OpenCode (Bun) and to builds, which then
+        // died with "out of memory". MCP servers get those limits from
+        // `mali-mcp-runner`, which puts each one in a job of its own.
+        let job = child.raw_handle().and_then(crate::mcp_runner::job::kill_on_close);
         if job.is_none() {
             eprintln!("[supervisor] {label} ({pid}) runs without a job object");
         }
