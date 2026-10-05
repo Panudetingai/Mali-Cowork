@@ -17,10 +17,16 @@ type Options = {
   /** `text` is everything heard since start; `final` once it won't change. */
   onText: (text: string, final: boolean) => void;
   onStart?: () => void;
-  /** A model finished transcribing (not called for system dictation). */
-  onTranscribed?: (text: string) => void;
-  /** Stop by itself when the user stops talking (models only). */
+  /**
+   * Listening is over and this is what was said, whichever engine: after
+   * system dictation stops, or once a model has written the words down. `""`
+   * when nothing was said. Not called after `cancel`, nor on an error.
+   */
+  onEnd?: (text: string) => void;
+  /** Stop by itself when the user stops talking. */
   autoStop?: boolean;
+  /** Give up when nothing is said for this long after starting. */
+  idleMs?: number;
 };
 
 /** macOS closes a dev build that touches the mic (see `commands/voice.rs`). */
@@ -35,29 +41,32 @@ function micAllowed(): Promise<MicStatus> {
   return micStatus;
 }
 
-export function useVoiceInput({ onText, onStart, onTranscribed, autoStop = false }: Options) {
+export function useVoiceInput({ onText, onStart, onEnd, autoStop = false, idleMs }: Options) {
   const settings = useVoiceSettings();
-  const system = useSpeechInput({ onText, onStart });
+  const system = useSpeechInput({ onText, onStart, onEnd, autoStop, idleMs });
   const onTextRef = useRef(onText);
   onTextRef.current = onText;
-  const onTranscribedRef = useRef(onTranscribed);
-  onTranscribedRef.current = onTranscribed;
+  const onEndRef = useRef(onEnd);
+  onEndRef.current = onEnd;
   const [transcribing, setTranscribing] = useState(false);
   const [error, setError] = useState<string>();
   const usesModel = settings.input.engine !== "system";
 
   const recorder = useRecorder({
     autoStop,
+    idleMs,
     onDone: async (recording) => {
       // A tap with nothing said isn't worth a call.
-      if (recording.ms < 400) return;
+      if (recording.ms < 400) {
+        onEndRef.current?.("");
+        return;
+      }
       setTranscribing(true);
       try {
         const text = await transcribe(recording, settings);
-        if (text) {
-          onTextRef.current(text, true);
-          onTranscribedRef.current?.(text);
-        } else setError("Nothing was heard. Try again a little closer to the mic.");
+        if (text) onTextRef.current(text, true);
+        else if (!onEndRef.current) setError("Nothing was heard. Try again a little closer to the mic.");
+        onEndRef.current?.(text);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {

@@ -1,6 +1,8 @@
 import { deleteSkill, saveSkill, toggleSkill, useInstructions } from "@/features/instructions";
 import { libraryDir } from "@/features/skills";
 import { useEffect, useState } from "react";
+import { useSettingsSub } from "../route";
+import { PageHeader } from "../ui";
 import { SkillsManager } from "./skills-manager";
 
 /**
@@ -14,6 +16,7 @@ import { SkillsManager } from "./skills-manager";
  */
 export function SkillsSettings() {
   const { skills } = useInstructions();
+  const { sub, open, back } = useSettingsSub();
   const [dir, setDir] = useState<string | null>(null);
 
   useEffect(() => {
@@ -28,13 +31,15 @@ export function SkillsSettings() {
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h2 className="text-2xl font-semibold tracking-tight">Skills</h2>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          Reusable how-tos the AI follows when a task matches. Install them from GitHub or write your
-          own, and call one directly with <code className="rounded bg-muted px-1 text-xs">/name</code>.
-        </p>
-      </header>
+      <PageHeader
+        title="Skills"
+        description={
+          <>
+            Reusable how-tos the AI follows when a task matches. Install them from GitHub or write your own, and
+            call one directly with <code className="rounded bg-muted px-1 text-xs">/name</code>.
+          </>
+        }
+      />
 
       <SkillsManager
         skills={skills}
@@ -42,6 +47,9 @@ export function SkillsSettings() {
         onToggle={toggleSkill}
         onDelete={deleteSkill}
         discover
+        // Discover is a page of its own (`/settings/skills/discover`), so Back returns to the library.
+        tab={sub === "discover" ? "discover" : "yours"}
+        onTabChange={(tab) => (tab === "discover" ? open("discover") : back())}
         templates
         emptyText="No skills yet. Write one, or browse Discover for skills other people have published."
       />

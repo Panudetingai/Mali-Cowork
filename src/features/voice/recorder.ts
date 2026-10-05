@@ -9,9 +9,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 /** Longest recording; a spoken task fits well inside it. */
 const MAX_MS = 120_000;
 /** Quiet this long after speech, and the recording ends by itself. */
-const SILENCE_MS = 1_600;
-/** Below this level (0–1) counts as quiet. */
-const QUIET = 0.04;
+const SILENCE_MS = 1_400;
+/** Voice this long before it counts as speech (a click or a cough doesn't). */
+const SPEECH_MS = 180;
+/** How often the level is read. A timer, not animation frames: those stop
+ *  while the window is hidden, and with them the end of the recording. */
+const TICK_MS = 50;
+/**
+ * The level (0–1) that counts as voice: at least this, and well above the
+ * room's own noise. A fixed line never ended the recording on a noisy mic (a
+ * fan, a laptop's hum) — it never got "quiet" — so the noise is measured as
+ * it goes and the line floats above it.
+ */
+const VOICE = 0.06;
 
 export type Recording = { blob: Blob; mime: string; ms: number };
 
@@ -34,7 +44,16 @@ const MIC_ERRORS: Record<string, string> = {
  * `start` → speak → the recording ends on `stop`, after a pause in speech
  * (`autoStop`), or at the limit; `onDone` gets it. `cancel` throws it away.
  */
-export function useRecorder({ onDone, autoStop = true }: { onDone: (recording: Recording) => void; autoStop?: boolean }) {
+export function useRecorder({
+  onDone,
+  autoStop = true,
+  idleMs,
+}: {
+  onDone: (recording: Recording) => void;
+  autoStop?: boolean;
+  /** Give up (and drop the recording) when nothing is said for this long. */
+  idleMs?: number;
+}) {
   const [recording, setRecording] = useState(false);
   // Read by the waveform each frame; kept out of state so nothing re-renders 60 times a second.
   const level = useRef(0);
@@ -43,7 +62,7 @@ export function useRecorder({ onDone, autoStop = true }: { onDone: (recording: R
     recorder: MediaRecorder;
     stream: MediaStream;
     context: AudioContext;
-    frame: number;
+    timer: ReturnType<typeof setInterval> | undefined;
     started: number;
     keep: boolean;
   } | null>(null);
@@ -54,7 +73,7 @@ export function useRecorder({ onDone, autoStop = true }: { onDone: (recording: R
     const s = session.current;
     if (!s) return;
     s.keep = keep;
-    cancelAnimationFrame(s.frame);
+    clearInterval(s.timer);
     if (s.recorder.state !== "inactive") s.recorder.stop();
   }, []);
 
@@ -86,35 +105,30 @@ export function useRecorder({ onDone, autoStop = true }: { onDone: (recording: R
     analyser.fftSize = 512;
     context.createMediaStreamSource(stream).connect(analyser);
     const samples = new Uint8Array(analyser.fftSize);
-    let spoke = false;
-    let quietSince = 0;
+    const vad = voiceDetector();
 
     const started = performance.now();
-    const tick = (now: number) => {
+    const tick = () => {
       const s = session.current;
       if (!s) return;
+      const now = performance.now();
       analyser.getByteTimeDomainData(samples);
       let sum = 0;
       for (const v of samples) sum += ((v - 128) / 128) ** 2;
       const rms = Math.min(1, Math.sqrt(sum / samples.length) * 4);
       level.current = rms;
-      if (rms > QUIET) {
-        spoke = true;
-        quietSince = 0;
-      } else if (spoke) {
-        quietSince ||= now;
-      }
-      const tooLong = now - started > MAX_MS;
-      if (tooLong || (autoStop && spoke && quietSince && now - quietSince > SILENCE_MS)) {
+      const heard = vad(rms, now);
+      if (now - started > MAX_MS || (autoStop && heard.done)) {
         finish(true);
-        return;
+      } else if (idleMs && !heard.spoke && now - started > idleMs) {
+        finish(false);
       }
-      s.frame = requestAnimationFrame(tick);
     };
 
     recorder.onstop = () => {
       const s = session.current;
       session.current = null;
+      if (s) clearInterval(s.timer);
       // The mic light goes off now, not when the page closes.
       stream.getTracks().forEach((track) => track.stop());
       void context.close();
@@ -126,11 +140,11 @@ export function useRecorder({ onDone, autoStop = true }: { onDone: (recording: R
       }
     };
 
-    session.current = { recorder, stream, context, frame: 0, started, keep: true };
+    session.current = { recorder, stream, context, timer: undefined, started, keep: true };
     recorder.start(250);
     setRecording(true);
-    session.current.frame = requestAnimationFrame(tick);
-  }, [autoStop, finish]);
+    session.current.timer = setInterval(tick, TICK_MS);
+  }, [autoStop, idleMs, finish]);
 
   const stop = useCallback(() => finish(true), [finish]);
   const cancel = useCallback(() => finish(false), [finish]);
@@ -138,6 +152,44 @@ export function useRecorder({ onDone, autoStop = true }: { onDone: (recording: R
   useEffect(() => () => finish(false), [finish]);
 
   return { recording, level, error, clearError: () => setError(undefined), start, stop, cancel };
+}
+
+/** The first readings, taken as the room before the user speaks. */
+const CALIBRATE_MS = 250;
+
+/**
+ * Tells speech from the room's noise, one level reading at a time: `spoke`
+ * once the voice has gone on for [`SPEECH_MS`], `done` once it has then been
+ * quiet for [`SILENCE_MS`]. The noise floor starts from the first readings
+ * (the mic is on before anyone talks), drops at once to a quieter room, and
+ * rises slowly — hardly at all on voice, whose pauses between words pull it
+ * back down anyway.
+ */
+export function voiceDetector() {
+  let floor = 0;
+  let first = 0;
+  let voiceSince = 0;
+  let quietSince = 0;
+  let spoke = false;
+  return (rms: number, now: number) => {
+    first ||= now;
+    if (now - first < CALIBRATE_MS) {
+      floor = Math.max(floor, rms);
+      return { spoke, done: false };
+    }
+    const voice = rms > Math.max(VOICE, floor * 2.5);
+    if (rms < floor) floor += (rms - floor) * 0.3;
+    else floor += (rms - floor) * (voice ? 0.001 : 0.02);
+    if (voice) {
+      voiceSince ||= now;
+      quietSince = 0;
+      if (now - voiceSince >= SPEECH_MS) spoke = true;
+    } else {
+      voiceSince = 0;
+      if (spoke) quietSince ||= now;
+    }
+    return { spoke, done: spoke && quietSince > 0 && now - quietSince >= SILENCE_MS };
+  };
 }
 
 /** A recording as base64, for the backend. */

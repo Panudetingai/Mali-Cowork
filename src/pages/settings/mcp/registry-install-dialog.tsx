@@ -47,7 +47,7 @@ import { CopyCommand, Field, Notice, SecretInput } from "../ui";
 import { RegistryIcon } from "./connector-icon";
 import { IconPicker } from "./icon-picker";
 import { InstallMethodSelect } from "./install-method-select";
-import { McpErrorHelp } from "./mcp-details-dialog";
+import { McpErrorHelp } from "./mcp-details-page";
 import { OAuthLimitBanner } from "./oauth-limit-banner";
 
 /** Install a connector from the MCP Registry. Mounted once; opened with `requestConnectorInstall`. */

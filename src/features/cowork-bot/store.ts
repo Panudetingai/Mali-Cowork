@@ -25,7 +25,10 @@ export type BotState =
   | "tool"
   | "connection"
   | "permission"
-  | "question";
+  | "question"
+  // Voice chat: ears up while you talk; a mouth that moves with Mali's voice.
+  | "listening"
+  | "speaking";
 
 export const BOTS: { id: CoworkBotId; name: string; color: string; hint: string }[] = [
   { id: "mochi", name: "Mochi", color: "#f5c518", hint: "ลูกเจี๊ยบ · เด้งคลื่น" },

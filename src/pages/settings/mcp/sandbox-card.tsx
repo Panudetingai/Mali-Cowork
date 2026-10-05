@@ -43,7 +43,7 @@ export default function SandboxCard() {
   const Icon = active ? ShieldCheckIcon : ShieldAlertIcon;
 
   return (
-    <section className="flex flex-col gap-2 rounded-xl border border-border/70 p-3">
+    <section className="flex flex-col gap-2 border-y border-border/60 py-3">
       <header className="flex items-center gap-2.5">
         <Icon className={cn("size-4 shrink-0", active ? "text-emerald-500" : "text-amber-500")} />
         <div className="min-w-0 flex-1">

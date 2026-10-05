@@ -5,3 +5,5 @@ export * from "./speech";
 export { useRecorder, recordingSupported, type Recording } from "./recorder";
 export { VoiceButton } from "./voice-button";
 export { Waveform } from "./waveform";
+export { VoiceMode, type VoiceModeReply } from "./voice-mode";
+export * from "./keys";

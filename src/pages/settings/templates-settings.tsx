@@ -33,13 +33,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/animate-ui/primitives/radix/dropdown-menu";
 import { toast } from "@/components/ui/sonner";
-import { Field, Notice, SectionHeader, SettingsGroup, Steps } from "@/pages/settings/ui";
+import { Field, Notice, SectionHeader, SettingsGroup, SettingsPage, Steps } from "@/pages/settings/ui";
 import { menuClass, menuItemClass } from "@/pages/settings/skills/skill-row";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
-  BookOpenIcon,
   CalculatorIcon,
-  ChevronDownIcon,
   DownloadIcon,
   ExternalLinkIcon,
   FilePlusIcon,
@@ -78,7 +76,7 @@ function Fields({ fields, max = 8 }: { fields: string[]; max?: number }) {
 
 function Pill({ children }: { children: ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+    <span className="inline-flex w-fit items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
       {children}
     </span>
   );
@@ -143,153 +141,148 @@ export function TemplatesSettings() {
   const own = templates.filter((t) => !t.builtin);
   const builtin = templates.filter((t) => t.builtin);
 
+  const menu = (t: TemplateInfo) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="icon-sm" variant="ghost" aria-label={`More for ${t.name}`}>
+          <MoreHorizontalIcon />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" sideOffset={6} className={menuClass}>
+        <DropdownMenuItem className={menuItemClass} onSelect={() => setEditing(t)}>
+          <PencilIcon className="size-4 text-muted-foreground" />
+          Rename…
+        </DropdownMenuItem>
+        <DropdownMenuItem className={menuItemClass} onSelect={() => void run(`open:${t.id}`, () => openTemplate(t.id))}>
+          <ExternalLinkIcon className="size-4 text-muted-foreground" />
+          Open in Word
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className={menuItemClass}
+          onSelect={() => void run(`reload:${t.id}`, () => reloadTemplate(t.id), "Fields updated")}
+        >
+          <RefreshCwIcon className="size-4 text-muted-foreground" />
+          Re-read fields
+        </DropdownMenuItem>
+        <DropdownMenuItem className={menuItemClass} onSelect={() => void run(`copy:${t.id}`, () => saveCopy(t))}>
+          <DownloadIcon className="size-4 text-muted-foreground" />
+          Save a copy…
+        </DropdownMenuItem>
+        <DropdownMenuSeparator className="-mx-1 my-1 h-px bg-border" />
+        <DropdownMenuItem
+          className={cn(menuItemClass, "text-destructive data-[highlighted]:text-destructive")}
+          onSelect={() => setRemoving(t)}
+        >
+          <Trash2Icon className="size-4" />
+          Remove
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   return (
-    <div className="flex flex-col gap-8">
+    <SettingsPage>
       <SectionHeader
         title="Document templates"
-        description="Word documents Mali fills in for you in Cowork, such as your quotation, letter or form. The layout stays exactly as you designed it."
+        description="Word documents Mali fills in for you in Cowork — your quotation, letter or form. The layout stays exactly as you designed it."
         actions={
-          <Button onClick={() => void pick()} className="gap-1.5">
+          <Button onClick={() => void pick()} size="sm" className="h-9 gap-1.5">
             <PlusIcon className="size-4" />
             Add template
           </Button>
         }
       />
 
-      <Steps
-        steps={[
-          {
-            title: "Mark the blanks in Word",
-            description: (
-              <>
-                Type <code className="font-mono">{"{{customer_name}}"}</code> wherever a detail goes.
-              </>
-            ),
-          },
-          { title: "Add the .docx here", description: "Mali keeps its own copy, so it works from any folder." },
-          { title: "Use it in a chat", description: "Type / and its name in a Cowork chat, and Mali fills it in." },
-        ]}
-      />
-
-      <SettingsGroup
-        title="Your templates"
-        description={own.length > 0 ? `${own.length} template${own.length === 1 ? "" : "s"}` : undefined}
-      >
-        {own.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
-            <span className="flex size-10 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-              <FileTextIcon className="size-5" />
-            </span>
-            <div className="flex max-w-sm flex-col gap-1">
-              <p className="text-sm font-medium">No templates yet</p>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                Add a .docx to get started. No fields yet? In a Cowork chat, ask Mali “ทำไฟล์นี้ให้เป็น template”
-                and it marks them for you.
-              </p>
-            </div>
-            <Button variant="outline" size="sm" onClick={() => void pick()} className="gap-1.5">
-              <FilePlusIcon className="size-4" />
-              Choose a .docx…
-            </Button>
-          </div>
-        ) : (
-          own.map((t) => (
-            <TemplateRow
-              key={t.id}
-              template={t}
-              busy={!!busy?.endsWith(`:${t.id}`)}
-              control={
+      <div className="pb-7">
+        <Steps
+          steps={[
+            {
+              title: "Mark the blanks in Word",
+              description: (
                 <>
-                  <Switch
-                    checked={t.enabled}
-                    aria-label={`Use ${t.name}`}
-                    onCheckedChange={(on) => void run(`toggle:${t.id}`, () => updateTemplate(t.id, { enabled: on }))}
-                  />
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button size="icon-sm" variant="ghost" aria-label={`More for ${t.name}`}>
-                        <MoreHorizontalIcon />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" sideOffset={6} className={menuClass}>
-                      <DropdownMenuItem className={menuItemClass} onSelect={() => setEditing(t)}>
-                        <PencilIcon className="size-4 text-muted-foreground" />
-                        Rename…
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className={menuItemClass}
-                        onSelect={() => void run(`open:${t.id}`, () => openTemplate(t.id))}
-                      >
-                        <ExternalLinkIcon className="size-4 text-muted-foreground" />
-                        Open in Word
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className={menuItemClass}
-                        onSelect={() => void run(`reload:${t.id}`, () => reloadTemplate(t.id), "Fields updated")}
-                      >
-                        <RefreshCwIcon className="size-4 text-muted-foreground" />
-                        Re-read fields
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className={menuItemClass}
-                        onSelect={() => void run(`copy:${t.id}`, () => saveCopy(t))}
-                      >
-                        <DownloadIcon className="size-4 text-muted-foreground" />
-                        Save a copy…
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator className="-mx-1 my-1 h-px bg-border" />
-                      <DropdownMenuItem
-                        className={cn(menuItemClass, "text-destructive data-[highlighted]:text-destructive")}
-                        onSelect={() => setRemoving(t)}
-                      >
-                        <Trash2Icon className="size-4" />
-                        Remove
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  Type <code className="font-mono">{"{{customer_name}}"}</code> wherever a detail goes.
                 </>
-              }
-            />
-          ))
+              ),
+            },
+            { title: "Add the .docx here", description: "Mali keeps its own copy, so it works from any folder." },
+            { title: "Use it in a chat", description: "Type / and its name in a Cowork chat, and Mali fills it in." },
+          ]}
+        />
+      </div>
+
+      <SettingsGroup wide title={`Your templates${own.length ? ` · ${own.length}` : ""}`}>
+        {own.length === 0 ? (
+          <button
+            type="button"
+            onClick={() => void pick()}
+            className="mt-2 flex flex-col items-center gap-2 rounded-xl border border-dashed border-border px-6 py-10 text-center transition-colors hover:border-foreground/30 hover:bg-muted/30"
+          >
+            <span className="flex size-11 items-center justify-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400">
+              <FilePlusIcon className="size-5" />
+            </span>
+            <span className="text-sm font-medium">Choose a .docx to start</span>
+            <span className="max-w-md text-[13px] leading-relaxed text-muted-foreground">
+              No fields in it yet? Add it anyway, then in a Cowork chat ask Mali “ทำไฟล์นี้ให้เป็น template” and it marks them for you.
+            </span>
+          </button>
+        ) : (
+          <div className="mt-1 grid grid-cols-1 gap-3 md:grid-cols-2">
+            {own.map((t) => (
+              <TemplateCard
+                key={t.id}
+                template={t}
+                busy={!!busy?.endsWith(`:${t.id}`)}
+                control={
+                  <>
+                    <Switch
+                      checked={t.enabled}
+                      aria-label={`Use ${t.name}`}
+                      onCheckedChange={(on) => void run(`toggle:${t.id}`, () => updateTemplate(t.id, { enabled: on }))}
+                    />
+                    {menu(t)}
+                  </>
+                }
+              />
+            ))}
+          </div>
         )}
       </SettingsGroup>
 
-      <SettingsGroup
-        title="Built in"
-        description="Ready to use. Save a copy to restyle it in Word, then add it back as your own."
-      >
-        {builtin.map((t) => (
-          <TemplateRow
-            key={t.id}
-            template={t}
-            builtin
-            busy={busy === `copy:${t.id}`}
-            control={
-              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void run(`copy:${t.id}`, () => saveCopy(t))}>
-                <DownloadIcon className="size-3.5" />
-                Save a copy
-              </Button>
-            }
-          />
-        ))}
+      <SettingsGroup wide title="Built in" description="Ready to use. Save a copy to restyle it in Word, then add it back as your own.">
+        <div className="mt-1 grid grid-cols-1 gap-3 md:grid-cols-2">
+          {builtin.map((t) => (
+            <TemplateCard
+              key={t.id}
+              template={t}
+              builtin
+              busy={busy === `copy:${t.id}`}
+              control={
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  title="Save a copy"
+                  aria-label={`Save a copy of ${t.name}`}
+                  onClick={() => void run(`copy:${t.id}`, () => saveCopy(t))}
+                >
+                  <DownloadIcon />
+                </Button>
+              }
+            />
+          ))}
+        </div>
       </SettingsGroup>
 
-      <details className="group rounded-xl border border-border/70 bg-card">
-        <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium select-none [&::-webkit-details-marker]:hidden">
-          <BookOpenIcon className="size-4 text-muted-foreground" />
-          Field syntax reference
-          <ChevronDownIcon className="ml-auto size-4 text-muted-foreground transition-transform group-open:rotate-180" />
-        </summary>
-        <dl className="grid grid-cols-1 gap-x-6 gap-y-3 border-t border-border/60 px-4 py-4 text-xs sm:grid-cols-[auto_1fr]">
+      <SettingsGroup title="Field syntax" description="What you can type in a Word document for Mali to fill.">
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-3 py-3.5 text-[13px] sm:grid-cols-[auto_1fr]">
           <SyntaxItem code="{{field_name}}">A detail to fill in. English letters, digits and _.</SyntaxItem>
-          <SyntaxItem code="{{?note}}">Optional. Its line is removed when it's empty.</SyntaxItem>
+          <SyntaxItem code="{{?note}}">Optional. Its line is removed when it’s empty.</SyntaxItem>
           <SyntaxItem code="{{item.description}}">
             In a table row: the row repeats once per item. Also <code className="font-mono">item.qty</code>,{" "}
             <code className="font-mono">item.unit_price</code>, <code className="font-mono">item.amount</code>.
           </SyntaxItem>
           <SyntaxItem code="{{total}}">Mali computes the amounts, VAT 7% and the total in Thai words.</SyntaxItem>
         </dl>
-      </details>
+      </SettingsGroup>
 
       <AddDialog
         draft={draft}
@@ -328,11 +321,12 @@ export function TemplatesSettings() {
           }
         }
       />
-    </div>
+    </SettingsPage>
   );
 }
 
-function TemplateRow({
+/** One template as a card: name and its / command, what it's for, its fields. */
+function TemplateCard({
   template: t,
   builtin,
   busy,
@@ -344,34 +338,37 @@ function TemplateRow({
   control: ReactNode;
 }) {
   return (
-    <div className={cn("flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center", !t.enabled && !builtin && "opacity-60")}>
-      <div className="flex min-w-0 flex-1 items-start gap-3">
+    <div
+      className={cn(
+        "flex min-w-0 flex-col gap-3 rounded-xl border border-border/70 bg-card p-4 transition-opacity",
+        !t.enabled && !builtin && "opacity-60",
+      )}
+    >
+      <div className="flex items-start gap-3">
         <span
           className={cn(
-            "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg [&_svg]:size-4",
+            "flex size-9 shrink-0 items-center justify-center rounded-lg [&_svg]:size-4",
             builtin ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" : "bg-sky-500/10 text-sky-600 dark:text-sky-400",
           )}
         >
           {busy ? <LoaderIcon className="animate-spin" /> : <FileTextIcon />}
         </span>
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="text-sm font-medium">{t.name}</span>
-            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
-              /{builtin ? t.name : slashName(t.name)}
-            </code>
-            {t.money && (
-              <Pill>
-                <CalculatorIcon className="size-3" />
-                Computes totals
-              </Pill>
-            )}
-          </div>
-          {t.description && <p className="text-xs leading-relaxed text-muted-foreground">{t.description}</p>}
-          <Fields fields={t.fields} max={builtin ? 6 : 8} />
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="truncate text-sm font-semibold">{t.name}</span>
+          <code className="w-fit truncate font-mono text-[11px] text-muted-foreground">/{builtin ? t.name : slashName(t.name)}</code>
         </div>
+        <div className="flex shrink-0 items-center gap-1">{control}</div>
       </div>
-      <div className="flex shrink-0 items-center gap-1.5 sm:justify-end">{control}</div>
+      {t.description && <p className="line-clamp-2 text-[13px] leading-relaxed text-muted-foreground">{t.description}</p>}
+      <div className="mt-auto flex flex-col gap-2 border-t border-border/60 pt-3">
+        {t.money && (
+          <Pill>
+            <CalculatorIcon className="size-3" />
+            Computes totals
+          </Pill>
+        )}
+        <Fields fields={t.fields} max={builtin ? 6 : 8} />
+      </div>
     </div>
   );
 }

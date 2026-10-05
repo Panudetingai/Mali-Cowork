@@ -33,14 +33,12 @@ import {
 import { useProjects } from "@/features/projects";
 import { cn } from "@/lib/utils";
 import {
-  CircleAlertIcon,
   ChevronRightIcon,
   CircleCheckIcon,
   FolderInputIcon,
   FolderKanbanIcon,
   FolderMinusIcon,
   LoaderCircleIcon,
-  MessageCircleIcon,
   MoreHorizontalIcon,
   PencilIcon,
   PinIcon,
@@ -49,24 +47,17 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { NavLink, useMatch, useNavigate } from "react-router-dom";
-import { sidebarItemClass } from "./sidebar-styles";
+import { activeBackdropClass, chatRowClass } from "./sidebar-styles";
 
 const menuItemClass =
   "flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground";
 
-function StatusIcon({ session, running }: { session: ChatSession; running: boolean }) {
-  if (running) {
-    return <LoaderCircleIcon strokeWidth={1.75} className="animate-spin text-sky-500" />;
-  }
+/** Only what needs a glance: still working, or it failed. */
+function StatusMark({ session, running }: { session: ChatSession; running: boolean }) {
+  if (running) return <LoaderCircleIcon strokeWidth={2} className="relative size-3.5 shrink-0 animate-spin text-sky-500" />;
   const last = session.messages[session.messages.length - 1];
-  if (last?.role === "error") {
-    return <CircleAlertIcon strokeWidth={1.75} className="text-destructive" />;
-  }
-  // Agent chats that did work get a check; plain conversations a bubble.
-  if (session.messages.some((m) => m.activities?.length)) {
-    return <CircleCheckIcon strokeWidth={1.75} className="text-emerald-600" />;
-  }
-  return <MessageCircleIcon strokeWidth={1.75} className="text-muted-foreground" />;
+  if (last?.role === "error") return <span className="relative size-1.5 shrink-0 rounded-full bg-red-500" title="Failed" />;
+  return null;
 }
 
 export function ChatHistoryItem({
@@ -116,8 +107,8 @@ export function ChatHistoryItem({
   return (
     <SidebarMenuItem className="group/chat relative">
       {renaming ? (
-        <div data-active className={sidebarItemClass}>
-          <StatusIcon session={session} running={running} />
+        <div data-active className={chatRowClass}>
+          <span className={activeBackdropClass} />
           <input
             ref={inputRef}
             value={draft}
@@ -128,7 +119,7 @@ export function ChatHistoryItem({
               if (event.key === "Enter") commitRename();
               if (event.key === "Escape") setRenaming(false);
             }}
-            className="min-w-0 flex-1 bg-transparent outline-none"
+            className="relative min-w-0 flex-1 bg-transparent outline-none"
           />
         </div>
       ) : selectable ? (
@@ -139,7 +130,7 @@ export function ChatHistoryItem({
           onClick={onToggleSelected}
           title={session.title}
           className={cn(
-            sidebarItemClass,
+            chatRowClass,
             "cursor-pointer pr-8 text-left",
             selected && "bg-sidebar-accent text-sidebar-accent-foreground",
           )}
@@ -152,7 +143,6 @@ export function ChatHistoryItem({
           >
             <CheckboxIndicator className="size-3.5" />
           </Checkbox>
-          <StatusIcon session={session} running={running} />
           <span className="truncate">{session.title}</span>
         </div>
       ) : (
@@ -160,10 +150,10 @@ export function ChatHistoryItem({
           to={url}
           title={session.title}
           data-active={isActive}
-          className={cn(sidebarItemClass, "pr-8")}
+          className={cn(chatRowClass, "pr-8")}
         >
-          <StatusIcon session={session} running={running} />
-          <span className="truncate">{session.title}</span>
+          <span className="relative min-w-0 flex-1 truncate">{session.title}</span>
+          <StatusMark session={session} running={running} />
         </NavLink>
       )}
 
@@ -174,7 +164,7 @@ export function ChatHistoryItem({
               type="button"
               aria-label={`Options for ${session.title}`}
               className={cn(
-                "absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground",
+                "absolute top-1/2 right-1 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground",
                 "opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-foreground focus-visible:opacity-100",
                 "group-hover/chat:opacity-100 data-[state=open]:opacity-100",
               )}

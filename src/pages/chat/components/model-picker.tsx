@@ -284,13 +284,15 @@ const CLI_GROUP_LOGO: Record<string, string> = {
   OpenCode: "opencode",
 };
 
-/** Provider rail: brand for the host (Ollama Cloud, OpenAI…), not the first model's family art. */
+/** Provider rail: brand for the host (Ollama Cloud, OpenAI…), never the first model's family art. */
 function GroupProviderIcon({ group, className }: { group: Group; className?: string }) {
   const sample = group.items[0];
+  // Host first: a DeepSeek model on Ollama Cloud must still show Ollama.
+  // The model's family art belongs on its own row (ModelBrandIcon), not here.
   const logo =
     CLI_GROUP_LOGO[group.label] ??
-    (sample && getProvider(sample.provider)?.logo) ??
     PROVIDERS.find((p) => p.name === group.label)?.logo ??
+    (sample && getProvider(sample.provider)?.logo) ??
     sample?.provider ??
     "opencode";
   return <ProviderLogo logo={logo} name={group.label} className={className} size={16} />;

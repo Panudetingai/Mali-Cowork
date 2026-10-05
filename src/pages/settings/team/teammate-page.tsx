@@ -1,5 +1,4 @@
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ModelPicker } from "@/pages/chat/components/model-picker";
@@ -13,36 +12,33 @@ import { draftIssue, ownerOf, runsOn, saveTeammate, TOOL_SCOPES, useTeam, type T
 import { cn } from "@/lib/utils";
 import type { AiModel } from "@/pages/chat/models";
 import { CheckIcon, ScrollTextIcon } from "lucide-react";
-import { useEffect, useId, useState, type ReactNode } from "react";
-import { Field } from "../ui";
+import { useId, useState, type ReactNode } from "react";
+import { Field, PageHeader, Step } from "../ui";
 
-/** Create or edit a bot; a connector or skill another bot owns can't be picked. */
-export function TeammateDialog({
+/**
+ * Create or edit a bot, as its own page (`/settings/team/new`,
+ * `/settings/team/<id>`); a connector or skill another bot owns can't be picked.
+ */
+export function TeammatePage({
   draft,
   models,
   onSaved,
-  onClose,
+  onDone,
 }: {
-  draft: TeammateDraft | null;
+  draft: TeammateDraft;
   /** Models a bot can run on: API models and the CLI agents, as the chat box lists them. */
   models: AiModel[];
   onSaved?: () => void;
-  onClose: () => void;
+  onDone: () => void;
 }) {
   const { mates } = useTeam();
   const { skills } = useInstructions();
   const connectors = useInstalledConnectors();
-  const [form, setForm] = useState<TeammateDraft | null>(draft);
+  const [form, setForm] = useState<TeammateDraft>(draft);
   const [error, setError] = useState<string>();
   const ids = { name: useId(), role: useId(), instructions: useId() };
 
-  useEffect(() => {
-    setForm(draft);
-    setError(undefined);
-  }, [draft]);
-
-  if (!form) return null;
-  const set = (patch: Partial<TeammateDraft>) => setForm((f) => (f ? { ...f, ...patch } : f));
+  const set = (patch: Partial<TeammateDraft>) => setForm((f) => ({ ...f, ...patch }));
   const toggle = (kind: "skills" | "connectors", id: string) =>
     set({ [kind]: form[kind].includes(id) ? form[kind].filter((x) => x !== id) : [...form[kind], id] });
   const issue = draftIssue(mates, form);
@@ -51,7 +47,7 @@ export function TeammateDialog({
     try {
       saveTeammate(form);
       onSaved?.();
-      onClose();
+      onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -61,26 +57,19 @@ export function TeammateDialog({
   const onCli = !!form.modelId && runsOn(form.modelId) !== "api";
 
   return (
-    <Dialog open={!!draft} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="flex max-h-[min(90vh,760px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
-        <DialogHeader className="shrink-0 border-b border-border/60 px-6 pt-5 pb-4">
-          <div className="flex items-center gap-3.5 pr-8">
-            <CoworkBot bot={form.mascot} state="welcome" size={44} />
-            <div className="min-w-0 flex-1">
-              <DialogTitle className="text-lg font-semibold tracking-tight">
-                {form.id ? `Edit ${form.name || "bot"}` : "New bot"}
-              </DialogTitle>
-              <DialogDescription className="text-sm">
-                One duty per bot. The lead gives each job to the bot whose duty it is, and never gives it to anyone else.
-              </DialogDescription>
-            </div>
-          </div>
-        </DialogHeader>
+    <div className="flex flex-col gap-8">
+      <PageHeader
+        back={{ label: "Team", onClick: onDone }}
+        media={<CoworkBot bot={form.mascot} state="welcome" size={48} />}
+        title={form.id ? `Edit ${form.name || "bot"}` : "New bot"}
+        description="One duty per bot. The lead gives each job to the bot whose duty it is, and never gives it to anyone else."
+      />
 
-        <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 py-5">
-          <div className="flex flex-col gap-5">
+      <div className="flex max-w-3xl flex-col">
+        <Step n={1} title="Who it is" done={!!form.name.trim()}>
+          <div className="flex max-w-lg flex-col gap-5">
             <Field label="Name" htmlFor={ids.name}>
-              <Input id={ids.name} value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Momo Designer" />
+              <Input id={ids.name} value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Momo Designer" className="h-10" />
             </Field>
             <Field label="Look">
               <div role="radiogroup" aria-label="Look" className="flex flex-wrap gap-1">
@@ -96,7 +85,7 @@ export function TeammateDialog({
                       onClick={() => set({ mascot: bot.id })}
                       className={cn(
                         "flex size-12 items-center justify-center rounded-xl transition",
-                        on ? "bg-primary/10 ring-2 ring-primary" : "opacity-60 hover:bg-muted/60 hover:opacity-100",
+                        on ? "bg-violet-500/10 ring-2 ring-violet-500" : "opacity-60 hover:bg-muted/60 hover:opacity-100",
                       )}
                     >
                       {/* Picking one plays its "done" again. */}
@@ -107,33 +96,33 @@ export function TeammateDialog({
               </div>
             </Field>
           </div>
+        </Step>
 
-          <Field label="Duty" htmlFor={ids.role} hint="One sentence. The lead reads it to decide which bot does a job.">
-            <Textarea
-              id={ids.role}
-              value={form.role}
-              onChange={(e) => set({ role: e.target.value })}
-              placeholder="Designs posts, banners and slides in Canva."
-              className="min-h-16 resize-y text-sm"
-            />
-          </Field>
+        <Step n={2} title="Its duty" description="The lead reads it to decide which bot does a job." done={!!form.role.trim()}>
+          <div className="flex max-w-2xl flex-col gap-5">
+            <Field label="Duty" htmlFor={ids.role} hint="One sentence.">
+              <Textarea
+                id={ids.role}
+                value={form.role}
+                onChange={(e) => set({ role: e.target.value })}
+                placeholder="Designs posts, banners and slides in Canva."
+                className="min-h-16 resize-y text-sm"
+              />
+            </Field>
+            <Field label="How it works" htmlFor={ids.instructions} optional hint="Steps, style, what it hands back to the lead.">
+              <Textarea
+                id={ids.instructions}
+                value={form.instructions}
+                onChange={(e) => set({ instructions: e.target.value })}
+                placeholder="Keep the brand's colours and fonts. Check the preview before finishing. Hand back the design link."
+                className="min-h-24 resize-y text-sm"
+              />
+            </Field>
+          </div>
+        </Step>
 
-          <Field
-            label="How it works"
-            htmlFor={ids.instructions}
-            optional
-            hint="Steps, style, what it hands back to the lead."
-          >
-            <Textarea
-              id={ids.instructions}
-              value={form.instructions}
-              onChange={(e) => set({ instructions: e.target.value })}
-              placeholder="Keep the brand's colours and fonts. Check the preview before finishing. Hand back the design link."
-              className="min-h-24 resize-y text-sm"
-            />
-          </Field>
-
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+        <Step n={3} title="What it runs on" done={!!form.modelId}>
+          <div className="grid max-w-2xl grid-cols-1 gap-5 sm:grid-cols-2">
             <Field
               label="Model"
               hint={
@@ -170,57 +159,62 @@ export function TeammateDialog({
               </Select>
             </Field>
           </div>
+        </Step>
 
-          <Field
-            label="Connectors"
-            hint={
-              onCli
-                ? "A CLI agent can reach every connector that's on; this bot is told to use only these, and no other bot may pick them."
-                : "Only this bot gets them — the lead and the other bots don't."
-            }
-          >
-            <PickList
-              empty="No connectors yet. Add them in Settings → Connectors."
-              items={connectors.map((c) => ({
-                id: c.id,
-                label: c.name,
-                icon: <McpToolIcon mcp={c.ref} size={14} />,
-                note: c.enabled ? undefined : "off",
-                owner: ownerOf(mates, "connectors", c.id, form.id)?.name,
-              }))}
-              picked={form.connectors}
-              onToggle={(id) => toggle("connectors", id)}
-            />
-          </Field>
+        <Step n={4} title="What it owns" description="Only this bot gets them — the lead and the other bots don't." last>
+          <div className="flex flex-col gap-5">
+            <Field
+              label="Connectors"
+              hint={
+                onCli
+                  ? "A CLI agent can reach every connector that's on; this bot is told to use only these, and no other bot may pick them."
+                  : undefined
+              }
+            >
+              <PickList
+                empty="No connectors yet. Add them in Settings → Connectors."
+                items={connectors.map((c) => ({
+                  id: c.id,
+                  label: c.name,
+                  icon: <McpToolIcon mcp={c.ref} size={14} />,
+                  note: c.enabled ? undefined : "off",
+                  owner: ownerOf(mates, "connectors", c.id, form.id)?.name,
+                }))}
+                picked={form.connectors}
+                onToggle={(id) => toggle("connectors", id)}
+              />
+            </Field>
+            <Field label="Skills" optional>
+              <PickList
+                empty="No skills yet. Add them in Settings → Skills."
+                items={usableSkills.map((k) => ({
+                  id: k.id,
+                  label: k.name,
+                  icon: <ScrollTextIcon className="size-3.5 text-muted-foreground" />,
+                  owner: ownerOf(mates, "skills", k.id, form.id)?.name,
+                }))}
+                picked={form.skills}
+                onToggle={(id) => toggle("skills", id)}
+              />
+            </Field>
+          </div>
+        </Step>
+      </div>
 
-          <Field label="Skills" optional hint="Only this bot uses them.">
-            <PickList
-              empty="No skills yet. Add them in Settings → Skills."
-              items={usableSkills.map((k) => ({
-                id: k.id,
-                label: k.name,
-                icon: <ScrollTextIcon className="size-3.5 text-muted-foreground" />,
-                owner: ownerOf(mates, "skills", k.id, form.id)?.name,
-              }))}
-              picked={form.skills}
-              onToggle={(id) => toggle("skills", id)}
-            />
-          </Field>
-        </div>
-
-        <DialogFooter className="shrink-0 items-center border-t border-border/60 px-6 py-3.5">
-          <p className={cn("mr-auto text-xs", error ? "text-red-600 dark:text-red-400" : "text-muted-foreground")}>
-            {error ?? issue ?? "Ready to save"}
-          </p>
-          <Button variant="ghost" onClick={onClose}>
+      <div className="sticky bottom-0 z-10 -mx-1 flex items-center justify-between gap-2 border-t border-border/60 bg-background/90 px-1 py-3 backdrop-blur">
+        <p className={cn("min-w-0 truncate text-xs", error || issue ? "text-red-600 dark:text-red-400" : "text-muted-foreground")}>
+          {error ?? issue ?? "Ready to save"}
+        </p>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="ghost" onClick={onDone}>
             Cancel
           </Button>
-          <Button onClick={save} disabled={!!issue}>
+          <Button onClick={save} disabled={!!issue} className="h-10 px-5">
             {form.id ? "Save" : "Add to team"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </div>
   );
 }
 

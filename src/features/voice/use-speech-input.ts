@@ -31,6 +31,9 @@ type Recognition = {
 
 type RecognitionCtor = new () => Recognition;
 
+/** No new words for this long after some were heard, and dictation ends. */
+const SILENCE_MS = 1_500;
+
 function recognizer(): RecognitionCtor | undefined {
   if (typeof window === "undefined") return undefined;
   const w = window as unknown as { SpeechRecognition?: RecognitionCtor; webkitSpeechRecognition?: RecognitionCtor };
@@ -88,9 +91,15 @@ type Options = {
   onText: (text: string, final: boolean) => void;
   /** A session starts (also after a language switch): a good time to note what's already typed. */
   onStart?: () => void;
+  /** Dictation ended by itself or by `stop` (not `cancel`), with everything heard. */
+  onEnd?: (text: string) => void;
+  /** End by itself once the user stops talking. */
+  autoStop?: boolean;
+  /** Give up when nothing is heard for this long. */
+  idleMs?: number;
 };
 
-export function useSpeechInput({ onText, onStart }: Options) {
+export function useSpeechInput({ onText, onStart, onEnd, autoStop = false, idleMs }: Options) {
   const [listening, setListening] = useState(false);
   const [error, setError] = useState<string>();
   const [lang, setLangState] = useState<VoiceLang>(loadVoiceLang);
@@ -99,6 +108,10 @@ export function useSpeechInput({ onText, onStart }: Options) {
   onTextRef.current = onText;
   const onStartRef = useRef(onStart);
   onStartRef.current = onStart;
+  const onEndRef = useRef(onEnd);
+  onEndRef.current = onEnd;
+  /** Sessions ended with `cancel` (or replaced): their end isn't reported. */
+  const dropped = useRef(new WeakSet<Recognition>());
 
   const stop = useCallback(() => {
     recRef.current?.stop();
@@ -116,7 +129,10 @@ export function useSpeechInput({ onText, onStart }: Options) {
         setError("Voice input isn't supported in this version of the app's web view.");
         return;
       }
-      recRef.current?.abort();
+      if (recRef.current) {
+        dropped.current.add(recRef.current);
+        recRef.current.abort();
+      }
       setError(undefined);
       onStartRef.current?.();
       const rec = new Ctor();
@@ -125,6 +141,19 @@ export function useSpeechInput({ onText, onStart }: Options) {
       rec.interimResults = true;
       rec.maxAlternatives = 1;
       let finalText = "";
+      let heard = "";
+      const started = Date.now();
+      let lastWord = 0;
+      // The recognizer never stops on its own while `continuous`: a pause
+      // after words ends it here, as the mic button did by hand before.
+      const watch = setInterval(() => {
+        const now = Date.now();
+        if (autoStop && heard && lastWord && now - lastWord > SILENCE_MS) rec.stop();
+        else if (idleMs && !heard && now - started > idleMs) {
+          dropped.current.add(rec);
+          rec.abort();
+        }
+      }, 200);
       rec.onstart = () => setListening(true);
       rec.onresult = (event) => {
         let interim = "";
@@ -134,7 +163,9 @@ export function useSpeechInput({ onText, onStart }: Options) {
           if (result.isFinal) finalText += piece;
           else interim += piece;
         }
-        onTextRef.current((finalText + interim).replace(/\s+/g, " ").trimStart(), !interim);
+        heard = (finalText + interim).replace(/\s+/g, " ").trimStart();
+        lastWord = Date.now();
+        onTextRef.current(heard, !interim);
       };
       rec.onerror = (event) => {
         // Silence and a deliberate stop aren't failures.
@@ -142,25 +173,33 @@ export function useSpeechInput({ onText, onStart }: Options) {
         setError(ERRORS[event.error] ?? `Voice input stopped (${event.error}).`);
       };
       rec.onend = () => {
-        if (recRef.current === rec) recRef.current = null;
-        setListening(false);
+        clearInterval(watch);
+        if (recRef.current === rec) {
+          recRef.current = null;
+          setListening(false);
+        }
+        if (!dropped.current.has(rec)) onEndRef.current?.(heard.trim());
       };
       recRef.current = rec;
       try {
         rec.start();
       } catch (e) {
+        clearInterval(watch);
         recRef.current = null;
         setError(e instanceof Error ? e.message : String(e));
       }
     },
-    [lang],
+    [lang, autoStop, idleMs],
   );
 
   /** Stop at once, dropping words not yet final (e.g. the prompt was just sent). */
   const cancel = useCallback(() => {
     const rec = recRef.current;
     recRef.current = null;
-    rec?.abort();
+    if (rec) {
+      dropped.current.add(rec);
+      rec.abort();
+    }
     setListening(false);
   }, []);
 
@@ -179,7 +218,16 @@ export function useSpeechInput({ onText, onStart }: Options) {
     [start],
   );
 
-  useEffect(() => () => recRef.current?.abort(), []);
+  useEffect(
+    () => () => {
+      const rec = recRef.current;
+      if (rec) {
+        dropped.current.add(rec);
+        rec.abort();
+      }
+    },
+    [],
+  );
 
   return {
     supported: speechSupported(),

@@ -26,13 +26,14 @@ import { useAntigravity } from "@/features/antigravity";
 import { useCursor } from "@/features/cursor";
 import { useOpencode } from "@/features/opencode";
 import { listConfiguredProviders, useEnvKeys, useProviderConfigs } from "@/features/providers";
-import { isMacPlatform, setQuickConfig, useQuickConfig, useQuickStatus } from "@/features/quick";
+import { isMacPlatform, setQuickConfig, shortcutKeys, useQuickConfig, useQuickStatus } from "@/features/quick";
 import { isTauri } from "@tauri-apps/api/core";
 import { ModelPicker } from "@/pages/chat/components/model-picker";
 import { buildModelCatalog, loadSelectedModelId, OPENCODE_DEFAULT_ID, type AiModel } from "@/pages/chat/models";
 import { Button } from "@/components/ui/button";
 import {
   ActivityIcon,
+  CheckIcon,
   HistoryIcon,
   LaptopIcon,
   LogInIcon,
@@ -45,7 +46,8 @@ import {
 import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import { GlobalShortcutGroup } from "./global-shortcut-group";
-import { Notice, SectionHeader, Segmented, SettingRow, SettingsGroup } from "./ui";
+import { Notice, SectionHeader, Segmented, SettingRow, SettingsGroup, SettingsPage } from "./ui";
+import { cn } from "@/lib/utils";
 
 const mac = isMacPlatform();
 
@@ -100,111 +102,74 @@ export function NotchSettings() {
   };
 
   return (
-    <div className="flex flex-col gap-8">
+    <SettingsPage>
       <SectionHeader
         title="Notch"
         description="A small pill at the top of the screen: what the agent is doing, approvals you can answer in place, and a place to ask without opening the app."
       />
-      <GlobalShortcutGroup
-        mac={mac}
-        enabled={quickConfig.enabled}
-        shortcut={quickConfig.shortcut}
-        status={quickStatus}
-      />
-      <NotchPreview look={look} glassBlur={glassBlur} />
+      <div className="pb-7">
+        <NotchPreview look={look} glassBlur={glassBlur} />
+      </div>
 
-      <SettingsGroup title="Showing">
+      <SettingsGroup title="Showing" description="When the pill appears, and keeping Mali around in the background.">
         <SettingRow
           icon={<ActivityIcon />}
           htmlFor="notch-enabled"
           label="Show agent status at the top of the screen"
-          description="While Mali is in the background, the pill shows the step the agent is on and lets you Allow or Deny without switching windows."
-          control={
-            <Switch
-              id="notch-enabled"
-              checked={enabled}
-              onCheckedChange={setNotchEnabled}
-            />
-          }
-        />
-        <SettingRow
-          icon={<LaptopIcon />}
-          label="Screen"
-          description="With more than one screen: follow the pointer to the one you're working on, or stay on the Mac's own display (with the notch) or the main one (with the menu bar)."
-          control={
-            <Segmented
-              label="Screen for the notch"
-              value={screen}
-              onChange={setNotchScreenPref}
-              options={SCREENS}
-            />
-          }
-        />
-        <SettingRow
-          icon={<PaletteIcon />}
-          label="Look"
-          description="How the pill looks when it opens: black, or light — the same layout with the colors reversed. Folded up, it stays black."
-          control={
-            <Segmented
-              label="Notch look"
-              value={look === "glass" ? "black" : look}
-              onChange={setNotchLook}
-              options={LOOKS}
-            />
-          }
+          description="While Mali is in the background, the pill shows the agent’s step and lets you Allow or Deny without switching windows."
+          control={<Switch id="notch-enabled" checked={enabled} onCheckedChange={setNotchEnabled} />}
         />
         <LoginRow />
-      </SettingsGroup>
-
-      <SettingsGroup
-        title="Asking in the notch"
-        footer={`Press ${mac ? "⌥⌘M" : "Ctrl+Alt+M"} from anywhere to open the ask box, or move the pointer to the top of the screen in notch mode. The button at the top of the main window puts Mali into notch mode.`}
-      >
-        <SettingRow
-          icon={<HistoryIcon />}
-          htmlFor="notch-save"
-          label="Save what you ask"
-          description="Off for quick questions you don't need to keep; on, each conversation becomes a chat you can continue in the app."
-          control={
-            <Switch
-              id="notch-save"
-              checked={save}
-              onCheckedChange={setNotchSaveChats}
-            />
-          }
-        />
         <SettingRow
           icon={<MonitorIcon />}
           htmlFor="notch-tray"
           label={mac ? "Keep running in the menu bar" : "Keep running in the system tray"}
           description="Closing the main window keeps Mali running, so the shortcut still works."
           control={
-            <Switch
-              id="notch-tray"
-              checked={quickConfig.trayMode}
-              onCheckedChange={(trayMode) => void setQuickConfig({ trayMode })}
-            />
+            <Switch id="notch-tray" checked={quickConfig.trayMode} onCheckedChange={(trayMode) => void setQuickConfig({ trayMode })} />
           }
         />
+      </SettingsGroup>
+
+      <GlobalShortcutGroup mac={mac} enabled={quickConfig.enabled} shortcut={quickConfig.shortcut} status={quickStatus} />
+
+      <SettingsGroup title="Look & place" description="Folded up it always stays black; open, it can be light.">
+        <div className="flex flex-col gap-3 py-3.5">
+          <span className="flex items-center gap-2 text-sm font-medium">
+            <PaletteIcon className="size-4 text-muted-foreground" /> Look
+          </span>
+          <div role="radiogroup" aria-label="Notch look" className="grid max-w-md grid-cols-2 gap-3">
+            {LOOKS.map((option) => (
+              <LookCard
+                key={option.value}
+                look={option.value}
+                label={option.label}
+                on={(look === "glass" ? "black" : look) === option.value}
+                onPick={() => setNotchLook(option.value)}
+              />
+            ))}
+          </div>
+        </div>
         <SettingRow
-          icon={<MousePointer2Icon />}
-          label="Capture a window"
-          description="Drag the bot out of the notch onto any window to ask about it, or use the camera button."
+          icon={<LaptopIcon />}
+          label="Screen"
+          description="With more than one screen: follow the pointer, or stay on the Mac’s own display (with the notch) or the main one (with the menu bar)."
+          control={<Segmented label="Screen for the notch" value={screen} onChange={setNotchScreenPref} options={SCREENS} />}
         />
       </SettingsGroup>
 
       <SettingsGroup
-        title="Model for quick asks"
-        footer={
-          followsChat
-            ? "Following the model picked on the Chat page."
-            : "A fixed model for questions in the notch; changing the Chat page's model doesn't affect it."
-        }
+        title="Quick asks"
+        description={`Press ${shortcutKeys(quickConfig.shortcut, mac).join(mac ? "" : "+")} anywhere, or move the pointer to the top of the screen in notch mode, to ask without opening the app.`}
       >
         <SettingRow
           icon={<SparklesIcon />}
           label="Answer with"
-          description="The model used when you ask from the notch (Chat mode, no files on disk)."
+          description={
+            followsChat
+              ? "Following the model picked on the Chat page."
+              : "A fixed model for the notch; changing the Chat page’s model doesn’t affect it."
+          }
           control={
             <>
               {!followsChat && (
@@ -218,7 +183,7 @@ export function NotchSettings() {
                   <RotateCcwIcon />
                 </Button>
               )}
-              <div className="w-full sm:w-64">
+              <div className="w-full sm:w-60">
                 <ModelPicker
                   appearance="field"
                   models={usable}
@@ -236,8 +201,50 @@ export function NotchSettings() {
             </Notice>
           )}
         </SettingRow>
+        <SettingRow
+          icon={<HistoryIcon />}
+          htmlFor="notch-save"
+          label="Save what you ask"
+          description="Off for quick questions you don’t need to keep; on, each conversation becomes a chat you can continue in the app."
+          control={<Switch id="notch-save" checked={save} onCheckedChange={setNotchSaveChats} />}
+        />
+        <SettingRow
+          icon={<MousePointer2Icon />}
+          label="Capture a window"
+          description="Drag the bot out of the notch onto any window to ask about it, or use the camera button."
+        />
       </SettingsGroup>
-    </div>
+    </SettingsPage>
+  );
+}
+
+/** The pill's look, as a small picture of it open. */
+function LookCard({ look, label, on, onPick }: { look: NotchLook; label: string; on: boolean; onPick: () => void }) {
+  const light = look === "light";
+  return (
+    <button type="button" role="radio" aria-checked={on} onClick={onPick} className="group flex flex-col gap-2 text-left outline-none">
+      <span
+        className={cn(
+          "relative flex h-20 justify-center overflow-hidden rounded-xl border bg-gradient-to-b from-muted/70 to-card transition-[border-color,box-shadow]",
+          on ? "border-violet-500 ring-2 ring-violet-500/30" : "border-border group-hover:border-foreground/30",
+        )}
+      >
+        <span
+          className="flex h-12 w-[70%] items-center gap-2 rounded-b-2xl px-3 shadow-[0_10px_24px_-12px_rgba(0,0,0,0.6)]"
+          style={{ background: light ? "#fff" : "#000" }}
+        >
+          <span className="size-5 shrink-0 rounded-full bg-violet-500/80" />
+          <span className="flex min-w-0 flex-1 flex-col gap-1">
+            <span className="block h-1.5 w-1/2 rounded-full" style={{ background: light ? "#16161b" : "#fff", opacity: 0.8 }} />
+            <span className="block h-2.5 w-full rounded-full" style={{ background: light ? "#0001" : "#fff2" }} />
+          </span>
+        </span>
+      </span>
+      <span className="flex items-center gap-1.5 px-0.5 text-[13px] font-medium">
+        {label}
+        {on && <CheckIcon className="ml-auto size-3.5 text-violet-600 dark:text-violet-400" strokeWidth={3} />}
+      </span>
+    </button>
   );
 }
 
@@ -301,7 +308,7 @@ function NotchPreview({
   return (
     <div
       aria-hidden
-      className="relative flex h-44 justify-center overflow-hidden rounded-xl border border-border/70"
+      className="relative flex h-48 justify-center overflow-hidden rounded-2xl border border-border/60"
       style={{
         background: `radial-gradient(120% 90% at 50% 0%, ${color}22, transparent 60%), linear-gradient(180deg, color-mix(in srgb, var(--muted) 70%, transparent), var(--card))`,
       }}
