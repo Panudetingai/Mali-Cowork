@@ -1,15 +1,16 @@
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import {
-  fetchPlugin,
-  removeMarketplace,
-  sourceUrl,
-  usePlugins,
-  type Marketplace,
-  type MarketplaceEntry,
+    fetchPlugin,
+    removeMarketplace,
+    sourceUrl,
+    usePlugins,
+    type Marketplace,
+    type MarketplaceEntry,
 } from "@/features/plugins";
+import { marketplaceTileIcon } from "@/features/plugins/marketplace-brand";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { CheckIcon, ExternalLinkIcon, LoaderCircleIcon, PlusIcon, PuzzleIcon, Trash2Icon } from "lucide-react";
+import { CheckIcon, ExternalLinkIcon, Loader, PlusIcon, PuzzleIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { EmptyState, PageEnter, PageHeader, Pills, SearchField, Tile, TileBadge, TileButton, TileGrid } from "../ui";
 import { InstallPluginDialog } from "./install-plugin-dialog";
@@ -99,6 +100,7 @@ export function MarketplacePage({
       <div className="flex flex-col gap-6">
         <PageHeader
           back={{ label: "Plugins", onClick: onBack }}
+          icon={marketplaceTileIcon(saved.source, { name: market?.name ?? name, owner: market?.owner })}
           title={market?.name ?? name}
           description={market?.description || saved.description}
           actions={
@@ -129,7 +131,7 @@ export function MarketplacePage({
           <EmptyState icon={<PuzzleIcon />} title="Couldn’t read the marketplace" description={error} />
         ) : !market ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <LoaderCircleIcon className="size-4 animate-spin" /> Reading {saved.name}…
+            <Loader className="size-4 animate-spin" /> Reading {saved.name}…
           </p>
         ) : (
           <>
@@ -155,7 +157,7 @@ export function MarketplacePage({
                 return (
                   <Tile
                     key={entry.name}
-                    icon={<PuzzleIcon className={have ? "text-violet-500" : "text-muted-foreground"} />}
+                    icon={<PuzzleIcon className={have ? "text-primary" : "text-muted-foreground"} />}
                     title={entry.name}
                     badge={entry.version && <TileBadge tone="muted">v{entry.version}</TileBadge>}
                     description={entry.unsupported ?? entry.description}
@@ -167,7 +169,7 @@ export function MarketplacePage({
                         </TileButton>
                       ) : entry.source ? (
                         <TileButton label={`Install ${entry.name}`} onClick={() => void install(entry)}>
-                          {opening === entry.name ? <LoaderCircleIcon className="animate-spin" /> : <PlusIcon />}
+                          {opening === entry.name ? <Loader className="animate-spin" /> : <PlusIcon />}
                         </TileButton>
                       ) : undefined
                     }

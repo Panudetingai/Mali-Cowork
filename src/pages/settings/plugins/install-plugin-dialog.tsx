@@ -1,36 +1,36 @@
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
 } from "@/components/ui/dialog";
 import { fromSkillFile } from "@/features/instructions";
 import {
-  commandToSkill,
-  humanize,
-  splitFrontMatter,
-  dutyOf,
-  toolScopeOf,
-  type PluginChoices,
-  type PluginPackage,
+    commandToSkill,
+    dutyOf,
+    humanize,
+    splitFrontMatter,
+    toolScopeOf,
+    type PluginChoices,
+    type PluginPackage,
 } from "@/features/plugins";
 import { defaultTeamModel, useTeamModels } from "@/features/team";
+import { cn } from "@/lib/utils";
 import { ModelPicker } from "@/pages/chat/components/model-picker";
 import { findModel } from "@/pages/chat/models";
-import { cn } from "@/lib/utils";
 import {
-  BotIcon,
-  ChevronRightIcon,
-  FileTextIcon,
-  LayoutPanelLeftIcon,
-  LoaderCircleIcon,
-  NotebookPenIcon,
-  PackageIcon,
-  PlugIcon,
-  SlashIcon,
+    BotIcon,
+    ChevronRightIcon,
+    FileTextIcon,
+    LayoutPanelLeftIcon,
+    Loader,
+    NotebookPenIcon,
+    PackageIcon,
+    PlugIcon,
+    SlashIcon
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Notice } from "../ui";
@@ -240,7 +240,7 @@ export function InstallPluginDialog({
             Cancel
           </Button>
           <Button type="button" onClick={install} disabled={busy || needsModel || (total === 0 && !isUpdate)} className="gap-1.5">
-            {busy && <LoaderCircleIcon className="size-4 animate-spin" />}
+            {busy && <Loader className="size-4 animate-spin" />}
             {busy ? (isUpdate ? "Updating…" : "Installing…") : isUpdate ? "Update" : "Install"}
           </Button>
         </DialogFooter>

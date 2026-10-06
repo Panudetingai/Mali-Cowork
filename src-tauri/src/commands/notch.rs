@@ -1281,6 +1281,18 @@ pub fn started_in_notch() -> bool {
     std::env::args().any(|arg| arg == START_IN_NOTCH)
 }
 
+/// Main webview: defer loading chat history until the window is shown (notch login).
+#[tauri::command]
+pub fn main_defer_boot<R: Runtime>(app: AppHandle<R>) -> bool {
+    if !mode_on(&app) {
+        return false;
+    }
+    app.get_webview_window(MAIN_LABEL)
+        .and_then(|w| w.is_visible().ok())
+        .map(|visible| !visible)
+        .unwrap_or(false)
+}
+
 #[cfg(target_os = "macos")]
 fn login_agent<R: Runtime>(app: &AppHandle<R>) -> Option<std::path::PathBuf> {
     let name = format!("{}.notch.plist", app.config().identifier);

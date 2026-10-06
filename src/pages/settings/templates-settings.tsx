@@ -1,53 +1,53 @@
 "use client";
 
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/animate-ui/primitives/radix/dropdown-menu";
+import { ConfirmDialog } from "@/components/app/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { toast } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
 import {
-  addTemplate,
-  exportTemplate,
-  inspectTemplate,
-  listTemplates,
-  openTemplate,
-  reloadTemplate,
-  removeTemplate,
-  updateTemplate,
-  type Inspection,
-  type TemplateInfo,
+    addTemplate,
+    exportTemplate,
+    inspectTemplate,
+    listTemplates,
+    openTemplate,
+    reloadTemplate,
+    removeTemplate,
+    updateTemplate,
+    type Inspection,
+    type TemplateInfo,
 } from "@/features/templates";
 import { cn } from "@/lib/utils";
-import { ConfirmDialog } from "@/components/app/confirm-dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/animate-ui/primitives/radix/dropdown-menu";
-import { toast } from "@/components/ui/sonner";
-import { Field, Notice, SectionHeader, SettingsGroup, SettingsPage, Steps } from "@/pages/settings/ui";
 import { menuClass, menuItemClass } from "@/pages/settings/skills/skill-row";
+import { Field, Notice, SectionHeader, SettingsGroup, SettingsPage, Steps } from "@/pages/settings/ui";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
-  CalculatorIcon,
-  DownloadIcon,
-  ExternalLinkIcon,
-  FilePlusIcon,
-  FileTextIcon,
-  LoaderIcon,
-  MoreHorizontalIcon,
-  PencilIcon,
-  PlusIcon,
-  RefreshCwIcon,
-  Trash2Icon,
+    CalculatorIcon,
+    DownloadIcon,
+    ExternalLinkIcon,
+    FilePlusIcon,
+    FileTextIcon,
+    LoaderIcon,
+    MoreHorizontalIcon,
+    PencilIcon,
+    PlusIcon,
+    RefreshCwIcon,
+    Trash2Icon,
 } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
@@ -217,7 +217,7 @@ export function TemplatesSettings() {
             onClick={() => void pick()}
             className="mt-2 flex flex-col items-center gap-2 rounded-xl border border-dashed border-border px-6 py-10 text-center transition-colors hover:border-foreground/30 hover:bg-muted/30"
           >
-            <span className="flex size-11 items-center justify-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400">
+            <span className="flex size-11 items-center justify-center rounded-xl bg-muted">
               <FilePlusIcon className="size-5" />
             </span>
             <span className="text-sm font-medium">Choose a .docx to start</span>
@@ -348,7 +348,6 @@ function TemplateCard({
         <span
           className={cn(
             "flex size-9 shrink-0 items-center justify-center rounded-lg [&_svg]:size-4",
-            builtin ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" : "bg-sky-500/10 text-sky-600 dark:text-sky-400",
           )}
         >
           {busy ? <LoaderIcon className="animate-spin" /> : <FileTextIcon />}

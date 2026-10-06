@@ -2,6 +2,7 @@ import { CommandPalette } from "@/features/command-palette";
 import { SidebarInset, SidebarProvider } from "@/components/animate-ui/components/radix/sidebar";
 import { AppSidebar } from "@/components/app/sidebar/app-sidebar";
 import { Titlebar } from "@/components/app/titlebar/titlebar";
+import { ChatInstallDialog } from "@/features/install-from-chat";
 import { RegistryInstallDialog } from "@/pages/settings/mcp/registry-install-dialog";
 import { ErrorBoundary } from "@/components/app/error-boundary";
 import { Outlet, useLocation } from "react-router-dom";
@@ -76,6 +77,7 @@ export function AppLayout() {
       </div>
       {/* Opened from Settings → Connectors and from install cards in chat. */}
       <RegistryInstallDialog />
+      <ChatInstallDialog />
     </SidebarProvider>
   );
 }

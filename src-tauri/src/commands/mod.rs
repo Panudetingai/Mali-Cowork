@@ -36,6 +36,7 @@ pub mod supervisor;
 pub mod templates;
 pub mod usage_remote;
 pub mod speech;
+pub mod system_stats;
 pub mod voice;
 
 

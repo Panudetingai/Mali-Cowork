@@ -5,27 +5,27 @@ import { Switch } from "@/components/ui/switch";
 import { useInstructions } from "@/features/instructions";
 import { useCustomMcps, useMcpConnections } from "@/features/mcp";
 import {
-  fetchPluginUpdate,
-  setPluginEnabled,
-  sourceLabel,
-  sourceUrl,
-  uninstallPlugin,
-  usePlugins,
+    fetchPluginUpdate,
+    setPluginEnabled,
+    sourceLabel,
+    sourceUrl,
+    uninstallPlugin,
+    usePlugins,
 } from "@/features/plugins";
 import { useTeam } from "@/features/team";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
-  BotIcon,
-  ExternalLinkIcon,
-  FileTextIcon,
-  LayoutPanelLeftIcon,
-  LoaderCircleIcon,
-  PackageIcon,
-  PlugIcon,
-  PuzzleIcon,
-  RefreshCwIcon,
-  SlashIcon,
-  Trash2Icon,
+    BotIcon,
+    ExternalLinkIcon,
+    FileTextIcon,
+    LayoutPanelLeftIcon,
+    Loader,
+    PackageIcon,
+    PlugIcon,
+    PuzzleIcon,
+    RefreshCwIcon,
+    SlashIcon,
+    Trash2Icon
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
@@ -113,7 +113,7 @@ export function PluginPage({ id, onBack }: { id: string; onBack: () => void }) {
           actions={
             <>
               <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void update()} disabled={!!busy}>
-                {busy === "update" ? <LoaderCircleIcon className="size-4 animate-spin" /> : <RefreshCwIcon className="size-4" />}
+                {busy === "update" ? <Loader className="size-4 animate-spin" /> : <RefreshCwIcon className="size-4" />}
                 {plugin.update ? "Update" : plugin.source.kind === "folder" ? "Reload" : "Check again"}
               </Button>
               <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={remove}>
