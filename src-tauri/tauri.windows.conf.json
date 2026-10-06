@@ -4,6 +4,7 @@
     "targets": ["nsis"]
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "Mali Cowork",
