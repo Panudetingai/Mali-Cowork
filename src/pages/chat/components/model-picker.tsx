@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollMore, useScrollFade } from "@/components/ui/scroll-fade";
 import { cn } from "@/lib/utils";
-import { getProvider, ModelBrandIcon, PROVIDERS, ProviderLogo } from "@/features/providers";
+import { allProviders, getProvider, ModelBrandIcon, ProviderLogo } from "@/features/providers";
 import { CheckIcon, ChevronDownIcon, FilmIcon, ImageIcon, KeyRoundIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { OPENCODE_DEFAULT_ID, type AiModel } from "../models";
@@ -291,7 +291,7 @@ function GroupProviderIcon({ group, className }: { group: Group; className?: str
   // The model's family art belongs on its own row (ModelBrandIcon), not here.
   const logo =
     CLI_GROUP_LOGO[group.label] ??
-    PROVIDERS.find((p) => p.name === group.label)?.logo ??
+    allProviders().find((p) => p.name === group.label)?.logo ??
     (sample && getProvider(sample.provider)?.logo) ??
     sample?.provider ??
     "opencode";

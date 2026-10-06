@@ -1,4 +1,5 @@
 import { useAntigravity } from "@/features/antigravity";
+import { useCustomClis } from "@/features/custom-cli";
 import { useCursor } from "@/features/cursor";
 import { useOpencode, type WorkMode } from "@/features/opencode";
 import { listConfiguredProviders, useEnvKeys, useProviderConfigs } from "@/features/providers";
@@ -12,6 +13,7 @@ export function useModelCatalog(mode: WorkMode) {
   const antigravity = useAntigravity();
   const providerConfigs = useProviderConfigs();
   const envKeys = useEnvKeys();
+  const customClis = useCustomClis();
   const cursorStatus = useMemo(
     () => ({ models: cursor.models, loggedIn: !!cursor.check?.loggedIn }),
     [cursor.models, cursor.check?.loggedIn],
@@ -29,8 +31,9 @@ export function useModelCatalog(mode: WorkMode) {
         cursorStatus,
         undefined,
         antigravityStatus,
+        customClis,
       ),
-    [opencode.models, providerConfigs, envKeys, mode, cursorStatus, antigravityStatus],
+    [opencode.models, providerConfigs, envKeys, mode, cursorStatus, antigravityStatus, customClis],
   );
   return { catalog, loading: opencode.loading };
 }

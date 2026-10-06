@@ -1,4 +1,5 @@
 // Provider ids must match `provider_info` in src-tauri/src/ai/mod.rs.
+import { customProviderDef, getCustomProviders } from "./custom";
 
 export type ProviderDef = {
   id: string;
@@ -24,6 +25,8 @@ export type ProviderDef = {
    * models run on Mali's own agent only.
    */
   maliOnly?: boolean;
+  /** Added by the user (see `custom.ts`): its address and name are theirs to change. */
+  custom?: boolean;
 };
 
 export const PROVIDERS: ProviderDef[] = [
@@ -202,8 +205,13 @@ export const PROVIDERS: ProviderDef[] = [
   },
 ];
 
+/** The built-in providers, then the ones the user added. */
+export function allProviders(): ProviderDef[] {
+  return [...PROVIDERS, ...getCustomProviders().map(customProviderDef)];
+}
+
 export function getProvider(id: string) {
-  return PROVIDERS.find((p) => p.id === id);
+  return PROVIDERS.find((p) => p.id === id) ?? allProviders().find((p) => p.id === id);
 }
 
 export function splitModels(models: string) {

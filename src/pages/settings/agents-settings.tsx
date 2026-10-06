@@ -7,18 +7,22 @@ import { cn } from "@/lib/utils";
 import { checkCli, type CliCheckResult } from "@/pages/chat/api/cli";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Codex, Cursor, GeminiCLI as AntigravityCLI, OpenCode } from "@lobehub/icons";
-import { FolderOpenIcon, RefreshCwIcon } from "lucide-react";
+import { ChevronRightIcon, FolderOpenIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
+import { checkCustomCli, cliModels, useCustomClis, type CliCheck, type CustomCli } from "@/features/custom-cli";
+import { ProviderLogo } from "@/features/providers";
 import { useEffect, useId, useState } from "react";
 import { OnboardingButton } from "@/features/onboarding";
-import { CopyCommand, Dot, Field, SectionLabel, Tile, TileBadge, TileGrid } from "./ui";
+import { CopyCommand, Dot, Field, SectionLabel, Tile, TileBadge, TileButton, TileGrid } from "./ui";
 
-export function AgentsSettings() {
+export function AgentsSettings({ onOpenCli }: { onOpenCli: (id: string) => void }) {
   const opencode = useOpencode();
   const cursor = useCursor();
   const antigravity = useAntigravity();
   const folderId = useId();
   const [cwdDraft, setCwdDraft] = useState(opencode.cwd);
   const [codex, setCodex] = useState<CliCheckResult | null>(null);
+  const customClis = useCustomClis();
+  const [round, setRound] = useState(0);
 
   useEffect(() => setCwdDraft(opencode.cwd), [opencode.cwd]);
 
@@ -35,6 +39,7 @@ export function AgentsSettings() {
     cursor.refresh();
     antigravity.refresh();
     loadCodex();
+    setRound((n) => n + 1);
   }
 
   async function pickFolder() {
@@ -70,7 +75,8 @@ export function AgentsSettings() {
           CLI agents
         </SectionLabel>
         <p className="-mt-1 max-w-2xl text-[13px] leading-relaxed text-muted-foreground">
-          Agents already on this Mac, run on the subscription you signed in with. They show up in the model list next to your API models.
+          Agents already on this computer, run on the subscription you signed in with. They show up in the model list next to your API models.
+          Installed another one? Add it with <span className="font-medium text-foreground">Add CLI</span>.
         </p>
       </div>
 
@@ -141,6 +147,22 @@ export function AgentsSettings() {
             )
           }
         />
+        {customClis.map((cli) => (
+          <CustomCliTile key={`${cli.id}:${round}`} cli={cli} onOpen={() => onOpenCli(cli.id)} />
+        ))}
+        <Tile
+          icon={<PlusIcon className="size-6 text-muted-foreground" />}
+          title="Add CLI"
+          description="Claude Code, Gemini CLI, Qwen Code, Aider — or any program that takes a prompt and prints an answer."
+          onOpen={() => onOpenCli("new")}
+          openLabel="Add a CLI agent"
+          className="border-dashed"
+          action={
+            <TileButton label="Add a CLI agent" onClick={() => onOpenCli("new")}>
+              <PlusIcon />
+            </TileButton>
+          }
+        />
       </TileGrid>
 
       {antigravity.check && !antigravity.check.available && (
@@ -183,5 +205,36 @@ export function AgentsSettings() {
 
       <CursorLoginDialog />
     </div>
+  );
+}
+
+/** A CLI the user added: found on this computer or not, and how many models it offers. */
+function CustomCliTile({ cli, onOpen }: { cli: CustomCli; onOpen: () => void }) {
+  const [check, setCheck] = useState<CliCheck | null>(null);
+  useEffect(() => {
+    let live = true;
+    checkCustomCli(cli.command)
+      .then((result) => live && setCheck(result))
+      .catch(() => live && setCheck({ available: false, error: "check failed" }));
+    return () => {
+      live = false;
+    };
+  }, [cli.command]);
+  const models = cliModels(cli).length;
+  return (
+    <Tile
+      icon={<ProviderLogo logo="terminal" name={cli.name} size={28} />}
+      title={cli.name}
+      badge={<TileBadge tone="muted">Yours</TileBadge>}
+      description={`${check?.version || cli.command}${models ? ` · ${models} model${models === 1 ? "" : "s"}` : ""}`}
+      meta={!check ? <Dot tone="neutral">Checking…</Dot> : check.available ? <Dot tone="success">Ready</Dot> : <Dot tone="warning">Not found</Dot>}
+      onOpen={onOpen}
+      openLabel={`Edit ${cli.name}`}
+      action={
+        <TileButton label={`Edit ${cli.name}`} onClick={onOpen}>
+          <ChevronRightIcon />
+        </TileButton>
+      }
+    />
   );
 }

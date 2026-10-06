@@ -10,6 +10,7 @@ import {
   listProviderModels,
   ollamaListModels,
   ProviderLogo,
+  removeCustomProvider,
   removeProviderConfig,
   saveProviderConfig,
   splitModels,
@@ -93,6 +94,8 @@ export function ProviderPage({ provider, onDone }: { provider: ProviderDef; onDo
   // Puter's chat models come from Puter's own list, like Ollama's from its server.
   const isPuter = provider.id === "puter";
   const canTest = !isPuter && !isOllama;
+  // Added by the user: where it runs is part of connecting it, and Remove forgets it entirely.
+  const isCustom = !!provider.custom;
   const baseUrl = draft.baseUrl.trim() || provider.defaultBaseUrl;
 
   const set = (patch: Partial<ProviderConfig>) => setDraft((prev) => ({ ...prev, ...patch }));
@@ -164,7 +167,8 @@ export function ProviderPage({ provider, onDone }: { provider: ProviderDef; onDo
 
   async function reset() {
     removeProviderConfig(provider.id);
-    setDraft(configOrDefaults(provider));
+    if (isCustom) removeCustomProvider(provider.id);
+    else setDraft(configOrDefaults(provider));
     await syncAgent();
     toast(`${provider.name} removed`);
     onDone();
@@ -213,6 +217,38 @@ export function ProviderPage({ provider, onDone }: { provider: ProviderDef; onDo
         {isPuter ? (
           <Step n={1} title="Sign in to Puter" description="Free to start. Signing in saves it at once." done={!missingKey}>
             <PuterConnect apiKey={draft.apiKey} baseUrl={baseUrl} onToken={connectPuter} />
+          </Step>
+        ) : isCustom ? (
+          <Step
+            n={1}
+            title={provider.group === "local" ? `Reach ${provider.name} on this computer` : `Connect ${provider.name}`}
+            description={
+              provider.keyRequired
+                ? "Check the address, then paste an API key."
+                : "Keep the server running. A key is only needed if you set one up on the server."
+            }
+            done={!missingKey && !badUrl}
+          >
+            {baseUrlField}
+            <div className="flex max-w-lg flex-col gap-2 sm:flex-row">
+              <div className="min-w-0 flex-1">
+                <SecretInput
+                  id={ids.key}
+                  aria-label="API key"
+                  aria-invalid={(attempted && missingKey) || undefined}
+                  value={draft.apiKey}
+                  onChange={(e) => set({ apiKey: e.target.value })}
+                  placeholder={provider.keyRequired ? "Paste API key" : "API key (optional)"}
+                />
+              </div>
+              {provider.keyUrl && (
+                <Button type="button" variant="outline" className="h-10 gap-1.5" onClick={() => void openUrl(provider.keyUrl!)}>
+                  Get a key
+                  <ExternalLinkIcon className="size-3.5 opacity-70" />
+                </Button>
+              )}
+            </div>
+            {attempted && missingKey && <p className="text-[12px] text-red-600 dark:text-red-400">An API key is required.</p>}
           </Step>
         ) : isLocalOllama ? (
           <Step
@@ -317,7 +353,7 @@ export function ProviderPage({ provider, onDone }: { provider: ProviderDef; onDo
           Advanced
         </summary>
         <div className="flex flex-col gap-5 pt-5 pl-5">
-          {!isLocalOllama && baseUrlField}
+          {!isLocalOllama && !isCustom && baseUrlField}
           <Field
             label="Token limit"
             htmlFor={ids.limit}
@@ -350,7 +386,7 @@ export function ProviderPage({ provider, onDone }: { provider: ProviderDef; onDo
 
       {/* Stays in reach on a long page. */}
       <div className="sticky bottom-0 z-10 -mx-1 flex items-center justify-between gap-2 border-t border-border/60 bg-background/90 px-1 py-3 backdrop-blur">
-        {saved ? (
+        {saved || isCustom ? (
           <Button type="button" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => void reset()}>
             Remove
           </Button>
@@ -489,6 +525,8 @@ function catalogFor(provider: ProviderDef, hasEnvKey: boolean): Catalog {
     label: `From ${provider.name}`,
     list: (baseUrl, apiKey) => listProviderModels(provider.id, apiKey, baseUrl),
     open: hasEnvKey || !provider.keyRequired,
+    // A model newly loaded into a local server shows up on Refresh.
+    fix: provider.custom && provider.group === "local" ? <>Make sure the server is running, then Refresh.</> : undefined,
   };
 }
 

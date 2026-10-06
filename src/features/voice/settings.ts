@@ -6,10 +6,30 @@
  */
 import { createStore } from "@/lib/local-store";
 
+/**
+ * Any provider from Settings → Models — one the user added included — whose
+ * API serves the OpenAI-compatible `/audio/transcriptions` or `/audio/speech`.
+ * The user names the model, so a service that starts offering speech (free
+ * voices on OpenRouter, say) works the day it does.
+ */
+export type ViaEngine = `via:${string}`;
 /** Who turns speech into text. */
-export type InputEngine = "system" | "groq" | "puter" | "openai" | "elevenlabs" | "fishaudio";
+export type InputEngine = "system" | "groq" | "puter" | "openai" | "elevenlabs" | "fishaudio" | ViaEngine;
 /** Who reads replies aloud. */
-export type OutputEngine = "system" | "puter" | "openai" | "elevenlabs" | "fishaudio";
+export type OutputEngine = "system" | "puter" | "openai" | "elevenlabs" | "fishaudio" | ViaEngine;
+
+export const VIA_PREFIX = "via:";
+
+export function viaEngine(providerId: string): ViaEngine {
+  return `${VIA_PREFIX}${providerId}`;
+}
+
+/** The provider behind a `via:` engine, or undefined for the built-in ones. */
+export function viaProvider(engine: string): string | undefined {
+  return engine.startsWith(VIA_PREFIX) ? engine.slice(VIA_PREFIX.length) || undefined : undefined;
+}
+
+type BuiltInInput = Exclude<InputEngine, "system" | ViaEngine>;
 /** Puter speaks with one of these vendors' voices. */
 export type PuterVoices = "openai" | "gemini" | "elevenlabs" | "aws-polly";
 
@@ -35,7 +55,7 @@ export type VoiceSettings = {
   language: "auto" | "th" | "en";
 };
 
-export const INPUT_MODELS: Record<Exclude<InputEngine, "system">, { id: string; name: string }[]> = {
+export const INPUT_MODELS: Record<BuiltInInput, { id: string; name: string }[]> = {
   groq: [
     { id: "whisper-large-v3-turbo", name: "Whisper large v3 turbo" },
     { id: "whisper-large-v3", name: "Whisper large v3" },
@@ -61,7 +81,7 @@ export const INPUT_MODELS: Record<Exclude<InputEngine, "system">, { id: string; 
 };
 
 /** The models that speak, for the engines that offer a choice (first is the default). */
-export const OUTPUT_MODELS: Partial<Record<OutputEngine, { id: string; name: string; note?: string }[]>> = {
+export const OUTPUT_MODELS: Partial<Record<string, { id: string; name: string; note?: string }[]>> = {
   openai: [
     { id: "gpt-4o-mini-tts", name: "GPT-4o mini TTS" },
     { id: "tts-1-hd", name: "TTS-1 HD" },
@@ -125,7 +145,15 @@ export const VOICE_NAMES: Record<string, string> = { "21m00Tcm4TlvDq8ikWAM": "Ra
 
 /** The fixed voices of OpenAI and Puter; ElevenLabs and Fish Audio list the account's own. */
 export function voicesFor(output: VoiceSettings["output"]) {
-  return output.engine === "openai" ? VOICES["openai-direct"] : VOICES[output.puterVoices];
+  // An OpenAI-compatible speech API most often takes OpenAI's voice names.
+  if (output.engine === "openai" || viaProvider(output.engine)) return VOICES["openai-direct"];
+  return VOICES[output.puterVoices];
+}
+
+/** The models a built-in listening engine offers; a `via:` one has only what the user typed. */
+export function inputModelsFor(engine: InputEngine): { id: string; name: string }[] {
+  if (engine === "system" || viaProvider(engine)) return [];
+  return INPUT_MODELS[engine as BuiltInInput] ?? [];
 }
 
 const DEFAULTS: VoiceSettings = {
@@ -157,7 +185,7 @@ export function patchVoiceSettings(patch: Partial<VoiceSettings>) {
 export function inputModel(settings: VoiceSettings) {
   const { engine, model } = settings.input;
   if (engine === "system") return "";
-  return model || INPUT_MODELS[engine][0]!.id;
+  return model || inputModelsFor(engine)[0]?.id || "";
 }
 
 // The notch is its own window: a choice made in Settings reaches it too.

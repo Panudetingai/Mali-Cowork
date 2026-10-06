@@ -1,10 +1,20 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { getProvider, hasKey, ProviderLogo, useEnvKeys, useProviderConfigs } from "@/features/providers";
 import {
-  INPUT_MODELS,
+  customProviderDef,
+  getProvider,
+  hasKey,
+  PROVIDERS,
+  ProviderLogo,
+  usableModels,
+  useCustomProviders,
+  useEnvKeys,
+  useProviderConfigs,
+} from "@/features/providers";
+import {
   inputModel,
+  inputModelsFor,
   isVoiceService,
   listSpeechModels,
   listVoices,
@@ -23,6 +33,8 @@ import {
   VOICE_SERVICES,
   VOICE_TAGS,
   VoiceButton,
+  viaEngine,
+  viaProvider,
   voicesFor,
   Waveform,
   type InputEngine,
@@ -30,6 +42,7 @@ import {
   type PuterVoices,
   type VoiceOption,
   type VoiceService,
+  type ViaEngine,
   type VoiceSettings,
 } from "@/features/voice";
 import { useToastError } from "@/components/ui/sonner";
@@ -52,7 +65,7 @@ import {
   Volume2Icon,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { settingsPath, useSettingsSub } from "./route";
 import { RowButton, VoiceLibrary, VoiceRow } from "./voice-library";
@@ -184,6 +197,44 @@ const FIRST_VOICE: Partial<Record<OutputEngine, { voice: string; voiceName?: str
   fishaudio: { voice: "" },
 };
 
+/** Engines with a tile of their own; the rest of the providers come in through `via:`. */
+const NATIVE_ENGINES = { stt: new Set(["groq", "openai", "puter"]), tts: new Set(["openai", "puter"]) };
+
+/**
+ * Every provider connected in Settings → Models — ones the user added
+ * included — as a speech engine over the OpenAI-compatible audio API. The
+ * engine in use stays listed even once its provider is gone, so the page can
+ * say what's missing.
+ */
+function useViaChoices(kind: "stt" | "tts", current: string): Choice<ViaEngine>[] {
+  const configs = useProviderConfigs();
+  const envKeys = useEnvKeys();
+  const custom = useCustomProviders();
+  return useMemo(() => {
+    const providers = [...PROVIDERS, ...custom.map(customProviderDef)];
+    const picked = viaProvider(current);
+    return providers
+      .filter((p) => !NATIVE_ENGINES[kind].has(p.id))
+      .filter((p) => p.id === picked || usableModels(p, configs[p.id], envKeys).length > 0)
+      .map((p) => ({
+        id: viaEngine(p.id),
+        name: p.name,
+        logo: p.logo,
+        tags: [{ label: p.custom ? "Yours" : "OpenAI-compatible" }],
+        blurb:
+          kind === "stt"
+            ? `Its /audio/transcriptions on your ${p.name} key — type the model it offers.`
+            : `Its /audio/speech on your ${p.name} key — type the model and voice it offers.`,
+        keyOf: p.id,
+      }));
+  }, [kind, current, configs, envKeys, custom]);
+}
+
+/** The picked engine's tile, among the built-in ones and the providers'. */
+function findChoice<T extends string>(choices: Choice<T>[], via: Choice<ViaEngine>[], engine: string): Choice<string> | undefined {
+  return choices.find((c) => c.id === engine) ?? via.find((c) => c.id === engine);
+}
+
 const PUTER_VOICES: { value: PuterVoices; label: string }[] = [
   { value: "gemini", label: "Gemini" },
   { value: "openai", label: "OpenAI" },
@@ -267,10 +318,14 @@ export function VoiceSettings() {
 function VoiceOverview({ onOpen }: { onOpen: (sub: string) => void }) {
   const settings = useVoiceSettings();
   const ready = useKeyReady();
-  const input = INPUTS.find((c) => c.id === settings.input.engine) ?? INPUTS[0]!;
-  const output = OUTPUTS.find((c) => c.id === settings.output.engine) ?? OUTPUTS[0]!;
+  const viaInputs = useViaChoices("stt", settings.input.engine);
+  const viaOutputs = useViaChoices("tts", settings.output.engine);
+  const input = findChoice(INPUTS, viaInputs, settings.input.engine) ?? INPUTS[0]!;
+  const output = findChoice(OUTPUTS, viaOutputs, settings.output.engine) ?? OUTPUTS[0]!;
   const inputModelName =
-    settings.input.engine === "system" ? "Built in" : INPUT_MODELS[settings.input.engine].find((m) => m.id === inputModel(settings))?.name;
+    settings.input.engine === "system"
+      ? "Built in"
+      : (inputModelsFor(settings.input.engine).find((m) => m.id === inputModel(settings))?.name ?? (inputModel(settings) || undefined));
 
   return (
     <div className="flex flex-col gap-10">
@@ -553,7 +608,7 @@ function VoiceServiceKey({ service }: { service: VoiceService }) {
 
 type StaticModel = { id: string; name: string; note?: string };
 
-/** Only these engines list their speech models; the rest keep a built-in list. */
+/** Only these engines list their speech models (and any `via:` provider); the rest keep a built-in list. */
 const FETCHABLE_MODELS = new Set(["elevenlabs", "openai", "groq"]);
 
 /** "gpt-4o-mini-tts" → "Gpt 4o Mini Tts" for models the built-in list never named. */
@@ -590,7 +645,8 @@ function ModelPills({
   const [stale, setStale] = useState(false);
   const [round, setRound] = useState(0);
   const [customOpen, setCustomOpen] = useState(false);
-  const fetchable = FETCHABLE_MODELS.has(engine);
+  const via = viaProvider(engine);
+  const fetchable = FETCHABLE_MODELS.has(engine) || !!via;
   useEffect(() => setCustomOpen(false), [engine]);
 
   useEffect(() => {
@@ -629,9 +685,12 @@ function ModelPills({
   const shown = renamed ? [...options, renamed] : options;
   // Neither listed nor built in: an id typed under Custom.
   const custom = !!value && !shown.some((m) => m.id === value);
-  if (shown.length === 0) return null;
+  // A provider that lists no speech models: the id is typed, nothing to pick from.
+  const typedOnly = shown.length === 0;
+  if (typedOnly && !via) return null;
 
-  const service = engine === "elevenlabs" ? "ElevenLabs" : engine === "groq" ? "Groq" : "OpenAI";
+  const service =
+    engine === "elevenlabs" ? "ElevenLabs" : engine === "groq" ? "Groq" : via ? (getProvider(via)?.name ?? via) : "OpenAI";
   return (
     <section className="flex flex-col gap-3">
       <SectionLabel
@@ -669,6 +728,10 @@ function ModelPills({
         <p className="flex items-center gap-2 py-1 text-[13px] text-muted-foreground">
           <LoaderIcon className="size-3.5 animate-spin" /> Loading models from {service}…
         </p>
+      ) : typedOnly ? (
+        <p className="text-[13px] text-muted-foreground">
+          {service} didn’t list a {kind === "tts" ? "speech" : "transcription"} model — type the id it gives in its docs.
+        </p>
       ) : (
         <Pills
           label={kind === "tts" ? "Speech model" : "Transcription model"}
@@ -683,7 +746,7 @@ function ModelPills({
           ]}
         />
       )}
-      {(customOpen || custom) && (
+      {(customOpen || custom || typedOnly) && (
         <CustomModelField
           key={engine}
           value={custom ? value : ""}
@@ -703,10 +766,14 @@ function CustomModelField({
   value,
   example,
   onSave,
+  label = "Custom model id",
+  hint = "Any model id the service accepts — sent exactly as typed. Press Enter to use it.",
 }: {
   value: string;
   example?: string;
   onSave: (id: string) => void;
+  label?: string;
+  hint?: string;
 }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
@@ -727,24 +794,24 @@ function CustomModelField({
             save();
           } else if (event.key === "Escape") setDraft(value);
         }}
-        placeholder={example ? `Model id, e.g. ${example}` : "Model id"}
-        aria-label="Custom model id"
+        placeholder={example ? `${label.replace(/^Custom /, "")}, e.g. ${example}` : label}
+        aria-label={label}
         spellCheck={false}
         autoCapitalize="off"
         autoCorrect="off"
         className="h-9 font-mono text-[13px]"
       />
-      <p className="text-xs text-muted-foreground">
-        Any model id the service accepts — sent exactly as typed. Press Enter to use it.
-      </p>
+      <p className="text-xs text-muted-foreground">{hint}</p>
     </div>
   );
 }
 
-function ListeningPage({ onBack }: { onBack: () => void }) {  const settings = useVoiceSettings();
+function ListeningPage({ onBack }: { onBack: () => void }) {
+  const settings = useVoiceSettings();
   const engine = settings.input.engine;
-  const choice = INPUTS.find((c) => c.id === engine);
-  const models = engine === "system" ? [] : INPUT_MODELS[engine];
+  const via = useViaChoices("stt", engine);
+  const choice = findChoice(INPUTS, via, engine);
+  const models = inputModelsFor(engine);
   return (
     <>
       <PageHeader
@@ -762,6 +829,13 @@ function ListeningPage({ onBack }: { onBack: () => void }) {  const settings = u
           onPick={(next) => patchVoiceSettings({ input: { engine: next, model: "" } })}
         />
       </section>
+
+      <ViaEngines
+        kind="stt"
+        choices={via}
+        value={engine}
+        onPick={(next) => patchVoiceSettings({ input: { engine: next, model: "" } })}
+      />
 
       <ConnectEngine keyOf={choice?.keyOf} />
 
@@ -802,7 +876,8 @@ function ListeningPage({ onBack }: { onBack: () => void }) {  const settings = u
 function SpeakingPage({ onBack }: { onBack: () => void }) {
   const settings = useVoiceSettings();
   const { output } = settings;
-  const choice = OUTPUTS.find((c) => c.id === output.engine);
+  const via = useViaChoices("tts", output.engine);
+  const choice = findChoice(OUTPUTS, via, output.engine);
   const models = OUTPUT_MODELS[output.engine] ?? [];
   const ready = useKeyReady()(choice?.keyOf);
 
@@ -814,7 +889,9 @@ function SpeakingPage({ onBack }: { onBack: () => void }) {
         engine,
         model: "",
         voiceName: undefined,
-        ...(engine === "puter" ? { voice: voicesFor({ ...output, engine })[0]! } : FIRST_VOICE[engine]),
+        ...(engine === "puter"
+          ? { voice: voicesFor({ ...output, engine })[0]! }
+          : (FIRST_VOICE[engine] ?? (viaProvider(engine) ? { voice: "alloy" } : undefined))),
       },
     });
 
@@ -831,6 +908,8 @@ function SpeakingPage({ onBack }: { onBack: () => void }) {
         <SectionLabel>Engine</SectionLabel>
         <EngineTiles label="Speaking engine" choices={OUTPUTS} value={output.engine} onPick={pickEngine} />
       </section>
+
+      <ViaEngines kind="tts" choices={via} value={output.engine} onPick={pickEngine} />
 
       <ConnectEngine keyOf={choice?.keyOf} />
 
@@ -991,7 +1070,9 @@ function VoiceGallery({ settings }: { settings: VoiceSettings }) {
                   ? `Voices in your ${VOICE_SERVICES[engine].name} account${engine === "elevenlabs" ? ", including ones added from the library" : ""}.`
                   : engine === "system"
                     ? "Add Premium voices in System Settings → Accessibility → Spoken Content."
-                    : "OpenAI’s voices all speak Thai and English."}
+                    : viaProvider(engine)
+                      ? "OpenAI’s voice names, which most compatible services take — or type the one yours offers below."
+                      : "OpenAI’s voices all speak Thai and English."}
               </p>
             )}
             {(remote || all.length > 8) && (
@@ -1042,7 +1123,69 @@ function VoiceGallery({ settings }: { settings: VoiceSettings }) {
               })}
             </ul>
           )}
+          {viaProvider(engine) && (
+            <CustomModelField
+              key={`voice:${engine}`}
+              value={all.some((v) => v.id === output.voice) ? "" : output.voice}
+              example="alloy"
+              label="Custom voice id"
+              hint="Any voice the service accepts — sent exactly as typed. Press Enter to use it."
+              onSave={(voice) => patchVoiceSettings({ output: { ...output, voice, voiceName: undefined } })}
+            />
+          )}
         </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The providers connected in Settings → Models, as engines: whatever speaks
+ * the OpenAI-compatible audio API — a service that just started offering
+ * speech, or a server on this computer.
+ */
+function ViaEngines({
+  kind,
+  choices,
+  value,
+  onPick,
+}: {
+  kind: "stt" | "tts";
+  choices: Choice<ViaEngine>[];
+  value: string;
+  onPick: (engine: ViaEngine) => void;
+}) {
+  const navigate = useNavigate();
+  return (
+    <section className="flex flex-col gap-3">
+      <SectionLabel
+        action={
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
+            onClick={() => navigate(settingsPath("models", "new"))}
+          >
+            <PlusIcon className="size-3.5" />
+            Add provider
+          </Button>
+        }
+      >
+        Your providers
+      </SectionLabel>
+      {choices.length === 0 ? (
+        <p className="text-[13px] leading-relaxed text-muted-foreground">
+          Any provider connected in Settings → Models whose API offers {kind === "tts" ? "/audio/speech" : "/audio/transcriptions"} can{" "}
+          {kind === "tts" ? "speak" : "listen"} here too — connect one (or add your own) and it shows up.
+        </p>
+      ) : (
+        <EngineTiles
+          label={kind === "tts" ? "Speaking engine from your providers" : "Listening engine from your providers"}
+          choices={choices}
+          value={value as ViaEngine}
+          onPick={onPick}
+        />
       )}
     </section>
   );

@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect } from "react";
 import { bindSecrets, stripSecrets, whenVaultReady } from "@/features/secrets";
 import { createStore } from "@/lib/local-store";
-import { getProvider, PROVIDERS, splitModels, type ProviderDef } from "./catalog";
+import { allProviders, getProvider, splitModels, type ProviderDef } from "./catalog";
 
 export type ProviderConfig = {
   apiKey: string;
@@ -95,7 +95,7 @@ export function usableModels(
 }
 
 export function listConfiguredProviders(configs: Record<string, ProviderConfig>, envKeys: string[]) {
-  return PROVIDERS.map((provider) => ({
+  return allProviders().map((provider) => ({
     provider,
     models: usableModels(provider, configs[provider.id], envKeys),
   })).filter((entry) => entry.models.length > 0);
@@ -197,10 +197,11 @@ export async function syncCliProviders() {
   // Keys come from the keychain; syncing before they load would drop them.
   await whenVaultReady();
   const configs = configStore.get();
-  const providers = PROVIDERS.filter((provider) => !provider.maliOnly).map((provider) => {
+  const providers = allProviders().filter((provider) => !provider.maliOnly).map((provider) => {
     const config = configs[provider.id];
     return {
       id: provider.id,
+      name: provider.custom ? provider.name : null,
       baseUrl: config?.baseUrl.trim() || provider.defaultBaseUrl,
       // Unconfigured providers send no models, which removes them.
       models: config ? splitModels(config.models) : [],

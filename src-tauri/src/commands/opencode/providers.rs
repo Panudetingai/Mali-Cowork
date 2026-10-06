@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use super::server::{ensure_server, restart};
-use crate::ai::provider_info;
+use crate::ai::{is_custom_provider, provider_info};
 use crate::commands::secure_fs::write_private;
 
 /// Provider ids this module may configure. All but `ollama` are built into
@@ -33,6 +33,9 @@ const MAX_MODELS: usize = 200;
 #[serde(rename_all = "camelCase")]
 pub struct CliProviderConfig {
     pub id: String,
+    /// What the user called a provider they added (`custom-…`).
+    #[serde(default)]
+    pub name: Option<String>,
     #[serde(default)]
     pub base_url: Option<String>,
     #[serde(default)]
@@ -157,6 +160,22 @@ fn build_overlay(providers: &[CliProviderConfig]) -> Result<Map<String, Value>, 
                     "models": models,
                 })
             }
+            // Added by the user: any OpenAI-compatible server, local or in the cloud.
+            id if is_custom_provider(id) => {
+                let url = base_url(provider.base_url.as_deref(), "")?;
+                let name = provider.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).unwrap_or(id);
+                let mut options = json!({ "baseURL": url });
+                // A keyless local server still needs a key for the SDK.
+                if !has_key {
+                    options["apiKey"] = json!("none");
+                }
+                json!({
+                    "npm": "@ai-sdk/openai-compatible",
+                    "name": name,
+                    "options": options,
+                    "models": models,
+                })
+            }
             // Built into opencode: keep its SDK, add the models it may not list yet.
             id if APP_PROVIDERS.contains(&id) => {
                 let mut config = json!({ "models": models });
@@ -248,6 +267,7 @@ mod tests {
     fn provider(id: &str, models: &[&str]) -> CliProviderConfig {
         CliProviderConfig {
             id: id.into(),
+            name: None,
             base_url: None,
             models: models.iter().map(|m| m.to_string()).collect(),
             api_key: None,
@@ -282,6 +302,20 @@ mod tests {
         assert!(overlay["google"].get("options").is_none(), "Gemini keeps its native endpoint");
         assert_eq!(overlay["groq"]["options"]["baseURL"], "https://proxy.example.com/groq");
         assert!(overlay["groq"].get("npm").is_none(), "built-ins keep their own SDK");
+    }
+
+    #[test]
+    fn custom_providers_are_openai_compatible() {
+        let mut local = provider("custom-lm-studio", &["qwen3-8b"]);
+        local.name = Some("LM Studio".into());
+        local.base_url = Some("http://localhost:1234/v1/".into());
+        let overlay = build_overlay(&[local]).unwrap();
+        let entry = &overlay["custom-lm-studio"];
+        assert_eq!(entry["npm"], "@ai-sdk/openai-compatible");
+        assert_eq!(entry["name"], "LM Studio");
+        assert_eq!(entry["options"]["baseURL"], "http://localhost:1234/v1");
+        assert_eq!(entry["options"]["apiKey"], "none");
+        assert!(build_overlay(&[provider("custom-nohost", &["m"])]).is_err(), "needs an address");
     }
 
     #[test]

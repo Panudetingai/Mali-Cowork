@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import { Antigravity, Codex, Cursor, ElevenLabs, FishAudio, OpenCode, ProviderIcon } from "@lobehub/icons";
-import { Sparkles } from "lucide-react";
+import { Sparkles, SquareTerminal } from "lucide-react";
 import { useState, type ComponentType } from "react";
 import { lobeProviderKey } from "./lobe";
 
@@ -41,6 +41,19 @@ export function ProviderLogo({ logo, name, className, size = 24 }: Props) {
       </span>
     );
   }
+  // A CLI the user added: a terminal mark rather than a guessed brand.
+  if (logo === "terminal") {
+    return (
+      <span
+        className={cn("flex shrink-0 items-center justify-center rounded-[4px] bg-muted text-muted-foreground", className)}
+        style={{ width: size, height: size }}
+        title={name}
+        aria-hidden
+      >
+        <SquareTerminal style={{ width: Math.max(10, Math.round(size * 0.62)), height: Math.max(10, Math.round(size * 0.62)) }} />
+      </span>
+    );
+  }
   // No brand mark exists: a default tile, offline-safe and unmistakable.
   if (logo === "puter") {
     return (
@@ -64,7 +77,8 @@ export function ProviderLogo({ logo, name, className, size = 24 }: Props) {
     );
   }
 
-  if (!imgFailed) {
+  // A provider the user added has no mark of its own: its initial.
+  if (!imgFailed && logo !== "custom") {
     return (
       <img
         src={`https://models.dev/logos/${logo}.svg`}
