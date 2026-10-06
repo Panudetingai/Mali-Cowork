@@ -3,18 +3,28 @@ import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
 import {
-  checkPluginUpdates,
-  fetchPlugin,
-  resolvePluginSource,
-  saveMarketplace,
-  setPluginEnabled,
-  sourceLabel,
-  usePlugins,
-  type InstalledPlugin,
-  type PluginSource,
+    checkPluginUpdates,
+    examplePluginDir,
+    fetchPlugin,
+    resolvePluginSource,
+    saveMarketplace,
+    setPluginEnabled,
+    sourceLabel,
+    usePlugins,
+    type InstalledPlugin,
+    type PluginSource,
 } from "@/features/plugins";
+import {
+    isSuggestedPluginInstalled,
+    looksLikePluginImageUrl,
+    MarketplaceBrandIcon,
+    resolveMarketplaceBrand,
+    resolveSuggestedPlugin,
+    SUGGESTED_MARKETPLACES,
+    SUGGESTED_PLUGINS,
+} from "@/features/plugins/marketplace-brand";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { FolderOpenIcon, LoaderCircleIcon, PuzzleIcon, RefreshCwIcon, SearchIcon, StoreIcon } from "lucide-react";
+import { FolderOpenIcon, Loader, PuzzleIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useSettingsSub } from "../route";
 import { Dot, EmptyState, Field, PageHeader, SectionLabel, Tile, TileBadge, TileGrid } from "../ui";
@@ -22,20 +32,6 @@ import { InstallPluginDialog } from "./install-plugin-dialog";
 import { MarketplacePage } from "./marketplace-page";
 import { PluginPage } from "./plugin-page";
 import { usePluginInstall } from "./use-plugin-install";
-
-/** Marketplaces worth knowing about, offered until they're added. */
-const SUGGESTED: { label: string; input: string; description: string }[] = [
-  {
-    label: "Claude plugins (official)",
-    input: "anthropics/claude-plugins-official",
-    description: "Anthropic's directory of popular plugins and connectors.",
-  },
-  {
-    label: "Claude Code plugins",
-    input: "anthropics/claude-code",
-    description: "Plugins that ship with Claude Code: reviews, commits, Agent SDK.",
-  },
-];
 
 /**
  * Settings → Plugins.
@@ -51,6 +47,8 @@ export function PluginsSettings() {
   const installer = usePluginInstall((id) => open(id));
   const [input, setInput] = useState("");
   const [finding, setFinding] = useState<"link" | "folder" | null>(null);
+  /** Which suggested tile is fetching (Recommended / Marketplaces card key). */
+  const [loadingCard, setLoadingCard] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
 
   if (sub?.startsWith("market/")) {
@@ -59,9 +57,25 @@ export function PluginsSettings() {
   if (sub) return <PluginPage id={sub} onBack={back} />;
 
   /** Whatever a source holds: a plugin goes to the install dialog, a marketplace gets its own page. */
-  const find = async (kind: "link" | "folder", source: () => Promise<PluginSource | null>) => {
-    setFinding(kind);
+  const find = async (
+    kind: "link" | "folder",
+    source: () => Promise<PluginSource | null>,
+    cardKey?: string,
+  ) => {
+    if (loadingCard) return;
+    if (cardKey) setLoadingCard(cardKey);
+    else setFinding(kind);
     try {
+      if (kind === "link" && cardKey === undefined) {
+        const typed = input.trim();
+        if (looksLikePluginImageUrl(typed)) {
+          toast.error("That’s an image link, not a plugin", {
+            description:
+              "Use owner/repo or a GitHub tree path. Mobbin’s logo is already on the Recommended card — paste the repo path or tap the card.",
+          });
+          return;
+        }
+      }
       const resolved = await source();
       if (!resolved) return;
       const fetched = await fetchPlugin(resolved);
@@ -79,6 +93,7 @@ export function PluginsSettings() {
       toast.error("Couldn’t read that plugin", { description: error instanceof Error ? error.message : String(error) });
     } finally {
       setFinding(null);
+      setLoadingCard(null);
     }
   };
 
@@ -103,9 +118,10 @@ export function PluginsSettings() {
     }
   };
 
-  const suggestions = SUGGESTED.filter(
+  const suggestions = SUGGESTED_MARKETPLACES.filter(
     (s) => !marketplaces.some((m) => sourceLabel(m.source).toLowerCase() === s.input.toLowerCase()),
   );
+  const pluginSuggestions = SUGGESTED_PLUGINS.filter((s) => !isSuggestedPluginInstalled(plugins, s));
 
   return (
     <div className="flex flex-col gap-6">
@@ -126,7 +142,7 @@ export function PluginsSettings() {
         <Field
           label="Add a plugin or marketplace"
           htmlFor="plugin-source"
-          hint="owner/repo, a GitHub link (a folder inside a repository works too), or a folder on this computer."
+          hint="GitHub only: owner/repo, a tree link to a plugin folder, or Folder… — not an image URL (logos are set on the Recommended cards or under Connectors → icon)."
         >
           <div className="flex flex-col gap-2 sm:flex-row">
             <Input
@@ -138,12 +154,12 @@ export function PluginsSettings() {
               spellCheck={false}
             />
             <div className="flex gap-2">
-              <Button type="submit" variant="outline" disabled={!input.trim() || !!finding} className="gap-1.5">
-                {finding === "link" ? <LoaderCircleIcon className="size-4 animate-spin" /> : <SearchIcon className="size-4" />}
+              <Button type="submit" variant="outline" disabled={!input.trim() || !!finding || !!loadingCard} className="gap-1.5">
+                {finding === "link" ? <Loader className="size-4 animate-spin" /> : <SearchIcon className="size-4" />}
                 Find
               </Button>
-              <Button type="button" variant="outline" disabled={!!finding} onClick={() => void findFolder()} className="gap-1.5">
-                {finding === "folder" ? <LoaderCircleIcon className="size-4 animate-spin" /> : <FolderOpenIcon className="size-4" />}
+              <Button type="button" variant="outline" disabled={!!finding || !!loadingCard} onClick={() => void findFolder()} className="gap-1.5">
+                {finding === "folder" ? <Loader className="size-4 animate-spin" /> : <FolderOpenIcon className="size-4" />}
                 Folder…
               </Button>
             </div>
@@ -171,31 +187,81 @@ export function PluginsSettings() {
         )}
       </section>
 
+      {pluginSuggestions.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <SectionLabel>Recommended</SectionLabel>
+          <TileGrid>
+            {pluginSuggestions.map((s) => {
+              const busy = loadingCard === s.input;
+              return (
+                <Tile
+                  key={s.input}
+                  busy={busy}
+                  icon={<MarketplaceBrandIcon brand={s.brand} imageUrl={s.imageUrl} />}
+                  title={s.label}
+                  badge={<TileBadge tone="muted">Suggested</TileBadge>}
+                  description={s.description}
+                  meta={
+                    busy ? (
+                      <span className="truncate">Reading plugin…</span>
+                    ) : (
+                      <span className="truncate">{s.input.replace(/^.*\/tree\/[^/]+\//, "")}</span>
+                    )
+                  }
+                  openLabel={`Install ${s.label}`}
+                  onOpen={() =>
+                    void find(
+                      "link",
+                      () => resolveSuggestedPlugin(s, resolvePluginSource, examplePluginDir),
+                      s.input,
+                    )
+                  }
+                />
+              );
+            })}
+          </TileGrid>
+        </section>
+      )}
+
       <section className="flex flex-col gap-3">
         <SectionLabel>Marketplaces</SectionLabel>
         <TileGrid>
           {marketplaces.map((m) => (
             <Tile
               key={m.name}
-              icon={<StoreIcon className="text-muted-foreground" />}
+              icon={
+                <MarketplaceBrandIcon
+                  brand={resolveMarketplaceBrand(m.source, m.name)}
+                />
+              }
               title={m.name}
               description={m.description || sourceLabel(m.source)}
               meta={<span className="truncate">{sourceLabel(m.source)}</span>}
               onOpen={() => open(`market/${encodeURIComponent(m.name)}`)}
             />
           ))}
-          {suggestions.map((s) => (
-            <Tile
-              key={s.input}
-              icon={<StoreIcon className="text-muted-foreground/60" />}
-              title={s.label}
-              badge={<TileBadge tone="muted">Suggested</TileBadge>}
-              description={s.description}
-              meta={<span className="truncate">{s.input}</span>}
-              openLabel={`Open ${s.label}`}
-              onOpen={() => void find("link", () => resolvePluginSource(s.input))}
-            />
-          ))}
+          {suggestions.map((s) => {
+            const busy = loadingCard === s.input;
+            return (
+              <Tile
+                key={s.input}
+                busy={busy}
+                icon={<MarketplaceBrandIcon brand={s.brand} imageUrl={s.imageUrl} muted={!busy} />}
+                title={s.label}
+                badge={<TileBadge tone="muted">Suggested</TileBadge>}
+                description={s.description}
+                meta={
+                  busy ? (
+                    <span className="truncate">Reading marketplace…</span>
+                  ) : (
+                    <span className="truncate">{s.input}</span>
+                  )
+                }
+                openLabel={`Open ${s.label}`}
+                onOpen={() => void find("link", () => resolvePluginSource(s.input), s.input)}
+              />
+            );
+          })}
         </TileGrid>
       </section>
 
@@ -234,7 +300,15 @@ function PluginTile({ plugin, onOpen }: { plugin: InstalledPlugin; onOpen: () =>
   };
   return (
     <Tile
-      icon={<PuzzleIcon className={plugin.enabled ? "text-violet-500" : "text-muted-foreground"} />}
+      icon={
+        plugin.id === "mobbin" ? (
+          <MarketplaceBrandIcon brand="mobbin" />
+        ) : plugin.id === "google-calendar" ? (
+          <MarketplaceBrandIcon brand="google" />
+        ) : (
+          <PuzzleIcon className={plugin.enabled ? "text-violet-500" : "text-muted-foreground"} />
+        )
+      }
       title={plugin.name}
       badge={plugin.version && <TileBadge tone="muted">v{plugin.version}</TileBadge>}
       description={plugin.description || sourceLabel(plugin.source)}

@@ -1,0 +1,7 @@
+{
+  "name": "google-calendar",
+  "version": "1.0.0",
+  "description": "Google Calendar via the community @cocal/google-calendar-mcp server (OAuth credentials required).",
+  "author": { "name": "Mali Cowork" },
+  "homepage": "https://github.com/nspady/google-calendar-mcp"
+}

@@ -6,49 +6,49 @@ import { CoworkBot } from "@/components/anim/cowork-bot";
 import { useCustomClis } from "@/features/custom-cli";
 import { useResolvedBot } from "@/features/bot-studio/resolve";
 import { Switch } from "@/components/ui/switch";
-import { useCoworkBot } from "@/features/cowork-bot";
-import {
-  getNotchLoginItem,
-  glassBlurVisuals,
-  setNotchEnabled,
-  setNotchLoginItem,
-  setNotchLook,
-  setNotchSaveChats,
-  setNotchScreenPref,
-  useNotchEnabled,
-  useNotchGlassBlur,
-  useNotchLook,
-  useNotchSaveChats,
-  useNotchScreen,
-  type NotchLook,
-  type NotchScreen,
-} from "@/features/notch";
 import { useAntigravity } from "@/features/antigravity";
+import { useResolvedBot } from "@/features/bot-studio/resolve";
+import { useCoworkBot } from "@/features/cowork-bot";
 import { useCursor } from "@/features/cursor";
+import {
+    getNotchLoginItem,
+    glassBlurVisuals,
+    setNotchEnabled,
+    setNotchLoginItem,
+    setNotchLook,
+    setNotchSaveChats,
+    setNotchScreenPref,
+    useNotchEnabled,
+    useNotchGlassBlur,
+    useNotchLook,
+    useNotchSaveChats,
+    useNotchScreen,
+    type NotchLook,
+    type NotchScreen,
+} from "@/features/notch";
 import { useOpencode } from "@/features/opencode";
 import { listConfiguredProviders, useEnvKeys, useProviderConfigs } from "@/features/providers";
 import { isMacPlatform, setQuickConfig, shortcutKeys, useQuickConfig, useQuickStatus } from "@/features/quick";
-import { isTauri } from "@tauri-apps/api/core";
+import { cn } from "@/lib/utils";
 import { ModelPicker } from "@/pages/chat/components/model-picker";
 import { buildModelCatalog, loadSelectedModelId, OPENCODE_DEFAULT_ID, type AiModel } from "@/pages/chat/models";
-import { Button } from "@/components/ui/button";
+import { isTauri } from "@tauri-apps/api/core";
 import {
-  ActivityIcon,
-  CheckIcon,
-  HistoryIcon,
-  LaptopIcon,
-  LogInIcon,
-  MonitorIcon,
-  MousePointer2Icon,
-  PaletteIcon,
-  RotateCcwIcon,
-  SparklesIcon,
+    ActivityIcon,
+    CheckIcon,
+    HistoryIcon,
+    LaptopIcon,
+    LogInIcon,
+    MonitorIcon,
+    MousePointer2Icon,
+    PaletteIcon,
+    RotateCcwIcon,
+    SparklesIcon,
 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import { GlobalShortcutGroup } from "./global-shortcut-group";
 import { Notice, SectionHeader, Segmented, SettingRow, SettingsGroup, SettingsPage } from "./ui";
-import { cn } from "@/lib/utils";
 
 const mac = isMacPlatform();
 
@@ -229,14 +229,14 @@ function LookCard({ look, label, on, onPick }: { look: NotchLook; label: string;
       <span
         className={cn(
           "relative flex h-20 justify-center overflow-hidden rounded-xl border bg-gradient-to-b from-muted/70 to-card transition-[border-color,box-shadow]",
-          on ? "border-violet-500 ring-2 ring-violet-500/30" : "border-border group-hover:border-foreground/30",
+          on ? "border-primary ring-2 ring-primary/30" : "border-border group-hover:border-foreground/30",
         )}
       >
         <span
           className="flex h-12 w-[70%] items-center gap-2 rounded-b-2xl px-3 shadow-[0_10px_24px_-12px_rgba(0,0,0,0.6)]"
           style={{ background: light ? "#fff" : "#000" }}
         >
-          <span className="size-5 shrink-0 rounded-full bg-violet-500/80" />
+          <span className="size-5 shrink-0 rounded-full bg-muted" />
           <span className="flex min-w-0 flex-1 flex-col gap-1">
             <span className="block h-1.5 w-1/2 rounded-full" style={{ background: light ? "#16161b" : "#fff", opacity: 0.8 }} />
             <span className="block h-2.5 w-full rounded-full" style={{ background: light ? "#0001" : "#fff2" }} />
@@ -245,7 +245,7 @@ function LookCard({ look, label, on, onPick }: { look: NotchLook; label: string;
       </span>
       <span className="flex items-center gap-1.5 px-0.5 text-[13px] font-medium">
         {label}
-        {on && <CheckIcon className="ml-auto size-3.5 text-violet-600 dark:text-violet-400" strokeWidth={3} />}
+        {on && <CheckIcon className="ml-auto size-3.5 text-primary" strokeWidth={3} />}
       </span>
     </button>
   );

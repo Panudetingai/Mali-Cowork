@@ -11,101 +11,102 @@
  * and the content inside fades through a blur.
  */
 import { CoworkBot } from "@/components/anim/cowork-bot";
-import { resolveBotNow, useResolvedBot } from "@/features/bot-studio/resolve";
 import { useBotPicture } from "@/components/anim/cowork-bot-picture";
-import { type BotState, type BotChoice } from "@/features/cowork-bot";
+import { resolveBotNow, useResolvedBot } from "@/features/bot-studio/resolve";
+import { type BotChoice, type BotState } from "@/features/cowork-bot";
 import { cn } from "@/lib/utils";
 import type { TodoItem } from "@/pages/chat/api/chat";
 import {
-  ArrowUpRightIcon,
-  CameraIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  CircleHelpIcon,
-  CircleIcon,
-  FileTextIcon,
-  GlobeIcon,
-  HammerIcon,
-  HistoryIcon,
-  HomeIcon,
-  LayersIcon,
-  Loader2Icon,
-  MessageCircleIcon,
-  PencilIcon,
-  PlusIcon,
-  SearchIcon,
-  SparklesIcon,
-  TerminalIcon,
-  XIcon,
-  ZapIcon,
-  type LucideIcon,
+    ArrowUpRightIcon,
+    CameraIcon,
+    CheckIcon,
+    ChevronDownIcon,
+    ChevronLeftIcon,
+    ChevronRightIcon,
+    CircleHelpIcon,
+    CircleIcon,
+    FileTextIcon,
+    GlobeIcon,
+    HammerIcon,
+    HistoryIcon,
+    HomeIcon,
+    LayersIcon,
+    Loader2Icon,
+    MessageCircleIcon,
+    PencilIcon,
+    PlusIcon,
+    SearchIcon,
+    SparklesIcon,
+    TerminalIcon,
+    XIcon,
+    ZapIcon,
+    type LucideIcon,
 } from "lucide-react";
 import {
-  AnimatePresence,
-  MotionConfig,
-  motion,
-  useAnimate,
-  type Transition,
+    AnimatePresence,
+    MotionConfig,
+    motion,
+    useAnimate,
+    type Transition,
 } from "motion/react";
 import {
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
+    useEffect,
+    useRef,
+    useState,
+    type CSSProperties,
+    type ReactNode,
 } from "react";
 import { onNotchWheel } from "./bridge";
 import {
-  EAR,
-  PAD,
-  QUESTION_LEFT,
-  RECAP,
-  SESSION_HEADER,
-  SESSION_ROW,
-  TEAM_HEADER,
-  TEAM_SHOWN,
-  WING,
-  barOf,
-  homeCards,
-  mascotFrame,
-  radiusOf,
-  sideOf,
-  teamSlots,
-  topRowOf,
-  type Box,
-  type Size,
+    EAR,
+    PAD,
+    QUESTION_LEFT,
+    RECAP,
+    SESSION_HEADER,
+    SESSION_ROW,
+    TEAM_HEADER,
+    TEAM_SHOWN,
+    WING,
+    barOf,
+    homeCards,
+    mascotFrame,
+    radiusOf,
+    sideOf,
+    teamSlots,
+    topRowOf,
+    type Box,
+    type Size,
 } from "./layout";
 import { NotchQuestion } from "./notch-question";
 import { Showcase, ShowcaseViewerHost } from "./notch-showcase";
 import { minutesSaved } from "./recap";
 import {
-  glassBlurVisuals,
-  setNotchLook,
-  setNotchRates,
-  setNotchSaveChats,
-  setNotchScreenPref,
-  useNotchLook,
-  useNotchRates,
-  useNotchSaveChats,
-  useNotchScreen,
+    glassBlurVisuals,
+    setNotchLook,
+    setNotchRates,
+    setNotchSaveChats,
+    setNotchScreenPref,
+    useNotchLook,
+    useNotchRates,
+    useNotchSaveChats,
+    useNotchScreen,
 } from "./settings";
 import type { RosterBot } from "./team";
 import { useNotchText, type NotchText } from "./text";
 import type {
-  NotchEdit,
-  NotchGeometry,
-  NotchLook,
-  NotchMate,
-  NotchPeek,
-  NotchRecap,
-  NotchSession,
-  NotchSnapshot,
-  NotchStep,
-  NotchUsage,
-  NotchView,
+    NotchEdit,
+    NotchGeometry,
+    NotchLook,
+    NotchMate,
+    NotchPeek,
+    NotchRecap,
+    NotchSession,
+    NotchSnapshot,
+    NotchStep,
+    NotchUsage,
+    NotchView,
 } from "./types";
+import { useSystemStats } from "./use-system-stats";
 
 /** Dynamic Island–like: quick open/close, minimal bounce. */
 const SPRING: Transition = {
@@ -1486,9 +1487,15 @@ function Home(props: Props) {
   );
 }
 
-const PAGES = ["main", "usage", "settings", "recap"] as const;
+const PAGES = ["system", "main", "usage", "settings", "recap"] as const;
 /** The dot of the page in view, like a slide deck's. */
 const PAGE_DOT = "#0a84ff";
+/** Inactive pager dots and usage bars — light gray, visible on the light shell. */
+const PAGE_DOT_IDLE = "rgba(99, 106, 118, 0.45)";
+const USAGE_BAR_IDLE = "rgba(99, 106, 118, 0.4)";
+const USAGE_CHART_H = 36;
+const USAGE_BAR_W = 32;
+const USAGE_BAR_MIN = 6;
 /** Pages glide on the compositor (a transform), settling without a bounce. */
 const PAGE_SPRING: Transition = {
   type: "spring",
@@ -1605,16 +1612,17 @@ function LeftPager(props: Props) {
             {PAGES.map((page, i) => (
               <section
                 key={page}
-                className="absolute inset-x-0 h-full"
+                className="absolute inset-x-0 flex h-full flex-col overflow-hidden"
                 style={{ top: `${i * 100}%` }}
                 aria-hidden={i !== slide}
                 inert={i !== slide}
               >
+                {page === "system" && <SystemPage view={props.view} slide={slide} />}
                 {page === "main" &&
                   (snapshot.phase === "idle" ? (
-                    <Greeting {...props} />
+                    <Greeting {...props} slide={slide} />
                   ) : (
-                    <RunLines {...props} />
+                    <RunLines {...props} slide={slide} />
                   ))}
                 {page === "usage" && <UsagePage {...props} />}
                 {page === "settings" && <SettingsPage />}
@@ -1632,7 +1640,7 @@ function LeftPager(props: Props) {
             title={page}
             onClick={() => onSlide?.(i)}
             className="relative size-[7px] rounded-full"
-            style={{ background: "rgba(255,255,255,0.18)" }}
+            style={{ background: PAGE_DOT_IDLE }}
           >
             {i === slide && (
               // One dot slides between the pages, like the pages themselves.
@@ -1684,17 +1692,131 @@ function money(cost: number) {
     : `$${cost.toFixed(cost >= 0.1 ? 2 : 3)}`;
 }
 
+function homeCardInset(slide: number) {
+  return slide === 0
+    ? "left-[120px]"
+    : "right-6 left-0 pl-[46px]";
+}
+
+/** One system stat: number + a bar that always spans the full tile width. */
+function SystemStatTile({
+  label,
+  percent,
+  hint,
+  loading,
+  unknown,
+}: {
+  label: string;
+  percent: number | null;
+  hint?: string;
+  loading?: boolean;
+  unknown?: boolean;
+}) {
+  const shown = loading ? 0 : Math.min(100, Math.max(0, percent ?? 0));
+  const barWidth = loading ? 0 : unknown ? 100 : shown;
+  return (
+    <div
+      className="flex min-h-10 w-full flex-col justify-between overflow-hidden rounded-xl bg-white/[0.05] px-2.5 py-2"
+      title={hint}
+    >
+      <div className="min-w-0">
+        <p
+          className={cn(
+            "truncate text-[16px] leading-tight font-semibold tabular-nums",
+            loading || unknown ? "text-white/35" : "text-foreground",
+          )}
+        >
+          {loading ? "-" : `${Math.round(shown)}%`}
+        </p>
+        <p className="truncate text-[10px] text-white/40">{label}</p>
+      </div>
+      <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+        <div
+          className={cn(
+            "h-full rounded-full transition-[width] duration-500 ease-out",
+            unknown ? "bg-white/20" : "bg-[#0a84ff]/80",
+          )}
+          style={{ width: `${barWidth}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** First Home page: live CPU, RAM, disk and GPU. */
+function SystemPage({ view, slide }: { view: NotchView; slide: number }) {
+  const t = useNotchText();
+  const stats = useSystemStats(view === "home" && slide === 0);
+  const loading = !stats;
+  const ramPct =
+    stats && stats.ramTotalMb > 0
+      ? (stats.ramUsedMb / stats.ramTotalMb) * 100
+      : null;
+  const gpuUnknown = !!stats && stats.gpuPercent == null;
+
+  return (
+    <div
+      className={cn(
+        "absolute inset-y-0 right-7 flex min-w-0 flex-col justify-center gap-1.5",
+        slide === 0 ? "left-[112px]" : "left-0 pl-[46px]",
+      )}
+    >
+      <p className="shrink-0 text-[11px] font-medium tracking-wide text-white/45 uppercase">
+        {t("systemTitle")}
+      </p>
+      <div className="grid min-w-0 grid-cols-2 gap-1.5">
+        <SystemStatTile
+          label={t("systemCpu")}
+          percent={stats?.cpuPercent ?? null}
+          loading={loading}
+        />
+        <SystemStatTile
+          label={t("systemRam")}
+          percent={ramPct}
+          loading={loading}
+          hint={
+            stats && stats.ramTotalMb > 0
+              ? `${stats.ramUsedMb}/${stats.ramTotalMb} MB`
+              : undefined
+          }
+        />
+        <SystemStatTile
+          label={t("systemDisk")}
+          percent={stats?.diskUsedPct ?? null}
+          loading={loading}
+          hint={
+            stats && stats.diskTotalGb > 0
+              ? `${stats.diskUsedGb}/${stats.diskTotalGb} GB`
+              : undefined
+          }
+        />
+        <SystemStatTile
+          label={t("systemGpu")}
+          percent={stats?.gpuPercent ?? null}
+          loading={loading}
+          unknown={gpuUnknown}
+          hint={
+            gpuUnknown
+              ? t("systemGpuUnknown")
+              : stats?.gpuLabel ?? undefined
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
 /** How much Cowork did today — runs, time, files — and runs a day this week. */
 function UsagePage({ usage }: Props) {
   const t = useNotchText();
   if (!usage) {
     return (
-      <>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <PageTitle>{t("usageTitle")}</PageTitle>
-        <div className="flex h-[90px] items-center justify-center text-white/35">
+        <div className="flex flex-1 items-center justify-center text-white/35">
           <Loader2Icon className="size-4 animate-spin" />
         </div>
-      </>
+      </div>
     );
   }
   const most = Math.max(1, ...usage.days);
@@ -1707,7 +1829,7 @@ function UsagePage({ usage }: Props) {
     { value: String(usage.files), label: t("usageFiles") },
   ];
   return (
-    <>
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <PageTitle
         aside={
           usage.tokens
@@ -1717,52 +1839,54 @@ function UsagePage({ usage }: Props) {
       >
         {t("usageTitle")}
       </PageTitle>
-      <div className="grid grid-cols-3 gap-1.5 pr-7 pl-3.5">
-        {stats.map((stat) => (
+      <div className="flex min-h-0 flex-1 flex-col justify-between gap-1.5 pr-7 pb-1.5 pl-3.5">
+        <div className="grid grid-cols-3 gap-1.5">
+          {stats.map((stat) => (
+            <div
+              key={stat.label}
+              className="rounded-xl bg-white/[0.05] px-2 py-1"
+            >
+              <p className="truncate text-[15px] leading-tight font-semibold text-foreground tabular-nums">
+                {stat.value}
+              </p>
+              <p className="truncate text-[10px] text-white/40">{stat.label}</p>
+            </div>
+          ))}
+        </div>
+        <div className="shrink-0">
           <div
-            key={stat.label}
-            className="rounded-xl bg-white/[0.05] px-2 py-1.5"
+            className="grid grid-cols-7 items-end gap-1"
+            style={{ height: USAGE_CHART_H }}
+            title={t("usageWeek")}
           >
-            <p className="truncate text-[16px] leading-tight font-semibold text-white tabular-nums">
-              {stat.value}
-            </p>
-            <p className="truncate text-[10px] text-white/40">{stat.label}</p>
+            {usage.days.map((runs, i) => (
+              <div key={i} className="flex h-full items-end justify-center">
+                <motion.span
+                  className="block shrink-0 origin-bottom rounded-lg"
+                  style={{
+                    width: USAGE_BAR_W,
+                    height: Math.max(USAGE_BAR_MIN, (runs / most) * USAGE_CHART_H),
+                    background:
+                      i === usage.days.length - 1 ? PAGE_DOT : USAGE_BAR_IDLE,
+                  }}
+                  initial={{ scaleY: 0 }}
+                  animate={{
+                    scaleY: 1,
+                    transition: {
+                      delay: 0.05 + i * 0.03,
+                      type: "spring",
+                      stiffness: 300,
+                      damping: 24,
+                    },
+                  }}
+                />
+              </div>
+            ))}
           </div>
-        ))}
+          <p className="mt-1 text-[10px] leading-tight text-white/30">{t("usageWeek")}</p>
+        </div>
       </div>
-      <div
-        className="mt-2.5 flex items-end gap-1 pr-7 pl-3.5"
-        style={{ height: 34 }}
-        title={t("usageWeek")}
-      >
-        {usage.days.map((runs, i) => (
-          <motion.span
-            key={i}
-            className="flex-1 origin-bottom rounded-[3px]"
-            style={{
-              height: Math.max(3, (runs / most) * 34),
-              background:
-                i === usage.days.length - 1
-                  ? PAGE_DOT
-                  : "rgba(255,255,255,0.16)",
-            }}
-            initial={{ scaleY: 0 }}
-            animate={{
-              scaleY: 1,
-              transition: {
-                delay: 0.05 + i * 0.03,
-                type: "spring",
-                stiffness: 300,
-                damping: 24,
-              },
-            }}
-          />
-        ))}
-      </div>
-      <p className="mt-1 pr-7 pl-3.5 text-[10px] text-white/30">
-        {t("usageWeek")}
-      </p>
-    </>
+    </div>
   );
 }
 
@@ -1804,9 +1928,9 @@ function SettingsPage() {
   const save = useNotchSaveChats();
   const screen = useNotchScreen();
   return (
-    <>
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <PageTitle>{t("quickSettings")}</PageTitle>
-      <div className="flex flex-col gap-1.5 pr-7 pl-3.5 text-[12px] text-white/75">
+      <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-hidden pr-7 pl-3.5 text-[12px] text-white/75">
         <div className="flex items-center justify-between gap-2">
           <span className="truncate">{t("lookLabel")}</span>
           <Pills
@@ -1850,7 +1974,7 @@ function SettingsPage() {
           />
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -1893,7 +2017,7 @@ function DayColumns({
                     ? SAVED.ink
                     : tasks
                       ? "rgba(255,255,255,0.55)"
-                      : "rgba(255,255,255,0.14)",
+                      : USAGE_BAR_IDLE,
               }}
               title={`${tasks}`}
               initial={{ scaleY: 0 }}
@@ -2273,10 +2397,15 @@ function Recap({ geometry, recap, onHome, onRecapWeek }: Props) {
 }
 
 /** Nothing running: who's here and how to ask. */
-function Greeting({ active, onChat }: Props) {
+function Greeting({ active, onChat, slide = 0 }: Props) {
   const t = useNotchText();
   return (
-    <div className="absolute inset-y-0 right-6 left-[120px] flex flex-col justify-center gap-1.5">
+    <div
+      className={cn(
+        "absolute inset-y-0 flex flex-col justify-center gap-1.5 pr-6",
+        homeCardInset(slide),
+      )}
+    >
       <p className="truncate text-[15px] font-semibold text-white">
         {t("greeting", { name: active.name })}
       </p>
@@ -2312,11 +2441,16 @@ function folderName(path: string) {
  * (bright, up to two lines), what comes next, and how long it has been at it.
  */
 function RunLines(props: Props) {
-  const { snapshot, active, onOpenChat } = props;
+  const { snapshot, active, onOpenChat, slide = 0 } = props;
   const t = useNotchText();
   const where = snapshot.folder ? folderName(snapshot.folder) : snapshot.title;
   return (
-    <div className="absolute inset-y-0 right-6 left-[120px] flex flex-col justify-center gap-1.5 py-3">
+    <div
+      className={cn(
+        "absolute inset-y-0 flex flex-col justify-center gap-1.5 py-3 pr-6",
+        homeCardInset(slide),
+      )}
+    >
       <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-white/45">
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.span

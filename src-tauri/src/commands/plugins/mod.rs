@@ -218,6 +218,22 @@ pub fn plugins_resolve(input: String) -> Result<PluginSource, String> {
     resolve(&input)
 }
 
+/// Bundled example plugin folder shipped with the app (dev and release builds).
+#[tauri::command]
+pub fn plugins_example_dir(name: String) -> Option<String> {
+    let name = name.trim().trim_matches('/');
+    if name.is_empty() || name.contains("..") {
+        return None;
+    }
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../docs/examples")
+        .join(name);
+    dir.canonicalize()
+        .ok()
+        .filter(|p| p.is_dir())
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
 fn resolve(input: &str) -> Result<PluginSource, String> {
     let mut text = input.trim();
     for prefix in ["claude plugin marketplace add", "/plugin marketplace add", "claude plugin install", "/plugin install"] {

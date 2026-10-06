@@ -736,6 +736,7 @@ export function Tile({
   openLabel,
   selected,
   radio,
+  busy,
   className,
 }: {
   icon: ReactNode;
@@ -750,6 +751,8 @@ export function Tile({
   selected?: boolean;
   /** The tile is one choice of several. */
   radio?: boolean;
+  /** Resolving or fetching after the tile was opened. */
+  busy?: boolean;
   className?: string;
 }) {
   return (
@@ -759,7 +762,8 @@ export function Tile({
         selected
           ? "border-violet-500 ring-1 ring-violet-500 dark:border-violet-400 dark:ring-violet-400"
           : "border-border/70",
-        onOpen && !selected && "hover:border-foreground/25 hover:shadow-[0_6px_16px_-8px_rgb(0_0_0/0.18)]",
+        onOpen && !selected && !busy && "hover:border-foreground/25 hover:shadow-[0_6px_16px_-8px_rgb(0_0_0/0.18)]",
+        busy && "opacity-80",
         className,
       )}
     >
@@ -767,14 +771,18 @@ export function Tile({
         <button
           type="button"
           onClick={onOpen}
+          disabled={busy}
+          aria-busy={busy}
           role={radio ? "radio" : undefined}
           aria-checked={radio ? !!selected : undefined}
           aria-label={openLabel ?? (typeof title === "string" ? title : undefined)}
-          className="absolute inset-0 rounded-xl outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          className="absolute inset-0 rounded-xl outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-wait"
         />
       )}
       <div className="pointer-events-none flex items-start justify-between gap-2">
-        <span className="flex size-8 shrink-0 items-center justify-center [&_img]:size-7 [&_svg]:size-7">{icon}</span>
+        <span className="tile-icon-slot flex min-h-11 shrink-0 items-center justify-start overflow-visible [&_.brand-logo-img]:max-h-none [&_.brand-logo-img]:max-w-none [&_svg]:size-9">
+          {busy ? <LoaderIcon className="size-9 animate-spin text-muted-foreground" /> : icon}
+        </span>
         {action && <div className="pointer-events-auto relative z-10 flex items-center gap-1.5">{action}</div>}
       </div>
       <div className="pointer-events-none flex min-w-0 flex-col gap-1">

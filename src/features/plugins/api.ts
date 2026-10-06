@@ -6,6 +6,11 @@ export function resolvePluginSource(input: string) {
   return invoke<PluginSource>("plugins_resolve", { input });
 }
 
+/** Example plugin folder next to the app (works before GitHub has the same files). */
+export function examplePluginDir(name: string) {
+  return invoke<string | null>("plugins_example_dir", { name });
+}
+
 /**
  * What a source offers. `overlay` is a marketplace's entry for the plugin,
  * which may describe parts its own manifest leaves out.

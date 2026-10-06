@@ -1,84 +1,84 @@
 import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubItem,
-  SidebarRail,
-  useSidebar,
+    Sidebar,
+    SidebarContent,
+    SidebarGroup,
+    SidebarGroupContent,
+    SidebarHeader,
+    SidebarMenu,
+    SidebarMenuItem,
+    SidebarMenuSub,
+    SidebarMenuSubItem,
+    SidebarRail,
+    useSidebar,
 } from "@/components/animate-ui/components/radix/sidebar";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/animate-ui/primitives/radix/collapsible";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/animate-ui/primitives/radix/dropdown-menu";
-import { SidebarTokenFooter } from "./sidebar-token-footer";
-import { Button } from "@/components/ui/button";
 import { Checkbox, CheckboxIndicator } from "@/components/animate-ui/primitives/radix/checkbox";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from "@/components/animate-ui/primitives/radix/collapsible";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/animate-ui/primitives/radix/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
-  deleteChats,
-  getRuns,
-  isListedChat,
-  newChatHomeUrl,
-  TEMPORARY_CHAT_QUERY,
-  sessionMode,
-  useChatRuns,
-  useChatSessions,
-  type ChatSession,
+    deleteChats,
+    getRuns,
+    isListedChat,
+    newChatHomeUrl,
+    sessionMode,
+    TEMPORARY_CHAT_QUERY,
+    useChatRuns,
+    useChatSessions,
+    type ChatSession,
 } from "@/features/chat-history";
-import { useInboxAttention } from "@/features/tasks";
+import { useTranslation } from "@/features/i18n";
 import { usePlugins } from "@/features/plugins";
+import { useInboxAttention } from "@/features/tasks";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import {
-  BotIcon,
-  ChartColumnIcon,
-  CheckSquareIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
-  CodeXmlIcon,
-  FilesIcon,
-  FolderKanbanIcon,
-  PuzzleIcon,
-  GhostIcon,
-  ImagesIcon,
-  InboxIcon,
-  LayoutGridIcon,
-  MoreVerticalIcon,
-  PlusIcon,
-  SearchIcon,
-  Settings2Icon,
-  SparklesIcon,
-  SquarePenIcon,
-  Trash2Icon,
-  XIcon,
+    BotIcon,
+    ChartColumnIcon,
+    CheckSquareIcon,
+    ChevronDownIcon,
+    ChevronRightIcon,
+    CodeXmlIcon,
+    FilesIcon,
+    FolderKanbanIcon,
+    GhostIcon,
+    ImagesIcon,
+    InboxIcon,
+    LayoutGridIcon,
+    MoreVerticalIcon,
+    PlusIcon,
+    PuzzleIcon,
+    SearchIcon,
+    Settings2Icon,
+    SparklesIcon,
+    SquarePenIcon,
+    Trash2Icon,
+    XIcon,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { useTranslation } from "@/features/i18n";
-import { ChatHistoryItem } from "./chat-history-item";
 import { ActiveIndicatorList } from "./active-indicator";
+import { ChatHistoryItem } from "./chat-history-item";
 import { sidebarItemClass } from "./sidebar-styles";
+import { SidebarTokenFooter } from "./sidebar-token-footer";
 
 const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 /** "⌘1" on a Mac, "Ctrl+1" elsewhere. */

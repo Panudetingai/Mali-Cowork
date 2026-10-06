@@ -4,59 +4,59 @@ import { Switch } from "@/components/ui/switch";
 import { useInstructions } from "@/features/instructions";
 import { useInstalledConnectors } from "@/features/mcp";
 import {
-  connectorsItNeeds,
-  defaultTeamModel,
-  forgetInsight,
-  READY_AT,
-  reflectNow,
-  runsOn,
-  setCoachModel,
-  setLearning,
-  dismissProposal,
-  draftFromProposal,
-  freeMascot,
-  ProposalCard,
-  ownerOf,
-  removeTeammate,
-  saveTeammate,
-  setOnTeam,
-  setTeamEnabled,
-  TEAMMATE_TEMPLATES,
-  TOOL_SCOPES,
-  useTeam,
-  useTeamModels,
-  type Proposal,
-  type Teammate,
-  type TeammateDraft,
+    connectorsItNeeds,
+    defaultTeamModel,
+    dismissProposal,
+    draftFromProposal,
+    forgetInsight,
+    freeMascot,
+    ownerOf,
+    ProposalCard,
+    READY_AT,
+    reflectNow,
+    removeTeammate,
+    runsOn,
+    saveTeammate,
+    setCoachModel,
+    setLearning,
+    setOnTeam,
+    setTeamEnabled,
+    TEAMMATE_TEMPLATES,
+    TOOL_SCOPES,
+    useTeam,
+    useTeamModels,
+    type Proposal,
+    type Teammate,
+    type TeammateDraft,
 } from "@/features/team";
-import {
-  AlertTriangleIcon,
-  BookOpenTextIcon,
-  GraduationCapIcon,
-  LoaderIcon,
-  PlusIcon,
-  RefreshCwIcon,
-  Trash2Icon,
-  UsersIcon,
-  XIcon,
-} from "lucide-react";
+import { cn } from "@/lib/utils";
 import { ModelPicker } from "@/pages/chat/components/model-picker";
 import { findModel } from "@/pages/chat/models";
+import {
+    AlertTriangleIcon,
+    BookOpenTextIcon,
+    GraduationCapIcon,
+    LoaderIcon,
+    PlusIcon,
+    RefreshCwIcon,
+    Trash2Icon,
+    UsersIcon,
+    XIcon,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useSettingsSub } from "../route";
 import {
-  PageEnter,
-  SectionHeader,
-  SettingRow,
-  SettingsGroup,
-  SettingsPage,
-  Steps,
-  Tile,
-  TileButton,
-  TileGrid,
+    PageEnter,
+    SectionHeader,
+    SettingRow,
+    SettingsGroup,
+    SettingsPage,
+    Steps,
+    Tile,
+    TileButton,
+    TileGrid,
 } from "../ui";
-import { cn } from "@/lib/utils";
 import { TeammatePage } from "./teammate-page";
 
 export function TeamSettings() {
@@ -192,7 +192,7 @@ export function TeamSettings() {
             onClick={() => newBot()}
             className="mt-2 flex flex-col items-center gap-2 rounded-xl border border-dashed border-border px-6 py-10 text-center transition-colors hover:border-foreground/30 hover:bg-muted/30"
           >
-            <span className="flex size-11 items-center justify-center rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-300">
+            <span className="flex size-11 items-center justify-center rounded-xl bg-muted">
               <PlusIcon className="size-5" />
             </span>
             <span className="text-sm font-medium">No bots yet</span>

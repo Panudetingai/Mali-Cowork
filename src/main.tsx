@@ -46,7 +46,31 @@ if (windowParam === "notch") {
   void startMainWindow();
 }
 
+let mainMounted = false;
+
 async function startMainWindow() {
+  const { invoke, isTauri } = await import("@tauri-apps/api/core");
+  const defer =
+    isTauri() && (await invoke<boolean>("main_defer_boot").catch(() => false));
+
+  if (defer && !mainMounted) {
+    document.documentElement.dataset.mainDeferred = "1";
+    const { checkMainAwake, onMainAwake } = await import("@/features/notch/notch-mode");
+    await checkMainAwake();
+    onMainAwake((awake) => {
+      if (awake) void mountFullMain();
+    });
+    return;
+  }
+
+  await mountFullMain();
+}
+
+async function mountFullMain() {
+  if (mainMounted) return;
+  mainMounted = true;
+  delete document.documentElement.dataset.mainDeferred;
+
   const [
     { BrowserRouter },
     { ErrorBoundary },
@@ -73,22 +97,16 @@ async function startMainWindow() {
     import("./App"),
   ]);
   void applyWindowChrome();
-  // Chats and projects come from SQLite, and keys from the keychain, before
-  // the first render, so nothing flashes as missing. A keychain prompt (dev
-  // builds) doesn't hold the window blank: syncs that need keys wait for it.
   const keys = Promise.race([
     loadVault(),
     new Promise((resolve) => setTimeout(resolve, 1500)),
   ]);
-  // Hidden at the start (Mali started at login, in the notch): the pages wait.
   await Promise.allSettled([loadChatHistory(), loadProjects(), keys, checkMainAwake()]);
-  // Register the global notch shortcut and tray mode.
   void applyQuickConfig();
   root().render(
     <React.StrictMode>
       <ErrorBoundary scope="app">
         <ThemeProvider>
-          {/* One provider for every tooltip: Radix's Tooltip throws without it. */}
           <TooltipProvider delayDuration={300}>
             <BrowserRouter>
               <App />
