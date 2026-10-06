@@ -64,11 +64,9 @@ sysinfo = "0.39"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
-# macOSPrivateApi in tauri.macos.conf.json; must not be enabled on Windows builds.
-[target.'cfg(target_os = "macos")'.dependencies.tauri]
-features = ["macos-private-api"]
-
 [target.'cfg(target_os = "macos")'.dependencies]
+# macOSPrivateApi in tauri.macos.conf.json; merged with [dependencies].tauri on macOS only.
+tauri = { version = "2", features = ["macos-private-api"] }
 keyring = { version = "3", features = ["apple-native"] }
 # Action buttons on notifications: the notification plugin only carries
 # title/body/sound on desktop. Already in the tree, under notify-rust.
