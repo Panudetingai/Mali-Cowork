@@ -30,6 +30,7 @@ function inferBrandLogo(raw: string): string | undefined {
   if (/nvidia|nemotron/.test(slug)) return "nvidia";
   if (/amazon|bedrock|nova/.test(slug)) return "amazon-bedrock";
   if (/microsoft|phi-|azure/.test(slug)) return "azure";
+  if (/kili|kili-ai/.test(slug)) return "kili";
   if (/muse-spark|composer|claude-fable|claude-opus|claude-sonnet|gpt-5\.|gemini-/.test(tail)) {
     if (/claude|fable|opus|sonnet/.test(tail)) return "anthropic";
     if (/gpt|composer|o[0-9]/.test(tail)) return "openai";

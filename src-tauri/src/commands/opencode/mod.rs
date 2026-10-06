@@ -32,7 +32,7 @@ use instances::lease as lease_instance;
 pub use commands::{
     opencode_abort, opencode_check, opencode_default_cwd, opencode_delete_session,
     opencode_generate, opencode_list_models, opencode_permission_reply, opencode_question_reply,
-    opencode_set_auth, opencode_warm,
+    opencode_set_auth, opencode_shutdown, opencode_warm,
 };
 pub use providers::opencode_configure_providers;
 pub use server::ensure_server as warm_up_server;

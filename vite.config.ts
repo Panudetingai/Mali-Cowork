@@ -14,6 +14,12 @@ export default defineConfig(() => ({
   build: {
     sourcemap: false,
   },
+  // @floating-ui/react-dom is pulled in by several packages at different versions;
+  // pre-bundling it often leaves a stale hashed file in `.vite/deps`. Skip it.
+  optimizeDeps: {
+    exclude: ["@floating-ui/react-dom"],
+    include: ["@floating-ui/react", "@floating-ui/dom", "@floating-ui/core"],
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

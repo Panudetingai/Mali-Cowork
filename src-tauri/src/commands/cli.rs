@@ -26,6 +26,9 @@ pub struct CliRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomCli {
+    /// What the user calls it, for error messages.
+    #[serde(default)]
+    pub name: Option<String>,
     /// The program, by name on PATH or by full path.
     pub command: String,
     /// Arguments, one per entry; `{prompt}` is replaced with the prompt, and
@@ -112,16 +115,11 @@ fn resolve_bin(bin: &str) -> Option<String> {
             return Some(candidates[0].clone());
         }
     }
+    // PATH plus the folders installers use (Homebrew, ~/.npm-global, …),
+    // which a GUI app's short PATH misses.
     #[cfg(not(windows))]
-    {
-        if let Ok(out) = crate::commands::process::std_command("which").arg(bin).output() {
-            if out.status.success() {
-                let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if !p.is_empty() && std::path::Path::new(&p).exists() {
-                    return Some(p);
-                }
-            }
-        }
+    if let Some(p) = super::setup::find_tool(bin) {
+        return Some(p.to_string_lossy().into_owned());
     }
 
     if let Ok(path_var) = std::env::var("PATH") {
@@ -175,30 +173,11 @@ fn build_command(bin_path: &str, args: &[String]) -> Command {
     super::process::command(bin_path, &args)
 }
 
+/// The user's PATH plus installer folders, so a Node-based CLI finds `node`
+/// even when the app was opened from the Dock.
 fn augment_path_for_child(cmd: &mut Command) {
-    if let Ok(cur) = std::env::var("PATH") {
-        #[cfg(windows)]
-        {
-            let home = std::env::var("USERPROFILE").unwrap_or_default();
-            let appdata = std::env::var("APPDATA").unwrap_or_default();
-            let extras = vec![
-                format!(r"{appdata}\npm"),
-                format!(r"{home}\.bun\bin"),
-                format!(r"{home}\AppData\Local\cursor-agent"),
-                format!(r"C:\Program Files\nodejs"),
-            ];
-            let mut new_path = cur.clone();
-            for e in extras { if !cur.contains(&e) && std::path::Path::new(&e).exists() { new_path.push(';'); new_path.push_str(&e); } }
-            cmd.env("PATH", new_path);
-        }
-        #[cfg(not(windows))]
-        {
-            let home = std::env::var("HOME").unwrap_or_default();
-            let extras = vec![format!("{home}/.bun/bin"), format!("{home}/.local/bin")];
-            let mut new_path = cur.clone();
-            for e in extras { if !cur.contains(&e) && std::path::Path::new(&e).exists() { new_path.push(':'); new_path.push_str(&e); } }
-            cmd.env("PATH", new_path);
-        }
+    if let Some(path) = super::setup::child_path() {
+        cmd.env("PATH", path);
     }
 }
 
@@ -343,6 +322,10 @@ pub async fn cli_generate(
     eprintln!("[cli] spawning: {bin_path} {:?}", args);
 
     let (mut child, _tree) = super::supervisor::spawn(&mut cmd, "cli agent").map_err(|e| {
+        if let Some(custom) = request.custom.as_ref() {
+            let name = custom_name(custom);
+            return format!("{name} isn't installed on this computer (couldn't start `{bin}`: {e}). Open Settings → Models → {name} and press Install.");
+        }
         let path = std::env::var("PATH").unwrap_or_default();
         format!("Failed to spawn `{bin}` (resolved: `{bin_path}`): {e}\nPATH={path}\nแก้: where.exe {bin} / ตั้ง {bin}_BIN")
     })?;
@@ -369,6 +352,12 @@ pub async fn cli_generate(
     let mut last_metadata: Option<ChatStreamEvent> = None;
     let mut text_accum = String::new();
     let mut reasoning_accum = String::new();
+    // User-added CLIs (Kilo, etc.) use their own id as `agent`; pick a parser from the command.
+    let stream_kind = request
+        .custom
+        .as_ref()
+        .and_then(custom_stream_profile)
+        .unwrap_or(request.agent.as_str());
 
     while let Ok(Some(line)) = stdout_reader.next_line().await {
         if line.trim().is_empty() { continue; }
@@ -377,14 +366,14 @@ pub async fn cli_generate(
         if line.trim_start().starts_with('{') {
             if let Ok(v) = serde_json::from_str::<Value>(&line) {
                 let typ = v.get("type").and_then(|x| x.as_str()).unwrap_or("");
-                let is_control = match request.agent.as_str() {
+                let is_control = match stream_kind {
                     "cursor" => matches!(typ, "system" | "user" | "thinking" | "assistant" | "result" | "tool_call" | "tool_result"),
                     "opencode" => matches!(typ, "system" | "step_start" | "step_finish" | "text" | "reasoning" | "tool_use" | "tool_result" | "file" | "permission"),
                     "codex" => matches!(typ, "item.completed" | "item.started" | "thread.started"),
                     _ => false,
                 };
 
-                let event = match request.agent.as_str() {
+                let event = match stream_kind {
                     "cursor" => parse_cursor_line(&v),
                     "opencode" => parse_opencode_line(&v),
                     "codex" => parse_codex_line(&v),
@@ -424,7 +413,7 @@ pub async fn cli_generate(
         // fallback: plain text line (ไม่ใช่ JSON)
         has_output = true;
         text_accum.push_str(&line); text_accum.push('\n');
-        let text = if request.agent == "codex" {
+        let text = if stream_kind == "codex" {
             parse_codex_line(&Value::String(line.clone())).map(|ev| if let ChatStreamEvent::Chunk { text } = ev { text } else { line.clone() + "\n" }).unwrap_or_else(|| line.clone() + "\n")
         } else {
             line.clone() + "\n"
@@ -439,6 +428,12 @@ pub async fn cli_generate(
     let stderr_text = stderr_lines.join("\n");
 
     if !status.success() {
+        // A CLI the user added stands on its own: explain its failure in its
+        // own terms, without hints about the built-in agents.
+        if let Some(custom) = request.custom.as_ref() {
+            let _ = on_event.send(ChatStreamEvent::Error { message: custom_failure(custom, &stderr_lines, &text_accum) });
+            return Ok(());
+        }
         // ถึงแม้ exit 1 ก็ส่ง metadata ที่เก็บไว้ไปแล้ว ให้ UI เห็น reasoning/usage
         // แต่ต้องส่ง Error ที่มี context ครบให้ user debug ได้
         let mut msg = format!("Agent `{bin}` exited with {status}");
@@ -474,9 +469,53 @@ pub async fn cli_generate(
     Ok(())
 }
 
+fn custom_name(custom: &CustomCli) -> String {
+    custom
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| custom.command.trim().to_string())
+}
+
+/// A failed run of a user-added CLI in words: what to do first, then the
+/// CLI's own last lines.
+fn custom_failure(custom: &CustomCli, stderr: &[String], stdout: &str) -> String {
+    let name = custom_name(custom);
+    let output = if stderr.is_empty() { stdout.to_string() } else { stderr.join("\n") };
+    let lower = output.to_ascii_lowercase();
+    let advice = if lower.contains("model not found") || lower.contains("unknown model") || lower.contains("invalid model") {
+        format!("{name} doesn't offer this model. Open Settings → Models → {name}, press Refresh list, then pick a model again.")
+    } else if ["unauthorized", "not logged in", "not authenticated", "login required", "please log in", "sign in", "api key", "401"]
+        .iter()
+        .any(|k| lower.contains(k))
+    {
+        format!("{name} needs you to sign in. Open Settings → Models → {name} and press Sign in.")
+    } else if ["quota", "rate limit", "insufficient", "credit", "402", "429"].iter().any(|k| lower.contains(k)) {
+        format!("{name} says this account is out of credits or rate-limited. Try a free model or wait a bit.")
+    } else {
+        format!("{name} stopped with an error.")
+    };
+    let tail: Vec<&str> = output.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let tail = tail[tail.len().saturating_sub(8)..].join("\n");
+    if tail.is_empty() {
+        advice
+    } else {
+        format!("{advice}\n\n— {name} said —\n{tail}")
+    }
+}
+
 fn _unused_parse_codex_json_line(line: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(line).ok()?;
     v.get("item")?.get("text")?.as_str().map(|s| s.to_string() + "\n")
+}
+
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomCliModel {
+    pub id: String,
+    pub name: String,
 }
 
 #[derive(serde::Serialize)]
@@ -486,6 +525,161 @@ pub struct CliCheckResult {
     pub version: Option<String>,
     pub path: Option<String>,
     pub error: Option<String>,
+}
+
+/// Which built-in parser understands this custom CLI's stdout (Kilo ≈ OpenCode JSON).
+fn custom_stream_profile(custom: &CustomCli) -> Option<&'static str> {
+    let stem = command_stem(&custom.command);
+    let args = custom.args.join(" ").to_ascii_lowercase();
+    if args.contains("--format json") || args.contains("--output-format stream-json") {
+        return match stem.as_str() {
+            "cursor-agent" | "cursor" => Some("cursor"),
+            "codex" => Some("codex"),
+            "kilo" | "opencode" => Some("opencode"),
+            _ => Some("opencode"),
+        };
+    }
+    if args.contains("--json") && stem == "codex" {
+        return Some("codex");
+    }
+    None
+}
+
+fn command_stem(command: &str) -> String {
+    std::path::Path::new(command)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(command)
+        .to_ascii_lowercase()
+}
+
+fn list_model_arg_sets(stem: &str) -> Vec<Vec<&'static str>> {
+    match stem {
+        "cursor-agent" | "cursor" => vec![vec!["--list-models"]],
+        "codex" => vec![vec!["debug", "models"], vec!["models"]],
+        "agy" | "antigravity" => vec![vec!["models"]],
+        "aider" => vec![],
+        _ => vec![
+            vec!["models"],
+            vec!["model", "list"],
+            vec!["--list-models"],
+            vec!["debug", "models"],
+        ],
+    }
+}
+
+fn display_name_for_model(id: &str) -> String {
+    id.rsplit('/').next().unwrap_or(id).replace('-', " ")
+}
+
+fn looks_like_model_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 120
+        && !id.contains(char::is_whitespace)
+        && id.chars().any(|c| c.is_ascii_alphanumeric())
+        && !id.starts_with("Usage:")
+        && !id.starts_with("When using")
+}
+
+/// Cursor-style `"id - Name"`, OpenCode/Kilo `provider/model`, or JSON catalog.
+/// Ids are kept whole: in `kilo/poolside/laguna`, `kilo` is the provider, and
+/// the CLI rejects the model without it.
+fn parse_cli_models(output: &str) -> Vec<CustomCliModel> {
+    if let Some(models) = parse_json_model_catalog(output) {
+        return models;
+    }
+    let mut out = Vec::new();
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with("When using") || line.starts_with("Update your") {
+            continue;
+        }
+        if let Some((id, name)) = line.split_once(" - ") {
+            let id = id.trim();
+            let name = name.trim();
+            if looks_like_model_id(id) {
+                out.push(CustomCliModel {
+                    id: id.to_string(),
+                    name: if name.is_empty() { display_name_for_model(id) } else { name.to_string() },
+                });
+            }
+            continue;
+        }
+        let id = line;
+        if looks_like_model_id(id) {
+            out.push(CustomCliModel {
+                id: id.to_string(),
+                name: display_name_for_model(id),
+            });
+        }
+    }
+    out
+}
+
+fn parse_json_model_catalog(output: &str) -> Option<Vec<CustomCliModel>> {
+    let start = output.find('{')?;
+    let catalog: Value = serde_json::from_str(output[start..].trim()).ok()?;
+    let entries = catalog["models"].as_array()?;
+    let models: Vec<CustomCliModel> = entries
+        .iter()
+        .filter(|m| m["visibility"].as_str().is_none_or(|v| v == "list"))
+        .filter_map(|m| {
+            let id = m["slug"].as_str().or_else(|| m["id"].as_str())?.trim();
+            if id.is_empty() {
+                return None;
+            }
+            let name = m["display_name"]
+                .as_str()
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| display_name_for_model(id));
+            Some(CustomCliModel {
+                id: id.to_string(),
+                name,
+            })
+        })
+        .collect();
+    (!models.is_empty()).then_some(models)
+}
+
+/// Ask a user-added CLI which models it supports (`kilo models`, `codex debug models`, …).
+#[tauri::command]
+pub async fn custom_cli_list_models(command: String) -> Result<Vec<CustomCliModel>, String> {
+    let command = command.trim();
+    if command.is_empty() || command.contains(['\n', '\r', '\0']) {
+        return Err("No command to list models for.".into());
+    }
+    let path = resolve_bin(command).ok_or_else(|| format!("{command} not found in PATH"))?;
+    let stem = command_stem(command);
+    let mut last_err = None;
+    for args in list_model_arg_sets(&stem) {
+        let arg_strings: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        let mut cmd = build_command(&path, &arg_strings);
+        augment_path_for_child(&mut cmd);
+        cmd.kill_on_drop(true);
+        let output = tokio::time::timeout(std::time::Duration::from_secs(20), cmd.output())
+            .await
+            .map_err(|_| "Listing models timed out".to_string())?
+            .map_err(|e| e.to_string())?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = if stdout.trim().is_empty() {
+            stderr.to_string()
+        } else {
+            stdout.to_string()
+        };
+        let models = parse_cli_models(&combined);
+        if !models.is_empty() {
+            return Ok(models);
+        }
+        if !output.status.success() || !combined.trim().is_empty() {
+            last_err = Some(combined.trim().chars().take(400).collect());
+        }
+    }
+    Err(last_err.unwrap_or_else(|| {
+        "This CLI did not list any models. Sign in to it in Terminal first, then try again.".into()
+    }))
 }
 
 #[tauri::command]
@@ -538,7 +732,43 @@ mod tests {
     use super::*;
 
     fn cli(command: &str, args: &[&str]) -> CustomCli {
-        CustomCli { command: command.into(), args: args.iter().map(|a| a.to_string()).collect() }
+        CustomCli { name: None, command: command.into(), args: args.iter().map(|a| a.to_string()).collect() }
+    }
+
+    #[test]
+    fn kilo_json_profile_uses_opencode_parser() {
+        let cli = cli("kilo", &["run", "{prompt}", "--format", "json"]);
+        assert_eq!(custom_stream_profile(&cli), Some("opencode"));
+    }
+
+    #[test]
+    fn kilo_models_keep_their_provider() {
+        let out = "kilo/~anthropic/claude-sonnet-latest\nkilo/poolside/laguna-s-2.1:free\n";
+        let models = parse_cli_models(out);
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "kilo/~anthropic/claude-sonnet-latest");
+        assert_eq!(models[1].id, "kilo/poolside/laguna-s-2.1:free", "`kilo run --model` needs the `kilo/` provider");
+    }
+
+    #[test]
+    fn custom_failures_say_what_to_do() {
+        let kilo = CustomCli { name: Some("Kilo CLI".into()), ..cli("kilo", &[]) };
+        let err = ["Error: Model not found: poolside/laguna-s-2.1:free. Did you mean: poolside/laguna-m.1?".to_string()];
+        let msg = custom_failure(&kilo, &err, "");
+        assert!(msg.starts_with("Kilo CLI doesn't offer this model."), "{msg}");
+        assert!(msg.contains("Model not found"), "keeps the CLI's own words");
+        assert!(!msg.contains("cursor-agent") && !msg.contains("opencode"), "no hints about other agents");
+        let msg = custom_failure(&kilo, &["Error: Unauthorized (401)".into()], "");
+        assert!(msg.contains("sign in"), "{msg}");
+    }
+
+    #[test]
+    fn cursor_style_lines_parse() {
+        let out = "gpt-5.3-codex - Codex 5.3\nAvailable models\n";
+        let models = parse_cli_models(out);
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "gpt-5.3-codex");
+        assert_eq!(models[0].name, "Codex 5.3");
     }
 
     #[test]

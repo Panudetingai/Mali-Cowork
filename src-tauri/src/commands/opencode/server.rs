@@ -112,6 +112,11 @@ async fn stop(mut running: Running) {
 
 /// Stop the running server so the next call starts one with fresh config.
 pub async fn restart() {
+    shutdown().await;
+}
+
+/// Stop the warm server when the user turns OpenCode off in Settings.
+pub async fn shutdown() {
     if let Some(running) = state().lock().await.take() {
         stop(running).await;
     }

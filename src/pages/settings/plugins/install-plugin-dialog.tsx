@@ -26,7 +26,7 @@ import {
     ChevronRightIcon,
     FileTextIcon,
     LayoutPanelLeftIcon,
-    Loader,
+    Loader2,
     NotebookPenIcon,
     PackageIcon,
     PlugIcon,
@@ -168,7 +168,7 @@ export function InstallPluginDialog({
                     <ModelPicker
                       appearance="field"
                       models={models}
-                      selected={findModel(models, modelId)}
+                      selected={modelId ? findModel(models, modelId) : models[0]!}
                       onSelect={(model) => setModelId(model.id)}
                     />
                   </div>
@@ -240,7 +240,7 @@ export function InstallPluginDialog({
             Cancel
           </Button>
           <Button type="button" onClick={install} disabled={busy || needsModel || (total === 0 && !isUpdate)} className="gap-1.5">
-            {busy && <Loader className="size-4 animate-spin" />}
+            {busy && <Loader2 className="size-4 animate-spin" />}
             {busy ? (isUpdate ? "Updating…" : "Installing…") : isUpdate ? "Update" : "Install"}
           </Button>
         </DialogFooter>

@@ -104,7 +104,7 @@ fn brew(tool: &str, formula: &str) -> Recipe {
 
 /// `npm install -g`, into `~/.npm-global` when npm's own folder needs admin
 /// rights (Node from the nodejs.org installer), so no password is asked.
-fn npm(tool: &str, package: &str, user_prefix: bool) -> Recipe {
+pub fn npm(tool: &str, package: &str, user_prefix: bool) -> Recipe {
     let mut args: Vec<String> = ["install", "-g", package, "--no-fund", "--no-audit"].map(String::from).to_vec();
     let mut display = format!("npm install -g {package}");
     if user_prefix {

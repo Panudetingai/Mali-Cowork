@@ -83,9 +83,9 @@ html[lang="th"] {
   /* Primary actions — same neutral CTA as onboarding */
   --primary: oklch(0.205 0.006 285);
   --primary-foreground: oklch(0.985 0 0);
-  /* Mali yellow — nav accent, charts, brand moments */
-  --brand: oklch(0.852 0.199 91.936);
-  --brand-foreground: oklch(0.421 0.095 57.708);
+  /* Brand accents follow primary (neutral black / white) */
+  --brand: var(--primary);
+  --brand-foreground: var(--primary-foreground);
   --secondary: oklch(0.967 0.001 286.375);
   --secondary-foreground: oklch(0.21 0.006 285.885);
   --muted: oklch(0.966 0.005 106.5);
@@ -96,16 +96,16 @@ html[lang="th"] {
   --border: oklch(0.93 0.007 106.5);
   --input: oklch(0.93 0.007 106.5);
   --ring: oklch(0.737 0.021 106.9);
-  --chart-1: oklch(0.905 0.182 98.111);
-  --chart-2: oklch(0.795 0.184 86.047);
-  --chart-3: oklch(0.681 0.162 75.834);
-  --chart-4: oklch(0.554 0.135 66.442);
-  --chart-5: oklch(0.476 0.114 61.907);
+  --chart-1: oklch(0.35 0 0);
+  --chart-2: oklch(0.45 0 0);
+  --chart-3: oklch(0.55 0 0);
+  --chart-4: oklch(0.65 0 0);
+  --chart-5: oklch(0.75 0 0);
   /* Sidebar shell — same tone as titlebar left zone */
   --sidebar: oklch(0.97 0.003 106.5);
   --sidebar-foreground: oklch(0.153 0.006 107.1);
-  --sidebar-primary: var(--brand);
-  --sidebar-primary-foreground: var(--brand-foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
   --sidebar-accent: oklch(0.935 0.005 106.5);
   --sidebar-accent-foreground: oklch(0.228 0.013 107.4);
   --sidebar-border: oklch(0.93 0.007 106.5);
@@ -138,8 +138,8 @@ html[lang="th"] {
   --chart-5: oklch(0.269 0 0);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
@@ -170,10 +170,18 @@ html[lang="th"] {
     isolation: isolate;
     /* Fixed sidebar/titlebar layers sit in the viewport unless #root is the containing block. */
     transform: translateZ(0);
+    transition:
+      border-radius 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
   }
   html[data-window-maximized="true"] #root {
     border-radius: 0;
     transform: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #root {
+      transition: none;
+    }
   }
   /* Quick bar (macOS: transparent window): the card inside draws the frame and shadow. */
   html[data-window="quick"] #root {
@@ -667,8 +675,8 @@ html[lang="th"] {
 @layer utilities {
   .bg-mali-ambient {
     background-image:
-      radial-gradient(ellipse 85% 55% at 50% -15%, rgba(186, 230, 253, 0.38), transparent 58%),
-      radial-gradient(ellipse 65% 45% at 100% 100%, rgba(251, 207, 232, 0.28), transparent 52%),
-      radial-gradient(ellipse 55% 40% at 0% 85%, rgba(233, 213, 255, 0.26), transparent 50%);
+      radial-gradient(ellipse 85% 55% at 50% -15%, rgba(15, 15, 15, 0.04), transparent 58%),
+      radial-gradient(ellipse 65% 45% at 100% 100%, rgba(15, 15, 15, 0.03), transparent 52%),
+      radial-gradient(ellipse 55% 40% at 0% 85%, rgba(15, 15, 15, 0.025), transparent 50%);
   }
 }

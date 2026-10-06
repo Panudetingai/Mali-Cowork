@@ -97,6 +97,8 @@ async function mountFullMain() {
     import("./App"),
   ]);
   void applyWindowChrome();
+  const { resetMainRootClip } = await import("@/features/notch/notch-mode");
+  resetMainRootClip();
   const keys = Promise.race([
     loadVault(),
     new Promise((resolve) => setTimeout(resolve, 1500)),

@@ -289,6 +289,9 @@ function GroupProviderIcon({ group, className }: { group: Group; className?: str
   const sample = group.items[0];
   // Host first: a DeepSeek model on Ollama Cloud must still show Ollama.
   // The model's family art belongs on its own row (ModelBrandIcon), not here.
+  if (sample?.iconUrl) {
+    return <ProviderLogo logo="terminal" name={group.label} imageUrl={sample.iconUrl} className={className} size={16} />;
+  }
   const logo =
     CLI_GROUP_LOGO[group.label] ??
     allProviders().find((p) => p.name === group.label)?.logo ??

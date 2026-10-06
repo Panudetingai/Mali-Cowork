@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { goToNotchMode } from "@/features/notch";
 import { cn } from "@/lib/utils";
+import { toggleFillScreen } from "@/lib/window-chrome";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
     ChevronLeft,
@@ -50,17 +51,14 @@ export function Titlebar() {
       if (!isTauri()) alert("Minimize — ใช้ได้เฉพาะใน Tauri (bun tauri dev)");
     }
   };
-  const handleMaximize = async () => {
-    try {
-      const win = getCurrentWindow();
-      const max = await win.isMaximized();
-      if (max) await win.unmaximize();
-      else await win.maximize();
-    } catch (e) {
-      console.log("maximize (browser preview):", e);
-      setIsMaximized((v) => !v);
-      if (!isTauri()) alert("Maximize — ใช้ได้เฉพาะใน Tauri");
+  const handleMaximize = () => {
+    if (!isTauri()) {
+      alert("Maximize — ใช้ได้เฉพาะใน Tauri (bun tauri dev)");
+      return;
     }
+    void toggleFillScreen()
+      .then(setIsMaximized)
+      .catch((e) => console.warn("[titlebar] maximize failed", e));
   };
   const handleClose = async () => {
     try {
@@ -74,7 +72,7 @@ export function Titlebar() {
   return (
     <div
       className={cn(
-        "relative z-50 flex h-(--titlebar-height) w-full shrink-0 select-none items-stretch",
+        "relative z-50 flex h-(--titlebar-height) w-full shrink-0 select-none items-stretch transition-[border-radius] duration-320 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
         !isMaximized && "rounded-t-(--window-radius)",
       )}
       style={{ height: "var(--titlebar-height)" }}
