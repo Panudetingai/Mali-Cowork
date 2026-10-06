@@ -7,7 +7,9 @@ import { stripPluginCommandPrefix } from "./parse";
  * `/plugin install ponytail@ponytail` — plugin name @ saved marketplace name.
  * Everything else goes through `plugins_resolve` (owner/repo, links, folders).
  */
-export async function fetchPluginFromChatInput(input: string): Promise<PluginFetch & { marketplace?: string; overlay?: Record<string, unknown> }> {
+export async function fetchPluginFromChatInput(
+  input: string,
+): Promise<PluginFetch & { marketplaceName?: string; overlay?: Record<string, unknown> }> {
   const rest = stripPluginCommandPrefix(input);
   const marketRef = rest.match(/^([^/@\s]+)@([^/@\s]+)$/);
   if (marketRef && !rest.includes("/")) {
@@ -27,7 +29,7 @@ export async function fetchPluginFromChatInput(input: string): Promise<PluginFet
       throw new Error(`“${marketName}” has no plugin called “${pluginName}”.`);
     }
     const fetched = await fetchPlugin(entry.source, entry.entry ?? undefined);
-    return { ...fetched, marketplace: market.name, overlay: entry.entry ?? undefined };
+    return { ...fetched, marketplaceName: market.name, overlay: entry.entry ?? undefined };
   }
 
   const source = await resolvePluginSource(input);

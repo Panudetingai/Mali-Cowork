@@ -55,10 +55,10 @@ async function startMainWindow() {
 
   if (defer && !mainMounted) {
     document.documentElement.dataset.mainDeferred = "1";
-    const { checkMainAwake, onMainAwake } = await import("@/features/notch/notch-mode");
+    const { checkMainAwake, onMainAwake, mainAwake } = await import("@/features/notch/notch-mode");
     await checkMainAwake();
-    onMainAwake((awake) => {
-      if (awake) void mountFullMain();
+    onMainAwake(() => {
+      if (mainAwake()) void mountFullMain();
     });
     return;
   }

@@ -59,7 +59,7 @@ export function ChatInstallDialog() {
           if (!live) return;
           if (fetched.plugin) {
             pluginInstaller.review(fetched.plugin, {
-              marketplace: fetched.marketplace,
+              marketplace: fetched.marketplaceName,
               overlay: fetched.overlay,
             });
           } else if (fetched.marketplace) {

@@ -5,9 +5,9 @@
 import { CoworkBot } from "@/components/anim/cowork-bot";
 import { useCustomClis } from "@/features/custom-cli";
 import { useResolvedBot } from "@/features/bot-studio/resolve";
+import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useAntigravity } from "@/features/antigravity";
-import { useResolvedBot } from "@/features/bot-studio/resolve";
 import { useCoworkBot } from "@/features/cowork-bot";
 import { useCursor } from "@/features/cursor";
 import {
