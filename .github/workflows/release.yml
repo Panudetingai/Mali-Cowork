@@ -66,6 +66,18 @@ jobs:
         with:
           workspaces: src-tauri
 
+      # Catch sidecar / lib compile errors before the long Tauri build (e.g. bad sysinfo API use).
+      - name: Cargo check (lib and mali-mcp-runner)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo check --manifest-path src-tauri/Cargo.toml --lib --bins
+          if [[ "${{ matrix.platform }}" == macos-latest ]]; then
+            for t in aarch64-apple-darwin x86_64-apple-darwin; do
+              cargo check --manifest-path src-tauri/Cargo.toml --bin mali-mcp-runner --target "$t"
+            done
+          fi
+
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
