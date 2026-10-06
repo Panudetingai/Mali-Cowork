@@ -23,12 +23,10 @@ path = "src/bin/mcp_runner.rs"
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
-[features]
-# Enabled on macOS via tauri.macos.conf.json `build.features` (tauri-build reads [dependencies] only).
-macos-private-api = ["tauri/macos-private-api"]
-
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+# macOSPrivateApi is set in tauri.macos.conf.json; tauri.windows.conf.json sets it too so
+# tauri-build's allowlist check passes on Windows (feature is unused there at runtime).
+tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
