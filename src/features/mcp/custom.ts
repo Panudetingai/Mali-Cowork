@@ -27,6 +27,8 @@ export type CustomMcp = {
   };
   /** Settings the server takes, so they can be edited later. */
   envVars?: McpEnvVar[];
+  /** The plugin that brought it (see `features/plugins`). */
+  plugin?: string;
 };
 
 export const CUSTOM_PREFIX = "custom-";

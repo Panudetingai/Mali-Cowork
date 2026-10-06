@@ -19,6 +19,7 @@ import {
   UsersIcon,
   AudioLinesIcon,
   Package,
+  PuzzleIcon,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { useNavigate } from "react-router-dom";
@@ -30,6 +31,7 @@ import { McpTabIcon } from "./mcp/mcp-icon";
 import { McpSettings } from "./mcp/mcp-settings";
 import { ModelsSettings } from "./models-settings";
 import { NotchSettings } from "./notch-settings";
+import { PluginsSettings } from "./plugins/plugins-settings";
 import { ReceiptSettings } from "./receipt-settings";
 import { SkillsSettings } from "./skills/skills-settings";
 import { TeamSettings } from "./team/team-settings";
@@ -54,6 +56,7 @@ const TABS = [
   { id: "skills", label: "tabSkills", description: "tabSkillsDesc", icon: Package },
   { id: "team", label: "tabTeam", description: "tabTeamDesc", icon: UsersIcon },
   { id: "templates", label: "tabTemplates", description: "tabTemplatesDesc", icon: FileTextIcon },
+  { id: "plugins", label: "tabPlugins", description: "tabPluginsDesc", icon: PuzzleIcon },
   { id: "mcp", label: "tabMcp", description: "tabMcpDesc", lobeMcp: true as const, group: "settingsGroupWorkspace" },
   { id: "folders", label: "tabFolders", description: "tabFoldersDesc", icon: FolderIcon },
 ] as const satisfies readonly {
@@ -182,6 +185,11 @@ export default function SettingsPage() {
             <TabPanel>
               <Enter>
                 <TemplatesSettings />
+              </Enter>
+            </TabPanel>
+            <TabPanel>
+              <Enter>
+                <PluginsSettings />
               </Enter>
             </TabPanel>
             <TabPanel>

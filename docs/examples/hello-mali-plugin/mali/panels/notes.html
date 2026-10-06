@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Quick notes</title>
+<style>
+  :root { color-scheme: light dark; --bg: #fff; --fg: #18181b; --muted: #71717a; --line: #e4e4e7; --accent: #7c3aed; }
+  :root[data-theme="dark"] { --bg: #09090b; --fg: #fafafa; --muted: #a1a1aa; --line: #27272a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 20px; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, sans-serif; }
+  textarea { width: 100%; min-height: 50vh; padding: 12px; border: 1px solid var(--line); border-radius: 10px;
+             background: transparent; color: inherit; font: inherit; resize: vertical; }
+  .row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  button { padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  p { color: var(--muted); margin: 0 0 12px; }
+</style>
+</head>
+<body>
+<p>Notes stay with this panel. “Ask Mali” opens a Cowork chat with them in the box.</p>
+<textarea id="notes" placeholder="Type notes…"></textarea>
+<div class="row">
+  <button class="primary" id="ask">Ask Mali to tidy these</button>
+  <button id="copy">Copy</button>
+  <span id="status" style="color: var(--muted); align-self: center"></span>
+</div>
+<script>
+  // Talk to Mali by message only: this page has no other way out.
+  const send = (message) => parent.postMessage({ mali: 1, ...message }, "*");
+  const pending = new Map();
+  const request = (type, extra) => new Promise((resolve, reject) => {
+    const id = Math.random().toString(36).slice(2);
+    pending.set(id, { resolve, reject });
+    send({ type, id, ...extra });
+  });
+  const box = document.getElementById("notes");
+  const status = document.getElementById("status");
+
+  window.addEventListener("message", (event) => {
+    const m = event.data;
+    if (!m || m.mali !== 1) return;
+    if (m.type === "init" || m.type === "theme") document.documentElement.dataset.theme = m.theme;
+    if (m.type === "result" && pending.has(m.id)) {
+      const { resolve, reject } = pending.get(m.id);
+      pending.delete(m.id);
+      m.error ? reject(new Error(m.error)) : resolve(m.value);
+    }
+  });
+
+  send({ type: "ready" });
+  request("storage.get").then((saved) => { if (saved && saved.text) box.value = saved.text; });
+
+  let timer;
+  box.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => request("storage.set", { value: { text: box.value } })
+      .then(() => { status.textContent = "Saved"; })
+      .catch((e) => { status.textContent = e.message; }), 400);
+  });
+  document.getElementById("ask").onclick = () =>
+    send({ type: "prompt", mode: "cowork", text: "/meeting-notes\n\n" + box.value });
+  document.getElementById("copy").onclick = () => send({ type: "copy", text: box.value });
+</script>
+</body>
+</html>

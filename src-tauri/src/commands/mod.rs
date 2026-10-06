@@ -24,6 +24,7 @@ pub mod native_alert;
 pub mod smithery;
 pub mod opencode;
 pub mod outputs;
+pub mod plugins;
 pub mod process;
 pub mod notch;
 pub mod preview_image;

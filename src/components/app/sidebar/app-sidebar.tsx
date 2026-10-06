@@ -46,6 +46,7 @@ import {
   type ChatSession,
 } from "@/features/chat-history";
 import { useInboxAttention } from "@/features/tasks";
+import { usePlugins } from "@/features/plugins";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -57,6 +58,7 @@ import {
   CodeXmlIcon,
   FilesIcon,
   FolderKanbanIcon,
+  PuzzleIcon,
   GhostIcon,
   ImagesIcon,
   InboxIcon,
@@ -397,6 +399,7 @@ export function AppSidebar() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const inboxAttention = useInboxAttention();
+  const hasPanels = usePlugins().plugins.some((p) => p.enabled && p.panels.length > 0);
   const sessions = useChatSessions();
   const runs = useChatRuns();
   const [query, setQuery] = useState("");
@@ -577,6 +580,8 @@ export function AppSidebar() {
                 { title: t("outputs"), url: "/outputs", icon: FilesIcon },
                 { title: t("usage"), url: "/usage", icon: ChartColumnIcon },
                 { title: t("projects"), url: "/projects", icon: FolderKanbanIcon },
+                // Only once a plugin brings a page to open.
+                ...(hasPanels ? [{ title: t("plugins"), url: "/plugins", icon: PuzzleIcon }] : []),
                 { title: t("settings"), url: "/settings", icon: Settings2Icon, shortcut: combo(",") },
               ]}
             />

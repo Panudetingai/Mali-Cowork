@@ -39,6 +39,10 @@ export type Teammate = {
   /** Made by the user, or proposed by the lead and taken on. */
   origin: "user" | "lead";
   createdAt: number;
+  /** The plugin that brought it (see `features/plugins`). */
+  plugin?: string;
+  /** Its plugin is turned off: kept, but the lead doesn't call it. */
+  paused?: boolean;
 };
 
 export type TeammateDraft = Omit<Teammate, "id" | "createdAt" | "origin"> & Partial<Pick<Teammate, "id" | "origin">>;
@@ -125,6 +129,8 @@ function reviveMate(value: Partial<Teammate>): Teammate | null {
     onTeam: value.onTeam !== false,
     origin: value.origin === "lead" ? "lead" : "user",
     createdAt: typeof value.createdAt === "number" ? value.createdAt : Date.now(),
+    ...(typeof value.plugin === "string" ? { plugin: value.plugin } : {}),
+    ...(value.paused === true ? { paused: true } : {}),
   };
 }
 
@@ -200,6 +206,19 @@ export function saveTeammate(draft: TeammateDraft) {
 
 export function removeTeammate(id: string) {
   store.set((s) => ({ ...s, mates: s.mates.filter((m) => m.id !== id) }));
+}
+
+/** Pause bots (their plugin was turned off) or bring them back. */
+export function setTeammatesPaused(ids: string[], paused: boolean) {
+  const set = new Set(ids);
+  store.set((s) => ({
+    ...s,
+    mates: s.mates.map((m) => {
+      if (!set.has(m.id)) return m;
+      const { paused: _was, ...rest } = m;
+      return paused ? { ...rest, paused: true } : rest;
+    }),
+  }));
 }
 
 export function setOnTeam(id: string, onTeam: boolean) {

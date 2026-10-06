@@ -14,6 +14,13 @@ export type Skill = {
   via?: "smithery";
   /** Where it lives on disk once installed (see `features/skills`). */
   install?: SkillInstall;
+  /** The plugin that brought it (see `features/plugins`). */
+  plugin?: string;
+  /**
+   * Called by name only (`/name`) — a plugin's slash command. It isn't
+   * listed in every prompt, and while it's off it can't be called either.
+   */
+  slashOnly?: boolean;
 };
 
 /** A skill's folder in the library, written by `skills_install`/`skills_sync`. */
@@ -86,6 +93,22 @@ export function deleteSkill(id: string) {
 /** Keeps the system prompt from crowding out the conversation. */
 const MAX_CHARS = 12_000;
 
+/**
+ * More instructions from elsewhere — a plugin's, while it's on. Registered
+ * rather than imported, since what provides them depends on this module.
+ */
+const extraSources = new Set<() => string | undefined>();
+
+export function addInstructionSource(source: () => string | undefined): () => void {
+  extraSources.add(source);
+  return () => void extraSources.delete(source);
+}
+
+/** A skill that can be called right now. */
+function callable(skill: Skill) {
+  return !skill.slashOnly || skill.enabled;
+}
+
 const USE_WHEN = "the task calls for it";
 
 /**
@@ -108,6 +131,11 @@ export function buildInstructions(
   const custom = state.custom.trim();
   if (custom) sections.push(`# Instructions from the user\n${custom}`);
 
+  for (const source of extraSources) {
+    const text = source()?.trim();
+    if (text) sections.push(text);
+  }
+
   if (project) {
     const about = [
       `This chat is part of the project “${project.name.trim()}”.`,
@@ -117,8 +145,9 @@ export function buildInstructions(
     sections.push(`# Project: ${project.name.trim()}\n${about.join("\n\n")}`);
   }
 
+  // Slash commands come along only when they're called (see `skillsInPrompt`).
   const skills = [...(project?.skills ?? []), ...state.skills].filter(
-    (k) => k.enabled && k.name.trim() && k.instructions.trim(),
+    (k) => k.enabled && !k.slashOnly && k.name.trim() && k.instructions.trim(),
   );
   if (skills.length === 0) return sections.join("\n\n");
 
@@ -273,7 +302,7 @@ export function skillsInPrompt(text: string, skills: Skill[] = store.get().skill
   const found: Skill[] = [];
   for (const match of text.matchAll(/(?:^|\s)[/\\]([^\s/\\]+)/g)) {
     const slug = match[1].toLowerCase().replace(/[.,;:!?)]+$/, "");
-    const skill = skills.find((k) => skillSlug(k) === slug && k.instructions.trim());
+    const skill = skills.find((k) => skillSlug(k) === slug && k.instructions.trim() && callable(k));
     if (skill && !found.includes(skill)) found.push(skill);
   }
   return found;
@@ -283,6 +312,7 @@ export function skillsInPrompt(text: string, skills: Skill[] = store.get().skill
 export function filterSkills(skills: Skill[], query: string): Skill[] {
   const q = query.toLowerCase();
   return skills
+    .filter(callable)
     .map((skill) => {
       const slug = skillSlug(skill);
       const score = !q

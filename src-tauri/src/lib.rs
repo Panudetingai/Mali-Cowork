@@ -51,6 +51,9 @@ use commands::notch::{
     notch_set_login_item, notch_set_screen, notch_show, notch_intro_done, notch_take_intro, NotchState,
 };
 use commands::outputs::{outputs_stat, outputs_trash};
+use commands::plugins::{
+    plugins_fetch, plugins_install_files, plugins_peek, plugins_remove_files, plugins_resolve,
+};
 use commands::preview_image::preview_image;
 use commands::quick::{
     quick_capture_region, quick_capture_screen, quick_configure, quick_hide, quick_open_main,
@@ -161,6 +164,10 @@ pub fn run() {
         .manage(NotchState::default())
         .on_window_event(commands::quick::on_window_event)
         .menu(app_menu)
+        // Plugin panels, each from its own folder, sandboxed (see `commands::plugins`).
+        .register_uri_scheme_protocol("mali-plugin", |_ctx, request| {
+            commands::plugins::serve_panel_request(&request)
+        })
         .setup(|app| {
             supervisor::exit_on_signals();
             // The main window starts hidden: at login (the login item passes
@@ -352,6 +359,11 @@ pub fn run() {
             secrets_load,
             secrets_save,
             skills_fetch_url,
+            plugins_resolve,
+            plugins_fetch,
+            plugins_peek,
+            plugins_install_files,
+            plugins_remove_files,
             skills_scan_folder,
             skills_export_folder,
             skills_read_asset,
