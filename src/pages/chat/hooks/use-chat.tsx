@@ -14,6 +14,7 @@ import {
     type ChatSession,
 } from "@/features/chat-history";
 import type { Attachment } from "@/features/attachments";
+import { tryChatInstallFromPrompt } from "@/features/install-from-chat";
 import {
   notifyPermissionPending,
   notifyQuestionPending,
@@ -317,7 +318,10 @@ export function useChat(
 
   /** Resolves false when the message was not sent (e.g. folder access declined). */
   const sendMessage = useCallback(
-    async (payload: SendMessage): Promise<boolean> => executeSend(turnInputFor(payload)),
+    async (payload: SendMessage): Promise<boolean> => {
+      if (tryChatInstallFromPrompt(payload.prompt)) return true;
+      return executeSend(turnInputFor(payload));
+    },
     [executeSend],
   );
 

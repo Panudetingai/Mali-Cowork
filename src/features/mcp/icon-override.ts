@@ -53,9 +53,18 @@ export async function iconFromFile(file: File): Promise<string> {
 }
 
 /** A picture from an `https://` link, fetched by the backend. */
+function normalizeImageUrl(raw: string): string {
+  let link = raw.trim();
+  if (!link) return link;
+  if (!/^https?:\/\//i.test(link)) {
+    link = `https://${link.replace(/^\/\//, "")}`;
+  }
+  return link;
+}
+
 export async function iconFromUrl(url: string): Promise<string> {
-  const link = url.trim();
-  if (!/^https:\/\/\S+$/i.test(link)) throw new Error("Use an https:// link to an image");
+  const link = normalizeImageUrl(url);
+  if (!/^https:\/\/\S+$/i.test(link)) throw new Error("Paste a full https:// link to an image (PNG, JPG, WebP, SVG)");
   let data: string;
   try {
     data = await invoke<string>("mcp_fetch_icon", { url: link });

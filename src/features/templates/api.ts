@@ -57,14 +57,14 @@ function skillOf(id: string) {
 }
 
 /** Keep a template's `/` skill in step with it. */
-function syncSkill(template: UserTemplate) {
+export function syncTemplateSkill(template: UserTemplate) {
   const existing = skillOf(template.id);
   saveSkill({ ...skillFor(template), id: existing?.id, enabled: template.enabled });
 }
 
 export async function addTemplate(path: string, name: string, description: string) {
   const template = await invoke<UserTemplate>("templates_add", { path, name, description });
-  syncSkill(template);
+  syncTemplateSkill(template);
   return template;
 }
 
@@ -72,14 +72,14 @@ export async function updateTemplate(id: string, patch: { name?: string; descrip
   const template = await invoke<UserTemplate>("templates_update", { id, ...patch });
   const existing = skillOf(id);
   if (existing && patch.enabled !== undefined && Object.keys(patch).length === 1) toggleSkill(existing.id, template.enabled);
-  else syncSkill(template);
+  else syncTemplateSkill(template);
   return template;
 }
 
 /** After the file changed in Word: new fields, and the skill that lists them. */
 export async function reloadTemplate(id: string) {
   const template = await refreshTemplate(id);
-  syncSkill(template);
+  syncTemplateSkill(template);
   return template;
 }
 

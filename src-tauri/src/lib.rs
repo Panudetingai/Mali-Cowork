@@ -48,9 +48,14 @@ use commands::notch::{
     notch_backdrop, notch_capture_at_cursor, notch_capture_pick, notch_capture_region, notch_drop_out, notch_enter_mode,
     notch_exit_mode, notch_geometry,
     notch_hide, notch_hit_area, notch_login_item, notch_mode, notch_open_main, notch_release, notch_resize,
-    notch_set_login_item, notch_set_screen, notch_show, notch_intro_done, notch_take_intro, NotchState,
+    main_defer_boot, notch_set_login_item, notch_set_screen, notch_show, notch_intro_done, notch_take_intro,
+    NotchState,
 };
 use commands::outputs::{outputs_stat, outputs_trash};
+use commands::system_stats::{start_sampler as start_system_stats_sampler, system_stats_snapshot};
+use commands::plugins::{
+    plugins_example_dir, plugins_fetch, plugins_install_files, plugins_peek, plugins_remove_files, plugins_resolve,
+};
 use commands::preview_image::preview_image;
 use commands::quick::{
     quick_capture_region, quick_capture_screen, quick_configure, quick_hide, quick_open_main,
@@ -161,8 +166,13 @@ pub fn run() {
         .manage(NotchState::default())
         .on_window_event(commands::quick::on_window_event)
         .menu(app_menu)
+        // Plugin panels, each from its own folder, sandboxed (see `commands::plugins`).
+        .register_uri_scheme_protocol("mali-plugin", |_ctx, request| {
+            commands::plugins::serve_panel_request(&request)
+        })
         .setup(|app| {
             supervisor::exit_on_signals();
+            start_system_stats_sampler();
             // The main window starts hidden: at login (the login item passes
             // `--notch`) Mali stays in the notch until the app is opened.
             if commands::notch::started_in_notch() {
@@ -174,17 +184,18 @@ pub fn run() {
             commands::native_alert::init(&app.config().identifier);
             // Agent Arena was removed; its worktree copies go with it.
             tauri::async_runtime::spawn(commands::arena::remove_leftovers());
-            // Start opencode in the background so the first prompt is fast.
-            tauri::async_runtime::spawn(async {
-                if let Err(e) = warm_up_server().await {
-                    eprintln!("[opencode] warm-up skipped: {e}");
-                    return;
-                }
-                // Load Chat mode's folder now so the first chat answers sooner.
-                if let Err(e) = opencode_warm(None, Some("chat".into())).await {
-                    eprintln!("[opencode] chat warm-up failed: {e}");
-                }
-            });
+            // Notch-only login: skip OpenCode warm-up until the main window opens.
+            if !commands::notch::started_in_notch() {
+                tauri::async_runtime::spawn(async {
+                    if let Err(e) = warm_up_server().await {
+                        eprintln!("[opencode] warm-up skipped: {e}");
+                        return;
+                    }
+                    if let Err(e) = opencode_warm(None, Some("chat".into())).await {
+                        eprintln!("[opencode] chat warm-up failed: {e}");
+                    }
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -260,7 +271,9 @@ pub fn run() {
             notch_enter_mode,
             notch_exit_mode,
             notch_take_intro,
+            system_stats_snapshot,
             notch_intro_done,
+            main_defer_boot,
             notch_mode,
             notch_release,
             notch_open_main,
@@ -352,6 +365,12 @@ pub fn run() {
             secrets_load,
             secrets_save,
             skills_fetch_url,
+            plugins_resolve,
+            plugins_example_dir,
+            plugins_fetch,
+            plugins_peek,
+            plugins_install_files,
+            plugins_remove_files,
             skills_scan_folder,
             skills_export_folder,
             skills_read_asset,

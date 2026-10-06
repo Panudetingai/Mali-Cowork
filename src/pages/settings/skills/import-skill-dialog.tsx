@@ -78,23 +78,30 @@ export function ImportSkillDialog({
         <DialogHeader>
           <DialogTitle>Import skills</DialogTitle>
           <DialogDescription>
-            From a GitHub repository or folder, an npm package, a link to a SKILL.md, or a folder your team shares.
+            From a GitHub repository or folder, an install command, an npm package, a link to a SKILL.md, or a folder
+            your team shares.
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex min-w-0 flex-col gap-4">
           <form onSubmit={findFromUrl}>
             <Field
-              label="Link"
+              label="Link or install command"
               htmlFor={urlId}
-              hint="A repository, a folder inside one (…/tree/…), or a single SKILL.md."
+              hint={
+                <>
+                  A repository, a folder inside one (…/tree/…), a single SKILL.md, or a command like{" "}
+                  <code className="font-mono">npx skillfish add owner/repo skill-name</code> — Mali reads it and
+                  downloads the skills itself; nothing is run.
+                </>
+              }
             >
               <div className="flex gap-2">
                 <Input
                   id={urlId}
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  placeholder="github.com/owner/repo"
+                  placeholder="owner/repo or npx skillfish add owner/repo skill"
                   autoComplete="off"
                   spellCheck={false}
                 />

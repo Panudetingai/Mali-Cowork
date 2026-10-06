@@ -208,7 +208,10 @@ export async function teamPayload(
   }
   return {
     lead: true,
-    team: state.mates.map((m) => teammatePayload(m, servers, mode)).filter((m): m is TeammatePayload => !!m),
+    team: state.mates
+      .filter((m) => !m.paused)
+      .map((m) => teammatePayload(m, servers, mode))
+      .filter((m): m is TeammatePayload => !!m),
     recentWork: recentWork(),
     declined: state.declined,
     coach: modelCall(state.coachModelId, { cli: true }),

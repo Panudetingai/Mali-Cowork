@@ -6,6 +6,8 @@ import { OnboardingGate } from "@/features/onboarding/onboarding-gate";
 import { FORCE_ONBOARDING, openOnboarding } from "@/features/onboarding";
 import { useWeeklyRecapAutoOpen, WeeklyRecapDialog } from "@/features/work-receipt";
 import { watchSkills } from "@/features/skills";
+// Registers plugin instructions with every chat; loaded with the app.
+import "@/features/plugins";
 import { startTaskQueue } from "@/features/tasks";
 import { onOpenTeam, playMainReturn, startNotchRelay, useMainAwake } from "@/features/notch";
 import { listenForQuickSaves, onOpenChatRequest, onOpenQuickSettings, serveQuickTheme } from "@/features/quick";
@@ -25,6 +27,7 @@ import ChatBlocksPreviewPage from "./pages/dev/chat-blocks-preview";
 import NotchPreviewPage from "./pages/dev/notch-preview";
 import MarkdownPreviewPage from "./pages/dev/markdown-preview";
 import OnboardingPage from "./pages/onboarding";
+import PluginsPage from "./pages/plugins";
 
 function App() {
   useEffect(() => {
@@ -98,6 +101,8 @@ function App() {
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:projectId" element={<ProjectPage />} />
           <Route path="settings/*" element={<SettingsPage />} />
+          <Route path="plugins" element={<PluginsPage />} />
+          <Route path="plugins/:pluginId/:panelId" element={<PluginsPage />} />
           {import.meta.env.DEV ? (
             <>
               <Route path="dev/chat-blocks" element={<ChatBlocksPreviewPage />} />

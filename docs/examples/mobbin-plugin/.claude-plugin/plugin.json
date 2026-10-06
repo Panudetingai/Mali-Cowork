@@ -1,0 +1,7 @@
+{
+  "name": "mobbin",
+  "version": "1.0.0",
+  "description": "Search real app screens, flows, and website sections from Mobbin (Pro/Team OAuth on first connect).",
+  "author": { "name": "Mobbin" },
+  "homepage": "https://mobbin.com/mcp"
+}

@@ -15,14 +15,15 @@ pub fn parse_source(input: &str) -> Result<Source, String> {
         Some(rest) => format!("https://github.com/{rest}"),
         None => input.to_string(),
     };
-    // A bare `owner/repo` is how people say it out loud.
-    let input = if !input.contains("://") && short_repo(&input) {
+    // A bare `owner/repo` or `owner/repo/tree/ref/path` is how people paste from docs.
+    let input = if !input.contains("://") && (short_repo(&input) || github_tree_shorthand(&input)) {
         format!("https://github.com/{input}")
     } else {
         input
     };
-    let url = reqwest::Url::parse(&input)
-        .map_err(|_| "Enter a link that starts with https://".to_string())?;
+    let url = reqwest::Url::parse(&input).map_err(|_| {
+        "Paste owner/repo, a GitHub link (…/tree/… for a folder), or choose Folder… on this computer.".to_string()
+    })?;
     if url.scheme() != "https" {
         return Err("Only https:// links are supported".into());
     }
@@ -70,6 +71,12 @@ pub fn parse_source(input: &str) -> Result<Source, String> {
     }
 }
 
+/// `owner/repo/tree/ref/dir` without `https://github.com/`.
+fn github_tree_shorthand(input: &str) -> bool {
+    let parts: Vec<&str> = input.split('/').filter(|p| !p.is_empty()).collect();
+    parts.len() >= 4 && matches!(parts.get(2), Some(&"tree") | Some(&"blob"))
+}
+
 /// `owner/repo`, typed without the https://github.com/ in front.
 fn short_repo(input: &str) -> bool {
     let parts: Vec<&str> = input.split('/').collect();
@@ -103,6 +110,10 @@ mod tests {
         assert_eq!(
             parse_source("https://github.com/o/r/tree/main/skills/pdf").unwrap(),
             repo("o", "r", Some("main"), "skills/pdf")
+        );
+        assert_eq!(
+            parse_source("o/r/tree/main/docs/examples/mobbin-plugin").unwrap(),
+            repo("o", "r", Some("main"), "docs/examples/mobbin-plugin")
         );
     }
 

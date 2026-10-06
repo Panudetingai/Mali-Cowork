@@ -89,6 +89,7 @@ Start at [`docs/`](./docs/README.md):
 | [05 Local Port / Socket](./docs/05-local-port-socket-integration.md) | Agent Server over HTTP SSE / WS / TCP / UDS |
 | [06 Frontend Integration](./docs/06-frontend-integration.md) | `invoke` + `Channel`, merging backends by `modelId` |
 | [07 MCP Gateway](./docs/07-mcp-gateway.md) | `mali` gateway for external agents |
+| [08 Plugins](./docs/08-plugins.md) | Plugins, marketplaces, sandboxed panels, `skillfish` installs |
 | [Features](./docs/FEATURES.md) | Current capabilities + build checklists |
 | [Install (users)](./docs/INSTALL.md) | Download, macOS/Windows install, first run |
 | [Landing / Security](./docs/LANDING.md) | Thai-first pitch + honest security FAQ |

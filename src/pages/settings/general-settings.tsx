@@ -1,27 +1,27 @@
 import { ConfirmDialog, type ConfirmRequest } from "@/components/app/confirm-dialog";
 import { Button } from "@/components/ui/button";
-import { toast } from "@/components/ui/sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "@/components/ui/sonner";
 import { useTranslation, type LanguageMode } from "@/features/i18n";
-import { SectionHeader, SettingRow, SettingsGroup, SettingsPage } from "@/pages/settings/ui";
-import { cn } from "@/lib/utils";
 import {
-  anythingRunning,
-  cacheSize,
-  clearCache,
-  formatBytes,
-  resetEverything,
-  resetSettings,
+    anythingRunning,
+    cacheSize,
+    clearCache,
+    formatBytes,
+    resetEverything,
+    resetSettings,
 } from "@/lib/app-reset";
+import { cn } from "@/lib/utils";
+import { SectionHeader, SettingRow, SettingsGroup, SettingsPage } from "@/pages/settings/ui";
 import {
-  CheckIcon,
-  HardDriveIcon,
-  LanguagesIcon,
-  LoaderIcon,
-  MoonIcon,
-  RotateCcwIcon,
-  SunIcon,
-  TriangleAlertIcon,
+    CheckIcon,
+    HardDriveIcon,
+    LanguagesIcon,
+    LoaderIcon,
+    MoonIcon,
+    RotateCcwIcon,
+    SunIcon,
+    TriangleAlertIcon,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useState, type ReactNode } from "react";
@@ -118,7 +118,7 @@ function ThemeCard({
         className={cn(
           "relative block aspect-[16/10] w-full overflow-hidden rounded-xl border transition-[border-color,box-shadow]",
           on
-            ? "border-violet-500 ring-2 ring-violet-500/30"
+            ? "border-primary ring-2 ring-primary/30"
             : "border-border group-hover:border-foreground/30 group-focus-visible:ring-3 group-focus-visible:ring-ring/50",
         )}
         style={{ background: c.bg }}
@@ -139,7 +139,7 @@ function ThemeCard({
       <span className="flex items-center gap-1.5 px-0.5 text-[13px] font-medium [&_svg]:size-3.5">
         {icon}
         {label}
-        {on && <CheckIcon className="ml-auto text-violet-600 dark:text-violet-400" strokeWidth={3} />}
+        {on && <CheckIcon className="ml-auto text-primary" strokeWidth={3} />}
       </span>
     </button>
   );

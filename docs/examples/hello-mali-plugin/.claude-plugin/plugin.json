@@ -1,0 +1,10 @@
+{
+  "name": "hello-mali",
+  "version": "1.0.0",
+  "description": "A small example: a skill, a slash command, a bot, instructions and a panel.",
+  "author": { "name": "Mali Cowork" },
+  "license": "MIT",
+  "mali": {
+    "panels": [{ "id": "notes", "title": "Quick notes", "entry": "./mali/panels/notes.html", "icon": "notebook-pen" }]
+  }
+}

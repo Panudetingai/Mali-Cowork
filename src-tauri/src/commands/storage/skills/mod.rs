@@ -10,12 +10,14 @@
 //! Nothing is ever run while importing or installing, and the user sees the
 //! list of files — and can read any of them — before anything is written.
 
+mod command;
 mod discover;
 mod install;
 mod local;
 mod npm;
-mod remote;
-mod source;
+pub mod remote;
+pub mod source;
+pub mod tree;
 
 use std::path::PathBuf;
 
@@ -64,7 +66,7 @@ pub struct SkillAsset {
 }
 
 /// A skill found somewhere, ready to preview and install.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillPackage {
     /// Where the `SKILL.md` came from (a URL or a path), shown in the picker.

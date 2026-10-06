@@ -75,6 +75,8 @@ OpenAI · Anthropic · Google · xAI · DeepSeek · Mistral · Alibaba (Qwen) ·
 
 พิมพ์ `/` หรือ `\` ต้นคำ → เลือก skill จากรายการ → คำสั่งของ skill นั้นจะถูกส่งไปกับข้อความนั้น (ใช้ได้ทุกโมเดล)
 
+ติดตั้ง skill ด้วยคำสั่งที่คัดลอกมาได้เลย เช่น `npx skillfish add affaan-m/ecc quarkus-verification` (Settings → Skills → Import — Mali อ่านคำสั่งแล้วดาวน์โหลดเอง ไม่รัน npx)
+
 ### Projects
 
 - รวมแชทเป็น **Project** (แถบซ้าย → Projects หรือหน้า `/projects`): ชื่อ, คำอธิบาย, โฟลเดอร์งาน (Cowork), **Project instructions** และ **Project skills** ของตัวเอง
@@ -135,6 +137,7 @@ OpenAI · Anthropic · Google · xAI · DeepSeek · Mistral · Alibaba (Qwen) ·
 | **Agents**       | ตรวจสถานะ OpenCode / Codex / Gemini / Cursor, ตั้งโฟลเดอร์เริ่มต้น, login Cursor                                   |
 | **Instructions** | **Custom instructions** ที่ใช้กับทุกแชท + **Skill library** (สร้าง/แก้/เปิด-ปิด, import จากไฟล์ / GitHub / ลิงก์ / โฟลเดอร์ทีม, export `SKILL.md`, มี template ให้เริ่ม) |
 | **Connectors**   | รายการ connector แบบตาราง (Connected / Not connected), **Discover** จาก MCP Registry ทางการ, Popular, Sign in (OAuth), เพิ่ม MCP server เอง |
+| **Plugins**      | ติดตั้ง plugin (skills + slash commands + bots + connectors + templates + instructions + panels) จาก GitHub / โฟลเดอร์ / marketplace แบบ Claude Code, เปิด-ปิดทั้งชุด, อัปเดต, ถอน — ดู [08-plugins](./08-plugins.md) |
 | **Folders**      | รายการโฟลเดอร์ที่อนุญาต, เปลี่ยนสิทธิ์, ยกเลิก                                                                     |
 
 
