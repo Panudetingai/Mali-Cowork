@@ -4,7 +4,7 @@ import type { Skill } from "@/features/instructions";
 import { codexGenerateStream } from "@/features/codex";
 import { cursorGenerateStream } from "@/features/cursor";
 import { antigravityGenerateStream } from "@/features/antigravity";
-import { CLI_ID_PREFIX, cliArgs, getCustomCli } from "@/features/custom-cli";
+import { CLI_ID_PREFIX, cliArgs, getCustomCli, resolveCliModel } from "@/features/custom-cli";
 import { hasHubMcp, hubMcpServers } from "@/features/mcp";
 import {
     getOpencodeModels,
@@ -363,7 +363,9 @@ async function routeStream(
         prompt: withInstructions(prompt, request),
         agent: cliParts.id,
         cwd: request.cwd,
-        custom: custom ? { command: custom.command, args: cliArgs(custom, cliParts.model) } : undefined,
+        custom: custom
+          ? { name: custom.name, command: custom.command, args: cliArgs(custom, resolveCliModel(custom, cliParts.model)) }
+          : undefined,
       },
       handlers,
     );

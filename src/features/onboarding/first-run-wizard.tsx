@@ -17,7 +17,7 @@ import {
   WandSparklesIcon,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { openOnboarding } from "./store";
+import { isOnboardingDone, openOnboarding } from "./store";
 
 type StepState = {
   id: string;
@@ -108,7 +108,8 @@ export function useIsOnboarding() {
 export function FirstRunWizard({ className }: { className?: string }) {
   const navigate = useNavigate();
   const { steps, ready, checking } = useSetupSteps();
-  if (ready) return null;
+  // Full setup already ran in onboarding — don't stack a second card over the welcome screen.
+  if (ready || isOnboardingDone()) return null;
 
   const required = steps.filter((step) => !step.optional);
   const doneCount = required.filter((step) => step.done).length;

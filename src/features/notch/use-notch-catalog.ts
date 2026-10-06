@@ -6,6 +6,7 @@
  * them. The notch only reads OpenCode's list, as the Quick bar does.
  */
 import { useAntigravity } from "@/features/antigravity";
+import { useCliAgentsFilter } from "@/features/cli-agents";
 import { useCustomClis } from "@/features/custom-cli";
 import { useCursor } from "@/features/cursor";
 import {
@@ -31,6 +32,7 @@ export function useNotchCatalog(mode: WorkMode) {
   const providerConfigs = useProviderConfigs();
   const envKeys = useEnvKeys();
   const customClis = useCustomClis();
+  const cliFilter = useCliAgentsFilter();
 
   useEffect(() => {
     if (opencode) return;
@@ -67,8 +69,9 @@ export function useNotchCatalog(mode: WorkMode) {
         undefined,
         antigravityStatus,
         customClis,
+        cliFilter,
       ),
-    [opencode, providerConfigs, envKeys, mode, cursorStatus, antigravityStatus, customClis],
+    [opencode, providerConfigs, envKeys, mode, cursorStatus, antigravityStatus, customClis, cliFilter],
   );
   return { catalog, loading: loading || cursor.loading || antigravity.loading };
 }

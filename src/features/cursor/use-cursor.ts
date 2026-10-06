@@ -1,3 +1,4 @@
+import { isCliAgentEnabled } from "@/features/cli-agents";
 import { createStore } from "@/lib/local-store";
 import { useEffect } from "react";
 import { cursorCheck, cursorListModels } from "./api";
@@ -15,6 +16,11 @@ const statusStore = createStore<Status>({ check: null, models: [], loading: true
 let pending: Promise<void> | null = null;
 
 export function refreshCursor(force = true) {
+  if (!isCliAgentEnabled("cursor")) {
+    statusStore.set({ check: null, models: [], loading: false });
+    pending = null;
+    return Promise.resolve();
+  }
   if (!force && pending) return pending;
   statusStore.set((prev) => ({ ...prev, loading: true }));
   pending = cursorCheck()

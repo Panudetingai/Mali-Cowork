@@ -305,11 +305,12 @@ describe("models on the user's own key", () => {
 describe("custom CLI models", () => {
   const cli = { id: "custom-claude-code", name: "Claude Code", command: "claude", args: "-p {prompt}", models: "" };
 
-  test("one entry for the CLI's default, or one per model listed", () => {
+  test("one entry for the CLI's default, then one per model listed", () => {
     const plain = buildModelCatalog(null, [], "chat", undefined, undefined, undefined, [cli]).filter((m) => m.group === "Claude Code");
     expect(plain.map((m) => m.id)).toEqual(["cli:custom-claude-code"]);
     const withModels = buildModelCatalog(null, [], "chat", undefined, undefined, undefined, [{ ...cli, models: "sonnet, opus" }]);
     expect(withModels.filter((m) => m.source === "cli" && m.provider === "terminal").map((m) => m.id)).toEqual([
+      "cli:custom-claude-code",
       "cli:custom-claude-code/sonnet",
       "cli:custom-claude-code/opus",
     ]);

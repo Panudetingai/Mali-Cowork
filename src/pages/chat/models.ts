@@ -2,7 +2,7 @@ import type { CodexModel } from "@/features/codex";
 import type { CursorModel } from "@/features/cursor";
 import type { OpencodeModel, OpencodeModelsResult, WorkMode } from "@/features/opencode";
 import type { AntigravityModel } from "@/features/antigravity";
-import { cliModels, getCustomCli, type CustomCli } from "@/features/custom-cli";
+import { cliModels, getCustomCli, normalizeCustomCliIcon, type CustomCli } from "@/features/custom-cli";
 import { effortFor, storedEffortFor } from "@/features/effort";
 import type { MediaKind } from "@/features/media";
 import type { PuterModel } from "@/features/media/puter-catalog";
@@ -21,6 +21,8 @@ export type AiModel = {
   name: string;
   /** models.dev provider id, used for the logo. */
   provider: string;
+  /** Custom CLI agent icon (data URL or HTTPS). */
+  iconUrl?: string;
   source: ModelSource;
   group: string;
   /** Costs nothing per token (OpenCode models only). */
@@ -239,11 +241,18 @@ export function customCliOf(modelId: string) {
   return { id: rest.slice(0, slash), model: rest.slice(slash + 1) || undefined };
 }
 
-function customCliMeta(modelId: string): Pick<AiModel, "name" | "provider" | "source" | "group"> {
+function customCliMeta(modelId: string): Pick<AiModel, "name" | "provider" | "source" | "group" | "iconUrl"> {
   const parts = customCliOf(modelId);
   const cli = parts ? getCustomCli(parts.id) : undefined;
   const name = cli?.name ?? parts?.id ?? "CLI";
-  return { name: parts?.model ?? name, provider: "terminal", source: "cli", group: name };
+  const iconUrl = normalizeCustomCliIcon(cli?.icon);
+  return {
+    name: parts?.model ?? name,
+    provider: "terminal",
+    source: "cli",
+    group: name,
+    ...(iconUrl ? { iconUrl } : {}),
+  };
 }
 
 /** `opencode:provider/model` → `provider/model`; undefined for the server default. */
@@ -337,7 +346,20 @@ export function buildModelCatalog(
   antigravity: { models: AntigravityModel[]; loggedIn: boolean } = { models: [], loggedIn: false },
   /** CLI agents the user added in Settings → Models. */
   customClis: CustomCli[] = [],
+  /** When off, that agent is omitted from the picker (Settings → Models). */
+  cliFilter: {
+    opencode?: boolean;
+    cursor?: boolean;
+    codex?: boolean;
+    antigravity?: boolean;
+    customEnabled?: (id: string) => boolean;
+  } = {},
 ): AiModel[] {
+  const showOpencode = cliFilter.opencode !== false;
+  const showCursor = cliFilter.cursor !== false;
+  const showCodex = cliFilter.codex !== false;
+  const showAntigravity = cliFilter.antigravity !== false;
+  const customOk = cliFilter.customEnabled ?? (() => true);
   // models.dev metadata for every model, so a model the user typed into
   // Settings → Models is recognised as a picture model without a second call.
   const known = new Map((opencode?.models ?? []).map((m) => [m.id, m]));
@@ -389,7 +411,8 @@ export function buildModelCatalog(
   };
 
   const defaultModel = opencode?.models.find((m) => m.id === opencode.defaultModel);
-  const opencodeModels: AiModel[] = [
+  const opencodeModels: AiModel[] = showOpencode
+    ? [
     {
       id: OPENCODE_DEFAULT_ID,
       name: defaultModel ? `Auto — OpenCode picks (${defaultModel.name})` : "Auto — OpenCode picks",
@@ -416,10 +439,13 @@ export function buildModelCatalog(
       efforts: m.efforts,
       issue: issueOf(m),
     })),
-  ];
+  ]
+    : [];
 
   // Cursor runs on the user's own subscription, in both modes.
-  const cursorModels: AiModel[] = cursor.loggedIn
+  const cursorModels: AiModel[] = !showCursor
+    ? []
+    : cursor.loggedIn
     ? cursor.models.map((m) => ({
         id: `${CURSOR_PREFIX}${m.id}`,
         name: m.name,
@@ -439,8 +465,9 @@ export function buildModelCatalog(
       ];
 
   // Codex runs on the user's own subscription, in both modes.
-  const codexModels: AiModel[] =
-    codex.loggedIn && codex.models.length > 0
+  const codexModels: AiModel[] = !showCodex
+    ? []
+    : codex.loggedIn && codex.models.length > 0
       ? codex.models.map((m) => ({
           id: `${CODEX_PREFIX}${m.id}`,
           name: m.name,
@@ -461,8 +488,9 @@ export function buildModelCatalog(
         ];
 
   // Antigravity CLI runs on the user's own Google account, in both modes.
-  const antigravityModels: AiModel[] =
-    antigravity.loggedIn && antigravity.models.length > 0
+  const antigravityModels: AiModel[] = !showAntigravity
+    ? []
+    : antigravity.loggedIn && antigravity.models.length > 0
       ? antigravity.models.map((m) => ({
           id: `${ANTIGRAVITY_PREFIX}${m.id}`,
           name: m.name,
@@ -482,13 +510,22 @@ export function buildModelCatalog(
           },
         ];
 
-  // A CLI the user added: one entry per model they listed, or one for its own default.
+  // A CLI the user added: its own default first (works once it's signed
+  // in, no model to choose), then one entry per model it lists.
   const customCliModels: AiModel[] = customClis.flatMap((cli) => {
-    const base = { provider: "terminal", source: "cli" as const, group: cli.name };
+    if (!customOk(cli.id)) return [];
+    const iconUrl = normalizeCustomCliIcon(cli.icon);
+    const base = {
+      provider: "terminal",
+      source: "cli" as const,
+      group: cli.name,
+      ...(iconUrl ? { iconUrl } : {}),
+    };
     const models = cliModels(cli);
-    return models.length > 0
-      ? models.map((model) => ({ ...base, id: customCliModelId(cli.id, model), name: model }))
-      : [{ ...base, id: customCliModelId(cli.id), name: cli.name }];
+    return [
+      { ...base, id: customCliModelId(cli.id), name: models.length > 0 ? `Auto — ${cli.name} picks` : cli.name },
+      ...models.map((model) => ({ ...base, id: customCliModelId(cli.id, model), name: model })),
+    ];
   });
 
   return [...apiModels, ...cursorModels, ...codexModels, ...antigravityModels, ...customCliModels, ...opencodeModels];
@@ -610,8 +647,8 @@ export function modelMetaFromId(
     };
   }
   if (isCliModel(modelId)) {
-    const { name, provider, source } = customCliMeta(modelId);
-    return { name, provider, source };
+    const { name, provider, source, iconUrl } = customCliMeta(modelId);
+    return { name, provider, source, ...(iconUrl ? { iconUrl } : {}) };
   }
   if (isOpencodeModel(modelId)) {
     if (modelId === OPENCODE_DEFAULT_ID) {

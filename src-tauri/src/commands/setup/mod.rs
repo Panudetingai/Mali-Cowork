@@ -25,6 +25,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::commands::supervisor;
 use detect::SetupScan;
+pub(crate) use detect::{child_path, find as find_tool};
 use recipes::{Blocked, Recipe};
 
 /// An install that takes longer than this is stopped.
@@ -250,4 +251,86 @@ pub async fn setup_codex_login() -> Result<LoginResult, String> {
     }
     let check = crate::commands::codex::codex_check().await;
     Ok(LoginResult { logged_in: check.logged_in, account: check.account })
+}
+
+/// CLI agents from Settings → Models → Add CLI that Mali can install and
+/// open a sign-in for: (command, npm package, sign-in arguments). Only
+/// these fixed commands ever run; the UI names a command, never a script.
+const CLI_AGENTS: &[(&str, &str, &[&str])] = &[
+    ("kilo", "@kilocode/cli", &["auth", "login"]),
+    ("claude", "@anthropic-ai/claude-code", &[]),
+    ("gemini", "@google/gemini-cli", &[]),
+    ("qwen", "@qwen-code/qwen-code", &[]),
+];
+
+fn cli_agent(command: &str) -> Result<(&'static str, &'static str, &'static [&'static str]), String> {
+    CLI_AGENTS
+        .iter()
+        .copied()
+        .find(|(c, _, _)| *c == command)
+        .ok_or_else(|| "Mali can't install this one for you — copy the command into Terminal instead.".into())
+}
+
+/// Install a CLI agent with npm (and Node.js first when it's missing),
+/// streaming the installer's output.
+#[tauri::command]
+pub async fn setup_install_cli(command: String, on_event: Channel<SetupEvent>) -> Result<(), String> {
+    let (bin, package, _) = cli_agent(&command)?;
+    let log = |line: String| {
+        let _ = on_event.send(SetupEvent::Log { line });
+    };
+    if detect::find("npm").is_none() {
+        let scan = detect::scan().await;
+        let node = recipes::recipe("node", &scan, false, false).map_err(|b| match b.help_url {
+            Some(url) => format!("{} ({url})", b.reason),
+            None => b.reason,
+        })?;
+        log(format!("$ {}", node.display));
+        run(&node, &log).await?;
+    }
+    let recipe = recipes::npm(bin, package, npm_user_prefix().await);
+    log(format!("$ {}", recipe.display));
+    run(&recipe, &log).await?;
+    match detect::find(bin) {
+        Some(path) => {
+            log(format!("✓ Installed ({})", path.display()));
+            Ok(())
+        }
+        None => Err(format!("The installer finished, but `{bin}` still isn't found. Quit and reopen Mali, then press Check again.")),
+    }
+}
+
+/// Open a Terminal window running the CLI's sign-in, for the user to finish
+/// there (these logins are interactive: browser links, menus, codes).
+#[tauri::command]
+pub fn setup_cli_sign_in(command: String) -> Result<(), String> {
+    let (bin, _, args) = cli_agent(&command)?;
+    let path = detect::find(bin).ok_or_else(|| format!("Install {bin} first."))?;
+    let quoted = |s: &str| format!("'{}'", s.replace('\'', r"'\''"));
+    let line: Vec<String> = std::iter::once(quoted(&path.to_string_lossy())).chain(args.iter().map(|a| quoted(a))).collect();
+    let line = line.join(" ");
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            "tell application \"Terminal\"\nactivate\ndo script \"{}\"\nend tell",
+            line.replace('\\', "\\\\").replace('"', "\\\"")
+        );
+        crate::commands::process::std_command("osascript").args(["-e", &script]).spawn().map_err(|e| e.to_string())?;
+    }
+    #[cfg(windows)]
+    {
+        // `start` opens a new visible console; the bin path comes from our own lookup.
+        let _ = &line;
+        let mut cmd = std::process::Command::new("cmd");
+        cmd.args(["/c", "start", "", "cmd", "/k"]).arg(&path).args(args.iter());
+        cmd.spawn().map_err(|e| e.to_string())?;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        crate::commands::process::std_command("x-terminal-emulator")
+            .args(["-e", "sh", "-c", &line])
+            .spawn()
+            .map_err(|_| format!("Open a terminal and run: {line}"))?;
+    }
+    Ok(())
 }

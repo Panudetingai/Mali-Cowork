@@ -17,7 +17,7 @@ function mappingFor(slug: string) {
 export { brandLogoForModelName } from "./model-logo";
 
 type Props = {
-  model: Pick<AiModel, "id" | "name" | "provider">;
+  model: Pick<AiModel, "id" | "name" | "provider" | "iconUrl" | "source">;
   className?: string;
   size?: number;
 };
@@ -30,6 +30,24 @@ export function ModelBrandIcon({ model, className, size = 16 }: Props) {
   const slug = modelSlug(model);
   const hasModelArt = useMemo(() => !!mappingFor(slug), [slug]);
   const providerLogo = brandLogoForModelName(slug, model.provider);
+
+  if (model.iconUrl) {
+    return (
+      <ProviderLogo
+        logo={model.provider}
+        name={model.name}
+        imageUrl={model.iconUrl}
+        className={cn("shrink-0", className)}
+        size={size}
+      />
+    );
+  }
+
+  if (model.source === "cli" && !hasModelArt) {
+    return (
+      <ProviderLogo logo="terminal" name={model.name} className={cn("shrink-0", className)} size={size} />
+    );
+  }
 
   if (hasModelArt) {
     return (

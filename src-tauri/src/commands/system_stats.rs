@@ -78,9 +78,8 @@ fn disk_from(disks: &Disks) -> (f32, u64, u64) {
 
 #[cfg(windows)]
 fn gpu_name_windows() -> Option<String> {
-    use std::process::Command;
     run_with_timeout(Duration::from_millis(2_500), || {
-        let out = Command::new("powershell")
+        let out = crate::commands::process::std_command("powershell")
             .args([
                 "-NoProfile",
                 "-NonInteractive",

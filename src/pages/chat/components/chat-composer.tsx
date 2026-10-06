@@ -121,7 +121,7 @@ export function ChatComposer({
         className={cn(
           "relative z-10",
           waiting && "rounded-2xl ring-1 ring-border/80 shadow-md",
-          childWaiting && "ring-amber-500/40",
+          childWaiting && "ring-foreground/15",
         )}
       >
         <PromptInput
@@ -133,6 +133,9 @@ export function ChatComposer({
           isLoading={isLoading}
           canStop={canStop}
           placeholder={placeholder}
+          permissions={permissions}
+          onReplyPermission={onReplyPermission}
+          onAllowFolder={onAllowFolder}
           onStop={onStop}
           onNewChat={onNewChat}
           onSummarize={onSummarize}

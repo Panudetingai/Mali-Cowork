@@ -176,6 +176,11 @@ pub fn spawn(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
 
     let env = sanitized_env(&policy, std::env::vars_os());
     cmd.env_clear();

@@ -14,6 +14,8 @@
 import { CoworkBot } from "@/components/anim/cowork-bot";
 import type { BotState } from "@/features/cowork-bot";
 import { useTranslation } from "@/features/i18n";
+import { PermissionPrompt, type PermissionReply } from "@/features/opencode";
+import type { PermissionRequest } from "@/pages/chat/api/chat";
 import { cn } from "@/lib/utils";
 import { MALI_EASE } from "@/lib/motion-presets";
 import { MicIcon, PauseIcon, PlayIcon, Volume2Icon, XIcon } from "lucide-react";
@@ -28,7 +30,22 @@ import { useVoiceInput } from "./use-voice-input";
 /** The latest assistant message in the chat. */
 export type VoiceModeReply = { id: string; text: string; streaming: boolean };
 
-type Phase = "listening" | "thinking" | "speaking" | "paused";
+type Phase = "listening" | "thinking" | "speaking" | "paused" | "permission";
+
+/** Map spoken approval/denial to a permission reply. */
+function voicePermissionIntent(text: string): PermissionReply | null {
+  const plain = text
+    .trim()
+    .toLowerCase()
+    .normalize("NFKC")
+    .replace(/[.!?,…]/g, "")
+    .trim();
+  if (!plain) return null;
+  if (/^(deny|no|reject|cancel|stop|nope|ไม่|ปฏิเสธ|ยกเลิก|ไม่เอา|ไม่อนุญาต)/.test(plain)) return "reject";
+  if (/^(always|always allow|อนุญาตเสมอ|อนุญาตตลอด)/.test(plain)) return "always";
+  if (/^(allow|yes|yeah|yep|ok|okay|approve|sure|go ahead|อนุญาต|ตกลง|โอเค|ได้|เอา|ใช่)/.test(plain)) return "once";
+  return null;
+}
 
 /** A listening session that ends with nothing said this soon failed, rather than heard silence. */
 const FAILED_WITHIN_MS = 1_000;
@@ -40,6 +57,9 @@ export function VoiceMode({
   send,
   reply,
   busy,
+  permissions = [],
+  onReplyPermission,
+  onAllowFolder,
 }: {
   onClose: () => void;
   /** Send what was said to the chat; false if it couldn't go. */
@@ -47,6 +67,9 @@ export function VoiceMode({
   reply: VoiceModeReply | undefined;
   /** The chat is answering (or working). */
   busy: boolean;
+  permissions?: PermissionRequest[];
+  onReplyPermission?: (request: PermissionRequest, reply: PermissionReply) => Promise<void>;
+  onAllowFolder?: (request: PermissionRequest, folder: string) => Promise<void>;
 }) {
   const { t } = useTranslation();
   const settings = useVoiceSettings();
@@ -63,6 +86,10 @@ export function VoiceMode({
   /** When listening started, and whether the mic actually came on since. */
   const listenStarted = useRef(0);
   const armed = useRef(false);
+  const permissionRef = useRef(permissions);
+  permissionRef.current = permissions;
+  const permissionRequest = permissions[0];
+  const permissionRisky = !!permissionRequest?.detail?.startsWith("⚠");
 
   const voice = useVoiceInput({
     autoStop: true,
@@ -70,7 +97,12 @@ export function VoiceMode({
     onStart: () => setHeard(""),
     onText: (text) => setHeard(text),
     onEnd: (text) => {
-      if (closed.current || phaseRef.current !== "listening") return;
+      if (closed.current) return;
+      if (phaseRef.current === "permission") {
+        void answerPermissionByVoice(text);
+        return;
+      }
+      if (phaseRef.current !== "listening") return;
       const said = text.trim();
       if (said) {
         void ask(said);
@@ -109,6 +141,48 @@ export function VoiceMode({
       setPhase("paused");
     }
   };
+
+  const answerPermissionByVoice = async (text: string) => {
+    const request = permissionRef.current[0];
+    if (!request || !onReplyPermission) {
+      void listen();
+      return;
+    }
+    let intent = voicePermissionIntent(text);
+    if (intent === "always" && permissionRisky) intent = "once";
+    if (!intent) {
+      setNote(t("voiceModePermissionUnknown"));
+      void listen();
+      return;
+    }
+    setNote(undefined);
+    setHeard(text.trim());
+    await onReplyPermission(request, intent);
+    if (!closed.current) setPhase("thinking");
+  };
+
+  const listenForPermission = useCallback(async () => {
+    if (closed.current) return;
+    stopSpeaking();
+    setNote(undefined);
+    setPhase("permission");
+    setHeard("");
+    armed.current = false;
+    listenStarted.current = performance.now();
+    await voiceRef.current.start();
+  }, []);
+
+  // Agent needs approval: show the card and listen for “allow” / “อนุญาต”.
+  useEffect(() => {
+    if (permissions.length === 0) {
+      if (phaseRef.current === "permission") setPhase("thinking");
+      return;
+    }
+    if (phaseRef.current === "permission") return;
+    voiceRef.current.cancel();
+    stopSpeaking();
+    void listenForPermission();
+  }, [permissions.length, permissions[0]?.id, listenForPermission]);
 
   // Start listening as soon as it opens; end everything when it closes.
   useEffect(() => {
@@ -169,11 +243,17 @@ export function VoiceMode({
   }, [phase, busy, reply?.id, reply?.streaming]);
 
   const tapBot = () => {
+    if (phase === "permission") {
+      if (!voice.listening) void listenForPermission();
+      else voice.stop();
+      return;
+    }
     if (phase === "speaking" || phase === "paused") void listen();
     else if (phase === "listening" && voice.listening) voice.stop();
   };
 
   const togglePause = () => {
+    if (phase === "permission") return;
     if (phase === "paused") {
       void listen();
       return;
@@ -186,6 +266,10 @@ export function VoiceMode({
   // Esc ends the call; Space pauses or resumes.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (permissions.length > 0) {
+        // PermissionPrompt owns Esc / ⌘↵ while the agent waits.
+        return;
+      }
       if (event.key === "Escape") {
         event.preventDefault();
         onClose();
@@ -201,7 +285,13 @@ export function VoiceMode({
   const transcribing = phase === "listening" && voice.phase === "transcribing";
   const preparing = phase === "speaking" && speaker.loading;
   const status =
-    phase === "paused"
+    phase === "permission"
+      ? transcribing
+        ? t("voiceModeWriting")
+        : heard
+          ? t("voiceModePermissionListen")
+          : t("voiceModePermission")
+      : phase === "paused"
       ? t("voiceModePaused")
       : phase === "thinking"
         ? t("voiceModeThinking")
@@ -218,7 +308,9 @@ export function VoiceMode({
     phase === "speaking" && speaker.metered ? speakerLevel : phase === "listening" && voice.level ? voice.level : undefined;
   // Writing down what you said, or getting the voice ready, is thinking too.
   const pose: BotState =
-    phase === "paused"
+    phase === "permission"
+      ? "permission"
+      : phase === "paused"
       ? "idle"
       : phase === "thinking" || transcribing || preparing
         ? "thinking"
@@ -230,7 +322,8 @@ export function VoiceMode({
   const dark = resolvedTheme !== "light";
   const reduceMotion = useReducedMotion();
   const botTheme = dark ? "dark" : "light";
-  const listeningLive = phase === "listening" && voice.listening && !transcribing;
+  const listeningLive =
+    (phase === "listening" || phase === "permission") && voice.listening && !transcribing;
 
   const ink = dark
     ? {
@@ -240,9 +333,9 @@ export function VoiceMode({
         status: "text-white/72",
         hint: "text-white/38",
         icon: "text-white/78",
-        orbA: "bg-violet-500/25",
-        orbB: "bg-sky-400/20",
-        orbC: "bg-brand/15",
+        orbA: "bg-white/10",
+        orbB: "bg-white/8",
+        orbC: "bg-white/6",
         pauseBtn: "text-white/88 ring-white/22 hover:bg-white/10",
         focusRing: "focus-visible:ring-white/50 focus-visible:ring-offset-[#141418]",
       }
@@ -253,9 +346,9 @@ export function VoiceMode({
         status: "text-muted-foreground",
         hint: "text-muted-foreground/55",
         icon: "text-foreground/75",
-        orbA: "bg-violet-400/30",
-        orbB: "bg-sky-300/35",
-        orbC: "bg-brand/25",
+        orbA: "bg-foreground/8",
+        orbB: "bg-foreground/6",
+        orbC: "bg-foreground/5",
         pauseBtn: "text-foreground/85 ring-border/80 hover:bg-muted/80",
         focusRing: "focus-visible:ring-foreground/25 focus-visible:ring-offset-background",
       };
@@ -265,7 +358,7 @@ export function VoiceMode({
       role="dialog"
       aria-modal="true"
       aria-label={t("voiceModeOpen")}
-      className="fixed inset-0 z-[80] flex items-stretch justify-center p-2 sm:p-3"
+      className="fixed inset-0 z-[80] flex items-stretch justify-center p-0 sm:p-0"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -285,7 +378,7 @@ export function VoiceMode({
 
       <motion.div
         className={cn(
-          "relative flex min-h-0 w-full max-w-2xl flex-1 flex-col overflow-hidden rounded-[calc(var(--window-radius)+10px)] border backdrop-blur-2xl",
+          "relative flex min-h-0 w-full max-w-none flex-1 flex-col overflow-hidden rounded-none border-0 backdrop-blur-2xl sm:rounded-none",
           ink.panel,
         )}
         initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.985 }}
@@ -387,6 +480,16 @@ export function VoiceMode({
         </div>
 
         <div className="relative flex w-full flex-col items-center gap-5 px-5 pb-7 pt-2">
+          {permissionRequest && onReplyPermission && (
+            <div className="w-full max-w-lg shrink-0">
+              <PermissionPrompt
+                requests={permissions}
+                onReply={onReplyPermission}
+                onAllowFolder={onAllowFolder}
+                className="rounded-xl border-border/80 bg-card/95 shadow-lg"
+              />
+            </div>
+          )}
           <div
             className={cn(
               "flex w-full max-w-md flex-col items-center gap-2 rounded-[22px] px-4 py-3",
@@ -421,7 +524,7 @@ export function VoiceMode({
             <AnimatePresence>
               {note && (
                 <motion.span
-                  className="max-w-md text-center text-xs text-amber-600/95 dark:text-amber-300/90"
+                  className="max-w-md text-center text-xs text-muted-foreground"
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}

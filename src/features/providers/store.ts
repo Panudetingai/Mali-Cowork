@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect } from "react";
+import { isCliAgentEnabled } from "@/features/cli-agents";
 import { bindSecrets, stripSecrets, whenVaultReady } from "@/features/secrets";
 import { createStore } from "@/lib/local-store";
 import { allProviders, getProvider, splitModels, type ProviderDef } from "./catalog";
@@ -194,6 +195,7 @@ export function ollamaListModels(baseUrl: string, apiKey?: string) {
  * only when the provider config actually changed.
  */
 export async function syncCliProviders() {
+  if (!isCliAgentEnabled("opencode")) return { restarted: false };
   // Keys come from the keychain; syncing before they load would drop them.
   await whenVaultReady();
   const configs = configStore.get();

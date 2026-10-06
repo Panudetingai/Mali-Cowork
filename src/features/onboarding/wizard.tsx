@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { resetMainRootClip } from "@/features/notch/notch-mode";
 import { mergeMcpLive, syncMcpHub, syncMcpServers, useMcpLive } from "@/features/mcp";
 import { setMcpConnected } from "@/features/mcp/store";
 import { refreshOpencode, useOpencode } from "@/features/opencode";
@@ -114,6 +115,7 @@ export function OnboardingWizard() {
       if (isOnboardingDone()) dismissOnboarding();
       else finishOnboarding();
       clearNotchSetup();
+      resetMainRootClip();
       navigate(path, { replace: true });
     },
     [navigate],

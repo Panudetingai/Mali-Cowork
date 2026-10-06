@@ -33,10 +33,23 @@ function shrinkable() {
 
 /** Hold the page at the dot while the window is away. */
 function arm(root: HTMLElement) {
-  root.getAnimations().forEach((a) => a.cancel());
+  clearRootClip(root);
   root.style.clipPath = DOT.clipPath;
   root.style.filter = DOT.filter;
   armed = true;
+}
+
+function clearRootClip(root: HTMLElement) {
+  root.getAnimations().forEach((a) => a.cancel());
+  root.style.clipPath = "";
+  root.style.filter = "";
+}
+
+/** Drop notch shrink / clip so the full chat page paints (no stale setup frame at the edges). */
+export function resetMainRootClip() {
+  armed = false;
+  const root = document.getElementById("root");
+  if (root) clearRootClip(root);
 }
 
 /** Open out of the dot. */
@@ -45,12 +58,14 @@ function reveal() {
   armed = false;
   const root = document.getElementById("root");
   if (!root) return;
-  root.style.clipPath = "";
-  root.style.filter = "";
-  root.animate(
+  clearRootClip(root);
+  const anim = root.animate(
     [DOT, { clipPath: "circle(30px at 50% 50%)", filter: "brightness(1.8) blur(1px)", offset: 0.22 }, FULL],
-    { duration: 560, easing: "cubic-bezier(0.3, 0, 0.15, 1)" },
+    { duration: 560, easing: "cubic-bezier(0.3, 0, 0.15, 1)", fill: "forwards" },
   );
+  void anim.finished
+    .then(() => clearRootClip(root))
+    .catch(() => clearRootClip(root));
 }
 
 export async function goToNotchMode() {

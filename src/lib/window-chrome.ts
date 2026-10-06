@@ -10,6 +10,32 @@ function syncMaximizedClass(isMaximized: boolean) {
     : "false";
 }
 
+/**
+ * Maximize / restore using the OS animation (instant setSize has no transition).
+ * Corner radius is animated in CSS when `data-window-maximized` toggles.
+ */
+export async function toggleFillScreen(): Promise<boolean> {
+  if (!isTauri()) return false;
+
+  const win = getCurrentWindow();
+  const max = await win.isMaximized();
+
+  if (max) {
+    syncMaximizedClass(false);
+    await win.unmaximize();
+    return false;
+  }
+
+  syncMaximizedClass(true);
+  await win.maximize();
+  return true;
+}
+
+/** @deprecated Native maximize only; kept for titlebar resize listener. */
+export function isFillScreenActive() {
+  return false;
+}
+
 export async function applyWindowChrome() {
   if (!isTauri()) return;
 
@@ -25,9 +51,12 @@ export async function applyWindowChrome() {
   }
 
   try {
-    syncMaximizedClass(await win.isMaximized());
-    await win.onResized(async () => {
+    const sync = async () => {
       syncMaximizedClass(await win.isMaximized());
+    };
+    await sync();
+    await win.onResized(async () => {
+      await sync();
     });
   } catch {
     // browser preview

@@ -7,11 +7,21 @@ import { OnboardingBackdrop } from "@/features/onboarding/onboarding-ui";
 import { useWindowDrag, WindowControls } from "@/features/onboarding/window-controls";
 import { OnboardingWizard } from "@/features/onboarding/wizard";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
-import { useState } from "react";
+import { resetMainRootClip } from "@/features/notch/notch-mode";
+import { clearNotchSetup } from "@/features/onboarding/notch-setup";
+import { useEffect, useState } from "react";
 
 export default function OnboardingPage() {
   const [started, setStarted] = useState(false);
   const drag = useWindowDrag();
+
+  useEffect(
+    () => () => {
+      resetMainRootClip();
+      clearNotchSetup();
+    },
+    [],
+  );
 
   return (
     <OnboardingPageGate>

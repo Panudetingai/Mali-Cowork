@@ -5,6 +5,7 @@ import {
   opencodeDefaultCwd,
   opencodeListModels,
 } from "./api";
+import { isCliAgentEnabled } from "@/features/cli-agents";
 import { syncCliProviders } from "@/features/providers";
 import { loadOpencodeSettings, saveOpencodeSettings, SETTINGS_EVENT } from "./settings";
 import type {
@@ -40,8 +41,20 @@ async function ensureCwd(settings: OpencodeSettings) {
   return cwd;
 }
 
+const DISABLED: OpencodeCheckResult = {
+  available: false,
+  version: undefined,
+  path: undefined,
+  error: "Turned off in Settings → Models → CLI agents.",
+};
+
 /** Reload OpenCode status and models for every component using them. */
 export function refreshOpencode(force = true) {
+  if (!isCliAgentEnabled("opencode")) {
+    statusStore.set({ check: DISABLED, models: null, loading: false });
+    statusPromise = null;
+    return Promise.resolve();
+  }
   if (!force && statusPromise) return statusPromise;
   statusStore.set((prev) => ({ ...prev, loading: true }));
   statusPromise = ensureCwd(loadOpencodeSettings())
@@ -71,6 +84,7 @@ let listOnly: Promise<OpencodeModelsResult | null> | null = null;
  * picture sent to an API model going through OpenCode) works the same there.
  */
 export function ensureOpencodeModels(cwd?: string): Promise<OpencodeModelsResult | null> {
+  if (!isCliAgentEnabled("opencode")) return Promise.resolve(null);
   const known = statusStore.get().models;
   if (known) return Promise.resolve(known);
   listOnly ??= opencodeListModels(cwd)

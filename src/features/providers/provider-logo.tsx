@@ -22,6 +22,8 @@ type Props = {
   name: string;
   className?: string;
   size?: number;
+  /** User-provided image (custom CLI agents). */
+  imageUrl?: string;
 };
 
 /**
@@ -30,8 +32,22 @@ type Props = {
  * Brands with no real mark (Puter) use the default tile instead of a
  * network image. Browse: https://lobehub.com/icons
  */
-export function ProviderLogo({ logo, name, className, size = 24 }: Props) {
+export function ProviderLogo({ logo, name, className, size = 24, imageUrl }: Props) {
   const [imgFailed, setImgFailed] = useState(false);
+  const [customFailed, setCustomFailed] = useState(false);
+  if (imageUrl && !customFailed) {
+    return (
+      <img
+        src={imageUrl}
+        alt=""
+        width={size}
+        height={size}
+        className={cn("shrink-0 rounded-[4px] object-cover", className)}
+        style={{ width: size, height: size }}
+        onError={() => setCustomFailed(true)}
+      />
+    );
+  }
   const cli = CLI_AGENT_ICON[logo];
   if (cli) {
     const Icon = cli;

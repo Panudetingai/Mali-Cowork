@@ -226,6 +226,11 @@ pub async fn opencode_set_auth(request: SetAuthRequest) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn opencode_shutdown() {
+    super::server::shutdown().await;
+}
+
+#[tauri::command]
 pub async fn opencode_delete_session(
     session_id: String,
     cwd: Option<String>,

@@ -6,7 +6,7 @@ import { cva, VariantProps } from 'class-variance-authority';
 import { PanelLeftIcon } from 'lucide-react';
 import { type Transition } from 'motion/react';
 
-import { useIsMobile } from '@/hooks/use-mobile';
+import { COMPACT_SIDEBAR_BREAKPOINT, useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -91,6 +91,22 @@ function SidebarProvider({
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
     return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);
+  }, [isMobile, setOpen, setOpenMobile]);
+
+  // Narrow window: collapse to icons so the chat pane keeps space (see use-mobile).
+  React.useEffect(() => {
+    if (isMobile) {
+      setOpen(false);
+      setOpenMobile(false);
+      return;
+    }
+    const mq = window.matchMedia(`(max-width: ${COMPACT_SIDEBAR_BREAKPOINT - 1}px)`);
+    const collapseIfCompact = () => {
+      if (window.innerWidth < COMPACT_SIDEBAR_BREAKPOINT) setOpen(false);
+    };
+    collapseIfCompact();
+    mq.addEventListener('change', collapseIfCompact);
+    return () => mq.removeEventListener('change', collapseIfCompact);
   }, [isMobile, setOpen, setOpenMobile]);
 
   // Adds a keyboard shortcut to toggle the sidebar.

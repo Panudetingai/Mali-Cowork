@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { toast, useToastError } from "@/components/ui/sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { useAntigravity } from "@/features/antigravity";
+import { useCliAgentsFilter } from "@/features/cli-agents";
 import {
   AttachmentChip,
   importAttachment,
@@ -21,8 +22,10 @@ import {
   requestProviderKey,
   useOpencode,
   type OpencodeState,
+  type PermissionReply,
   type WorkMode,
 } from "@/features/opencode";
+import type { PermissionRequest } from "../api/chat";
 import { useProjects } from "@/features/projects";
 import {
   getProvider,
@@ -113,6 +116,9 @@ type Props = {
   temporaryChat?: boolean;
   onTemporaryChatChange?: (on: boolean) => void;
   canChangeTemporary?: boolean;
+  permissions?: PermissionRequest[];
+  onReplyPermission?: (request: PermissionRequest, reply: PermissionReply) => Promise<void>;
+  onAllowFolder?: (request: PermissionRequest, folder: string) => Promise<void>;
 };
 
 const NO_FOLDERS: string[] = [];
@@ -141,6 +147,9 @@ export default function PromptInput({
   temporaryChat,
   onTemporaryChatChange,
   canChangeTemporary = true,
+  permissions = [],
+  onReplyPermission,
+  onAllowFolder,
 }: Props) {
   const { t } = useTranslation();
   const [prompt, setPrompt] = useState("");
@@ -158,6 +167,7 @@ export default function PromptInput({
   const providerConfigs = useProviderConfigs();
   const envKeys = useEnvKeys();
   const customClis = useCustomClis();
+  const cliFilter = useCliAgentsFilter();
   const cursorStatus = useMemo(
     () => ({ models: cursor.models, loggedIn: !!cursor.check?.loggedIn }),
     [cursor.models, cursor.check?.loggedIn],
@@ -176,8 +186,9 @@ export default function PromptInput({
         undefined,
         antigravityStatus,
         customClis,
+        cliFilter,
       ),
-    [opencode.models, providerConfigs, envKeys, mode, cursorStatus, antigravityStatus, customClis],
+    [opencode.models, providerConfigs, envKeys, mode, cursorStatus, antigravityStatus, customClis, cliFilter],
   );
   const selected = findModel(catalog, modelId);
   const usesOpencode = isOpencodeModel(selected.id);
@@ -612,10 +623,10 @@ export default function PromptInput({
       className={cn(
         "relative w-full rounded-xl border bg-card p-3 shadow-sm transition-[box-shadow,border-color] duration-300 focus-within:ring-1",
         maxEffort || contextFull
-          ? "border-amber-300/45 shadow-[0_0_28px_-6px_rgba(251,191,36,0.4)] focus-within:ring-amber-400/70 dark:border-amber-400/35 dark:shadow-[0_0_32px_-6px_rgba(251,191,36,0.28)]"
+          ? "border-foreground/25 shadow-[0_0_28px_-6px_rgba(0,0,0,0.12)] focus-within:ring-ring/70 dark:border-foreground/20 dark:shadow-[0_0_32px_-6px_rgba(0,0,0,0.35)]"
           : contextNearMax
-            ? "border-amber-200/50 shadow-[0_0_20px_-8px_rgba(251,191,36,0.28)] focus-within:ring-amber-300/60 dark:border-amber-500/25"
-            : "focus-within:ring-amber-300",
+            ? "border-foreground/15 shadow-[0_0_20px_-8px_rgba(0,0,0,0.08)] focus-within:ring-ring/50 dark:border-foreground/15"
+            : "focus-within:ring-ring/40",
         contextFull && "border-red-300/40 dark:border-red-400/30",
       )}
     >
@@ -634,8 +645,8 @@ export default function PromptInput({
             className={cn(
               "h-full transition-[width] duration-500 ease-out",
               contextFull
-                ? "bg-linear-to-r from-red-500 via-amber-500 to-violet-500"
-                : "bg-linear-to-r from-amber-400 to-violet-400",
+                ? "bg-linear-to-r from-red-500 via-foreground/70 to-foreground/40"
+                : "bg-linear-to-r from-foreground/50 to-foreground/25",
             )}
             style={{ width: `${Math.round(contextRatio * 100)}%` }}
           />
@@ -644,7 +655,7 @@ export default function PromptInput({
       <ContextNearMaxGlow ratio={contextRatio} active={false} />
       <EffortMaxGlow active={maxEffort} />
       {dragging && (
-        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-amber-400 bg-amber-50/90 text-sm font-medium text-amber-800 dark:bg-amber-950/90 dark:text-amber-200">
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-foreground/35 bg-background/90 text-sm font-medium text-foreground dark:bg-background/95">
           <UploadIcon className="size-4" />
           Drop to attach
         </div>
@@ -701,7 +712,7 @@ export default function PromptInput({
           {pickedSkills.map((slug) => (
             <PickBadge
               key={`skill-${slug}`}
-              icon={<ScrollTextIcon className="size-3.5 text-violet-500" />}
+              icon={<ScrollTextIcon className="size-3.5 text-foreground/70" />}
               label={slug}
               title={skillBySlug(slug)?.description}
               onRemove={() => setPickedSkills((prev) => prev.filter((s) => s !== slug))}
@@ -962,7 +973,10 @@ export default function PromptInput({
             onClose={() => setVoiceMode(false)}
             send={submitText}
             reply={lastReply}
-            busy={!!isLoading}
+            busy={!!isLoading && permissions.length === 0}
+            permissions={permissions}
+            onReplyPermission={onReplyPermission}
+            onAllowFolder={onAllowFolder}
           />
         )}
       </AnimatePresence>
@@ -1020,7 +1034,7 @@ function FolderChip({
     : !opencode.check?.available
       ? { dot: "bg-red-500", label: "OpenCode unavailable" }
       : !grant
-        ? { dot: "bg-amber-500", label: "Not allowed yet — you’ll be asked before the agent starts" }
+        ? { dot: "bg-muted-foreground/70", label: "Not allowed yet — you’ll be asked before the agent starts" }
         : { dot: "bg-emerald-500", label: grant.access === "read" ? "Read-only access" : "Read & write access" };
 
   return (

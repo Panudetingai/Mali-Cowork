@@ -28,7 +28,7 @@ use commands::checkpoint::{
     checkpoint_add_folder, checkpoint_begin, checkpoint_diff, checkpoint_finish, checkpoint_open,
     checkpoint_before_text, checkpoint_preview, checkpoint_restore, checkpoint_restore_file,
 };
-use commands::cli::{check_cli, cli_generate};
+use commands::cli::{check_cli, cli_generate, custom_cli_list_models};
 use commands::code::{code_delete, code_detect, code_kill, code_read, code_rename, code_run, code_scan, code_write};
 use commands::codex::{codex_abort, codex_check, codex_generate, codex_list_models};
 use commands::cursor::{
@@ -61,12 +61,12 @@ use commands::quick::{
     quick_capture_region, quick_capture_screen, quick_configure, quick_hide, quick_open_main,
     quick_start_capture_overlay, quick_take_context, QuickState,
 };
-use commands::setup::{setup_cancel, setup_codex_login, setup_install, setup_plan, setup_scan};
+use commands::setup::{setup_cancel, setup_cli_sign_in, setup_codex_login, setup_install, setup_install_cli, setup_plan, setup_scan};
 use commands::opencode::{
     opencode_abort, opencode_check, opencode_configure_providers, opencode_default_cwd,
     opencode_delete_session,
     opencode_generate, opencode_list_models, opencode_permission_reply, opencode_question_reply,
-    opencode_set_auth,
+    opencode_set_auth, opencode_shutdown,
     opencode_warm, warm_up_server,
 };
 use commands::storage::{
@@ -284,6 +284,7 @@ pub fn run() {
             preview_image,
             cli_generate,
             check_cli,
+            custom_cli_list_models,
             code_scan,
             code_read,
             code_write,
@@ -302,6 +303,7 @@ pub fn run() {
             opencode_question_reply,
             opencode_delete_session,
             opencode_warm,
+            opencode_shutdown,
             opencode_configure_providers,
             mcp_diagnose,
             mcp_auth_cancel,
@@ -314,6 +316,8 @@ pub fn run() {
             setup_plan,
             setup_install,
             setup_cancel,
+            setup_install_cli,
+            setup_cli_sign_in,
             setup_codex_login,
             cursor_generate,
             cursor_check,

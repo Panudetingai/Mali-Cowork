@@ -9,7 +9,9 @@ import {
 import { CursorLoginDialog } from "@/features/cursor";
 import { GitBar, GitPanel, GitProvider } from "@/features/git";
 import { ProviderKeyDialog, saveOpencodeSettings, useDefaultCwd } from "@/features/opencode";
-import { FirstRunWizard } from "@/features/onboarding";
+import { FirstRunWizard, isOnboardingDone } from "@/features/onboarding";
+import { clearNotchSetup } from "@/features/onboarding/notch-setup";
+import { resetMainRootClip } from "@/features/notch/notch-mode";
 import { SmartSuggestions } from "@/features/smart-start";
 import { getProject, useProjects } from "@/features/projects";
 import { carriedConversation, ChatTasksStrip, enqueueTask, TaskChatNote } from "@/features/tasks";
@@ -19,7 +21,7 @@ import { MALI_EASE } from "@/lib/motion-presets";
 import { cn } from "@/lib/utils";
 import { turnInputFor, useChat, type SendMessage } from "@/pages/chat/hooks/use-chat";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { startTransition, useRef, type ReactNode } from "react";
+import { startTransition, useEffect, useRef, type ReactNode } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ChatComposer } from "./components/chat-composer";
 import { ChatMessagePanel } from "./components/chat-message-panel";
@@ -62,6 +64,13 @@ function ViewShell({
 }
 
 export default function ChatLayout() {
+  // After setup or a wake from the notch, drop any clip on #root so the white
+  // onboarding canvas cannot show through at the edges behind Welcome.
+  useEffect(() => {
+    resetMainRootClip();
+    if (isOnboardingDone()) clearNotchSetup();
+  }, []);
+
   const { chatId } = useParams();
   const [params] = useSearchParams();
   const navigate = useNavigate();
@@ -246,15 +255,12 @@ export default function ChatLayout() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: reduceMotion ? 0 : -6 }}
                     transition={{ duration: 0.2, ease: viewEase }}
-                    className="my-auto flex w-full flex-col items-center gap-4 py-2 [@media(max-height:720px)]:gap-2"
+                    className="relative z-20 my-auto flex w-full flex-col items-center gap-4 py-2 [@media(max-height:720px)]:gap-2"
                   >
 
                     {/* The bots play around these, never over them. */}
                     <div data-bot-avoid="children" className="flex flex-col items-center gap-4">
                       <ChatTitle mode={mode} project={project} temporary={activeTemporary} />
-                    </div>
-                    <div data-bot-avoid>
-                      <FirstRunWizard />
                     </div>
                     <AnimatePresence mode="wait" initial={false}>
                       <motion.div
@@ -277,25 +283,24 @@ export default function ChatLayout() {
                   </motion.div>
                 ) : null}
               </AnimatePresence>
-              {!hasMessages && <AnimationBotMali key={`bots-${mode}`} />}
+              {!hasMessages && <AnimationBotMali key={`bots-${mode}`} className="z-[5]" />}
 
-              {/* Always mounted so scroll/follow keeps a container ref when the first reply arrives. */}
-              <ChatMessagePanel
-                messages={messages}
-                isLoading={isLoading}
-                containerRef={containerRef}
-                atBottom={atBottom}
-                onScrollToBottom={scrollToBottom}
-                session={session}
-                project={project}
-                continuedFrom={session?.continuedFrom}
-                onRetry={(id) => void retryMessage(id)}
+              {hasMessages && (
+                <ChatMessagePanel
+                  messages={messages}
+                  isLoading={isLoading}
+                  containerRef={containerRef}
+                  atBottom={atBottom}
+                  onScrollToBottom={scrollToBottom}
+                  session={session}
+                  project={project}
+                  continuedFrom={session?.continuedFrom}
+                  onRetry={(id) => void retryMessage(id)}
                   onEdit={(id, text) => void editAndResend(id, text)}
-                onRate={rateMessage}
-                className={cn(
-                  hasMessages ? "min-h-0 flex-1" : "pointer-events-none absolute inset-0 overflow-hidden opacity-0",
-                )}
-              />
+                  onRate={rateMessage}
+                  className="min-h-0 flex-1"
+                />
+              )}
             </div>
 
             {gitFolder && (
@@ -310,6 +315,7 @@ export default function ChatLayout() {
               ) : (
                 mode === "cowork" && <ChatTasksStrip chatId={session?.id} />
               )}
+              <FirstRunWizard className="mb-3" />
               <ChatComposer
                 key={`${chatId ?? "new"}:${mode}:${project?.id ?? ""}`}
                 mode={mode}

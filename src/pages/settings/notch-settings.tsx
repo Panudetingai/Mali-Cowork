@@ -26,6 +26,7 @@ import {
     type NotchLook,
     type NotchScreen,
 } from "@/features/notch";
+import { useCliAgentsFilter } from "@/features/cli-agents";
 import { useOpencode } from "@/features/opencode";
 import { listConfiguredProviders, useEnvKeys, useProviderConfigs } from "@/features/providers";
 import { isMacPlatform, setQuickConfig, shortcutKeys, useQuickConfig, useQuickStatus } from "@/features/quick";
@@ -77,6 +78,7 @@ export function NotchSettings() {
   const providerConfigs = useProviderConfigs();
   const envKeys = useEnvKeys();
   const customClis = useCustomClis();
+  const cliFilter = useCliAgentsFilter();
 
   const catalog = useMemo(
     () =>
@@ -88,8 +90,9 @@ export function NotchSettings() {
         { models: [], loggedIn: false },
         { models: antigravity.models, loggedIn: !!antigravity.check?.loggedIn },
         customClis,
+        cliFilter,
       ),
-    [opencode.models, providerConfigs, envKeys, cursor, antigravity, customClis],
+    [opencode.models, providerConfigs, envKeys, cursor, antigravity, customClis, cliFilter],
   );
 
   const followsChat = !quickConfig.modelId;
