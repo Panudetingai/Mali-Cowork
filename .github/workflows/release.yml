@@ -75,10 +75,14 @@ jobs:
           TAURI_CONFIG: '{"bundle":{"externalBin":[]}}'
         run: |
           set -euo pipefail
-          cargo check --manifest-path src-tauri/Cargo.toml --lib --bins
+          extra_args=()
+          if [[ "${{ matrix.platform }}" == macos-latest ]]; then
+            extra_args+=(--features macos-private-api)
+          fi
+          cargo check --manifest-path src-tauri/Cargo.toml --lib --bins "${extra_args[@]}"
           if [[ "${{ matrix.platform }}" == macos-latest ]]; then
             for t in aarch64-apple-darwin x86_64-apple-darwin; do
-              cargo check --manifest-path src-tauri/Cargo.toml --bin mali-mcp-runner --target "$t"
+              cargo check --manifest-path src-tauri/Cargo.toml --bin mali-mcp-runner --target "$t" "${extra_args[@]}"
             done
           fi
 
