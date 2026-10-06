@@ -24,7 +24,7 @@ path = "src/bin/mcp_runner.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
@@ -63,6 +63,10 @@ sysinfo = "0.39"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# macOSPrivateApi in tauri.macos.conf.json; must not be enabled on Windows builds.
+[target.'cfg(target_os = "macos")'.dependencies.tauri]
+features = ["macos-private-api"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
