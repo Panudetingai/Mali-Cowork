@@ -60,7 +60,12 @@ const exe = process.platform === "win32" ? ".exe" : "";
 // Building the runner also runs the app's `tauri-build` script, which refuses to
 // run while `externalBin` names a file that this very step is about to produce.
 // Blanking that one key for the sidecar build breaks the cycle.
-const env = { ...process.env, TAURI_CONFIG: JSON.stringify({ bundle: { externalBin: [] } }) };
+// Sidecar build runs tauri-build too; drop macOSPrivateApi so the runner compile does not need macos-private-api.
+const tauriConfigOverride = { bundle: { externalBin: [] } };
+if (process.platform === "darwin") {
+  tauriConfigOverride.app = { macOSPrivateApi: false };
+}
+const env = { ...process.env, TAURI_CONFIG: JSON.stringify(tauriConfigOverride) };
 
 function run(command, args) {
   return execFileSync(command, args, { cwd: tauriDir, stdio: "inherit", env });
