@@ -95,15 +95,10 @@ fn gpu_name_windows() -> Option<String> {
     .flatten()
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-fn gpu_from_sys(sys: &mut System) -> (Option<String>, Option<f32>) {
-    sys.refresh_all();
-    if let Some(gpu) = sys.gpus().first() {
-        return (
-            Some(gpu.name().to_string()),
-            Some(gpu.gpu_usage() as f32),
-        );
-    }
+/// sysinfo 0.39 has no GPU API on Unix; the notch omits GPU % unless we add a
+/// platform-specific probe later (Windows uses WMI for the label only).
+#[cfg(not(windows))]
+fn gpu_from_sys(_sys: &mut System) -> (Option<String>, Option<f32>) {
     (None, None)
 }
 
