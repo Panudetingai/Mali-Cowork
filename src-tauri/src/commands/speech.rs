@@ -12,6 +12,10 @@
 //!   user's ElevenLabs key (`xi-api-key`).
 //! - `fishaudio`: Fish Audio's ASR and TTS on the user's key; a voice is a
 //!   model id (`reference_id`) from its library or the user's own clones.
+//! - `via:<provider>`: any provider from Settings → Models — a custom one
+//!   included — whose API serves the OpenAI-compatible audio endpoints. The
+//!   user names the model (and the voice), so a service that starts offering
+//!   speech works without a new release.
 
 use std::time::Duration;
 
@@ -36,7 +40,7 @@ const ELEVENLABS_MODEL: &str = "eleven_v3";
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscribeRequest {
-    /// `groq`, `openai`, `puter`, `elevenlabs` or `fishaudio`.
+    /// `groq`, `openai`, `puter`, `elevenlabs`, `fishaudio` or `via:<provider>`.
     pub engine: String,
     pub model: String,
     pub api_key: Option<String>,
@@ -52,7 +56,7 @@ pub struct TranscribeRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpeakRequest {
-    /// `openai`, `puter`, `elevenlabs` or `fishaudio`.
+    /// `openai`, `puter`, `elevenlabs`, `fishaudio` or `via:<provider>`.
     pub engine: String,
     pub model: Option<String>,
     pub voice: Option<String>,
@@ -72,6 +76,15 @@ pub struct SpeechAudio {
     /// The audio, base64.
     pub audio: String,
     pub mime: String,
+}
+
+/// The provider behind an OpenAI-compatible speech engine: Groq and OpenAI by
+/// name, or `via:<provider>` for any other provider from Settings → Models.
+fn compatible_provider(engine: &str) -> Option<&str> {
+    match engine {
+        "groq" | "openai" => Some(engine),
+        _ => engine.strip_prefix("via:").filter(|p| !p.is_empty()),
+    }
 }
 
 fn trimmed(value: Option<&str>) -> Option<&str> {
@@ -159,13 +172,20 @@ pub async fn speech_transcribe(request: TranscribeRequest) -> Result<String, Str
             let result = if value.get("result").is_some() { &value["result"] } else { &value };
             result.as_str().or(result["text"].as_str()).unwrap_or_default().to_string()
         }
-        engine @ ("groq" | "openai") => {
-            let (base, key) = crate::ai::endpoint(engine, request.api_key.as_deref(), request.base_url.as_deref())?;
+        engine if compatible_provider(engine).is_some() => {
+            let provider = compatible_provider(engine).unwrap_or(engine);
+            let (base, key) = crate::ai::endpoint(provider, request.api_key.as_deref(), request.base_url.as_deref())?;
             let part = audio_part(audio, &request.mime)?;
-            let default = if engine == "groq" { "whisper-large-v3-turbo" } else { "gpt-4o-mini-transcribe" };
+            let model = match (model, provider) {
+                ("", "groq") => "whisper-large-v3-turbo",
+                ("", "openai") => "gpt-4o-mini-transcribe",
+                ("", _) => return Err(format!("Type the transcription model {provider} offers in Settings → Voice → Listening.")),
+                (model, _) => model,
+            };
+            let engine = provider;
             let mut form = reqwest::multipart::Form::new()
                 .part("file", part)
-                .text("model", if model.is_empty() { default.to_string() } else { model.to_string() })
+                .text("model", model.to_string())
                 .text("response_format", "json");
             if let Some(language) = language {
                 form = form.text("language", language.to_string());
@@ -250,10 +270,16 @@ pub async fn speech_synthesize(request: SpeakRequest) -> Result<SpeechAudio, Str
                 .map_err(|e| format!("Cannot reach Puter: {e}"))?;
             read_audio("Puter", response).await?
         }
-        "openai" => {
-            let (base, key) = crate::ai::endpoint("openai", request.api_key.as_deref(), request.base_url.as_deref())?;
+        engine if compatible_provider(engine).is_some() => {
+            let provider = compatible_provider(engine).unwrap_or(engine);
+            let (base, key) = crate::ai::endpoint(provider, request.api_key.as_deref(), request.base_url.as_deref())?;
+            let model = match (model, provider) {
+                (Some(model), _) => model,
+                (None, "openai") => "gpt-4o-mini-tts",
+                (None, _) => return Err(format!("Type the speech model {provider} offers in Settings → Voice → Speaking.")),
+            };
             let mut body = json!({
-                "model": model.unwrap_or("gpt-4o-mini-tts"),
+                "model": model,
                 "voice": voice.unwrap_or("alloy"),
                 "input": text,
                 "response_format": "mp3",
@@ -267,8 +293,8 @@ pub async fn speech_synthesize(request: SpeakRequest) -> Result<SpeechAudio, Str
                 .json(&body)
                 .send()
                 .await
-                .map_err(|e| format!("Cannot reach OpenAI: {e}"))?;
-            read_audio("OpenAI", response).await?
+                .map_err(|e| format!("Cannot reach {provider}: {e}"))?;
+            read_audio(provider, response).await?
         }
         "elevenlabs" => {
             let key = trimmed(request.api_key.as_deref()).ok_or("Add your ElevenLabs key in Settings → Voice first.")?;
@@ -355,7 +381,8 @@ pub async fn speech_models(request: ModelsRequest) -> Result<Vec<SpeechModel>, S
             }
             Ok(models)
         }
-        engine @ ("groq" | "openai") => {
+        engine if compatible_provider(engine).is_some() => {
+            let engine = compatible_provider(engine).unwrap_or(engine);
             let (base, key) = crate::ai::endpoint(engine, request.api_key.as_deref(), request.base_url.as_deref())?;
             let response = client
                 .get(format!("{}/models", base.trim_end_matches('/')))
@@ -473,7 +500,7 @@ fn openai_models(value: &Value, engine: &str, kind: &str) -> Vec<SpeechModel> {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelsRequest {
-    /// `groq`, `openai` or `elevenlabs` (the rest keep a built-in list).
+    /// `groq`, `openai`, `elevenlabs` or `via:<provider>` (the rest keep a built-in list).
     pub engine: String,
     /// `tts` (a voice reads replies) or `stt` (speech into text).
     pub kind: String,

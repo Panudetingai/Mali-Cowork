@@ -229,6 +229,18 @@ await chatGenerateStream({ prompt, modelId }, {
 5. Frontend: เพิ่ม `modelId` ใน `prompt.tsx` model selector
 6. ทดสอบ: `bun tauri dev` → เลือกโมเดลใหม่ → ส่ง prompt
 
+## 3.8.1 Provider ที่ผู้ใช้เพิ่มเอง (ไม่ต้องแก้โค้ด)
+
+Settings → Models → **Add provider** เพิ่ม server ใดก็ได้ที่พูด OpenAI-compatible API — cloud ใหม่ หรือ local (LM Studio, llama.cpp, vLLM, Jan, LocalAI)
+
+- เก็บใน `src/features/providers/custom.ts` (localStorage `mali.custom-providers`, key อยู่ใน keychain เหมือน provider อื่น)
+- id เป็น `custom-<slug>`; `allProviders()` รวม built-in + custom ให้ทุกที่ (model picker, Cowork, OpenCode sync, Voice)
+- Rust: `ai::is_custom_provider()` → `provider_info` คืน base URL ว่าง, ไม่มี env var — base URL ต้องมากับ request เสมอ
+- OpenCode: `opencode/providers.rs` สร้าง entry `@ai-sdk/openai-compatible` (keyless ใส่ `apiKey: "none"`)
+- โมเดลใหม่ที่โหลดเข้า local server: กด Refresh ในหน้า provider เพื่อดึง `/models` ใหม่
+
+**Voice:** ทุก provider ที่ connect แล้ว (รวม custom) เลือกเป็น engine ได้ใน Settings → Voice → "Your providers" — engine id `via:<provider>` เรียก `/audio/transcriptions` และ `/audio/speech` ที่ base URL ของ provider นั้น (`commands/speech.rs::compatible_provider`) ผู้ใช้พิมพ์ model/voice เอง
+
 ## 3.9 Troubleshooting
 
 | อาการ | สาเหตุ | แก้ |

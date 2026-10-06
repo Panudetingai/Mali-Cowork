@@ -5,6 +5,8 @@ export type CliRequest = {
   prompt: string;
   agent: string;
   cwd?: string;
+  /** A CLI the user added: what to run; `{prompt}` in `args` is filled in by the backend. */
+  custom?: { command: string; args: string[] };
 };
 
 export type CliCheckResult = {

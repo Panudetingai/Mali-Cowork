@@ -296,5 +296,15 @@ Frontend:
 await invoke("cli_stop");
 ```
 
+## CLI ที่ผู้ใช้เพิ่มเอง
+
+Settings → Models → CLI agents → **Add CLI** (มี preset: Claude Code, Gemini CLI, Qwen Code, Aider)
+
+- เก็บใน `src/features/custom-cli` (localStorage `mali.custom-clis`): `command`, `args` (`{prompt}`, `{model}`), `models`
+- model id: `cli:<id>` หรือ `cli:<id>/<model>` → `router.ts` ส่ง `custom: { command, args }` ไป `cli_generate`
+- Rust (`commands/cli.rs::custom_command`) แทน `{prompt}` (หรือต่อท้ายถ้าไม่มี) แล้วอ่าน stdout เป็น text / JSON lines ที่มี `text`
+- `check_cli(agent, command)` หา path + `--version` ให้ปุ่ม "Find it"
+- ข้อจำกัด: ยังไม่มีปุ่ม Stop และใช้เป็น team bot ไม่ได้
+
 ---
 ต่อไป: **บท 05 — Local Port/Socket** (สำหรับ Agent Server แบบ long-lived)

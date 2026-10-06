@@ -114,6 +114,7 @@ pub async fn opencode_list_models(cwd: Option<String>) -> Result<OpencodeModelsR
         if !is_connected
             && !SUGGESTED_PROVIDERS.contains(&provider_id)
             && !APP_PROVIDERS.contains(&provider_id)
+            && !crate::ai::is_custom_provider(provider_id)
         {
             continue;
         }

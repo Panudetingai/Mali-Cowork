@@ -7,12 +7,12 @@ import { requestConfigFor } from "@/features/providers";
 import { invoke } from "@tauri-apps/api/core";
 import { isVoiceService, voiceKey, type VoiceService } from "./keys";
 import { toBase64, type Recording } from "./recorder";
-import { getVoiceSettings, inputModel, outputModel, type VoiceSettings } from "./settings";
+import { getVoiceSettings, inputModel, outputModel, viaProvider, type VoiceSettings } from "./settings";
 
 /** The key an engine is called with: Settings → Voice for the voice-only services, else Settings → Models. */
 function keyFor(engine: string): { apiKey: string | null; baseUrl: string | null } {
   if (isVoiceService(engine)) return { apiKey: voiceKey(engine), baseUrl: null };
-  return requestConfigFor(engine);
+  return requestConfigFor(viaProvider(engine) ?? engine);
 }
 
 export type VoiceOption = {

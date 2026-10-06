@@ -5,6 +5,7 @@ import {
   buildMediaCatalog,
   buildModelCatalog,
   chatIssueOf,
+  customCliOf,
   findModel,
   mediaKindForId,
   mediaKindOf,
@@ -298,5 +299,25 @@ describe("models on the user's own key", () => {
     const tiny = apiModelId("openai", "gpt-tiny");
     expect(buildModelCatalog(catalogue, openai, "cowork").find((m) => m.id === tiny)?.issue).toContain("tools");
     expect(buildModelCatalog(catalogue, openai, "chat").find((m) => m.id === tiny)?.issue).toBeUndefined();
+  });
+});
+
+describe("custom CLI models", () => {
+  const cli = { id: "custom-claude-code", name: "Claude Code", command: "claude", args: "-p {prompt}", models: "" };
+
+  test("one entry for the CLI's default, or one per model listed", () => {
+    const plain = buildModelCatalog(null, [], "chat", undefined, undefined, undefined, [cli]).filter((m) => m.group === "Claude Code");
+    expect(plain.map((m) => m.id)).toEqual(["cli:custom-claude-code"]);
+    const withModels = buildModelCatalog(null, [], "chat", undefined, undefined, undefined, [{ ...cli, models: "sonnet, opus" }]);
+    expect(withModels.filter((m) => m.source === "cli" && m.provider === "terminal").map((m) => m.id)).toEqual([
+      "cli:custom-claude-code/sonnet",
+      "cli:custom-claude-code/opus",
+    ]);
+  });
+
+  test("ids come apart into the CLI and its model", () => {
+    expect(customCliOf("cli:custom-x/openai/gpt-5")).toEqual({ id: "custom-x", model: "openai/gpt-5" });
+    expect(customCliOf("cli:custom-x")).toEqual({ id: "custom-x", model: undefined });
+    expect(customCliOf("api:openai/gpt-5")).toBeUndefined();
   });
 });

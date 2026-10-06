@@ -4,6 +4,7 @@ import type { Skill } from "@/features/instructions";
 import { codexGenerateStream } from "@/features/codex";
 import { cursorGenerateStream } from "@/features/cursor";
 import { antigravityGenerateStream } from "@/features/antigravity";
+import { CLI_ID_PREFIX, cliArgs, getCustomCli } from "@/features/custom-cli";
 import { hasHubMcp, hubMcpServers } from "@/features/mcp";
 import {
     getOpencodeModels,
@@ -21,6 +22,7 @@ import {
     apiModelOf,
     codexModelOf,
     cursorModelOf,
+    customCliOf,
     antigravityModelOf,
     isCodexModel,
     isCursorModel,
@@ -348,11 +350,21 @@ async function routeStream(
     );
   }
 
-  // Other local CLIs: cli:<agent>
-  if (modelId.startsWith("cli:")) {
-    if (images.length) return handlers.onError(NO_IMAGES(modelId.slice(4)));
+  // A CLI the user added (cli:<id>[/<model>]), or another known one (cli:<agent>).
+  const cliParts = customCliOf(modelId);
+  if (cliParts) {
+    const custom = getCustomCli(cliParts.id);
+    if (images.length) return handlers.onError(NO_IMAGES(custom?.name ?? cliParts.id));
+    if (cliParts.id.startsWith(CLI_ID_PREFIX) && !custom) {
+      return handlers.onError("This CLI was removed. Add it again in Settings → Models → CLI agents, or pick another model.");
+    }
     return cliGenerateStream(
-      { prompt: withInstructions(prompt, request), agent: modelId.slice(4), cwd: request.cwd },
+      {
+        prompt: withInstructions(prompt, request),
+        agent: cliParts.id,
+        cwd: request.cwd,
+        custom: custom ? { command: custom.command, args: cliArgs(custom, cliParts.model) } : undefined,
+      },
       handlers,
     );
   }

@@ -1,4 +1,5 @@
 import { CoworkBot } from "@/components/anim/cowork-bot";
+import { useCustomClis } from "@/features/custom-cli";
 import { Button } from "@/components/ui/button";
 import { toast, useToastError } from "@/components/ui/sonner";
 import { Textarea } from "@/components/ui/textarea";
@@ -156,6 +157,7 @@ export default function PromptInput({
 
   const providerConfigs = useProviderConfigs();
   const envKeys = useEnvKeys();
+  const customClis = useCustomClis();
   const cursorStatus = useMemo(
     () => ({ models: cursor.models, loggedIn: !!cursor.check?.loggedIn }),
     [cursor.models, cursor.check?.loggedIn],
@@ -173,8 +175,9 @@ export default function PromptInput({
         cursorStatus,
         undefined,
         antigravityStatus,
+        customClis,
       ),
-    [opencode.models, providerConfigs, envKeys, mode, cursorStatus, antigravityStatus],
+    [opencode.models, providerConfigs, envKeys, mode, cursorStatus, antigravityStatus, customClis],
   );
   const selected = findModel(catalog, modelId);
   const usesOpencode = isOpencodeModel(selected.id);

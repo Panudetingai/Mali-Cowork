@@ -50,8 +50,21 @@ pub(crate) struct ProviderInfo {
     pub env_var: Option<&'static str>,
 }
 
+/// A provider the user added in Settings → Models: `custom-<slug>`, any
+/// OpenAI-compatible server in the cloud or on this machine (LM Studio,
+/// llama.cpp, vLLM…). It has no default host and no env var, so its address
+/// always comes with the request.
+pub(crate) fn is_custom_provider(provider: &str) -> bool {
+    provider.strip_prefix("custom-").is_some_and(|slug| {
+        !slug.is_empty()
+            && slug.len() <= 48
+            && slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    })
+}
+
 pub(crate) fn provider_info(provider: &str) -> Result<ProviderInfo, String> {
     let (base_url, env_var) = match provider {
+        id if is_custom_provider(id) => ("", None),
         "anthropic" => ("https://api.anthropic.com/v1/", Some("ANTHROPIC_API_KEY")),
         "openai" => ("https://api.openai.com/v1", Some("OPENAI_API_KEY")),
         "google" => (
@@ -92,15 +105,14 @@ fn non_empty(value: Option<&str>) -> Option<String> {
     value.map(clean).filter(|v| !v.is_empty())
 }
 
-fn resolve_api_key(request: &ChatRequest, info: &ProviderInfo, base_url: &str) -> Result<String, String> {
-    key_for(&request.provider, request.api_key.as_deref(), info, base_url)
-}
-
 /// Base URL and API key for a provider, as a chat request would use them:
 /// the user's settings first, then the provider's default host and `.env`.
 pub(crate) fn endpoint(provider: &str, api_key: Option<&str>, base_url: Option<&str>) -> Result<(String, String), String> {
     let info = provider_info(provider)?;
     let base_url = non_empty(base_url).unwrap_or_else(|| info.base_url.to_string());
+    if base_url.is_empty() {
+        return Err(format!("{provider} has no address yet. Set it in Settings → Models."));
+    }
     let key = key_for(provider, api_key, &info, &base_url)?;
     Ok((base_url, key))
 }
@@ -253,10 +265,8 @@ async fn run(request: &ChatRequest, on_event: &Channel<ChatStreamEvent>) -> Resu
         return puter_reply(request, prompt, on_event).await;
     }
 
-    let info = provider_info(&request.provider)?;
-    let base_url =
-        non_empty(request.base_url.as_deref()).unwrap_or_else(|| info.base_url.to_string());
-    let api_key = resolve_api_key(request, &info, &base_url)?;
+    let (base_url, api_key) =
+        endpoint(&request.provider, request.api_key.as_deref(), request.base_url.as_deref())?;
 
     let mut conversation = Message::conversation_builder();
     for message in &request.history {
@@ -419,4 +429,23 @@ If it generates pictures, remove it from              Settings → Models and ad
         ));
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn custom_providers_need_their_own_address() {
+        assert!(is_custom_provider("custom-lm-studio"));
+        assert!(!is_custom_provider("custom-"));
+        assert!(!is_custom_provider("custom-Bad_Id"));
+        assert!(!is_custom_provider("openai"));
+        assert!(endpoint("custom-lm-studio", None, None).is_err(), "no default host");
+        let (base, key) = endpoint("custom-lm-studio", None, Some("http://localhost:1234/v1")).unwrap();
+        assert_eq!(base, "http://localhost:1234/v1");
+        assert!(!key.is_empty(), "keyless local servers still get a placeholder key");
+        let (_, key) = endpoint("custom-together", Some("sk-x"), Some("https://api.together.xyz/v1")).unwrap();
+        assert_eq!(key, "sk-x");
+    }
 }

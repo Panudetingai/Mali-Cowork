@@ -16,9 +16,42 @@ pub struct CliRequest {
     pub agent: String,
     /// optional: working directory
     pub cwd: Option<String>,
+    /// A CLI the user added in Settings → Models: how to run it.
+    #[serde(default)]
+    pub custom: Option<CustomCli>,
 }
 
-fn agent_command(agent: &str, prompt: &str) -> Result<(String, Vec<String>), String> {
+/// A CLI agent the user set up themselves, for one Mali doesn't know yet.
+/// Its output is read as plain text (or JSON lines with a `text` field).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomCli {
+    /// The program, by name on PATH or by full path.
+    pub command: String,
+    /// Arguments, one per entry; `{prompt}` is replaced with the prompt, and
+    /// the prompt goes last when no argument names it.
+    #[serde(default)]
+    pub args: Vec<String>,
+}
+
+const PROMPT_TOKEN: &str = "{prompt}";
+
+fn custom_command(custom: &CustomCli, prompt: &str) -> Result<(String, Vec<String>), String> {
+    let command = custom.command.trim();
+    if command.is_empty() || command.contains(['\n', '\r', '\0']) {
+        return Err("Set the command this CLI runs in Settings → Models → CLI agents.".into());
+    }
+    let mut args: Vec<String> = custom.args.iter().map(|a| a.replace(PROMPT_TOKEN, prompt)).collect();
+    if !custom.args.iter().any(|a| a.contains(PROMPT_TOKEN)) {
+        args.push(prompt.to_string());
+    }
+    Ok((command.to_string(), args))
+}
+
+fn agent_command(agent: &str, prompt: &str, custom: Option<&CustomCli>) -> Result<(String, Vec<String>), String> {
+    if let Some(custom) = custom {
+        return custom_command(custom, prompt);
+    }
     match agent {
         "opencode" => Ok((
             "opencode".into(),
@@ -293,7 +326,7 @@ pub async fn cli_generate(
         return Ok(());
     }
 
-    let (bin, args) = agent_command(&request.agent, &prompt)?;
+    let (bin, args) = agent_command(&request.agent, &prompt, request.custom.as_ref())?;
     let bin_path = resolve_bin(&bin).unwrap_or_else(|| bin.clone());
 
     on_event.send(ChatStreamEvent::Started)
@@ -456,13 +489,16 @@ pub struct CliCheckResult {
 }
 
 #[tauri::command]
-pub async fn check_cli(agent: String) -> CliCheckResult {
-    // Only known agents: this runs `<bin> --version` on the user's machine.
-    let bin = match agent.as_str() {
-        "opencode" => "opencode",
-        "cursor" => "cursor-agent",
-        "codex" => "codex",
-        other => {
+pub async fn check_cli(agent: String, command: Option<String>) -> CliCheckResult {
+    // Known agents, or the command the user typed for one they added: this
+    // runs `<bin> --version` on the user's machine.
+    let custom = command.as_deref().map(str::trim).filter(|c| !c.is_empty() && !c.contains(['\n', '\r', '\0']));
+    let bin = match (agent.as_str(), custom) {
+        (_, Some(command)) => command,
+        ("opencode", _) => "opencode",
+        ("cursor", _) => "cursor-agent",
+        ("codex", _) => "codex",
+        (other, _) => {
             return CliCheckResult {
                 available: false,
                 version: None,
@@ -474,6 +510,8 @@ pub async fn check_cli(agent: String) -> CliCheckResult {
     let Some(path) = resolve_bin(bin) else {
         return CliCheckResult { available: false, version: None, path: None, error: Some(format!("{bin} not found in PATH")) };
     };
+    // A CLI the user added may not know `--version`; being found is enough.
+    let lenient = custom.is_some();
     let ver_args: Vec<String> = vec!["--version".to_string()];
     let mut cmd = build_command(&path, &ver_args);
     augment_path_for_child(&mut cmd);
@@ -486,10 +524,31 @@ pub async fn check_cli(agent: String) -> CliCheckResult {
             let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
             CliCheckResult { available: true, version: Some(ver), path: Some(path), error: None }
         }
+        Ok(_) | Err(_) if lenient => CliCheckResult { available: true, version: None, path: Some(path), error: None },
         Ok(out) => {
             let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
             CliCheckResult { available: false, version: None, path: Some(path), error: Some(if err.is_empty() { "version check failed".into() } else { err }) }
         }
         Err(e) => CliCheckResult { available: false, version: None, path: Some(path), error: Some(e.to_string()) },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cli(command: &str, args: &[&str]) -> CustomCli {
+        CustomCli { command: command.into(), args: args.iter().map(|a| a.to_string()).collect() }
+    }
+
+    #[test]
+    fn custom_cli_puts_the_prompt_where_asked() {
+        let (bin, args) = custom_command(&cli("gemini", &["-p", "{prompt}", "--yolo"]), "hi there").unwrap();
+        assert_eq!(bin, "gemini");
+        assert_eq!(args, ["-p", "hi there", "--yolo"]);
+        let (_, args) = custom_command(&cli("claude", &["-p"]), "hi").unwrap();
+        assert_eq!(args, ["-p", "hi"], "prompt goes last when no argument names it");
+        assert!(custom_command(&cli("  ", &[]), "hi").is_err());
+        assert!(custom_command(&cli("evil\nrm", &[]), "hi").is_err());
     }
 }

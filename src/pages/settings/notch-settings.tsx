@@ -3,6 +3,7 @@
  * it keeps, which screen it lives on, and starting Mali in it at login.
  */
 import { CoworkBot } from "@/components/anim/cowork-bot";
+import { useCustomClis } from "@/features/custom-cli";
 import { useResolvedBot } from "@/features/bot-studio/resolve";
 import { Switch } from "@/components/ui/switch";
 import { useCoworkBot } from "@/features/cowork-bot";
@@ -75,6 +76,7 @@ export function NotchSettings() {
   const antigravity = useAntigravity();
   const providerConfigs = useProviderConfigs();
   const envKeys = useEnvKeys();
+  const customClis = useCustomClis();
 
   const catalog = useMemo(
     () =>
@@ -85,8 +87,9 @@ export function NotchSettings() {
         { models: cursor.models, loggedIn: !!cursor.check?.loggedIn },
         { models: [], loggedIn: false },
         { models: antigravity.models, loggedIn: !!antigravity.check?.loggedIn },
+        customClis,
       ),
-    [opencode.models, providerConfigs, envKeys, cursor, antigravity],
+    [opencode.models, providerConfigs, envKeys, cursor, antigravity, customClis],
   );
 
   const followsChat = !quickConfig.modelId;

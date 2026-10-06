@@ -2,6 +2,7 @@ import type { CodexModel } from "@/features/codex";
 import type { CursorModel } from "@/features/cursor";
 import type { OpencodeModel, OpencodeModelsResult, WorkMode } from "@/features/opencode";
 import type { AntigravityModel } from "@/features/antigravity";
+import { cliModels, getCustomCli, type CustomCli } from "@/features/custom-cli";
 import { effortFor, storedEffortFor } from "@/features/effort";
 import type { MediaKind } from "@/features/media";
 import type { PuterModel } from "@/features/media/puter-catalog";
@@ -224,6 +225,27 @@ export function isCliModel(modelId: string) {
   return modelId.startsWith(CLI_PREFIX);
 }
 
+/** A CLI the user added, with or without a model: `cli:<id>` or `cli:<id>/<model>`. */
+export function customCliModelId(cliId: string, model?: string) {
+  return `${CLI_PREFIX}${cliId}${model ? `/${model}` : ""}`;
+}
+
+/** `cli:<id>/<model>` → its parts; the model may itself contain slashes. */
+export function customCliOf(modelId: string) {
+  if (!isCliModel(modelId)) return undefined;
+  const rest = modelId.slice(CLI_PREFIX.length);
+  const slash = rest.indexOf("/");
+  if (slash < 0) return { id: rest, model: undefined };
+  return { id: rest.slice(0, slash), model: rest.slice(slash + 1) || undefined };
+}
+
+function customCliMeta(modelId: string): Pick<AiModel, "name" | "provider" | "source" | "group"> {
+  const parts = customCliOf(modelId);
+  const cli = parts ? getCustomCli(parts.id) : undefined;
+  const name = cli?.name ?? parts?.id ?? "CLI";
+  return { name: parts?.model ?? name, provider: "terminal", source: "cli", group: name };
+}
+
 /** `opencode:provider/model` → `provider/model`; undefined for the server default. */
 export function opencodeModelOf(modelId: string) {
   const model = modelId.slice(OPENCODE_PREFIX.length);
@@ -313,6 +335,8 @@ export function buildModelCatalog(
   cursor: { models: CursorModel[]; loggedIn: boolean } = { models: [], loggedIn: false },
   codex: { models: CodexModel[]; loggedIn: boolean } = { models: [], loggedIn: false },
   antigravity: { models: AntigravityModel[]; loggedIn: boolean } = { models: [], loggedIn: false },
+  /** CLI agents the user added in Settings → Models. */
+  customClis: CustomCli[] = [],
 ): AiModel[] {
   // models.dev metadata for every model, so a model the user typed into
   // Settings → Models is recognised as a picture model without a second call.
@@ -458,7 +482,16 @@ export function buildModelCatalog(
           },
         ];
 
-  return [...apiModels, ...cursorModels, ...codexModels, ...antigravityModels, ...opencodeModels];
+  // A CLI the user added: one entry per model they listed, or one for its own default.
+  const customCliModels: AiModel[] = customClis.flatMap((cli) => {
+    const base = { provider: "terminal", source: "cli" as const, group: cli.name };
+    const models = cliModels(cli);
+    return models.length > 0
+      ? models.map((model) => ({ ...base, id: customCliModelId(cli.id, model), name: model }))
+      : [{ ...base, id: customCliModelId(cli.id), name: cli.name }];
+  });
+
+  return [...apiModels, ...cursorModels, ...codexModels, ...antigravityModels, ...customCliModels, ...opencodeModels];
 }
 
 /**
@@ -496,6 +529,7 @@ export function findModel(catalog: AiModel[], id: string): AiModel {
     const model = antigravityModelOf(id);
     return { id, name: model === "auto" ? "Antigravity CLI" : model, provider: "antigravity", source: "cli", group: "Antigravity CLI" };
   }
+  if (isCliModel(id)) return { id, ...customCliMeta(id) };
   if (isOpencodeModel(id)) {
     const model = opencodeModelOf(id);
     return {
@@ -513,8 +547,9 @@ export function findModel(catalog: AiModel[], id: string): AiModel {
  * Which backend actually runs a model id. Each keeps its own session, so a
  * chat that changes agent starts over: worth saying out loud before it does.
  */
-export function agentOf(modelId: string): "opencode" | "cursor" | "codex" | "antigravity" | "api" {
+export function agentOf(modelId: string): "opencode" | "cursor" | "codex" | "antigravity" | "cli" | "api" {
   if (isOpencodeModel(modelId)) return "opencode";
+  if (isCliModel(modelId)) return "cli";
   if (isCursorModel(modelId)) return "cursor";
   if (isCodexModel(modelId)) return "codex";
   if (isAntigravityModel(modelId)) return "antigravity";
@@ -526,11 +561,13 @@ const AGENT_NAMES: Record<ReturnType<typeof agentOf>, string> = {
   cursor: "Cursor",
   codex: "Codex",
   antigravity: "Antigravity CLI",
+  cli: "This CLI",
   api: "This model",
 };
 
 /** What to call the backend behind a model id, in a sentence. */
 export function agentNameOf(modelId: string) {
+  if (isCliModel(modelId)) return customCliMeta(modelId).group;
   return AGENT_NAMES[agentOf(modelId)];
 }
 
@@ -571,6 +608,10 @@ export function modelMetaFromId(
       provider: "antigravity",
       source: "cli",
     };
+  }
+  if (isCliModel(modelId)) {
+    const { name, provider, source } = customCliMeta(modelId);
+    return { name, provider, source };
   }
   if (isOpencodeModel(modelId)) {
     if (modelId === OPENCODE_DEFAULT_ID) {
