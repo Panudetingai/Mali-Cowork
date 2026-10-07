@@ -123,8 +123,8 @@ export default function AppWithOnboarding() {
   const awake = useMainAwake();
   return (
     <>
-      {/* {!awake && <UpdateDialog />} */}
-      <UpdateDialog />
+      {awake && <UpdateDialog />}
+      {/* <UpdateDialog /> */}
       <App />
     </>
   );
