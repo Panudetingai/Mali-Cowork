@@ -36,3 +36,8 @@ src-tauri/binaries/
 
 # Token benchmark runs (the reported one is committed on purpose)
 scripts/token-bench/results/
+
+# Rust profiler / Criterion output
+**/flamegraph.svg
+**/flamegraph.html
+src-tauri/target/criterion/

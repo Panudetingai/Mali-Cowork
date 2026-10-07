@@ -16,13 +16,32 @@ use tokio::process::Command;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+/// Child processes (CLI agents, MCP, `node`, `cmd`…) must not flash a console on Windows.
+#[cfg(windows)]
+pub fn hide_console(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+pub fn hide_console(_cmd: &mut Command) {}
+
+#[cfg(windows)]
+pub fn hide_console_std(cmd: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+pub fn hide_console_std(_cmd: &mut std::process::Command) {}
+
 /// A command running `bin` with `args` passed through verbatim, with no
 /// console window on Windows.
 pub fn command(bin: &str, args: &[&str]) -> Command {
     #[cfg(windows)]
     {
         let mut cmd = windows_command(bin, args);
-        cmd.creation_flags(CREATE_NO_WINDOW);
+        hide_console(&mut cmd);
         cmd
     }
     #[cfg(not(windows))]
@@ -39,10 +58,7 @@ pub fn std_command(program: &str) -> std::process::Command {
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new(program);
     #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
+    hide_console_std(&mut cmd);
     cmd
 }
 
@@ -84,7 +100,14 @@ fn windows_command(bin: &str, args: &[&str]) -> Command {
 
     if let Some(ps1) = powershell_shim_script(path, &contents) {
         let mut cmd = Command::new(powershell_exe());
-        cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]);
+        cmd.args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-WindowStyle",
+            "Hidden",
+            "-File",
+        ]);
         cmd.arg(ps1).args(args);
         return cmd;
     }

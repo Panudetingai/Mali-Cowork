@@ -52,7 +52,10 @@ export function MarkdownLink({ href, children, className, ...props }: ComponentP
       );
     }
     return (
-      <LinkPreviewCard href={url} className={cn("relative z-10 text-primary", className)}>
+      <LinkPreviewCard
+        href={url}
+        className={cn("relative z-10 text-[var(--link)] hover:text-[var(--link-hover)]", className)}
+      >
         {children ?? url}
       </LinkPreviewCard>
     );

@@ -11,7 +11,8 @@ import { Button } from "@/components/ui/button";
 import { ScrollMore, useScrollFade } from "@/components/ui/scroll-fade";
 import { cn } from "@/lib/utils";
 import { allProviders, getProvider, ModelBrandIcon, ProviderLogo } from "@/features/providers";
-import { CheckIcon, ChevronDownIcon, FilmIcon, ImageIcon, KeyRoundIcon } from "lucide-react";
+import { VirtualList } from "@/components/ui/virtual-list";
+import { CheckIcon, ChevronDownIcon, FilmIcon, ImageIcon, KeyRoundIcon, LoaderIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { OPENCODE_DEFAULT_ID, type AiModel } from "../models";
 
@@ -62,7 +63,13 @@ export type Group = {
   kind: GroupKind;
   section: SectionId;
   items: AiModel[];
+  /** Model list still fetching for this provider. */
+  loading?: boolean;
 };
+
+/** How many rows before the list is virtualized (large CLIs such as Kilo). */
+const VIRTUALIZE_ABOVE = 48;
+const MODEL_ROW_PX = 40;
 
 /** A signed-in CLI is the one a user most often means, so it leads the rail. */
 const CLI_RANK = ["Cursor CLI", "Codex CLI", "Antigravity CLI"];
@@ -71,6 +78,10 @@ type Props = {
   models: AiModel[];
   selected: AiModel;
   loading?: boolean;
+  /** Rail keys whose model list is still loading (`opencode:OpenCode`, `cli:Cursor CLI`, …). */
+  loadingGroupKeys?: ReadonlySet<string>;
+  /** Refresh async sources when the menu opens (OpenCode, Cursor, …). */
+  onRefreshSources?: () => void;
   onSelect: (model: AiModel) => void;
   /** `field`: a full-width select for Settings, instead of the chat box's ghost button. */
   appearance?: "composer" | "field";
@@ -88,12 +99,26 @@ function agentLabel(model: AiModel) {
 }
 
 /** The single place to choose a model, OpenCode models included. */
-export function ModelPicker({ models, selected, loading, onSelect, appearance = "composer" }: Props) {
+export function ModelPicker({
+  models,
+  selected,
+  loading,
+  loadingGroupKeys,
+  onRefreshSources,
+  onSelect,
+  appearance = "composer",
+}: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
 
-  const groups = useMemo(() => buildGroups(models), [models]);
+  const groups = useMemo(() => {
+    const built = buildGroups(models);
+    if (!loadingGroupKeys?.size) return built;
+    return built.map((group) =>
+      loadingGroupKeys.has(group.key) ? { ...group, loading: true } : group,
+    );
+  }, [models, loadingGroupKeys]);
   const query = search.trim().toLowerCase();
 
   // Search narrows the rail too, so a provider with no match disappears
@@ -112,10 +137,13 @@ export function ModelPicker({ models, selected, loading, onSelect, appearance = 
     shown[0];
 
   useEffect(() => {
-    if (open) return;
+    if (open) {
+      onRefreshSources?.();
+      return;
+    }
     setSearch("");
     setPicked(null);
-  }, [open]);
+  }, [open, onRefreshSources]);
 
   const select = (model: AiModel) => {
     onSelect(model);
@@ -166,13 +194,18 @@ export function ModelPicker({ models, selected, loading, onSelect, appearance = 
         />
 
         {shown.length === 0 ? (
-          <p className="px-3 py-10 text-center text-sm text-muted-foreground">
-            {query
-              ? "No models match your search."
-              : loading
-                ? "Loading models…"
-                : "Nothing to pick yet. Add an API key in Settings → Models, sign in to a CLI in Settings → Agents, or start the OpenCode server."}
-          </p>
+          <div className="flex flex-col items-center justify-center gap-2 px-3 py-14 text-sm text-muted-foreground">
+            {query ? (
+              "No models match your search."
+            ) : loading ? (
+              <>
+                <LoaderIcon className="size-5 animate-spin text-muted-foreground" aria-hidden />
+                <span>Loading models…</span>
+              </>
+            ) : (
+              "Nothing to pick yet. Add an API key in Settings → Models, sign in to a CLI in Settings → Agents, or start the OpenCode server."
+            )}
+          </div>
         ) : (
           <div className="flex h-[min(28rem,70svh)] min-h-0 flex-col sm:flex-row">
             <ProviderRail
@@ -270,9 +303,11 @@ function RailItem({
       )}
       <GroupProviderIcon group={group} className="size-4" />
       <span className="min-w-0 truncate sm:flex-1">{group.label}</span>
-      <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
-        {group.items.length}
-      </span>
+      {group.loading ? (
+        <LoaderIcon className="size-3 shrink-0 animate-spin text-muted-foreground" aria-label="Loading models" />
+      ) : (
+        <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{group.items.length}</span>
+      )}
     </button>
   );
 }
@@ -341,17 +376,35 @@ function ModelList({
         </p>
       )}
       <div className="relative min-h-0 flex-1">
-        <ModelSelectorList
-          ref={fade.ref}
-          onScroll={fade.onScroll}
-          style={fade.style}
-          className="h-full max-h-none px-1 py-1"
-        >
-          {group.items.map((model) => (
-            <ModelRow key={model.id} model={model} selected={selected} onSelect={onSelect} />
-          ))}
-        </ModelSelectorList>
-        <ScrollMore show={fade.more} />
+        {group.loading ? (
+          <div className="flex h-full min-h-40 flex-col items-center justify-center gap-2 px-3 text-sm text-muted-foreground">
+            <LoaderIcon className="size-5 animate-spin" aria-hidden />
+            Loading {group.label} models…
+          </div>
+        ) : group.items.length > VIRTUALIZE_ABOVE ? (
+          <VirtualList
+            items={group.items}
+            itemHeight={MODEL_ROW_PX}
+            className="h-full max-h-none px-1 py-1 scroll-hidden"
+            renderItem={(model) => (
+              <ModelRow key={model.id} model={model} selected={selected} onSelect={onSelect} compact />
+            )}
+          />
+        ) : (
+          <>
+            <ModelSelectorList
+              ref={fade.ref}
+              onScroll={fade.onScroll}
+              style={fade.style}
+              className="h-full max-h-none px-1 py-1"
+            >
+              {group.items.map((model) => (
+                <ModelRow key={model.id} model={model} selected={selected} onSelect={onSelect} />
+              ))}
+            </ModelSelectorList>
+            <ScrollMore show={fade.more} />
+          </>
+        )}
       </div>
     </div>
   );
@@ -361,10 +414,12 @@ function ModelRow({
   model,
   selected,
   onSelect,
+  compact,
 }: {
   model: AiModel;
   selected: AiModel;
   onSelect: (model: AiModel) => void;
+  compact?: boolean;
 }) {
   const active = model.id === selected.id;
   const connected = modelIsConnected(model);
@@ -373,7 +428,11 @@ function ModelRow({
     <ModelSelectorItem
       value={model.id}
       onSelect={() => onSelect(model)}
-      className={cn("min-w-0 gap-2 py-2 [&>svg:last-child]:hidden my-1", active && "bg-muted")}
+      className={cn(
+        "min-w-0 gap-2 [&>svg:last-child]:hidden",
+        compact ? "my-0 h-10 py-0" : "my-1 py-2",
+        active && "bg-muted",
+      )}
     >
       {connected ? (
         <ConnectedDot title="Ready to use" />

@@ -177,10 +177,7 @@ pub fn spawn(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
+    crate::commands::process::hide_console_std(&mut cmd);
 
     let env = sanitized_env(&policy, std::env::vars_os());
     cmd.env_clear();

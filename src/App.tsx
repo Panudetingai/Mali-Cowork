@@ -1,33 +1,33 @@
 import { getInstructions, saveSkill, seedThaiTemplateSkills } from "@/features/instructions";
 import { syncMcpServers } from "@/features/mcp";
-import { UpdateDialog } from "@/features/updater/update-dialog";
-import { AppLayout } from "@/layouts/app-layout";
-import { OnboardingGate } from "@/features/onboarding/onboarding-gate";
 import { FORCE_ONBOARDING, openOnboarding } from "@/features/onboarding";
-import { useWeeklyRecapAutoOpen, WeeklyRecapDialog } from "@/features/work-receipt";
+import { OnboardingGate } from "@/features/onboarding/onboarding-gate";
 import { watchSkills } from "@/features/skills";
+import { UpdateDialog } from "@/features/updater/update-dialog";
+import { useWeeklyRecapAutoOpen, WeeklyRecapDialog } from "@/features/work-receipt";
+import { AppLayout } from "@/layouts/app-layout";
 // Registers plugin instructions with every chat; loaded with the app.
-import "@/features/plugins";
-import { startTaskQueue } from "@/features/tasks";
 import { onOpenTeam, playMainReturn, startNotchRelay, useMainAwake } from "@/features/notch";
+import "@/features/plugins";
 import { listenForQuickSaves, onOpenChatRequest, onOpenQuickSettings, serveQuickTheme } from "@/features/quick";
+import { startTaskQueue } from "@/features/tasks";
 import { useTheme } from "next-themes";
 import { useEffect, useRef } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import BotStudioPage from "./pages/bot-studio";
 import ChatLayout from "./pages/chat/layout";
+import ChatBlocksPreviewPage from "./pages/dev/chat-blocks-preview";
+import MarkdownPreviewPage from "./pages/dev/markdown-preview";
+import NotchPreviewPage from "./pages/dev/notch-preview";
 import InboxPage from "./pages/inbox";
+import OnboardingPage from "./pages/onboarding";
 import OutputsPage from "./pages/outputs";
-import UsagePage from "./pages/usage";
+import PluginsPage from "./pages/plugins";
 import ProjectsPage from "./pages/projects";
 import ProjectPage from "./pages/projects/project-page";
 import SettingsPage from "./pages/settings";
+import UsagePage from "./pages/usage";
 import VisualPage from "./pages/visual";
-import BotStudioPage from "./pages/bot-studio";
-import ChatBlocksPreviewPage from "./pages/dev/chat-blocks-preview";
-import NotchPreviewPage from "./pages/dev/notch-preview";
-import MarkdownPreviewPage from "./pages/dev/markdown-preview";
-import OnboardingPage from "./pages/onboarding";
-import PluginsPage from "./pages/plugins";
 
 function App() {
   useEffect(() => {
@@ -123,7 +123,8 @@ export default function AppWithOnboarding() {
   const awake = useMainAwake();
   return (
     <>
-      {awake && <UpdateDialog />}
+      {/* {!awake && <UpdateDialog />} */}
+      <UpdateDialog />
       <App />
     </>
   );

@@ -6,6 +6,7 @@ authors = ["panudetingai"]
 edition = "2021"
 # Two binaries live here: the app and the MCP runner helper.
 default-run = "Mali"
+autobenches = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -110,6 +111,12 @@ keyring = { version = "3", features = ["windows-native"] }
 [patch.crates-io]
 aisdk = { path = "vendor/aisdk" }
 
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "perf"
+harness = false
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
@@ -126,3 +133,10 @@ panic = "unwind"
 debug = true
 split-debuginfo = "packed"
 strip = true
+
+# Symbols for flame graphs / samply when profiling `cargo bench`.
+# Do not inherit release LTO/codegen-units=1 — first bench link can take tens of minutes.
+[profile.bench]
+debug = true
+lto = false
+codegen-units = 16

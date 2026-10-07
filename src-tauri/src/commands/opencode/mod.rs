@@ -23,7 +23,7 @@ mod events;
 mod instances;
 mod policy;
 mod providers;
-mod schema;
+pub(crate) mod schema;
 mod server;
 mod stream;
 

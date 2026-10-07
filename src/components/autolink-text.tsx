@@ -11,6 +11,32 @@ function trimTrailingPunctuation(url: string): string {
   return url.replace(/[.,;:!?)]+$/, "");
 }
 
+export type TextUrlSegment = { kind: "text"; value: string } | { kind: "url"; value: string; href: string };
+
+/** Split plain text into runs for URL highlighting (shared by AutolinkText and the prompt field). */
+export function splitTextByUrls(text: string): TextUrlSegment[] {
+  const segments: TextUrlSegment[] = [];
+  let last = 0;
+  for (const match of text.matchAll(URL_RE)) {
+    const start = match.index ?? 0;
+    if (start > last) {
+      segments.push({ kind: "text", value: text.slice(last, start) });
+    }
+    const raw = match[0];
+    const href = trimTrailingPunctuation(raw);
+    const trailing = raw.slice(href.length);
+    segments.push({ kind: "url", value: raw, href });
+    if (trailing) {
+      segments.push({ kind: "text", value: trailing });
+    }
+    last = start + raw.length;
+  }
+  if (last < text.length) {
+    segments.push({ kind: "text", value: text.slice(last) });
+  }
+  return segments.length > 0 ? segments : [{ kind: "text", value: text }];
+}
+
 type Props = {
   text: string;
   className?: string;
@@ -38,31 +64,22 @@ function PlainLink({ href, className, children }: { href: string; className?: st
 export function AutolinkText({ text, className, linkClassName, preview = true }: Props) {
   const nodes = useMemo(() => {
     const out: ReactNode[] = [];
-    let last = 0;
-    for (const match of text.matchAll(URL_RE)) {
-      const start = match.index ?? 0;
-      if (start > last) {
-        out.push(text.slice(last, start));
+    splitTextByUrls(text).forEach((seg, index) => {
+      if (seg.kind === "text") {
+        out.push(seg.value);
+        return;
       }
-      const raw = match[0];
-      const href = trimTrailingPunctuation(raw);
-      const trailing = raw.slice(href.length);
       const link = preview ? (
-        <LinkPreviewCard key={start} href={href} className={linkClassName}>
-          {href}
+        <LinkPreviewCard key={index} href={seg.href} className={linkClassName}>
+          {seg.value}
         </LinkPreviewCard>
       ) : (
-        <PlainLink key={start} href={href} className={linkClassName}>
-          {href}
+        <PlainLink key={index} href={seg.href} className={linkClassName}>
+          {seg.value}
         </PlainLink>
       );
       out.push(link);
-      if (trailing) out.push(trailing);
-      last = start + raw.length;
-    }
-    if (last < text.length) {
-      out.push(text.slice(last));
-    }
+    });
     return out.length > 0 ? out : [text];
   }, [text, linkClassName, preview]);
 

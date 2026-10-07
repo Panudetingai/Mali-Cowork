@@ -279,17 +279,15 @@ fn answer_server_request(message: &Value) -> Value {
 
 fn spawn_stdio(argv: &[String], env: &HashMap<String, String>) -> Result<Stdio, String> {
     let (program, args) = argv.split_first().ok_or("No command to start")?;
-    let mut cmd = tokio::process::Command::new(program);
-    cmd.args(args)
-        .envs(env)
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let mut cmd = crate::commands::process::command(program, &arg_refs);
+    cmd.envs(env)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
     #[cfg(unix)]
     cmd.process_group(0);
-    #[cfg(windows)]
-    cmd.creation_flags(0x0800_0000);
     let mut child = cmd.spawn().map_err(|e| format!("Couldn't start {program}: {e}"))?;
     let stdin = child.stdin.take().ok_or("The server has no stdin")?;
     let stdout = child.stdout.take().ok_or("The server has no stdout")?;

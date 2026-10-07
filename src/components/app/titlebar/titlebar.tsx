@@ -1,10 +1,11 @@
 import { CoworkBot, CoworkBotPicker } from "@/components/anim/cowork-bot";
-import { ThemeToggle } from "@/components/app/titlebar/theme-toggle";
-import { LanguageToggle } from "@/components/app/titlebar/language-toggle";
 import { useSidebar } from "@/components/animate-ui/components/radix/sidebar";
+import { LanguageToggle } from "@/components/app/titlebar/language-toggle";
+import { ThemeToggle } from "@/components/app/titlebar/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { goToNotchMode } from "@/features/notch";
+import { TitlebarUpdateButton } from "@/features/updater/update-dialog";
 import { cn } from "@/lib/utils";
 import { toggleFillScreen } from "@/lib/window-chrome";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -113,6 +114,7 @@ export function Titlebar() {
       {/* ปุ่มควบคุมหน้าต่าง */}
       <div className="relative z-50 flex shrink-0 items-center border-b border-border bg-background">
         <div className="mr-1 flex items-center gap-1.5 px-1">
+          <TitlebarUpdateButton />
           {isTauri() && (
             <button
               type="button"
@@ -124,8 +126,8 @@ export function Titlebar() {
               <PanelTop className="size-4" strokeWidth={1.75} />
             </button>
           )}
-          <LanguageToggle />
           <ThemeToggle />
+          <LanguageToggle />
           <Popover>
             <PopoverTrigger asChild>
               <button

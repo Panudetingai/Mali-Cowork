@@ -1,16 +1,18 @@
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
+import { AlertCircle, Loader2, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 /** Let startup settle before going to the network. */
 const FIRST_CHECK_MS = 10_000;
@@ -18,8 +20,24 @@ const RECHECK_MS = 6 * 60 * 60 * 1000;
 
 type Phase =
   | { kind: "idle" }
+  | { kind: "checking" }
   | { kind: "downloading"; received: number; total?: number }
   | { kind: "error"; message: string };
+
+async function downloadUpdate(
+  update: Update,
+  onProgress: (received: number, total?: number) => void,
+) {
+  let total: number | undefined;
+  let received = 0;
+  onProgress(0, total);
+  await update.downloadAndInstall((event) => {
+    if (event.event === "Started") total = event.data.contentLength;
+    if (event.event === "Progress") received += event.data.chunkLength;
+    onProgress(received, total);
+  });
+  await relaunch();
+}
 
 /**
  * Checks the public releases repo (see `plugins.updater` in tauri.conf.json)
@@ -64,14 +82,9 @@ export function UpdateDialog() {
     if (!update) return;
     setPhase({ kind: "downloading", received: 0 });
     try {
-      let total: number | undefined;
-      let received = 0;
-      await update.downloadAndInstall((event) => {
-        if (event.event === "Started") total = event.data.contentLength;
-        if (event.event === "Progress") received += event.data.chunkLength;
+      await downloadUpdate(update, (received, total) => {
         setPhase({ kind: "downloading", received, total });
       });
-      await relaunch();
     } catch (error) {
       setPhase({ kind: "error", message: error instanceof Error ? error.message : String(error) });
     }
@@ -120,5 +133,76 @@ export function UpdateDialog() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+
+/** Manual update from the title bar: check, download, restart (no dialog). */
+export function TitlebarUpdateButton() {
+  const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+
+  if (import.meta.env.DEV) return null;
+
+  const busy = phase.kind === "checking" || phase.kind === "downloading";
+  const percent =
+    phase.kind === "downloading" && phase.total
+      ? Math.round((phase.received / phase.total) * 100)
+      : undefined;
+
+  const run = async () => {
+    setPhase({ kind: "checking" });
+    try {
+      const found = await check();
+      if (!found) {
+        setPhase({ kind: "idle" });
+        toast.info("You're on the latest version");
+        return;
+      }
+      setPhase({ kind: "downloading", received: 0 });
+      await downloadUpdate(found, (received, total) => {
+        setPhase({ kind: "downloading", received, total });
+      });
+    } catch (error) {
+      setPhase({
+        kind: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  return (
+    <Button
+      variant={phase.kind === "error" ? "default" : "outline"}
+      size="xs"
+      className="gap-1.5 rounded-full text-xs"
+      onClick={() => void run()}
+      disabled={busy}
+      title={phase.kind === "error" ? phase.message : undefined}
+    >
+      {phase.kind === "checking" && (
+        <>
+          <Loader2 className="size-4 animate-spin" />
+          Checking…
+        </>
+      )}
+      {phase.kind === "downloading" && (
+        <>
+          <Loader2 className="size-4 animate-spin" />
+          {percent != null ? `${percent}%` : "Downloading…"}
+        </>
+      )}
+      {phase.kind === "error" && (
+        <>
+          <AlertCircle className="size-4 text-red-500" />
+          Try again
+        </>
+      )}
+      {phase.kind === "idle" && (
+        <>
+          <Upload className="size-4" />
+          Update Now
+        </>
+      )}
+    </Button>
   );
 }

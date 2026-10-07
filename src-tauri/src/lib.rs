@@ -11,6 +11,14 @@ pub mod panic_log;
 mod sandbox;
 mod templates;
 
+/// Hot paths re-exported for Criterion benches (`cargo bench --bench perf`).
+#[doc(hidden)]
+pub mod bench {
+    pub use crate::commands::opencode::schema::{
+        goes_to_google, is_recursive, is_tool_list_rejection, unsupported, Unsupported,
+    };
+}
+
 use commands::app_cache::{app_cache_size, app_clear_cache};
 use commands::agent::{agent_abort, agent_answer_question, agent_generate, agent_reply_permission, team_lead_begin, team_lead_end, team_reflect, team_suggest};
 use commands::mcp_hub::{mcp_hub_set_servers, mcp_hub_set_workspace, mcp_hub_sign_in, mcp_hub_sign_out, mcp_hub_sync};

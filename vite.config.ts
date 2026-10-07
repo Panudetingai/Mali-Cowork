@@ -1,8 +1,8 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { defineConfig } from "vite";
 // @ts-expect-error type error without @types/node package
 import process from "node:process";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,8 +17,19 @@ export default defineConfig(() => ({
   // @floating-ui/react-dom is pulled in by several packages at different versions;
   // pre-bundling it often leaves a stale hashed file in `.vite/deps`. Skip it.
   optimizeDeps: {
+    entries: ["index.html"], // สแกนเฉพาะ entry หลัก ไม่ไปแตะ public/**/*.html
     exclude: ["@floating-ui/react-dom"],
-    include: ["@floating-ui/react", "@floating-ui/dom", "@floating-ui/core"],
+    include: [
+      'shiki',
+      'lucide-react',
+      '@uiw/react-codemirror',
+      '@codemirror/state',
+      '@codemirror/view',
+      '@headlessui/react',
+      '@streamdown/mermaid',
+      '@streamdown/code',
+      '@tauri-apps/api/core',
+    ],
   },
   resolve: {
     alias: {

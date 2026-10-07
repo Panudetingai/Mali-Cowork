@@ -1,10 +1,8 @@
 import { CoworkBot } from "@/components/anim/cowork-bot";
-import { useCustomClis } from "@/features/custom-cli";
 import { Button } from "@/components/ui/button";
 import { toast, useToastError } from "@/components/ui/sonner";
 import { Textarea } from "@/components/ui/textarea";
-import { useAntigravity } from "@/features/antigravity";
-import { useCliAgentsFilter } from "@/features/cli-agents";
+import { refreshAntigravity } from "@/features/antigravity";
 import {
   AttachmentChip,
   importAttachment,
@@ -13,12 +11,13 @@ import {
 } from "@/features/attachments";
 import { attachFolder, detachFolder, type ChatSession } from "@/features/chat-history";
 import { onCompose } from "@/features/command-palette";
-import { requestCursorLogin, useCursor } from "@/features/cursor";
+import { refreshCursor, requestCursorLogin } from "@/features/cursor";
 import { effortFor, effortLevels, isMaxEffort, setEffortFor, useEffortChoices } from "@/features/effort";
 import { filterSkills, skillSlug, useInstructions, type Skill } from "@/features/instructions";
 import { McpToolIcon, useInstalledConnectors, useMcpConnections } from "@/features/mcp";
 import {
   opencodeWarm,
+  refreshOpencode,
   requestProviderKey,
   useOpencode,
   type OpencodeState,
@@ -27,12 +26,7 @@ import {
 } from "@/features/opencode";
 import type { PermissionRequest } from "../api/chat";
 import { useProjects } from "@/features/projects";
-import {
-  getProvider,
-  listConfiguredProviders,
-  useEnvKeys,
-  useProviderConfigs,
-} from "@/features/providers";
+import { getProvider } from "@/features/providers";
 import { InboxDropdownButton } from "@/features/tasks";
 import { useVoiceInput, useVoiceSettings, VoiceButton, VoiceMode } from "@/features/voice";
 import {
@@ -69,7 +63,6 @@ import {
   agentNameOf,
   agentOf,
   apiModelId,
-  buildModelCatalog,
   contextBudgetFor,
   findModel,
   isCursorModel,
@@ -88,6 +81,7 @@ import { filterMentions, MentionPopup } from "./mention/mention-popup";
 import { buildMentionAppendix, parseMentions } from "./mention/mentions";
 import { SkillPopup, slashItems, type SlashItem } from "./mention/skill-popup";
 import { useWorkspaceFiles } from "./mention/use-workspace-files";
+import { useModelCatalog } from "../hooks/use-model-catalog";
 import { ModelPicker } from "./model-picker";
 import { PromptOptionsMenu } from "./prompt-options-menu";
 import { mergeReplyExcerpt } from "./reply-excerpt";
@@ -160,35 +154,16 @@ export default function PromptInput({
   const [dragging, setDragging] = useState(false);
   const [modelId, setModelId] = useState(() => loadSelectedModelId(mode));
   const opencode = useOpencode();
-  const cursor = useCursor();
-  const antigravity = useAntigravity();
   useFolderGrants(); // re-render when access changes
 
-  const providerConfigs = useProviderConfigs();
-  const envKeys = useEnvKeys();
-  const customClis = useCustomClis();
-  const cliFilter = useCliAgentsFilter();
-  const cursorStatus = useMemo(
-    () => ({ models: cursor.models, loggedIn: !!cursor.check?.loggedIn }),
-    [cursor.models, cursor.check?.loggedIn],
-  );
-  const antigravityStatus = useMemo(
-    () => ({ models: antigravity.models, loggedIn: !!antigravity.check?.loggedIn }),
-    [antigravity.models, antigravity.check?.loggedIn],
-  );
-  const catalog = useMemo(
-    () =>
-      buildModelCatalog(
-        opencode.models,
-        listConfiguredProviders(providerConfigs, envKeys),
-        mode,
-        cursorStatus,
-        undefined,
-        antigravityStatus,
-        customClis,
-        cliFilter,
-      ),
-    [opencode.models, providerConfigs, envKeys, mode, cursorStatus, antigravityStatus, customClis, cliFilter],
+  const { catalog, loading: catalogLoading, loadingGroupKeys } = useModelCatalog(mode);
+  const refreshCatalogSources = useMemo(
+    () => () => {
+      void refreshOpencode(false);
+      void refreshCursor(false);
+      void refreshAntigravity(false);
+    },
+    [],
   );
   const selected = findModel(catalog, modelId);
   const usesOpencode = isOpencodeModel(selected.id);
@@ -774,7 +749,7 @@ export default function PromptInput({
           rows={2}
           disabled={isLoading}
           onPaste={pasteFiles}
-          className="max-h-40 min-h-12 resize-none border-0 bg-transparent p-1 text-[15px] shadow-none placeholder:text-muted-foreground focus-visible:ring-0 dark:bg-transparent"
+          className="max-h-40 min-h-12 resize-none border-0 bg-transparent p-1 text-[15px] shadow-none focus-visible:ring-0 dark:bg-transparent dark:placeholder:text-muted-foreground/80"
           onKeyDown={(event) => {
             if (slash && !mention) {
               if (event.key === "Escape") {
@@ -892,7 +867,9 @@ export default function PromptInput({
           <ModelPicker
             models={catalog}
             selected={selected}
-            loading={opencode.loading}
+            loading={catalogLoading}
+            loadingGroupKeys={loadingGroupKeys}
+            onRefreshSources={refreshCatalogSources}
             onSelect={(model) => {
               setModelId(model.id);
               saveSelectedModelId(mode, model.id);

@@ -466,7 +466,7 @@ pub(crate) fn shell_command(command: &str) -> tokio::process::Command {
     {
         let mut cmd = tokio::process::Command::new("cmd");
         cmd.arg("/D").arg("/S").arg("/C").arg(command);
-        cmd.creation_flags(0x0800_0000);
+        crate::commands::process::hide_console(&mut cmd);
         cmd
     }
     #[cfg(not(windows))]

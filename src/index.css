@@ -96,6 +96,8 @@ html[lang="th"] {
   --border: oklch(0.93 0.007 106.5);
   --input: oklch(0.93 0.007 106.5);
   --ring: oklch(0.737 0.021 106.9);
+  --link: oklch(0.52 0.19 252);
+  --link-hover: oklch(0.44 0.21 252);
   --chart-1: oklch(0.35 0 0);
   --chart-2: oklch(0.45 0 0);
   --chart-3: oklch(0.55 0 0);
@@ -131,6 +133,8 @@ html[lang="th"] {
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
+  --link: oklch(0.72 0.14 252);
+  --link-hover: oklch(0.78 0.12 252);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -276,7 +280,7 @@ html[lang="th"] {
 }
 .chat-markdown :is([data-streamdown="unordered-list"], [data-streamdown="ordered-list"]) {
   margin-block: 0.4em;
-  padding-left: 1.4em;
+  padding-left: 2em;
   list-style-position: outside;
 }
 .chat-markdown [data-streamdown="unordered-list"] { list-style-type: disc; }
@@ -502,16 +506,17 @@ html[lang="th"] {
 .chat-markdown [data-streamdown="table-wrapper"]:is(:hover, :focus-within) > div:first-child:not(:has(> table)) {
   opacity: 1;
 }
-.chat-markdown [data-streamdown="link"] {
+.chat-markdown :is(a, [data-streamdown="link"]) {
   font-weight: 500;
-  color: var(--foreground);
+  color: var(--link);
   text-decoration: underline;
-  text-decoration-color: var(--ring);
+  text-decoration-color: color-mix(in srgb, var(--link) 45%, transparent);
   text-underline-offset: 3px;
   text-decoration-thickness: 1px;
 }
-.chat-markdown [data-streamdown="link"]:hover {
-  text-decoration-color: var(--foreground);
+.chat-markdown :is(a, [data-streamdown="link"]):hover {
+  color: var(--link-hover);
+  text-decoration-color: color-mix(in srgb, var(--link-hover) 65%, transparent);
 }
 .chat-markdown img {
   max-width: 100%;

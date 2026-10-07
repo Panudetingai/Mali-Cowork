@@ -4,15 +4,30 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Message, MessageContent } from "@/components/ai-elements/message";
 import { AutolinkText } from "@/components/autolink-text";
+import { formatSize } from "@/features/attachments/api";
 import { MessageAttachment, MessageImageAttachments, type Attachment } from "@/features/attachments";
 import { skillSlug, useInstructions } from "@/features/instructions";
 import { McpToolIcon, useInstalledConnectors } from "@/features/mcp";
 import { useProjects } from "@/features/projects";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
-import { CheckIcon, CopyIcon, CornerDownLeftIcon, PencilIcon, PlugIcon, ScrollTextIcon, XIcon } from "lucide-react";
+import {
+  CheckIcon,
+  CopyIcon,
+  CornerDownLeftIcon,
+  FileTextIcon,
+  PencilIcon,
+  PlugIcon,
+  ScrollTextIcon,
+  XIcon,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ExpandableClamp } from "./expandable-clamp";
+
+/** Beyond this length, the bubble shows a file chip instead of the full body. */
+const INLINE_TEXT_MAX = 1000;
+const USER_LINK_CLASS =
+  "text-[var(--link)] hover:text-[var(--link-hover)] underline underline-offset-2 break-all";
 
 type Props = {
   content: string;
@@ -126,13 +141,15 @@ export function UserMessage({ content, attachments, skills, connectors, projectI
               </Button>
             </div>
           </div>
+        ) : content.length > INLINE_TEXT_MAX ? (
+          <LongTextPromptBody content={content} />
         ) : (
           <ExpandableClamp
             maxHeightClass="max-h-48"
             className="[&_button]:text-foreground/80 [&_button:hover]:text-foreground dark:text-white"
           >
             <p className="whitespace-pre-wrap">
-              <AutolinkText text={content} linkClassName="text-foreground/90" />
+              <AutolinkText text={content} linkClassName={USER_LINK_CLASS} />
             </p>
           </ExpandableClamp>
         )}
@@ -153,6 +170,54 @@ export function UserMessage({ content, attachments, skills, connectors, projectI
         </div>
       )}
     </Message>
+  );
+}
+
+function LongTextPromptBody({ content }: { content: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const size = useMemo(() => new Blob([content]).size, [content]);
+  const preview = useMemo(() => {
+    const line = content.split(/\r?\n/, 1)[0]?.trim() ?? "";
+    if (!line) return null;
+    return line.length > 160 ? `${line.slice(0, 160)}…` : line;
+  }, [content]);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex max-w-sm items-center gap-2 rounded-xl border border-border/60 bg-muted/30 px-3 py-2">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-background/70">
+          <FileTextIcon className="size-4 text-muted-foreground" />
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium">pasted-text.txt</span>
+          <span className="block text-xs text-muted-foreground">
+            {content.length.toLocaleString()} characters · {formatSize(size)}
+          </span>
+        </span>
+      </div>
+      {!expanded && preview && (
+        <p className="line-clamp-2 text-sm text-foreground/90 whitespace-pre-wrap">
+          <AutolinkText text={preview} linkClassName={USER_LINK_CLASS} />
+        </p>
+      )}
+      {expanded ? (
+        <ExpandableClamp
+          maxHeightClass="max-h-96"
+          className="[&_button]:text-foreground/80 [&_button:hover]:text-foreground dark:text-white"
+        >
+          <p className="whitespace-pre-wrap text-sm">
+            <AutolinkText text={content} linkClassName={USER_LINK_CLASS} />
+          </p>
+        </ExpandableClamp>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => setExpanded((open) => !open)}
+        className="self-start text-xs font-medium text-[var(--link)] underline-offset-2 hover:underline"
+      >
+        {expanded ? "Show as file" : "Show full text"}
+      </button>
+    </div>
   );
 }
 

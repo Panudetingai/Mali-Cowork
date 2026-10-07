@@ -11,7 +11,9 @@
     "dev:sidecar": "node scripts/build-sidecar.mjs --debug",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "bun test src"
+    "test": "bun test src",
+    "bench:rust": "cargo bench --manifest-path src-tauri/Cargo.toml --bench perf",
+    "bench:rust:flame": "pwsh scripts/profile-rust-bench.ps1"
   },
   "dependencies": {
     "@codemirror/lang-css": "^6.3.1",
