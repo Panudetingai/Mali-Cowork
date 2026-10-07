@@ -159,19 +159,21 @@ pub async fn opencode_mcp() -> Option<Value> {
             mcp.insert(id.clone(), off);
         }
     }
-    mcp.insert(
-        SERVER_NAME.into(),
-        json!({
-            "type": "remote",
-            "url": gw.url(),
-            "headers": { "Authorization": gw.authorization() },
-            "enabled": true,
-            // Listing can start a connector for the first time (npx, uvx), and
-            // in team mode a hand-off waits on a teammate's whole job.
-            "timeout": 900_000,
-        }),
-    );
+    mcp.insert(SERVER_NAME.into(), opencode_gateway_entry(&gw));
     Some(Value::Object(mcp))
+}
+
+/// `mali` as an OpenCode-style `mcp` entry (OpenCode, Kilo).
+pub fn opencode_gateway_entry(gw: &Gateway) -> Value {
+    json!({
+        "type": "remote",
+        "url": gw.url(),
+        "headers": { "Authorization": gw.authorization() },
+        "enabled": true,
+        // Listing can start a connector for the first time (npx, uvx), and
+        // in team mode a hand-off waits on a teammate's whole job.
+        "timeout": 900_000,
+    })
 }
 
 // ---------------------------------------------------------------- Codex

@@ -32,7 +32,7 @@ type Recognition = {
 type RecognitionCtor = new () => Recognition;
 
 /** No new words for this long after some were heard, and dictation ends. */
-const SILENCE_MS = 1_500;
+export const DEFAULT_SPEECH_SILENCE_MS = 1_500;
 
 function recognizer(): RecognitionCtor | undefined {
   if (typeof window === "undefined") return undefined;
@@ -97,9 +97,11 @@ type Options = {
   autoStop?: boolean;
   /** Give up when nothing is heard for this long. */
   idleMs?: number;
+  /** How long to wait after the last word before auto-stop (default 1.5s). */
+  silenceMs?: number;
 };
 
-export function useSpeechInput({ onText, onStart, onEnd, autoStop = false, idleMs }: Options) {
+export function useSpeechInput({ onText, onStart, onEnd, autoStop = false, idleMs, silenceMs = DEFAULT_SPEECH_SILENCE_MS }: Options) {
   const [listening, setListening] = useState(false);
   const [error, setError] = useState<string>();
   const [lang, setLangState] = useState<VoiceLang>(loadVoiceLang);
@@ -118,7 +120,8 @@ export function useSpeechInput({ onText, onStart, onEnd, autoStop = false, idleM
   }, []);
 
   const start = useCallback(
-    async (withLang: VoiceLang = lang) => {
+    async (withLang: VoiceLang = lang, options?: { silenceMs?: number }) => {
+      const pauseMs = options?.silenceMs ?? silenceMs;
       const status = await voiceStatus();
       if (!status.available) {
         setError(status.reason ?? "Voice input isn't available here.");
@@ -148,7 +151,7 @@ export function useSpeechInput({ onText, onStart, onEnd, autoStop = false, idleM
       // after words ends it here, as the mic button did by hand before.
       const watch = setInterval(() => {
         const now = Date.now();
-        if (autoStop && heard && lastWord && now - lastWord > SILENCE_MS) rec.stop();
+        if (autoStop && heard && lastWord && now - lastWord > pauseMs) rec.stop();
         else if (idleMs && !heard && now - started > idleMs) {
           dropped.current.add(rec);
           rec.abort();
@@ -189,7 +192,7 @@ export function useSpeechInput({ onText, onStart, onEnd, autoStop = false, idleM
         setError(e instanceof Error ? e.message : String(e));
       }
     },
-    [lang, autoStop, idleMs],
+    [lang, autoStop, idleMs, silenceMs],
   );
 
   /** Stop at once, dropping words not yet final (e.g. the prompt was just sent). */

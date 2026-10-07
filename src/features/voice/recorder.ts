@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 /** Longest recording; a spoken task fits well inside it. */
 const MAX_MS = 120_000;
 /** Quiet this long after speech, and the recording ends by itself. */
-const SILENCE_MS = 1_400;
+export const DEFAULT_RECORD_SILENCE_MS = 1_400;
 /** Voice this long before it counts as speech (a click or a cough doesn't). */
 const SPEECH_MS = 180;
 /** How often the level is read. A timer, not animation frames: those stop
@@ -48,11 +48,13 @@ export function useRecorder({
   onDone,
   autoStop = true,
   idleMs,
+  silenceMs = DEFAULT_RECORD_SILENCE_MS,
 }: {
   onDone: (recording: Recording) => void;
   autoStop?: boolean;
   /** Give up (and drop the recording) when nothing is said for this long. */
   idleMs?: number;
+  silenceMs?: number;
 }) {
   const [recording, setRecording] = useState(false);
   // Read by the waveform each frame; kept out of state so nothing re-renders 60 times a second.
@@ -77,8 +79,9 @@ export function useRecorder({
     if (s.recorder.state !== "inactive") s.recorder.stop();
   }, []);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (options?: { silenceMs?: number }) => {
     if (session.current) return;
+    const pauseMs = options?.silenceMs ?? silenceMs;
     setError(undefined);
     if (!recordingSupported()) {
       setError("Recording isn't supported in this version of the app's web view.");
@@ -105,7 +108,7 @@ export function useRecorder({
     analyser.fftSize = 512;
     context.createMediaStreamSource(stream).connect(analyser);
     const samples = new Uint8Array(analyser.fftSize);
-    const vad = voiceDetector();
+    const vad = voiceDetector(pauseMs);
 
     const started = performance.now();
     const tick = () => {
@@ -144,7 +147,7 @@ export function useRecorder({
     recorder.start(250);
     setRecording(true);
     session.current.timer = setInterval(tick, TICK_MS);
-  }, [autoStop, idleMs, finish]);
+  }, [autoStop, idleMs, silenceMs, finish]);
 
   const stop = useCallback(() => finish(true), [finish]);
   const cancel = useCallback(() => finish(false), [finish]);
@@ -165,7 +168,7 @@ const CALIBRATE_MS = 250;
  * rises slowly — hardly at all on voice, whose pauses between words pull it
  * back down anyway.
  */
-export function voiceDetector() {
+export function voiceDetector(silenceMs = DEFAULT_RECORD_SILENCE_MS) {
   let floor = 0;
   let first = 0;
   let voiceSince = 0;
@@ -188,7 +191,7 @@ export function voiceDetector() {
       voiceSince = 0;
       if (spoke) quietSince ||= now;
     }
-    return { spoke, done: spoke && quietSince > 0 && now - quietSince >= SILENCE_MS };
+    return { spoke, done: spoke && quietSince > 0 && now - quietSince >= silenceMs };
   };
 }
 

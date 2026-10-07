@@ -149,6 +149,10 @@ pub fn run() {
     // ติดตั้งก่อนอย่างอื่นทั้งหมด: บันทึกทุก panic (รวม tokio worker) ลงไฟล์
     // ทั้งที่แอปรอดและที่ทำให้แอปตาย — ที่เดียวที่บอกสาเหตุได้
     panic_log::install();
+    // rustls has both crypto backends compiled in (crates turn on `ring` and
+    // `aws-lc-rs`), so any crate that builds a TLS config without naming one
+    // panics. One process-wide choice, before anything uses TLS.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
     // โหลด .env ที่ root ของโปรเจค เฉพาะตอน dev เท่านั้น
     // release build ห้ามโหลด: dotenv() ค้นหา .env จากโฟลเดอร์ที่เปิดแอปขึ้นไปทุกชั้น
@@ -207,6 +211,22 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::remote::remote_status,
+            commands::remote::remote_start,
+            commands::remote::remote_stop,
+            commands::remote::remote_reset_token,
+            commands::remote::remote_publish,
+            commands::remote::remote_reply,
+            commands::remote::remote_domain_set_token,
+            commands::remote::remote_domain_setup,
+            commands::remote::remote_domain_renew,
+            commands::remote::remote_domain_remove,
+            commands::remote::remote_domain_mali,
+            commands::remote::remote_set_ip_allowlist,
+            commands::remote::remote_set_auto_allow_ips,
+            commands::remote::remote_allow_ip,
+            commands::remote::remote_revoke_ip,
+            commands::remote::remote_dismiss_pending_ip,
             attachment_import,
             attachment_save,
             attachment_read,

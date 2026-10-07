@@ -19,6 +19,13 @@ pub struct CliRequest {
     /// A CLI the user added in Settings → Models: how to run it.
     #[serde(default)]
     pub custom: Option<CustomCli>,
+    /// Custom instructions and skills, given to the CLI as its own system
+    /// instructions where it takes them, instead of inside the user's message.
+    #[serde(default)]
+    pub instructions: Option<String>,
+    /// The CLI's own session to continue, for CLIs that can (see `resume_flag`).
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 /// A CLI agent the user set up themselves, for one Mali doesn't know yet.
@@ -79,6 +86,68 @@ fn agent_command(agent: &str, prompt: &str, custom: Option<&CustomCli>) -> Resul
             "Unknown agent: {other}. Available: opencode, cursor, codex"
         )),
     }
+}
+
+/// How a CLI takes system instructions apart from the message.
+#[derive(Debug, PartialEq)]
+enum InstructionsChannel {
+    /// OpenCode-style config JSON in this env var: `instructions` lists files
+    /// to load, and `mcp` gets Mali's `mali` gateway.
+    ConfigEnv(&'static str),
+    /// A flag that appends its value to the system prompt.
+    AppendFlag(&'static str),
+}
+
+fn instructions_channel(stem: &str) -> Option<InstructionsChannel> {
+    match stem {
+        "kilo" => Some(InstructionsChannel::ConfigEnv("KILO_CONFIG_CONTENT")),
+        "opencode" => Some(InstructionsChannel::ConfigEnv("OPENCODE_CONFIG_CONTENT")),
+        "claude" => Some(InstructionsChannel::AppendFlag("--append-system-prompt")),
+        _ => None,
+    }
+}
+
+/// The flag that continues one of the CLI's own sessions. Mali only keeps a
+/// session for these; any other CLI hears the earlier turns in the message.
+fn resume_flag(stem: &str) -> Option<&'static str> {
+    match stem {
+        "kilo" | "opencode" => Some("--session"),
+        _ => None,
+    }
+}
+
+/// Instructions written out for a config-driven CLI to load; removed with the run.
+struct InstructionsFile(std::path::PathBuf);
+
+impl Drop for InstructionsFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// Config JSON for the run: whatever the user already set in the env var,
+/// plus `file` in its `instructions` and `mcp` entries added to its `mcp`.
+fn run_config(existing: Option<&str>, file: Option<&str>, mcp: Option<(&str, Value)>) -> String {
+    let mut config = existing
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+        .filter(Value::is_object)
+        .unwrap_or_else(|| serde_json::json!({}));
+    let object = config.as_object_mut().expect("config is an object");
+    if let Some(file) = file {
+        let list = object.entry("instructions").or_insert_with(|| Value::Array(Vec::new()));
+        if !list.is_array() {
+            *list = Value::Array(Vec::new());
+        }
+        list.as_array_mut().expect("instructions is an array").push(Value::String(file.into()));
+    }
+    if let Some((name, entry)) = mcp {
+        let servers = object.entry("mcp").or_insert_with(|| serde_json::json!({}));
+        if !servers.is_object() {
+            *servers = serde_json::json!({});
+        }
+        servers.as_object_mut().expect("mcp is an object").insert(name.into(), entry);
+    }
+    config.to_string()
 }
 
 fn resolve_bin(bin: &str) -> Option<String> {
@@ -273,6 +342,8 @@ fn parse_opencode_line(v: &Value) -> Option<ChatStreamEvent> {
             let session_id = v.get("sessionID").and_then(|x| x.as_str()).map(|s| s.to_string());
             return Some(ChatStreamEvent::Metadata { session_id, usage: Some(usage), duration_ms: None, model: None });
         }
+        // {"type":"tool_use","part":{"type":"tool","tool":"bash","state":{...}}}
+        "tool_use" => return crate::commands::opencode::events::tool_activity(v.get("part")?),
         _ => {}
     }
     None
@@ -305,8 +376,63 @@ pub async fn cli_generate(
         return Ok(());
     }
 
-    let (bin, args) = agent_command(&request.agent, &prompt, request.custom.as_ref())?;
+    let instructions = request.instructions.as_deref().map(str::trim).filter(|i| !i.is_empty());
+    let stem = request
+        .custom
+        .as_ref()
+        .map(|c| c.command.as_str())
+        .or(match request.agent.as_str() {
+            "opencode" => Some("opencode"),
+            _ => None,
+        })
+        .map(command_stem)
+        .unwrap_or_default();
+    let channel = instructions_channel(&stem);
+    let resume = resume_flag(&stem);
+    // A CLI with no way to take instructions apart hears them in the message.
+    let prompt = match (instructions, &channel) {
+        (Some(text), None) => format!("<instructions>\n{text}\n</instructions>\n\n{prompt}"),
+        _ => prompt,
+    };
+
+    let (bin, mut args) = agent_command(&request.agent, &prompt, request.custom.as_ref())?;
     let bin_path = resolve_bin(&bin).unwrap_or_else(|| bin.clone());
+
+    if let (Some(flag), Some(session)) = (resume, request.session_id.as_deref().map(str::trim).filter(|s| !s.is_empty())) {
+        args.push(flag.into());
+        args.push(session.into());
+    }
+
+    let mut config_env: Option<(&'static str, String)> = None;
+    let mut _instructions_file: Option<InstructionsFile> = None;
+    match &channel {
+        Some(InstructionsChannel::AppendFlag(flag)) => {
+            if let Some(text) = instructions {
+                args.push((*flag).to_string());
+                args.push(text.to_string());
+            }
+        }
+        Some(InstructionsChannel::ConfigEnv(var)) => {
+            let file = match instructions {
+                Some(text) => {
+                    let path = std::env::temp_dir().join(format!("mali-instructions-{}.md", uuid::Uuid::new_v4()));
+                    std::fs::write(&path, text).map_err(|e| format!("Couldn't write instructions for the CLI: {e}"))?;
+                    let file = path.to_string_lossy().into_owned();
+                    _instructions_file = Some(InstructionsFile(path));
+                    Some(file)
+                }
+                None => None,
+            };
+            // The user's connectors, through Mali's gateway, as OpenCode gets them.
+            let mcp = crate::mcp_hub::gateway::ensure()
+                .await
+                .ok()
+                .map(|gw| (crate::mcp_hub::gateway::SERVER_NAME, super::mcp_bridge::opencode_gateway_entry(&gw)));
+            let existing = std::env::var(var).ok();
+            config_env = Some((var, run_config(existing.as_deref(), file.as_deref(), mcp)));
+        }
+        None => {}
+    }
 
     on_event.send(ChatStreamEvent::Started)
         .map_err(|e| e.to_string())?;
@@ -317,6 +443,7 @@ pub async fn cli_generate(
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
     augment_path_for_child(&mut cmd);
+    if let Some((var, config)) = config_env { cmd.env(var, config); }
     if let Some(cwd) = request.cwd { cmd.current_dir(cwd); }
 
     eprintln!("[cli] spawning: {bin_path} {:?}", args);
@@ -379,7 +506,10 @@ pub async fn cli_generate(
                     "codex" => parse_codex_line(&v),
                     _ => None,
                 };
-                if let Some(ev) = event {
+                if let Some(mut ev) = event {
+                    if resume.is_none() {
+                        if let ChatStreamEvent::Metadata { session_id, .. } = &mut ev { *session_id = None; }
+                    }
                     match &ev {
                         ChatStreamEvent::Chunk { text } => { has_output = true; text_accum.push_str(text); let _ = on_event.send(ev); }
                         ChatStreamEvent::Reasoning { reasoning } => { has_reasoning = true; reasoning_accum.push_str(reasoning); let _ = on_event.send(ev); }
@@ -485,7 +615,9 @@ fn custom_failure(custom: &CustomCli, stderr: &[String], stdout: &str) -> String
     let name = custom_name(custom);
     let output = if stderr.is_empty() { stdout.to_string() } else { stderr.join("\n") };
     let lower = output.to_ascii_lowercase();
-    let advice = if lower.contains("model not found") || lower.contains("unknown model") || lower.contains("invalid model") {
+    let advice = if lower.contains("session") && lower.contains("not found") {
+        format!("{name} no longer has this chat's session. Start a new chat to keep going with {name}.")
+    } else if lower.contains("model not found") || lower.contains("unknown model") || lower.contains("invalid model") {
         format!("{name} doesn't offer this model. Open Settings → Models → {name}, press Refresh list, then pick a model again.")
     } else if ["unauthorized", "not logged in", "not authenticated", "login required", "please log in", "sign in", "api key", "401"]
         .iter()
@@ -733,6 +865,44 @@ mod tests {
 
     fn cli(command: &str, args: &[&str]) -> CustomCli {
         CustomCli { name: None, command: command.into(), args: args.iter().map(|a| a.to_string()).collect() }
+    }
+
+    #[test]
+    fn instructions_go_where_each_cli_takes_them() {
+        assert_eq!(instructions_channel("kilo"), Some(InstructionsChannel::ConfigEnv("KILO_CONFIG_CONTENT")));
+        assert_eq!(instructions_channel("claude"), Some(InstructionsChannel::AppendFlag("--append-system-prompt")));
+        assert_eq!(instructions_channel("aider"), None, "others hear them in the message");
+    }
+
+    #[test]
+    fn config_keeps_what_the_user_set() {
+        let fresh: Value = serde_json::from_str(&run_config(None, Some("/tmp/a.md"), None)).unwrap();
+        assert_eq!(fresh["instructions"], serde_json::json!(["/tmp/a.md"]));
+        let merged = run_config(
+            Some(r#"{"model":"x","instructions":["mine.md"],"mcp":{"own":{"type":"local"}}}"#),
+            Some("/tmp/a.md"),
+            Some(("mali", serde_json::json!({"type": "remote"}))),
+        );
+        let merged: Value = serde_json::from_str(&merged).unwrap();
+        assert_eq!(merged["model"], "x");
+        assert_eq!(merged["instructions"], serde_json::json!(["mine.md", "/tmp/a.md"]));
+        assert_eq!(merged["mcp"]["own"]["type"], "local");
+        assert_eq!(merged["mcp"]["mali"]["type"], "remote");
+    }
+
+    #[test]
+    fn kilo_tool_calls_become_steps() {
+        let line = serde_json::json!({"type": "tool_use", "part": {"id": "prt_1", "type": "tool", "tool": "bash",
+            "state": {"status": "completed", "input": {"command": "ls"}, "output": "a.md", "title": "List files"}}});
+        let Some(ChatStreamEvent::Activity { title, done, .. }) = parse_opencode_line(&line) else { panic!("no step") };
+        assert_eq!(title, "bash: List files");
+        assert!(done);
+    }
+
+    #[test]
+    fn only_kilo_and_opencode_sessions_continue() {
+        assert_eq!(resume_flag("kilo"), Some("--session"));
+        assert_eq!(resume_flag("gemini"), None);
     }
 
     #[test]

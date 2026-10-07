@@ -1,13 +1,14 @@
 "use client";
 
-import { exportChat, type ChatSession } from "@/features/chat-history";
+import { exportChat, exportChatShare, type ChatSession } from "@/features/chat-history";
 import type { Project } from "@/features/projects";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { TextShimmer } from "@/components/ui/text-shimmer";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowDownIcon, ChevronRightIcon, DownloadIcon, HistoryIcon } from "lucide-react";
+import { useTranslation } from "@/features/i18n";
+import { ArrowDownIcon, ChevronRightIcon, DownloadIcon, HistoryIcon, ShareIcon } from "lucide-react";
 import type { RefObject } from "react";
 import { Link } from "react-router-dom";
 import type { ChatMessage } from "../types";
@@ -47,6 +48,7 @@ export function ChatMessagePanel({
   onEdit,
   className,
 }: Props) {
+  const { t } = useTranslation();
   const canExport = !!session && messages.length > 0 && !isLoading;
 
   return (
@@ -61,16 +63,28 @@ export function ChatMessagePanel({
         <div className="flex items-center justify-between gap-2 px-1">
           {project && messages.length > 0 ? <ProjectChip project={project} /> : <span />}
           {canExport && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => void exportChat(session)}
-            >
-              <DownloadIcon className="size-3.5" />
-              Export chat
-            </Button>
+            <span className="flex items-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => void exportChatShare(session)}
+              >
+                <ShareIcon className="size-3.5" />
+                {t("shareChat")}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => void exportChat(session)}
+              >
+                <DownloadIcon className="size-3.5" />
+                Export chat
+              </Button>
+            </span>
           )}
         </div>
       )}

@@ -26,11 +26,12 @@ import { createPortal } from "react-dom";
 import { speak, speakable, speakerLevel, speakerState, stopSpeaking, subscribeSpeaker } from "./speech";
 import { useVoiceSettings } from "./settings";
 import { useVoiceInput } from "./use-voice-input";
+import { refineVoiceTranscript, voiceConfirmNo, voiceConfirmYes } from "./voice-refine";
 
 /** The latest assistant message in the chat. */
 export type VoiceModeReply = { id: string; text: string; streaming: boolean };
 
-type Phase = "listening" | "thinking" | "speaking" | "paused" | "permission";
+type Phase = "listening" | "thinking" | "speaking" | "paused" | "permission" | "confirming";
 
 /** Map spoken approval/denial to a permission reply. */
 function voicePermissionIntent(text: string): PermissionReply | null {
@@ -51,6 +52,10 @@ function voicePermissionIntent(text: string): PermissionReply | null {
 const FAILED_WITHIN_MS = 1_000;
 /** Nothing said for this long: stop listening until the user taps. */
 const IDLE_MS = 45_000;
+/** After the last word: wait this long before sending (room to breathe or correct). */
+const TURN_SILENCE_MS = 3_200;
+/** Shorter pause when answering yes/no to a correction check. */
+const CONFIRM_SILENCE_MS = 2_400;
 
 export function VoiceMode({
   onClose,
@@ -90,10 +95,13 @@ export function VoiceMode({
   permissionRef.current = permissions;
   const permissionRequest = permissions[0];
   const permissionRisky = !!permissionRequest?.detail?.startsWith("⚠");
+  /** Message waiting for “yes” after a self-correction. */
+  const pendingSend = useRef<string | null>(null);
 
   const voice = useVoiceInput({
     autoStop: true,
     idleMs: IDLE_MS,
+    silenceMs: TURN_SILENCE_MS,
     onStart: () => setHeard(""),
     onText: (text) => setHeard(text),
     onEnd: (text) => {
@@ -102,10 +110,14 @@ export function VoiceMode({
         void answerPermissionByVoice(text);
         return;
       }
+      if (phaseRef.current === "confirming") {
+        void answerConfirmByVoice(text);
+        return;
+      }
       if (phaseRef.current !== "listening") return;
       const said = text.trim();
       if (said) {
-        void ask(said);
+        void finishTurn(said);
         return;
       }
       // Silence (or a cough) just listens on; a session that died at once
@@ -122,13 +134,70 @@ export function VoiceMode({
 
   const listen = useCallback(async () => {
     if (closed.current) return;
+    pendingSend.current = null;
     stopSpeaking();
     setNote(undefined);
     setPhase("listening");
     armed.current = false;
     listenStarted.current = performance.now();
-    await voiceRef.current.start();
+    await voiceRef.current.start({ silenceMs: TURN_SILENCE_MS });
   }, []);
+
+  const listenForConfirm = useCallback(async () => {
+    if (closed.current) return;
+    stopSpeaking();
+    setNote(undefined);
+    setPhase("confirming");
+    armed.current = false;
+    listenStarted.current = performance.now();
+    await voiceRef.current.start({ silenceMs: CONFIRM_SILENCE_MS });
+  }, []);
+
+  const finishTurn = async (said: string) => {
+    const refined = refineVoiceTranscript(said);
+    const toSend = refined.text.trim();
+    if (!toSend) {
+      void listen();
+      return;
+    }
+    if (refined.needsConfirm && refined.confirmHint) {
+      pendingSend.current = toSend;
+      setHeard(toSend);
+      setPhase("confirming");
+      const line = t("voiceModeConfirmSay", { word: refined.confirmHint });
+      await speak(line, settings, { id: "voice-mode-confirm" });
+      if (closed.current || phaseRef.current !== "confirming") return;
+      void listenForConfirm();
+      return;
+    }
+    void ask(toSend);
+  };
+
+  const answerConfirmByVoice = async (text: string) => {
+    const plain = text.trim();
+    const queued = pendingSend.current;
+    if (!queued) {
+      void listen();
+      return;
+    }
+    if (voiceConfirmYes(plain)) {
+      pendingSend.current = null;
+      void ask(queued);
+      return;
+    }
+    if (voiceConfirmNo(plain)) {
+      pendingSend.current = null;
+      setNote(undefined);
+      void listen();
+      return;
+    }
+    if (plain) {
+      pendingSend.current = null;
+      void finishTurn(plain);
+      return;
+    }
+    void listenForConfirm();
+  };
 
   const ask = async (text: string) => {
     setPhase("thinking");
@@ -248,12 +317,17 @@ export function VoiceMode({
       else voice.stop();
       return;
     }
+    if (phase === "confirming") {
+      if (!voice.listening) void listenForConfirm();
+      else voice.stop();
+      return;
+    }
     if (phase === "speaking" || phase === "paused") void listen();
     else if (phase === "listening" && voice.listening) voice.stop();
   };
 
   const togglePause = () => {
-    if (phase === "permission") return;
+    if (phase === "permission" || phase === "confirming") return;
     if (phase === "paused") {
       void listen();
       return;
@@ -285,7 +359,13 @@ export function VoiceMode({
   const transcribing = phase === "listening" && voice.phase === "transcribing";
   const preparing = phase === "speaking" && speaker.loading;
   const status =
-    phase === "permission"
+    phase === "confirming"
+      ? transcribing
+        ? t("voiceModeWriting")
+        : heard
+          ? t("voiceModeConfirmListen")
+          : t("voiceModeConfirming")
+      : phase === "permission"
       ? transcribing
         ? t("voiceModeWriting")
         : heard
@@ -310,6 +390,10 @@ export function VoiceMode({
   const pose: BotState =
     phase === "permission"
       ? "permission"
+      : phase === "confirming"
+        ? transcribing
+          ? "thinking"
+          : "listening"
       : phase === "paused"
       ? "idle"
       : phase === "thinking" || transcribing || preparing
@@ -323,7 +407,9 @@ export function VoiceMode({
   const reduceMotion = useReducedMotion();
   const botTheme = dark ? "dark" : "light";
   const listeningLive =
-    (phase === "listening" || phase === "permission") && voice.listening && !transcribing;
+    (phase === "listening" || phase === "permission" || phase === "confirming") &&
+    voice.listening &&
+    !transcribing;
 
   const ink = dark
     ? {

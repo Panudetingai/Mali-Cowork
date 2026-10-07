@@ -7,6 +7,10 @@ export type CliRequest = {
   cwd?: string;
   /** A CLI the user added: what to run; `{prompt}` in `args` is filled in by the backend. */
   custom?: { name?: string; command: string; args: string[] };
+  /** Custom instructions and skills, handed to the CLI as its own system instructions where it takes them. */
+  instructions?: string;
+  /** The CLI's own session to continue (Kilo, OpenCode). */
+  sessionId?: string;
 };
 
 export type CliCheckResult = {

@@ -21,6 +21,7 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/animate-ui/primitives/radix/dropdown-menu";
 import { Button } from "@/components/ui/button";
@@ -38,12 +39,14 @@ import {
     getRuns,
     isListedChat,
     newChatHomeUrl,
+    pickAndImportSharedChat,
     sessionMode,
     TEMPORARY_CHAT_QUERY,
     useChatRuns,
     useChatSessions,
     type ChatSession,
 } from "@/features/chat-history";
+import { toast } from "@/components/ui/sonner";
 import { useTranslation } from "@/features/i18n";
 import { usePlugins } from "@/features/plugins";
 import { useInboxAttention } from "@/features/tasks";
@@ -61,6 +64,7 @@ import {
     GhostIcon,
     ImagesIcon,
     InboxIcon,
+    FileUpIcon,
     LayoutGridIcon,
     MoreVerticalIcon,
     PlusIcon,
@@ -71,6 +75,7 @@ import {
     SquarePenIcon,
     Trash2Icon,
     XIcon,
+    MessageCircle,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
@@ -474,8 +479,8 @@ export function AppSidebar() {
     // Looked up before deleting, among all chats: the open one may be hidden by the search.
     const active = sessions.find((s) => ids.includes(s.id) && pathname === `/chat/${s.id}`);
     deleteChats(ids);
-    setSelected(new Set());
     setConfirmDelete(false);
+    exitSelection();
     // If the open chat was deleted, fall back to a new chat of the same mode.
     if (active) {
       navigate(`/?mode=${active.view ?? sessionMode(active)}`, { replace: true });
@@ -493,7 +498,17 @@ export function AppSidebar() {
   ];
   const firstGroup = pinned.length > 0 ? "pinned" : dayGroups.find((g) => days[g.id].length > 0)?.id;
 
-  // "+" and "⋮" ride on the first heading, as in the reference.
+  const importShare = () => {
+    void pickAndImportSharedChat()
+      .then((chat) => {
+        if (!chat) return;
+        toast.success(t("recentsImportOk"));
+        navigate(`/chat/${chat.id}`);
+      })
+      .catch((e) => toast.error(e instanceof Error ? e.message : String(e)));
+  };
+
+  // "+" and "⋮" ride on the first history heading (Today when nothing is pinned).
   const headActions = (
     <>
       <GroupAction label={t("newChat")} onClick={() => navigate("/?mode=chat")}>
@@ -519,6 +534,15 @@ export function AppSidebar() {
           >
             <CheckSquareIcon className="size-4 text-muted-foreground" />
             {selecting ? t("doneSelecting") : t("selectChats")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator className="-mx-1 my-1 h-px bg-border" />
+          <DropdownMenuItem className={menuItemClass} onSelect={() => navigate("/chats")}>
+            <ChevronRightIcon className="size-4 text-muted-foreground" />
+            {t("recentsTitle")}
+          </DropdownMenuItem>
+          <DropdownMenuItem className={menuItemClass} onSelect={importShare}>
+            <FileUpIcon className="size-4 text-muted-foreground" />
+            {t("recentsImport")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -592,6 +616,15 @@ export function AppSidebar() {
         <SidebarContent className="relative gap-0 px-1 pt-1 pb-3">
           <Unfolded show={!collapsed} className="flex flex-col">
           <ActiveIndicatorList className="flex flex-col">
+          {/* {sessions.some(isListedChat) && !collapsed && (
+            <NavLink
+              to="/chats"
+              className="mx-1 mb-1 flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            >
+              <MessageCircle className="size-3.5 shrink-0 opacity-60" />
+              {t("recentsTitle")}
+            </NavLink>
+          )} */}
           <HistoryGroup
             label={t("pinned")}
             sessions={pinned}

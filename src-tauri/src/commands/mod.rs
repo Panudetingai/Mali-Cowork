@@ -29,6 +29,8 @@ pub mod process;
 pub mod notch;
 pub mod preview_image;
 pub mod quick;
+pub mod remote;
+pub mod remote_domain;
 pub mod secure_fs;
 pub mod setup;
 pub mod storage;

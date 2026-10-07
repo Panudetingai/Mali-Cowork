@@ -24,12 +24,14 @@ import {
 } from "@/components/animate-ui/primitives/radix/checkbox";
 import {
   deleteChat,
+  exportChatShare,
   moveChatToProject,
   renameChat,
   sessionMode,
   togglePinChat,
   type ChatSession,
 } from "@/features/chat-history";
+import { useTranslation } from "@/features/i18n";
 import { useProjects } from "@/features/projects";
 import { cn } from "@/lib/utils";
 import {
@@ -43,6 +45,7 @@ import {
   PencilIcon,
   PinIcon,
   PinOffIcon,
+  ShareIcon,
   Trash2Icon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -82,6 +85,9 @@ export function ChatHistoryItem({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const projects = useProjects();
+  const { t } = useTranslation();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const canShare = session.messages.length > 0;
 
   useEffect(() => {
     if (!renaming) return;
@@ -151,6 +157,10 @@ export function ChatHistoryItem({
           title={session.title}
           data-active={isActive}
           className={cn(chatRowClass, "pr-8")}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setMenuOpen(true);
+          }}
         >
           <span className="relative min-w-0 flex-1 truncate">{session.title}</span>
           <StatusMark session={session} running={running} />
@@ -158,7 +168,7 @@ export function ChatHistoryItem({
       )}
 
       {!renaming && !selecting && (
-        <DropdownMenu>
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <button
               type="button"
@@ -198,6 +208,12 @@ export function ChatHistoryItem({
               <PencilIcon className="size-4 text-muted-foreground" />
               Rename
             </DropdownMenuItem>
+            {canShare && (
+              <DropdownMenuItem className={menuItemClass} onSelect={() => void exportChatShare(session)}>
+                <ShareIcon className="size-4 text-muted-foreground" />
+                {t("shareChat")}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSub>
               <DropdownMenuSubTrigger className={cn(menuItemClass, "data-[state=open]:bg-accent")}>
                 <FolderInputIcon className="size-4 text-muted-foreground" />

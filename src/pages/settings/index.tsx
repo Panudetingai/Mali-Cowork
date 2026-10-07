@@ -20,6 +20,7 @@ import {
   AudioLinesIcon,
   Package,
   PuzzleIcon,
+  SmartphoneIcon,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { useNavigate } from "react-router-dom";
@@ -29,6 +30,7 @@ import { GeneralSettings } from "./general-settings";
 import { InstructionsSettings } from "./instructions-settings";
 import { McpTabIcon } from "./mcp/mcp-icon";
 import { McpSettings } from "./mcp/mcp-settings";
+import { MobileSettings } from "./mobile-settings";
 import { ModelsSettings } from "./models-settings";
 import { NotchSettings } from "./notch-settings";
 import { PluginsSettings } from "./plugins/plugins-settings";
@@ -46,6 +48,7 @@ import { settingsPath, useSettingsRoute } from "./route";
 const TABS = [
   { id: "general", label: "tabGeneral", description: "tabGeneralDesc", icon: GlobeIcon, group: "settingsGroupApp" },
   { id: "notch", label: "tabNotch", description: "tabNotchDesc", icon: PanelTopIcon },
+  { id: "mobile", label: "tabMobile", description: "tabMobileDesc", icon: SmartphoneIcon },
   { id: "voice", label: "tabVoice", description: "tabVoiceDesc", icon: AudioLinesIcon },
   { id: "receipt", label: "tabReceipt", description: "tabReceiptDesc", icon: ReceiptIcon },
   // Providers and CLI agents are one page: both answer "where do the models
@@ -150,6 +153,11 @@ export default function SettingsPage() {
             <TabPanel>
               <Enter>
                 <NotchSettings />
+              </Enter>
+            </TabPanel>
+            <TabPanel>
+              <Enter>
+                <MobileSettings />
               </Enter>
             </TabPanel>
             <TabPanel>

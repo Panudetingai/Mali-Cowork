@@ -50,6 +50,7 @@ import { coworkInstructionsFor } from "./cowork-handoff";
 import { summarizeConversation, transcript } from "./summary";
 import {
   apiModelOf,
+  customCliOf,
   isAntigravityModel,
   isCodexModel,
   isCursorModel,
@@ -151,6 +152,8 @@ export async function sendTurn(
   const isCursor = isCursorModel(runModelId);
   const isCodex = isCodexModel(runModelId);
   const isAntigravity = isAntigravityModel(runModelId);
+  // A CLI the user added; only Kilo and OpenCode report a session, which they continue.
+  const cliAgent = customCliOf(runModelId)?.id;
   let hasErrored = false;
 
   // Show the prompt right away; anything slow (MCP sync) runs after.
@@ -254,6 +257,7 @@ export async function sendTurn(
     if (isCodex) return current.codexSessionId;
     if (isAntigravity) return current.antigravitySessionId;
     if (isMali) return current.maliSessionId;
+    if (cliAgent && current.cliSession?.agent === cliAgent) return current.cliSession.id;
     return undefined;
   };
   try {
@@ -261,7 +265,7 @@ export async function sendTurn(
     // already shows the run as started meanwhile.
     // CLI agents get the connectors and Mali's document tools from its
     // `mali` gateway: hand it the connector list and this chat's folders.
-    if (isOpencode || isCodex || isCursor || isAntigravity) {
+    if (isOpencode || isCodex || isCursor || isAntigravity || cliAgent) {
       await invoke("mcp_hub_set_workspace", {
         cwd: chatMode === "cowork" ? (folders[0] ?? null) : null,
         folders: chatMode === "cowork" ? grantsFor(folders) : [],
@@ -322,10 +326,12 @@ export async function sendTurn(
         onTodos: (items) =>
           update((m) => withTodos(m, items)),
         onMetadata: (data) => {
-          if ((isOpencode || isCursor || isCodex || isAntigravity || isMali) && data.sessionId) {
+          if ((isOpencode || isCursor || isCodex || isAntigravity || isMali || cliAgent) && data.sessionId) {
             const sessionId = data.sessionId;
             updateChat(chatKey, (s) =>
-              isCursor
+              cliAgent
+                ? { ...s, cliSession: { agent: cliAgent, id: sessionId } }
+                : isCursor
                 ? { ...s, cursorSessionId: sessionId }
                 : isCodex
                   ? { ...s, codexSessionId: sessionId }
