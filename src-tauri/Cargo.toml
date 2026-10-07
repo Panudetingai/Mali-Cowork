@@ -1,6 +1,6 @@
 [package]
 name = "Mali"
-version = "0.2.0"
+version = "0.2.1"
 description = "Desktop coworking app for AI chat and agent-assisted work on your files."
 authors = ["panudetingai"]
 edition = "2021"
