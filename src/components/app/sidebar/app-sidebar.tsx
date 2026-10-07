@@ -73,10 +73,9 @@ import {
     Settings2Icon,
     SparklesIcon,
     SquarePenIcon,
-    Trash2Icon,
+Trash2Icon,
     XIcon,
-    MessageCircle,
-} from "lucide-react";
+  } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
