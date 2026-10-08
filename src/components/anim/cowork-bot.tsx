@@ -13,9 +13,9 @@ import {
 import { cn } from "@/lib/utils";
 import { CheckIcon } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useMemo, useRef, type RefObject } from "react";
 
-export const EMBED_VERSION = "14";
+export const EMBED_VERSION = "15";
 
 /**
  * Who the animation draws: a built-in bot by name, or a Studio bot as its
@@ -50,6 +50,7 @@ export function CoworkBot({
   paused = false,
   design,
   level,
+  fps,
 }: {
   /** Pixels, or a CSS length such as "100%" to fill a parent that animates its size. */
   size?: number | string;
@@ -65,6 +66,8 @@ export function CoworkBot({
   design?: Design;
   /** A voice to follow (0–1, read each frame) while listening or speaking; without one the bot makes up its own. */
   level?: RefObject<number>;
+  /** Draw at most this many frames a second (default 60): a small bot looks the same at 30, for half the work. */
+  fps?: number;
 }) {
   const { bot: stored } = useCoworkBot();
   const { bots: studio } = useBotStudio();
@@ -74,6 +77,9 @@ export function CoworkBot({
   const { resolvedTheme } = useTheme();
   const theme = themeProp ?? (resolvedTheme === "dark" ? "dark" : "light");
   const frameRef = useRef<HTMLIFrameElement>(null);
+  // The pose is sent by message from then on: a new one in the URL would reload the whole bot.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const src = useMemo(() => botFrameSrc(embed, state, theme), [embed, theme]);
 
   useEffect(() => {
     frameRef.current?.contentWindow?.postMessage({ state }, "*");
@@ -81,6 +87,9 @@ export function CoworkBot({
   useEffect(() => {
     frameRef.current?.contentWindow?.postMessage({ paused }, "*");
   }, [paused, embed]);
+  useEffect(() => {
+    frameRef.current?.contentWindow?.postMessage({ fps: fps ?? 60 }, "*");
+  }, [fps, embed]);
   // Hand the voice level over each frame it moves, and now and then while it holds
   // (the bot makes up its own rhythm once none has come for a moment).
   useEffect(() => {
@@ -122,11 +131,11 @@ export function CoworkBot({
         ref={frameRef}
         data-cowork-bot=""
         key={`${embed}-${theme}`}
-        src={botFrameSrc(embed, state, theme)}
+        src={src}
         title={title ?? "Cowork bot"}
         scrolling="no"
         tabIndex={-1}
-        onLoad={() => frameRef.current?.contentWindow?.postMessage({ state, paused }, "*")}
+        onLoad={() => frameRef.current?.contentWindow?.postMessage({ state, paused, fps: fps ?? 60 }, "*")}
         style={{
           width: "100%",
           height: "100%",

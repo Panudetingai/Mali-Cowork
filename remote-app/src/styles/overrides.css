@@ -1,0 +1,68 @@
+html,
+body {
+  touch-action: manipulation;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Minimal border cards — less shadow, clearer structure */
+.card {
+  background: var(--surface-solid) !important;
+  box-shadow: none !important;
+  border: 1px solid var(--line-strong) !important;
+  border-radius: 16px !important;
+}
+
+.list.card {
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.action {
+  box-shadow: none !important;
+  border: 1px solid var(--line-strong) !important;
+  background: var(--surface-solid) !important;
+  min-height: 100px !important;
+}
+
+.reply.card {
+  padding: 14px 16px !important;
+}
+
+.bubble {
+  box-shadow: none !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+/* Composer: one row while typing — model chip hidden with keyboard */
+.dock.typing .ctx,
+.dock.keyboard .ctx {
+  display: none !important;
+}
+
+.dock.typing {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 8px);
+}
+
+.dock .pill {
+  box-shadow: none;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-solid);
+}
+
+.dock.keyboard .inner {
+  padding-bottom: 2px;
+}
+
+.top {
+  border-bottom: 1px solid var(--line) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: var(--bg) !important;
+}
+
+.section h2 {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}

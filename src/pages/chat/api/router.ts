@@ -360,7 +360,11 @@ async function routeStream(
     }
     return cliGenerateStream(
       {
-        prompt: withInstructions(prompt, request),
+        // Each run starts a new CLI session, so the instructions go every time —
+        // as the CLI's own system instructions, not in the message.
+        prompt,
+        instructions: request.instructions,
+        sessionId: request.sessionId,
         agent: cliParts.id,
         cwd: request.cwd,
         custom: custom

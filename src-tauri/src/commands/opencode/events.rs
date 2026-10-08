@@ -226,7 +226,7 @@ impl EventTranslator {
     }
 }
 
-fn tool_activity(part: &Value) -> Option<ChatStreamEvent> {
+pub(crate) fn tool_activity(part: &Value) -> Option<ChatStreamEvent> {
     let tool = part["tool"].as_str().unwrap_or("tool");
     if tool == "todowrite" {
         return todo_items(part).map(|items| ChatStreamEvent::Todos { items });

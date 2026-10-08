@@ -19,7 +19,7 @@ mod bin;
 mod client;
 mod commands;
 mod cwd;
-mod events;
+pub(crate) mod events;
 mod instances;
 mod policy;
 mod providers;

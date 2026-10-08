@@ -33,8 +33,16 @@ type BuiltInInput = Exclude<InputEngine, "system" | ViaEngine>;
 /** Puter speaks with one of these vendors' voices. */
 export type PuterVoices = "openai" | "gemini" | "elevenlabs" | "aws-polly";
 
+/** What was set up on a speaking engine, brought back when it's picked again. */
+export type OutputMemory = { voice: string; voiceName?: string; model?: string };
+
 export type VoiceSettings = {
-  input: { engine: InputEngine; model: string };
+  input: {
+    engine: InputEngine;
+    model: string;
+    /** The model picked on each engine, brought back when it's picked again. */
+    byEngine?: Record<string, string>;
+  };
   output: {
     engine: OutputEngine;
     /** Puter only: whose voices. */
@@ -46,6 +54,8 @@ export type VoiceSettings = {
     model?: string;
     /** The system voice's name (`speechSynthesis`), when one was picked. */
     systemVoice?: string;
+    /** Voice and model set up on each engine, so switching away and back loses nothing. */
+    byEngine?: Record<string, OutputMemory>;
   };
   /** When replies are read aloud: after a question asked by voice, always, or never. */
   speakReplies: "voice" | "always" | "never";
@@ -164,21 +174,72 @@ const DEFAULTS: VoiceSettings = {
   language: "auto",
 };
 
-const store = createStore<VoiceSettings>(DEFAULTS, {
-  key: "mali.voice.settings",
-  revive: (raw) => ({
+function revive(raw: Partial<VoiceSettings> | undefined): VoiceSettings {
+  return remember({
     ...DEFAULTS,
     ...raw,
     input: { ...DEFAULTS.input, ...raw?.input },
     output: { ...DEFAULTS.output, ...raw?.output },
-  }),
-});
+  });
+}
+
+/** Note the current engines' setup, so picking them again later brings it back. */
+function remember(s: VoiceSettings): VoiceSettings {
+  const { input, output } = s;
+  const nextInput =
+    input.engine === "system" ? input : { ...input, byEngine: { ...input.byEngine, [input.engine]: input.model } };
+  const nextOutput =
+    output.engine === "system"
+      ? output
+      : {
+          ...output,
+          byEngine: {
+            ...output.byEngine,
+            [output.engine]: { voice: output.voice, voiceName: output.voiceName, model: output.model },
+          },
+        };
+  return { ...s, input: nextInput, output: nextOutput };
+}
+
+const store = createStore<VoiceSettings>(DEFAULTS, { key: "mali.voice.settings", revive });
 
 export const useVoiceSettings = store.use;
 export const getVoiceSettings = store.get;
 
 export function patchVoiceSettings(patch: Partial<VoiceSettings>) {
-  store.set((s) => ({ ...s, ...patch }));
+  store.set((s) => remember({ ...s, ...patch }));
+}
+
+/** Change how Mali listens, on top of what's set now. */
+export function patchVoiceInput(patch: Partial<VoiceSettings["input"]>) {
+  store.set((s) => remember({ ...s, input: { ...s.input, ...patch } }));
+}
+
+/** Change how Mali speaks from what's set now, not from a copy read earlier. */
+export function updateVoiceOutput(update: (output: VoiceSettings["output"]) => VoiceSettings["output"]) {
+  store.set((s) => remember({ ...s, output: update(s.output) }));
+}
+
+export function patchVoiceOutput(patch: Partial<VoiceSettings["output"]>) {
+  updateVoiceOutput((output) => ({ ...output, ...patch }));
+}
+
+/** Listen with another engine, with the model it had last time. */
+export function pickInputEngine(engine: InputEngine) {
+  store.set((s) => {
+    if (s.input.engine === engine) return s;
+    return remember({ ...s, input: { ...s.input, engine, model: s.input.byEngine?.[engine] ?? "" } });
+  });
+}
+
+/** Speak with another engine: its voice and model from last time, else `fresh`. */
+export function pickOutputEngine(engine: OutputEngine, fresh: OutputMemory) {
+  updateVoiceOutput((output) => {
+    if (output.engine === engine) return output;
+    const saved = output.byEngine?.[engine];
+    const setup = saved?.voice || saved?.model ? saved : fresh;
+    return { ...output, engine, voice: setup.voice || fresh.voice, voiceName: setup.voiceName, model: setup.model ?? "" };
+  });
 }
 
 /** The model an engine uses: the one picked, or its first. */
@@ -194,8 +255,7 @@ if (typeof window !== "undefined") {
     if (event.key !== "mali.voice.settings" || !event.newValue) return;
     if (event.newValue === JSON.stringify(store.get())) return;
     try {
-      const raw = JSON.parse(event.newValue) as Partial<VoiceSettings>;
-      store.set({ ...DEFAULTS, ...raw, input: { ...DEFAULTS.input, ...raw.input }, output: { ...DEFAULTS.output, ...raw.output } });
+      store.set(revive(JSON.parse(event.newValue) as Partial<VoiceSettings>));
     } catch {
       // Unreadable: keep what we have.
     }

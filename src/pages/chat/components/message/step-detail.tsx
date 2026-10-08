@@ -8,7 +8,8 @@ import {
 import { DiffCard } from "@/components/diff/diff-card";
 import { parseUnifiedDiff } from "@/components/diff/parse-unified";
 import { cn } from "@/lib/utils";
-import type { ReactNode } from "react";
+import { XIcon } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import type { BundledLanguage } from "shiki";
 
 /** macOS / GNU `ls -la` data row */
@@ -147,9 +148,20 @@ function DiffOutput({ detail }: { detail: string }) {
 
 /** An edit step's diff as file cards, like a pull request. */
 export function DiffCards({ detail, className }: { detail: string; className?: string }) {
+  const [dismissed, setDismissed] = useState(false);
   const files = parseUnifiedDiff(detail);
+  if (dismissed || files.length === 0) return null;
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div className={cn("relative flex flex-col gap-2", className)}>
+      <button
+        type="button"
+        title="Hide diff"
+        aria-label="Hide diff"
+        onClick={() => setDismissed(true)}
+        className="absolute -top-1 right-0 z-10 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        <XIcon className="size-3.5" />
+      </button>
       {files.map((file) => (
         <DiffCard
           key={file.path}

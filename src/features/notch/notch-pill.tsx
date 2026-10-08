@@ -107,6 +107,7 @@ import type {
     NotchView,
 } from "./types";
 import { useSystemStats } from "./use-system-stats";
+import { BOT_FPS_FULL, BOT_FPS_SMALL } from "./fps";
 
 /** Dynamic Island–like: quick open/close, minimal bounce. */
 const SPRING: Transition = {
@@ -474,6 +475,9 @@ function Fade({ children }: { children: ReactNode }) {
         filter: "blur(0px)",
         scale: 1,
         transition: { delay: 0.08, duration: 0.28 },
+        // A filter left on (even blur(0px)) keeps the whole view on its own
+        // layer, redrawn with every loop inside it; settled, it has none.
+        transitionEnd: { filter: "none" },
       }}
       exit={{
         opacity: 0,
@@ -758,6 +762,7 @@ function Mascots(props: Props) {
               className="relative"
               // Kept mounted (no reload flicker) but resting while away.
               paused={!on}
+              fps={view === "collapsed" ? BOT_FPS_SMALL : BOT_FPS_FULL}
             />
             {on && <Badges {...props} />}
             {on && view !== "permission" && view !== "question" && (
@@ -1275,7 +1280,7 @@ function Collapsed({ snapshot, geometry, chatBusy }: Props) {
         key={stepText(snapshot, t)}
         className="truncate text-center text-[12px] font-medium text-white/80"
         initial={{ opacity: 0, y: 8, filter: "blur(4px)" }}
-        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+        animate={{ opacity: 1, y: 0, filter: "blur(0px)", transitionEnd: { filter: "none" } }}
         exit={{ opacity: 0, y: -8, filter: "blur(4px)" }}
       >
         {stepText(snapshot, t)}
@@ -2457,7 +2462,7 @@ function RunLines(props: Props) {
             key={active.key}
             className="shrink-0 font-semibold text-white/75"
             initial={{ opacity: 0, y: 6, filter: "blur(4px)" }}
-            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)", transitionEnd: { filter: "none" } }}
             exit={{ opacity: 0, y: -6, filter: "blur(4px)" }}
           >
             {active.name}
@@ -2632,7 +2637,7 @@ function RollingSteps({ snapshot }: { snapshot: NotchSnapshot }) {
                   : "text-[12.5px] text-white/40",
               )}
               initial={{ opacity: 0, y: 14, filter: "blur(6px)" }}
-              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+              animate={{ opacity: 1, y: 0, filter: "blur(0px)", transitionEnd: { filter: "none" } }}
               exit={{ opacity: 0, y: -14, filter: "blur(6px)" }}
             >
               <span
@@ -2746,6 +2751,7 @@ function ChipFace({
                 state={chipMoodState(mood)}
                 theme="dark"
                 paused={paused}
+                fps={BOT_FPS_SMALL}
               />
             ) : (
               <BotPicture bot={bot} size={size} mood={mood} />
@@ -3491,7 +3497,7 @@ function Welcome({ geometry, shape, welcomeState, active }: Props) {
             key={ready ? "ready" : "waking"}
             className="text-[12px] text-white/50"
             initial={{ opacity: 0, y: 6, filter: "blur(4px)" }}
-            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)", transitionEnd: { filter: "none" } }}
             exit={{ opacity: 0, y: -6, filter: "blur(4px)" }}
           >
             {ready ? t("ready", { name: active.name }) : t("waking")}
@@ -3546,7 +3552,7 @@ function Drop({ geometry, drop }: Props) {
             key={taken ? "taken" : "over"}
             className="text-[15px] font-medium text-white/80"
             initial={{ opacity: 0, y: 6, filter: "blur(4px)" }}
-            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)", transitionEnd: { filter: "none" } }}
             exit={{ opacity: 0, y: -6, filter: "blur(4px)" }}
           >
             {taken ? t("gotIt") : t("dropFiles")}

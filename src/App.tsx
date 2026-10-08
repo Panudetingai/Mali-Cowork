@@ -11,11 +11,13 @@ import { onOpenTeam, playMainReturn, startNotchRelay, useMainAwake } from "@/fea
 import "@/features/plugins";
 import { listenForQuickSaves, onOpenChatRequest, onOpenQuickSettings, serveQuickTheme } from "@/features/quick";
 import { startTaskQueue } from "@/features/tasks";
+import { RemoteBridge } from "@/features/remote";
 import { useTheme } from "next-themes";
 import { useEffect, useRef } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import BotStudioPage from "./pages/bot-studio";
 import ChatLayout from "./pages/chat/layout";
+import RecentsPage from "./pages/chats/recents-page";
 import ChatBlocksPreviewPage from "./pages/dev/chat-blocks-preview";
 import MarkdownPreviewPage from "./pages/dev/markdown-preview";
 import NotchPreviewPage from "./pages/dev/notch-preview";
@@ -93,6 +95,7 @@ function App() {
           <Route element={<AppLayout />}>
           <Route index element={<ChatLayout />} />
           <Route path="chat/:chatId" element={<ChatLayout />} />
+          <Route path="chats" element={<RecentsPage />} />
           <Route path="visual" element={<VisualPage />} />
           <Route path="bots" element={<BotStudioPage />} />
           <Route path="inbox" element={<InboxPage />} />
@@ -125,6 +128,8 @@ export default function AppWithOnboarding() {
     <>
       {awake && <UpdateDialog />}
       {/* <UpdateDialog /> */}
+      {/* The phone remote works in notch mode too, so it isn't gated on awake. */}
+      <RemoteBridge />
       <App />
     </>
   );

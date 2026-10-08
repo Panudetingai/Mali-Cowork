@@ -52,12 +52,13 @@ export function ChatMessages({ messages, isLoading, onRetry, onRate, onEdit, ses
           return (
             <motion.div
               key={msg.id}
+              data-message-id={msg.id}
               layout="position"
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.22, ease: "easeOut" }}
-              className="group relative py-3 first:pt-0 last:pb-0"
+              className="group relative py-3 pr-2 first:pt-0 last:pb-0"
             >
               {index > 0 && (
                 <div className="absolute top-0 right-0 left-0 h-px bg-gradient-to-r from-transparent via-border to-transparent opacity-60" />

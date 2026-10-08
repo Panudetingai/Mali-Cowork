@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, viewport-fit=cover, user-scalable=no, interactive-widget=resizes-content">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Mali">
+<meta name="theme-color" content="#fafafa">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="icon" href="/icon-180.png">
+<title>Mali</title>
+</head>
+<body>
+<div class="wash" aria-hidden="true"></div>
+
+<section id="connect" class="screen hidden">
+  <main>
+    <div class="logo"><img src="/icon-180.png" alt=""></div>
+    <h1 class="connect-title" data-t="connectTitle"></h1>
+    <p class="connect-sub" data-t="connectBody"></p>
+    <div class="note warn hidden" id="connectNote"></div>
+    <div class="connect-ctas">
+      <button class="cta primary" id="scanBtn" type="button" tabindex="-1"><span data-icon="scan"></span><span data-t="scan"></span></button>
+      <button class="cta second" id="pasteBtn" type="button" tabindex="-1"><span data-icon="link"></span><span data-t="pasteLink"></span></button>
+      <div class="paste hidden" id="pasteBox">
+        <input class="field" id="pasteInput" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" tabindex="-1" placeholder="https://192.168.1.10:47913/#t=…">
+        <button class="btn main" id="pasteGo" type="button" tabindex="-1" data-t="connect"></button>
+      </div>
+      <button class="cta second hidden" id="backToApp" type="button" tabindex="-1" data-t="backToApp"></button>
+    </div>
+    <ol class="howto card">
+      <li><span><b data-t="how1"></b><small data-t="how1b"></small></span></li>
+      <li><span><b data-t="how2"></b><small data-t="how2b"></small></span></li>
+      <li><span><b data-t="how3"></b><small data-t="how3b"></small></span></li>
+    </ol>
+    <div class="spacer"></div>
+    <p class="fine" data-t="fine"></p>
+    <div class="lang-switch"><button type="button" tabindex="-1" data-lang="th">ไทย</button><button type="button" tabindex="-1" data-lang="en">English</button></div>
+  </main>
+  <input type="file" id="photo" accept="image/*" capture="environment" hidden tabindex="-1">
+</section>
+
+<section id="app" class="screen hidden">
+  <header class="top">
+    <button class="round hidden" id="back" type="button" tabindex="-1" aria-label="Back"><span data-icon="back"></span></button>
+    <div class="who">
+      <img id="logoSmall" src="/icon-180.png" alt="">
+      <div class="names">
+        <div class="name" id="heading">Mali</div>
+        <div class="status" id="status"><i></i><span id="statusText"></span></div>
+      </div>
+    </div>
+    <button class="round" id="menuBtn" type="button" tabindex="-1" aria-label="Menu"><span data-icon="dots"></span></button>
+  </header>
+
+  <main id="home"></main>
+  <main id="chat" class="hidden"></main>
+
+  <div class="dock" id="dock">
+    <div class="inner">
+      <button class="ctx" id="ctx" type="button" tabindex="-1" aria-hidden="true"><span class="dot-mode" id="ctxMode"></span><span id="ctxText"></span><span data-icon="down"></span></button>
+      <div class="pill">
+        <button class="tool" id="plus" type="button" tabindex="-1" aria-label="Options"><span data-icon="plus"></span></button>
+        <textarea id="input" rows="1" enterkeyhint="send" autocapitalize="sentences" autocomplete="off"></textarea>
+        <button class="tool hidden" id="mic" type="button" tabindex="-1" aria-label="Dictate"><span data-icon="mic"></span></button>
+        <button class="orb" id="orb" type="button" tabindex="-1" aria-label="Send"></button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="scrim hidden" id="scrim"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true"><div class="grab"></div><div id="sheetBody"></div></div>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

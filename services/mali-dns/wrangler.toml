@@ -1,0 +1,28 @@
+# Mali DNS — see README.md. Deploy: npx wrangler deploy
+name = "mali-dns"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+# Public API (MALI_DNS_SERVICE in the Mali app). DNS record is created on deploy.
+[[routes]]
+pattern = "mali.dns.pndluke.com"
+custom_domain = true
+
+# Forget installs not heard from in four months (and their DNS records).
+[triggers]
+crons = ["17 3 * * *"]
+
+[vars]
+# Names are <id>.<BASE_DOMAIN>. A subdomain used only for this.
+BASE_DOMAIN = "mali-remote.pndluke.com"
+# Cloudflare dashboard → your domain → Overview → API section → Zone ID.
+CF_ZONE_ID = "873360d467f661d7bee77b2e26d1f4da"
+
+# npx wrangler kv namespace create DEVICES  → paste the id here.
+[[kv_namespaces]]
+binding = "DEVICES"
+id = "c7ed7418d2344bbdaf8172423ca2a5c9"
+
+# The API token is a secret, never in this file:
+#   npx wrangler secret put CF_API_TOKEN

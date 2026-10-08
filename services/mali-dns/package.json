@@ -1,0 +1,11 @@
+{
+  "name": "mali-dns",
+  "private": true,
+  "type": "module",
+  "description": "Gives each Mali install its own name, so the phone remote gets a trusted certificate.",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p .",
+    "deploy": "wrangler deploy"
+  }
+}

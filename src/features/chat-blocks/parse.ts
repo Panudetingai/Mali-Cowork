@@ -54,13 +54,19 @@ function urlLooksLikeOAuth(url: string): boolean {
 
 function labelLooksLikeOAuth(label: string): boolean {
   const blob = label.toLowerCase();
-  return /authorize|sign[\s-]?in|oauth|consent|gmail|google|ยืนยัน|เข้าสู่ระบบ|ลงชื่อ|ลิงก์นี้/.test(blob);
+  return /authorize|sign[\s-]?in|oauth|consent|gmail|ยืนยัน|เข้าสู่ระบบ|ลงชื่อ|ลิงก์นี้/.test(blob);
+}
+
+/** Short branded links that land on sign-in even when the path omits "oauth". */
+function isOAuthLandingPage(url: string): boolean {
+  return /canva\.link\//i.test(url);
 }
 
 /** True when a link should become a sign-in card, not a normal preview link. */
 function isOAuthish(label: string, url: string): boolean {
   if (isProductContentUrl(url)) return false;
-  return urlLooksLikeOAuth(url) || labelLooksLikeOAuth(label);
+  if (urlLooksLikeOAuth(url)) return true;
+  return isOAuthLandingPage(url) && labelLooksLikeOAuth(label);
 }
 
 function pushAuth(
@@ -311,7 +317,7 @@ function extractAuthFromProse(text: string, authActions: AuthActionBlock[]): str
     .map((line) => {
       if (!/gmail|authorize|ยืนยัน|ลิงก์นี้|oauth|sign[\s-]?in|เข้าสู่ระบบ/i.test(line)) return line;
       return line.replace(/(https?:\/\/[^\s<>"')\]]+)/g, (full, url: string) => {
-        if (!isOAuthish(line, url)) return full;
+        if (!urlLooksLikeOAuth(url) && !(isOAuthLandingPage(url) && labelLooksLikeOAuth(line))) return full;
         const lead = line.slice(0, line.indexOf(full)).trim();
         pushAuth(authActions, url, "Authorize", lead || undefined);
         return "";

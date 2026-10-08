@@ -37,7 +37,7 @@ import { DiscoverSkills } from "./discover-skills";
 import { motion } from "motion/react";
 import { ImportSkillDialog } from "./import-skill-dialog";
 import { InstallSkillDialog, type InstallChoice } from "./install-skill-dialog";
-import { EMPTY_SKILL } from "./skill-dialog";
+import { EMPTY_SKILL, SkillDialog } from "./skill-dialog";
 import { menuClass, menuItemClass, SkillTile } from "./skill-row";
 import { describeInstall, useSkillInstall } from "./use-skill-install";
 
@@ -73,6 +73,7 @@ export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, e
   const tab = props.tab ?? ownTab;
   const setTab = props.onTabChange ?? setOwnTab;
   const [query, setQuery] = useState("");
+  const [newSkillDraft, setNewSkillDraft] = useState<SkillDraft | null>(null);
   const { busy, install } = useSkillInstall(onSave, skills);
 
   const editSkill = (skill: Skill | SkillDraft) =>
@@ -239,7 +240,7 @@ export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, e
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button type="button" size="sm" className="h-9 gap-1.5" onClick={() => void editSkill(EMPTY_SKILL)}>
+          <Button type="button" size="sm" className="h-9 gap-1.5" onClick={() => setNewSkillDraft({ ...EMPTY_SKILL })}>
             <PlusIcon className="size-4" />
             New skill
           </Button>
@@ -297,6 +298,14 @@ export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, e
         )}
       </motion.div>
 
+      <SkillDialog
+        draft={newSkillDraft}
+        onSave={(draft) => {
+          setNewSkillDraft(null);
+          void editSkill(draft);
+        }}
+        onClose={() => setNewSkillDraft(null)}
+      />
       <ImportSkillDialog open={importing} onFound={setFound} onClose={() => setImporting(false)} />
       <InstallSkillDialog
         candidates={found}

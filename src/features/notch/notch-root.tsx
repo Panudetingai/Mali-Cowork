@@ -747,9 +747,15 @@ export function NotchRoot() {
   // ── replies ──
   const answering =
     permission && answered?.id === permission.id ? answered.reply : undefined;
+  const replyTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(replyTimer.current), []);
   const reply = (choice: "once" | "reject") => {
     if (!shown || !permission || answering) return;
     setAnswered({ id: permission.id, reply: choice });
+    // If the reply never lands (the app missed it), the buttons take a click again
+    // rather than spinning for good.
+    clearTimeout(replyTimer.current);
+    replyTimer.current = setTimeout(() => setAnswered(undefined), ANSWER_WAIT_MS);
     void sendNotchReply({
       chatId: shown.chatId,
       id: permission.id,

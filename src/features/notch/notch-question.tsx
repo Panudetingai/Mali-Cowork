@@ -5,6 +5,8 @@
  * the next question); several picks, or words of your own, go with Send.
  * Skip withdraws the question and the agent decides by itself.
  */
+import { MessageResponse } from "@/components/ai-elements/message";
+import { MarkdownSurface } from "@/components/chat/markdown-surface";
 import { cn } from "@/lib/utils";
 import type { QuestionItem, QuestionRequest } from "@/pages/chat/api/chat";
 import { CheckIcon, ChevronLeftIcon, CircleHelpIcon, CornerDownLeftIcon, Loader2Icon, PencilLineIcon } from "lucide-react";
@@ -190,7 +192,7 @@ export function NotchQuestion({ request, asker, busy, onAnswer, keys, className 
             custom={dir}
             className="flex min-h-0 flex-1 flex-col"
             initial={{ opacity: 0, x: dir * 24, filter: "blur(4px)" }}
-            animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
+            animate={{ opacity: 1, x: 0, filter: "blur(0px)", transitionEnd: { filter: "none" } }}
             exit={{ opacity: 0, x: dir * -24, filter: "blur(4px)" }}
             transition={{ type: "spring", stiffness: 420, damping: 36 }}
           >
@@ -274,7 +276,16 @@ function Body({
   const writable = item.custom || item.options.length === 0;
   return (
     <>
-      <p className="line-clamp-3 shrink-0 text-[14px] leading-[19px] font-medium break-words text-white">{item.question}</p>
+      <div
+        className="relative max-h-[5.5rem] shrink-0 overflow-hidden [mask-image:linear-gradient(to_bottom,black_65%,transparent_100%)]"
+        title={item.question}
+      >
+        <MarkdownSurface>
+          <MessageResponse className="text-[14px] leading-[19px] font-medium text-white [&_a]:text-sky-300 [&_code]:rounded [&_code]:bg-white/10 [&_code]:px-1 [&_p]:my-0">
+            {item.question}
+          </MessageResponse>
+        </MarkdownSurface>
+      </div>
       {item.options.length > 0 && (
         <div
           role={item.multiple ? "group" : "radiogroup"}
@@ -316,11 +327,11 @@ function Body({
                     i + 1
                   ) : null}
                 </span>
-                <span className="min-w-0 shrink-0 truncate text-[13px] font-medium" style={{ maxWidth: option.description ? "55%" : undefined }}>
-                  {option.label}
-                </span>
+                <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{option.label}</span>
                 {option.description && (
-                  <span className="min-w-0 truncate text-[11.5px] text-white/40">{option.description}</span>
+                  <span className="hidden min-w-0 truncate text-[11.5px] text-white/40 sm:inline sm:max-w-[42%]">
+                    {option.description}
+                  </span>
                 )}
               </motion.button>
             );

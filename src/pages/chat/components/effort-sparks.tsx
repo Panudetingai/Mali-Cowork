@@ -1,31 +1,47 @@
-import { useMemo } from "react";
+import type { CSSProperties } from "react";
 
-type Spark = { left: string; w: number; delay: number; dur: number };
+type Spark = {
+  /** Where it starts, 0–100 across the layer. */
+  left: number;
+  size: number;
+  delay: number;
+  dur: number;
+  /** Sideways drift over the climb, in px. */
+  drift: number;
+  /** Where it starts up the layer, 0–1 (only the slider uses it). */
+  y: number;
+};
 
-const BASE: Spark[] = [
-  { left: "6%", w: 3, delay: 0, dur: 2.4 },
-  { left: "14%", w: 2, delay: 0.6, dur: 2.8 },
-  { left: "22%", w: 4, delay: 1.1, dur: 2.2 },
-  { left: "31%", w: 2, delay: 0.3, dur: 3.1 },
-  { left: "40%", w: 3, delay: 1.8, dur: 2.5 },
-  { left: "48%", w: 2, delay: 0.9, dur: 2.9 },
-  { left: "56%", w: 4, delay: 1.4, dur: 2.3 },
-  { left: "64%", w: 2, delay: 0.2, dur: 3.0 },
-  { left: "72%", w: 3, delay: 1.6, dur: 2.6 },
-  { left: "80%", w: 2, delay: 0.7, dur: 2.7 },
-  { left: "88%", w: 3, delay: 1.2, dur: 2.4 },
-  { left: "94%", w: 2, delay: 1.9, dur: 3.2 },
-];
-
-/** Rising sparks clipped to a width (0–100). */
-export function sparksWithin(maxPercent: number, count = 12): Spark[] {
-  const cap = Math.max(8, maxPercent);
-  return BASE.slice(0, count).map((s, i) => ({
-    ...s,
-    left: `${Math.min(cap - 4, 6 + (i / Math.max(1, count - 1)) * (cap - 10))}%`,
-  }));
+/** Fixed per index, so sparks don't jump about when the set is rebuilt. */
+function noise(i: number, salt: number) {
+  const x = Math.sin(i * 12.9898 + salt * 78.233) * 43758.5453;
+  return x - Math.floor(x);
 }
 
+/** Rising sparks spread across the first `maxPercent` of a layer (0–100). */
+export function sparksWithin(maxPercent: number, count = 10): Spark[] {
+  const cap = Math.min(100, Math.max(6, maxPercent));
+  return Array.from({ length: count }, (_, i) => {
+    const slot = (i + 0.2 + noise(i, 1) * 0.6) / count;
+    return {
+      left: 1 + slot * (cap - 2),
+      size: 2 + Math.round(noise(i, 2) * 2),
+      delay: noise(i, 3) * 3.5,
+      dur: 2.6 + noise(i, 4) * 1.8,
+      drift: (noise(i, 5) - 0.5) * 14,
+      y: noise(i, 6),
+    };
+  });
+}
+
+export function effortSparkSet(maxPercent = 100) {
+  return sparksWithin(maxPercent, 20);
+}
+
+/**
+ * The sparks themselves. Pure CSS (transform and opacity only), so they run
+ * on the compositor and cost next to nothing; see `.effort-spark` in index.css.
+ */
 export function EffortSparkLayer({
   sparks,
   variant = "prompt",
@@ -35,27 +51,27 @@ export function EffortSparkLayer({
   variant?: "prompt" | "track";
   className?: string;
 }) {
-  const list = useMemo(() => sparks, [sparks]);
-  const anim = variant === "track" ? "effort-rise-track" : "effort-rise";
+  const track = variant === "track";
   return (
     <div className={className} aria-hidden>
-      {list.map((spark, i) => (
+      {sparks.map((spark, i) => (
         <span
           key={i}
-          className={`${anim} absolute bottom-0 rounded-full bg-amber-300/90 shadow-[0_0_8px_rgba(251,191,36,0.75)] dark:bg-amber-200/85`}
-          style={{
-            left: spark.left,
-            width: spark.w,
-            height: spark.w,
-            animationDelay: `${spark.delay}s`,
-            animationDuration: `${spark.dur}s`,
-          }}
+          className={track ? "effort-spark effort-spark-fill" : "effort-spark"}
+          style={
+            {
+              left: `${spark.left}%`,
+              bottom: track ? `${spark.y * 60 - 30}%` : 0,
+              width: track ? Math.max(1.5, spark.size - 1) : spark.size,
+              height: track ? Math.max(1.5, spark.size - 1) : spark.size,
+              animationDelay: `${spark.delay}s`,
+              animationDuration: `${spark.dur}s`,
+              "--drift": `${track ? spark.drift * 0.5 : spark.drift}px`,
+              "--rise": track ? "18px" : "130px",
+            } as CSSProperties
+          }
         />
       ))}
     </div>
   );
-}
-
-export function effortSparkSet(maxPercent = 100) {
-  return sparksWithin(maxPercent);
 }

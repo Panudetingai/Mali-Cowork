@@ -34,6 +34,8 @@ export type ChatSession = {
   antigravitySessionId?: string;
   /** Mali's own agent (Cowork on an API key): its saved conversation. */
   maliSessionId?: string;
+  /** A user-added CLI that keeps sessions (Kilo, OpenCode): `run --session <id>`. */
+  cliSession?: { agent: string; id: string };
   /** A background task's chat (Inbox): listed there, not in the sidebar. */
   inboxTask?: boolean;
   /** For a background task: the chat it was started from. */
@@ -43,6 +45,10 @@ export type ChatSession = {
    * sidebar, and removed once you leave it.
    */
   ephemeral?: boolean;
+  /** Hidden from Active lists until restored. */
+  archived?: boolean;
+  /** Imported from a shared `.mali-chat.json` file. */
+  importedFrom?: { sharedAt: number; file?: string; title?: string };
   /**
    * This chat began in Chat mode and moved to Cowork; the conversation came
    * along. The thread shows a divider after `afterMessageId`.
@@ -61,7 +67,10 @@ export type ChatSession = {
   };
 };
 
-type NewChat = Pick<ChatSession, "mode" | "view" | "cwd" | "continuedFrom" | "projectId" | "taskFrom" | "inboxTask" | "ephemeral"> & {
+type NewChat = Pick<
+  ChatSession,
+  "mode" | "view" | "cwd" | "continuedFrom" | "projectId" | "taskFrom" | "inboxTask" | "ephemeral" | "importedFrom"
+> & {
   /** Chosen by the caller when another window already refers to the chat (Quick bar). */
   id?: string;
 };
@@ -214,6 +223,10 @@ export function togglePinChat(id: string) {
   updateChat(id, (s) => ({ ...s, pinned: !s.pinned }));
 }
 
+export function setChatArchived(id: string, archived: boolean) {
+  updateChat(id, (s) => ({ ...s, archived: archived || undefined, pinned: archived ? false : s.pinned }));
+}
+
 export function attachFolder(id: string, folder: string) {
   updateChat(id, (s) =>
     s.cwd === folder || s.folders?.includes(folder)
@@ -231,6 +244,7 @@ export function clearAgentSessions(chatId?: string) {
     codexSessionId: undefined,
     antigravitySessionId: undefined,
     maliSessionId: undefined,
+    cliSession: undefined,
   });
   if (chatId) {
     updateChat(chatId, strip);
@@ -279,7 +293,15 @@ export const flushChatHistory = () => database.flush();
 
 /** Shown in chat lists (sidebar, search): not background tasks or throwaway chats. */
 export function isListedChat(s: ChatSession) {
-  return !s.inboxTask && !s.taskFrom && !s.ephemeral;
+  return !s.inboxTask && !s.taskFrom && !s.ephemeral && !s.archived;
+}
+
+export function isArchivedChat(s: ChatSession) {
+  return !s.inboxTask && !s.taskFrom && !s.ephemeral && !!s.archived;
+}
+
+export function isSharedChat(s: ChatSession) {
+  return !s.inboxTask && !s.taskFrom && !s.ephemeral && !!s.importedFrom;
 }
 
 /** Remove many chats at once. */

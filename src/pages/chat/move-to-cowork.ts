@@ -75,6 +75,7 @@ export async function moveChatToCowork(
     cursorSessionId: undefined,
     codexSessionId: undefined,
     antigravitySessionId: undefined,
+    cliSession: undefined,
     movedToCowork: { at: Date.now(), afterMessageId: s.messages.at(-1)?.id, folder: cwd },
     coworkHintDismissed: undefined,
   }));

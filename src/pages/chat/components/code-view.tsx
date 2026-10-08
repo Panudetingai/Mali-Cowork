@@ -29,7 +29,17 @@ import {
 import { GitPanel, useGitRepo } from "@/features/git";
 import type { Project } from "@/features/projects";
 import { findGrant, folderName, normalizeFolder, requestFolderAccess, useFolderGrants } from "@/features/workspace";
+import { discardSkillDraft } from "@/features/skills/discard-draft";
 import { libraryDir, updateSkillFromFile } from "@/features/skills";
+import { useTranslation } from "@/features/i18n";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useChat, type SendMessage } from "@/pages/chat/hooks/use-chat";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -171,6 +181,8 @@ function languageTag(rel: string) {
 
 export function CodeView({ chat, chatId, project, root, withGit, initialOpen, onModeChange, onNewChat, onPickDefaultFolder }: Props) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
+  const [skillExitOpen, setSkillExitOpen] = useState(false);
   const {
     session,
     mode,
@@ -204,6 +216,21 @@ export function CodeView({ chat, chatId, project, root, withGit, initialOpen, on
   }, []);
 
   const inSkillsLibrary = Boolean(root && skillsDir && normalizeFolder(root) === skillsDir);
+
+  const skillSlugFromRel = useCallback((rel: string | undefined) => {
+    if (!rel?.toLowerCase().endsWith("/skill.md")) return null;
+    return rel.slice(0, -"/skill.md".length);
+  }, []);
+
+  const leaveSkillsEditor = useCallback(
+    async (keep: boolean) => {
+      setSkillExitOpen(false);
+      const slug = skillSlugFromRel(workspace.active ?? initialOpen);
+      if (!keep && slug) await discardSkillDraft(slug);
+      navigate("/settings?tab=skills");
+    },
+    [initialOpen, navigate, skillSlugFromRel, workspace.active],
+  );
 
   const maybeUpdateSkill = useCallback(
     async (rel: string, text: string) => {
@@ -497,6 +524,7 @@ export function CodeView({ chat, chatId, project, root, withGit, initialOpen, on
     <ChatComposer
       key={`${chatId ?? "new"}:${mode}:${project?.id ?? ""}`}
       mode={mode}
+      chatId={chatId}
       projectId={project?.id}
       session={session}
       messages={messages}
@@ -543,6 +571,7 @@ export function CodeView({ chat, chatId, project, root, withGit, initialOpen, on
   }
 
   return (
+    <>
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
         {/* Toolbar: project · mode · run and view controls */}
         <div className="flex h-11 shrink-0 items-center gap-x-2 overflow-hidden border-b px-2">
@@ -554,7 +583,7 @@ export function CodeView({ chat, chatId, project, root, withGit, initialOpen, on
               size="sm"
               className="shrink-0 gap-1.5"
               title="Back to Skills"
-              onClick={() => navigate("/settings?tab=skills")}
+              onClick={() => setSkillExitOpen(true)}
             >
               <ArrowLeftIcon className="size-4" />
               Skills
@@ -1163,6 +1192,26 @@ export function CodeView({ chat, chatId, project, root, withGit, initialOpen, on
         )}
       </div>
     </div>
+    <Dialog open={skillExitOpen} onOpenChange={setSkillExitOpen}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("skillExitTitle")}</DialogTitle>
+          <DialogDescription>{t("skillExitDescription")}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button type="button" variant="outline" onClick={() => setSkillExitOpen(false)}>
+            {t("cancel")}
+          </Button>
+          <Button type="button" variant="destructive" onClick={() => void leaveSkillsEditor(false)}>
+            {t("skillExitDiscard")}
+          </Button>
+          <Button type="button" onClick={() => void leaveSkillsEditor(true)}>
+            {t("skillExitKeep")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 

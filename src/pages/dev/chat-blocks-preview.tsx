@@ -1,5 +1,5 @@
 import { ChatRichBlocks } from "@/components/chat-blocks/chat-rich-blocks";
-import { EffortPicker } from "@/pages/chat/components/effort-picker";
+import { EffortMaxGlow, EffortPicker } from "@/pages/chat/components/effort-picker";
 import { effortLevels } from "@/features/effort";
 import { useState } from "react";
 import { SectionHeader, SettingsSection } from "@/pages/settings/ui";
@@ -157,6 +157,14 @@ export default function ChatBlocksPreviewPage() {
         {DEMO_EFFORTS.map((row) => (
           <EffortRow key={row.model} {...row} />
         ))}
+        <p className="mt-4 mb-2 text-xs text-muted-foreground">At the highest level, the prompt glows:</p>
+        <div
+          data-testid="effort-max-prompt"
+          className="relative h-28 rounded-2xl border border-foreground/25 bg-background px-4 py-3 text-sm text-muted-foreground"
+        >
+          <EffortMaxGlow active />
+          Ask a follow-up
+        </div>
       </SettingsSection>
 
       <SettingsSection className="mt-10 rounded-xl border border-dashed border-border/80 bg-muted/20 p-4">

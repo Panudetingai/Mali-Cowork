@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ActivityItem } from "../../types";
-import { groupTeamSteps, reportText } from "./team-steps";
+import { briefParts, groupTeamSteps, reportText } from "./team-steps";
 
 const step = (id: string, over: Partial<ActivityItem> = {}): ActivityItem => ({ id, kind: "tool", title: id, done: true, ...over });
 
@@ -29,4 +29,13 @@ test("two hand-offs to the same bot stay apart", () => {
 test("the report drops the heading the lead reads", () => {
   expect(reportText(step("x", { detail: "Report from Momo:\n\nDone: https://canva/1" }))).toBe("Done: https://canva/1");
   expect(reportText(undefined)).toBe("");
+});
+
+test("the brief puts the job first and folds the context away", () => {
+  expect(briefParts("Job from the lead: review PR 13\n\nContext:\nThe user asked in Thai.")).toEqual({
+    job: "review PR 13",
+    context: "The user asked in Thai.",
+  });
+  expect(briefParts("Job from the lead: just this")).toEqual({ job: "just this" });
+  expect(briefParts(undefined)).toEqual({ job: "" });
 });

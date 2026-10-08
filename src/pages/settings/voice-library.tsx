@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import {
   adoptLibraryVoice,
-  patchVoiceSettings,
+  updateVoiceOutput,
   playClip,
   speakerState,
   stopSpeaking,
@@ -172,7 +172,7 @@ export function VoiceLibrary({ engine, settings }: { engine: VoiceService; setti
     setAdding(voice.id);
     try {
       const id = await adoptLibraryVoice(engine, voice);
-      patchVoiceSettings({ output: { ...output, voice: id, voiceName: voice.name } });
+      updateVoiceOutput((o) => (o.engine === engine ? { ...o, voice: id, voiceName: voice.name } : o));
       toast.success(`${shortName(voice.name)} is Mali’s voice now`, {
         description: isEleven ? "Added to your ElevenLabs voices." : undefined,
       });

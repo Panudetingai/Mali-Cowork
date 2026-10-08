@@ -1,0 +1,4 @@
+# Built into Mali: where Mali DNS runs (services/mali-dns). Gives each install
+# its own name, so the phone remote gets a trusted certificate.
+[env]
+MALI_DNS_SERVICE = "https://mali.dns.pndluke.com"

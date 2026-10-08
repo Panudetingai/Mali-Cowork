@@ -67,14 +67,25 @@ export function GitPanel({ embedded = false }: { embedded?: boolean } = {}) {
   };
 
   return (
+    <>
+    {/* A narrow window has no room beside the chat: the panel floats over it, and a click off it closes it. */}
+    {!embedded && (
+      <button
+        type="button"
+        aria-label="Close Git panel"
+        onClick={closePanel}
+        className="absolute inset-0 z-10 hidden bg-black/20 max-[860px]:block"
+      />
+    )}
     <aside
       className={cn(
-        "relative z-10 flex h-full flex-col overflow-hidden bg-background",
+        "relative z-10 flex h-full max-w-full flex-col overflow-hidden bg-background",
         embedded
           ? "min-h-0 w-full flex-1"
           : cn(
               "shrink-0 border-l transition-[width] duration-200",
               panel.wide ? "w-[clamp(320px,62%,1000px)]" : "w-[clamp(320px,44%,480px)]",
+              NARROW,
             ),
       )}
     >
@@ -155,8 +166,13 @@ export function GitPanel({ embedded = false }: { embedded?: boolean } = {}) {
         </div>
       </DiffWrapContext.Provider>
     </aside>
+    </>
   );
 }
+
+/** Below this window width the panel floats over the chat, as wide as fits. */
+const NARROW =
+  "max-[860px]:absolute max-[860px]:inset-y-0 max-[860px]:right-0 max-[860px]:z-20 max-[860px]:w-[min(420px,calc(100%-16px))] max-[860px]:shadow-2xl";
 
 
 /**
@@ -179,7 +195,7 @@ function CompactHeader({
 }) {
   const git = useGitRepo();
   if (!git) return null;
-  const { panel, setTab } = git;
+  const { panel, setTab, closePanel } = git;
   const branch = status.branch;
   const tabs: { tab: GitTab; label: string; count?: number }[] = [
     { tab: "changes", label: "Changes", count: changes.length },
@@ -198,8 +214,11 @@ function CompactHeader({
           <span className="truncate">{branch.head ?? `detached ${branch.commit ?? ""}`}</span>
         </span>
         <SyncState status={status} />
-        <div className={cn("flex shrink-0 items-center", !(branch.upstream && (branch.ahead || branch.behind)) && "ml-auto")}>
+        <div className={cn("ml-auto flex shrink-0 items-center", branch.upstream && (branch.ahead || branch.behind) && "ml-0")}>
           <MoreMenu />
+          <StripButton label="Close" onClick={closePanel}>
+            <PanelRightCloseIcon className="size-4" />
+          </StripButton>
         </div>
       </div>
 

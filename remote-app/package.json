@@ -1,0 +1,15 @@
+{
+  "name": "mali-remote-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/postbuild.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vite": "^7.1.7",
+    "vite-plugin-singlefile": "^2.3.0"
+  }
+}

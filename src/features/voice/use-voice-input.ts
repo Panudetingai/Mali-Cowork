@@ -27,6 +27,8 @@ type Options = {
   autoStop?: boolean;
   /** Give up when nothing is said for this long after starting. */
   idleMs?: number;
+  /** Pause after the last word before auto-stop (system dictation or model recording). */
+  silenceMs?: number;
 };
 
 /** macOS closes a dev build that touches the mic (see `commands/voice.rs`). */
@@ -41,9 +43,9 @@ function micAllowed(): Promise<MicStatus> {
   return micStatus;
 }
 
-export function useVoiceInput({ onText, onStart, onEnd, autoStop = false, idleMs }: Options) {
+export function useVoiceInput({ onText, onStart, onEnd, autoStop = false, idleMs, silenceMs }: Options) {
   const settings = useVoiceSettings();
-  const system = useSpeechInput({ onText, onStart, onEnd, autoStop, idleMs });
+  const system = useSpeechInput({ onText, onStart, onEnd, autoStop, idleMs, silenceMs });
   const onTextRef = useRef(onText);
   onTextRef.current = onText;
   const onEndRef = useRef(onEnd);
@@ -55,6 +57,7 @@ export function useVoiceInput({ onText, onStart, onEnd, autoStop = false, idleMs
   const recorder = useRecorder({
     autoStop,
     idleMs,
+    silenceMs,
     onDone: async (recording) => {
       // A tap with nothing said isn't worth a call.
       if (recording.ms < 400) {
@@ -75,8 +78,8 @@ export function useVoiceInput({ onText, onStart, onEnd, autoStop = false, idleMs
     },
   });
 
-  const start = useCallback(async () => {
-    if (!usesModel) return system.start();
+  const start = useCallback(async (options?: { silenceMs?: number }) => {
+    if (!usesModel) return system.start(undefined, options);
     const status = await micAllowed();
     if (!status.available) {
       setError(status.reason ?? "Voice input isn't available here.");
@@ -84,7 +87,7 @@ export function useVoiceInput({ onText, onStart, onEnd, autoStop = false, idleMs
     }
     setError(undefined);
     onStart?.();
-    await recorder.start();
+    await recorder.start(options);
   }, [usesModel, system, recorder, onStart]);
 
   const toggle = useCallback(() => {
@@ -99,6 +102,7 @@ export function useVoiceInput({ onText, onStart, onEnd, autoStop = false, idleMs
       engine: "system" as const,
       phase: (system.listening ? "listening" : "idle") as VoicePhase,
       level: undefined,
+      start,
     };
   }
 

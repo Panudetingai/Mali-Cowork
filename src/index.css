@@ -622,44 +622,77 @@ html[lang="th"] {
   0% { transform: translate(0, 0) scale(1); opacity: 1; }
   100% { transform: translate(var(--dx), var(--dy)) scale(0.2); opacity: 0; }
 }
+/* Thinking effort at the provider's top level: motes drifting up through
+   the slider's fill and through the prompt. Each sets --drift and --rise.
+   Black and white only: grey motes on light, white ones on dark, and always
+   white inside the slider's dark fill. */
 @keyframes effort-rise {
   0% {
     opacity: 0;
-    transform: translateY(0) scale(0.5);
+    transform: translate(0, 0) scale(0.5);
   }
-  12% {
-    opacity: 0.95;
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(-140px) scale(1.3);
-  }
-}
-.effort-rise {
-  animation: effort-rise linear infinite;
-}
-
-@keyframes effort-rise-track {
-  0% {
-    opacity: 0;
-    transform: translateY(4px) scale(0.55);
-  }
-  18% {
+  20% {
     opacity: 0.9;
   }
+  50% {
+    transform: translate(calc(var(--drift) * -0.4), calc(var(--rise) * -0.5)) scale(1);
+  }
+  70% {
+    opacity: 0.7;
+  }
   100% {
     opacity: 0;
-    transform: translateY(-26px) scale(1.15);
+    transform: translate(var(--drift), calc(var(--rise) * -1)) scale(0.6);
   }
 }
-.effort-rise-track {
-  animation: effort-rise-track linear infinite;
+.effort-spark {
+  position: absolute;
+  border-radius: 9999px;
+  background: rgb(64 64 64 / 0.6);
+  box-shadow: 0 0 6px 1px rgb(0 0 0 / 0.12);
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: effort-rise linear infinite;
+}
+.dark .effort-spark,
+.effort-spark.effort-spark-fill {
+  background: rgb(255 255 255 / 0.95);
+  box-shadow: 0 0 6px 1px rgb(255 255 255 / 0.45);
+}
+
+/* A band of light passing along the slider's fill. */
+@keyframes effort-sheen {
+  0% {
+    transform: translateX(-120%);
+  }
+  60%,
+  100% {
+    transform: translateX(320%);
+  }
+}
+.effort-sheen {
+  animation: effort-sheen 3s ease-in-out infinite;
+}
+
+/* The prompt's glow, slowly brightening and fading. */
+@keyframes effort-breathe {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.effort-breathe {
+  animation: effort-breathe 4s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .notch-loop { animation: none !important; }
-  .effort-rise { animation: none !important; opacity: 0.35; }
-  .effort-rise-track { animation: none !important; opacity: 0.35; }
+  .effort-spark { animation: none !important; display: none; }
+  .effort-sheen,
+  .effort-breathe { animation: none !important; }
 }
 
 /* Sonner — app font and readable error copy (title + description). */

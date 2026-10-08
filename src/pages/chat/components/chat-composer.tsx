@@ -19,6 +19,8 @@ import PromptInput from "./prompt";
 
 type Props = {
   mode: WorkMode;
+  /** Route id; used to restore an unsent prompt when the composer remounts. */
+  chatId?: string;
   /** The chat's project, for its skills in the `/` picker. */
   projectId?: string;
   session?: ChatSession;
@@ -48,6 +50,7 @@ type Props = {
 
 export function ChatComposer({
   mode,
+  chatId,
   projectId,
   session,
   messages,
@@ -127,6 +130,7 @@ export function ChatComposer({
         <PromptInput
           ref={promptInputRef}
           mode={mode}
+          chatId={chatId}
           projectId={projectId}
           session={session}
           messages={messages}
