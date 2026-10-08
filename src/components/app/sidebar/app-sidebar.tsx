@@ -75,6 +75,7 @@ import {
     SquarePenIcon,
 Trash2Icon,
     XIcon,
+    MessageCircle,
   } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
@@ -536,7 +537,7 @@ export function AppSidebar() {
           </DropdownMenuItem>
           <DropdownMenuSeparator className="-mx-1 my-1 h-px bg-border" />
           <DropdownMenuItem className={menuItemClass} onSelect={() => navigate("/chats")}>
-            <ChevronRightIcon className="size-4 text-muted-foreground" />
+            <MessageCircle className="size-4 text-muted-foreground" />
             {t("recentsTitle")}
           </DropdownMenuItem>
           <DropdownMenuItem className={menuItemClass} onSelect={importShare}>

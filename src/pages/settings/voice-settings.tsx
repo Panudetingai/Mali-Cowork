@@ -20,7 +20,11 @@ import {
   listVoices,
   OUTPUT_MODELS,
   outputModel,
+  patchVoiceInput,
+  patchVoiceOutput,
   patchVoiceSettings,
+  pickInputEngine,
+  pickOutputEngine,
   setVoiceKey,
   speak,
   speakerState,
@@ -42,6 +46,7 @@ import {
   type PuterVoices,
   type VoiceOption,
   type VoiceService,
+  updateVoiceOutput,
   type ViaEngine,
   type VoiceSettings,
 } from "@/features/voice";
@@ -768,12 +773,14 @@ function CustomModelField({
   onSave,
   label = "Custom model id",
   hint = "Any model id the service accepts — sent exactly as typed. Press Enter to use it.",
+  autoFocus = !value,
 }: {
   value: string;
   example?: string;
   onSave: (id: string) => void;
   label?: string;
   hint?: string;
+  autoFocus?: boolean;
 }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
@@ -784,7 +791,7 @@ function CustomModelField({
   return (
     <div className="flex flex-col gap-1.5">
       <Input
-        autoFocus={!value}
+        autoFocus={autoFocus}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={save}
@@ -826,7 +833,7 @@ function ListeningPage({ onBack }: { onBack: () => void }) {
           label="Listening engine"
           choices={INPUTS}
           value={engine}
-          onPick={(next) => patchVoiceSettings({ input: { engine: next, model: "" } })}
+          onPick={pickInputEngine}
         />
       </section>
 
@@ -834,7 +841,7 @@ function ListeningPage({ onBack }: { onBack: () => void }) {
         kind="stt"
         choices={via}
         value={engine}
-        onPick={(next) => patchVoiceSettings({ input: { engine: next, model: "" } })}
+        onPick={pickInputEngine}
       />
 
       <ConnectEngine keyOf={choice?.keyOf} />
@@ -844,7 +851,7 @@ function ListeningPage({ onBack }: { onBack: () => void }) {
         kind="stt"
         staticModels={models}
         value={inputModel(settings)}
-        onChange={(model) => patchVoiceSettings({ input: { ...settings.input, model } })}
+        onChange={(model) => patchVoiceInput({ model })}
       />
 
       <section className="flex flex-col gap-3">
@@ -881,19 +888,14 @@ function SpeakingPage({ onBack }: { onBack: () => void }) {
   const models = OUTPUT_MODELS[output.engine] ?? [];
   const ready = useKeyReady()(choice?.keyOf);
 
+  // Back on an engine set up before: its voice and model return; else a fresh start.
   const pickEngine = (engine: OutputEngine) =>
-    engine !== output.engine &&
-    patchVoiceSettings({
-      output: {
-        ...output,
-        engine,
-        model: "",
-        voiceName: undefined,
-        ...(engine === "puter"
-          ? { voice: voicesFor({ ...output, engine })[0]! }
-          : (FIRST_VOICE[engine] ?? (viaProvider(engine) ? { voice: "alloy" } : undefined))),
-      },
-    });
+    pickOutputEngine(
+      engine,
+      engine === "puter"
+        ? { voice: voicesFor({ ...output, engine })[0]! }
+        : (FIRST_VOICE[engine] ?? { voice: viaProvider(engine) ? "alloy" : output.voice }),
+    );
 
   return (
     <>
@@ -918,7 +920,7 @@ function SpeakingPage({ onBack }: { onBack: () => void }) {
         kind="tts"
         staticModels={models}
         value={outputModel(output)}
-        onChange={(model) => patchVoiceSettings({ output: { ...output, model } })}
+        onChange={(model) => patchVoiceOutput({ model })}
       />
 
       {ready && <VoiceGallery key={output.engine} settings={settings} />}
@@ -960,7 +962,8 @@ function VoiceGallery({ settings }: { settings: VoiceSettings }) {
           if (!live) return;
           setVoices(list);
           // Nothing picked yet (Fish Audio has no voice every account shares): take the first.
-          if (!output.voice && list[0]) patchVoiceSettings({ output: { ...output, voice: list[0].id, voiceName: list[0].name } });
+          const first = list[0];
+          if (first) updateVoiceOutput((o) => (o.engine === engine && !o.voice ? { ...o, voice: first.id, voiceName: first.name } : o));
         })
         .catch((e) => live && setError(String(e)))
         .finally(() => live && setLoading(false));
@@ -969,8 +972,6 @@ function VoiceGallery({ settings }: { settings: VoiceSettings }) {
       live = false;
       clearTimeout(timer);
     };
-    // `output` is read for the first pick only.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine, remote, lang, remoteQuery, round]);
 
   const fixed = (ids: string[]): GalleryVoice[] =>
@@ -996,12 +997,9 @@ function VoiceGallery({ settings }: { settings: VoiceSettings }) {
   const selectedId = engine === "system" ? (output.systemVoice ?? "") : output.voice;
 
   const pick = (voice: GalleryVoice) =>
-    patchVoiceSettings({
-      output:
-        engine === "system"
-          ? { ...output, systemVoice: voice.id || undefined }
-          : { ...output, voice: voice.id, voiceName: remote ? voice.name : undefined },
-    });
+    patchVoiceOutput(
+      engine === "system" ? { systemVoice: voice.id || undefined } : { voice: voice.id, voiceName: remote ? voice.name : undefined },
+    );
 
   const preview = (voice: GalleryVoice) => () => {
     // No sample from the service: say a line in this voice.
@@ -1060,7 +1058,7 @@ function VoiceGallery({ settings }: { settings: VoiceSettings }) {
                 label="Whose voices"
                 value={output.puterVoices}
                 onChange={(puterVoices: PuterVoices) =>
-                  patchVoiceSettings({ output: { ...output, puterVoices, voice: voicesFor({ ...output, puterVoices })[0]! } })
+                  patchVoiceOutput({ puterVoices, voice: voicesFor({ ...output, puterVoices })[0]! })
                 }
                 options={PUTER_VOICES}
               />
@@ -1123,14 +1121,19 @@ function VoiceGallery({ settings }: { settings: VoiceSettings }) {
               })}
             </ul>
           )}
-          {viaProvider(engine) && (
+          {(viaProvider(engine) || (remote && voices)) && (
             <CustomModelField
               key={`voice:${engine}`}
               value={all.some((v) => v.id === output.voice) ? "" : output.voice}
-              example="alloy"
+              example={remote ? undefined : "alloy"}
               label="Custom voice id"
-              hint="Any voice the service accepts — sent exactly as typed. Press Enter to use it."
-              onSave={(voice) => patchVoiceSettings({ output: { ...output, voice, voiceName: undefined } })}
+              autoFocus={false}
+              hint={
+                remote
+                  ? `A voice id from ${VOICE_SERVICES[engine].name} — sent exactly as typed, and kept for this engine. Press Enter to use it.`
+                  : "Any voice the service accepts — sent exactly as typed. Press Enter to use it."
+              }
+              onSave={(voice) => patchVoiceOutput({ voice, voiceName: undefined })}
             />
           )}
         </>

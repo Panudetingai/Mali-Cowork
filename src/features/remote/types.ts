@@ -121,6 +121,10 @@ export type RemoteStatus = {
   clients: number;
   ipAllowlistEnabled: boolean;
   autoAllowNewIps: boolean;
+  /** Keep the computer from sleeping (the screen may still go dark) while phones use it. */
+  keepAwake: boolean;
+  /** It is being kept awake right now. */
+  awake: boolean;
   allowedIps: string[];
   pendingIps: string[];
   /** What kind of device each phone address is ("iPhone", "Android phone"). */

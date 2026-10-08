@@ -64,6 +64,11 @@ export async function setRemoteAutoAllowIps(enabled: boolean) {
   statusStore.set(await invoke<RemoteStatus>("remote_set_auto_allow_ips", { enabled }));
 }
 
+export async function setRemoteKeepAwake(enabled: boolean) {
+  if (!isTauri()) return;
+  statusStore.set(await invoke<RemoteStatus>("remote_set_keep_awake", { enabled }));
+}
+
 export async function allowRemoteIp(ip: string) {
   if (!isTauri()) return;
   statusStore.set(await invoke<RemoteStatus>("remote_allow_ip", { ip }));

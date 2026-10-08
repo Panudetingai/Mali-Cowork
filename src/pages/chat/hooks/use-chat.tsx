@@ -24,7 +24,7 @@ import { getOpencodeModels, type PermissionReply, type WorkMode } from "@/featur
 import type { PermissionRequest, QuestionRequest } from "@/pages/chat/api/chat";
 import { effortFor } from "@/features/effort";
 import { runModelIdFor } from "@/pages/chat/api/router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   allowFolderForRun,
@@ -51,6 +51,10 @@ const STICK_DISTANCE = 48;
 /** Time constant of the glide toward the bottom; smaller catches up faster. */
 const GLIDE_MS = 90;
 const UP_KEYS = new Set(["ArrowUp", "PageUp", "Home"]);
+
+function snapToBottom(el: HTMLElement) {
+  el.scrollTop = el.scrollHeight - el.clientHeight;
+}
 
 function distanceToBottom(el: HTMLElement) {
   return el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -82,7 +86,20 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
    * mid-reply: a long tool call can stream nothing for minutes, and the
    * ResizeObserver below starts the glide again as soon as the reply grows.
    */
+  /** Snap to the latest line while a reply streams (no easing lag). */
+  const stickIfFollowing = useCallback(() => {
+    if (!followRef.current || !loadingRef.current) return;
+    const el = containerRef.current;
+    if (!el) return;
+    snapToBottom(el);
+    updateAtBottom(true);
+  }, [updateAtBottom]);
+
   const glide = useCallback(() => {
+    if (loadingRef.current && followRef.current) {
+      stickIfFollowing();
+      return;
+    }
     if (rafRef.current) return;
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     let last = performance.now();
@@ -92,6 +109,11 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
         rafRef.current = 0;
         return;
       }
+      if (loadingRef.current) {
+        rafRef.current = 0;
+        stickIfFollowing();
+        return;
+      }
       const target = el.scrollHeight - el.clientHeight;
       const gap = target - el.scrollTop;
       if (gap > 0.5) {
@@ -99,7 +121,7 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
         const move = reduced ? gap : Math.max(1, gap * (1 - Math.exp(-dt / GLIDE_MS)));
         el.scrollTop = Math.min(target, el.scrollTop + move);
       } else {
-        // Caught up: rest until content changes.
+        snapToBottom(el);
         rafRef.current = 0;
         updateAtBottom(true);
         return;
@@ -108,7 +130,7 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
       rafRef.current = requestAnimationFrame(step);
     };
     rafRef.current = requestAnimationFrame(step);
-  }, [updateAtBottom]);
+  }, [stickIfFollowing, updateAtBottom]);
 
   const stopFollowing = useCallback(() => {
     followRef.current = false;
@@ -119,11 +141,14 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
   /** Follow the conversation again (the button, or a new prompt). */
   const scrollToBottom = useCallback(() => {
     followRef.current = true;
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = 0;
     updateAtBottom(true);
     const el = containerRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-    glide();
-  }, [glide, updateAtBottom]);
+    if (el) snapToBottom(el);
+    if (loadingRef.current) stickIfFollowing();
+    else glide();
+  }, [glide, stickIfFollowing, updateAtBottom]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -165,8 +190,12 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
       if (UP_KEYS.has(event.key)) stopFollowing();
     };
     const onContentChange = () => {
-      if (followRef.current) glide();
-      else updateAtBottom(distanceToBottom(el) < STICK_DISTANCE);
+      if (followRef.current) {
+        if (loadingRef.current) stickIfFollowing();
+        else glide();
+      } else {
+        updateAtBottom(distanceToBottom(el) < STICK_DISTANCE);
+      }
     };
 
     el.addEventListener("scroll", onScroll, { passive: true });
@@ -189,12 +218,25 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = 0;
     };
-  }, [glide, stopFollowing, updateAtBottom, messages?.length]);
+  }, [glide, stickIfFollowing, stopFollowing, updateAtBottom, messages?.length]);
 
-  // While a reply streams, keep gliding with it (markdown and steps grow in bursts).
+  const streamPulse = useMemo(() => {
+    const last = messages?.at(-1);
+    if (!last) return 0;
+    return (
+      (last.content?.length ?? 0) +
+      (last.activities?.length ?? 0) +
+      (last.reasoning?.length ?? 0)
+    );
+  }, [messages]);
+
+  // While a reply streams, keep the view pinned when following (after layout).
   useEffect(() => {
-    if (isLoading && followRef.current) glide();
-  }, [isLoading, glide]);
+    if (!isLoading || !followRef.current) return;
+    stickIfFollowing();
+    const id = requestAnimationFrame(() => stickIfFollowing());
+    return () => cancelAnimationFrame(id);
+  }, [isLoading, streamPulse, stickIfFollowing]);
 
   // Opening a chat lands on its latest message at once; a new prompt glides there.
   const chatKey = messages?.[0]?.id;

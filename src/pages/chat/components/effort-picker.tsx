@@ -3,8 +3,9 @@ import { Button } from "@/components/ui/button";
 import { describeEffort, type EffortLevel } from "@/features/effort";
 import { cn } from "@/lib/utils";
 import { ChevronDownIcon } from "lucide-react";
+import { motion } from "motion/react";
 import { useId, useMemo, useState } from "react";
-import { EffortSparkLayer, effortSparkSet } from "./effort-sparks";
+import { EffortSparkLayer, effortSparkSet, sparksWithin } from "./effort-sparks";
 
 /**
  * How hard the selected model should think, for models that let you choose.
@@ -28,14 +29,13 @@ export function EffortPicker({
 }) {
   const [open, setOpen] = useState(false);
   const sliderId = useId();
+  const trackSparks = useMemo(() => sparksWithin(100, 24), []);
 
   const hasLevels = levels.length >= 2;
-  const index = hasLevels ? Math.max(0, levels.findIndex((level) => level.id === value)) : 0;
-  const fill = hasLevels ? (index / (levels.length - 1)) * 100 : 0;
-  const trackSparks = useMemo(() => effortSparkSet(Math.max(18, fill)), [fill]);
-
   if (!hasLevels) return null;
 
+  const index = Math.max(0, levels.findIndex((level) => level.id === value));
+  const fill = (index / (levels.length - 1)) * 100;
   const current = levels[index] ?? describeEffort(value);
   const atMax = index === levels.length - 1;
 
@@ -58,7 +58,7 @@ export function EffortPicker({
       <PopoverContent
         align="end"
         sideOffset={8}
-        className="w-[17.5rem] rounded-2xl border-border/60 p-3.5 shadow-lg"
+        className="w-[17.5rem] gap-0 rounded-2xl border-border/60 p-3.5 shadow-lg"
         onOpenAutoFocus={(event) => {
           // Land on the slider: arrow keys are the fastest way through this.
           event.preventDefault();
@@ -76,26 +76,28 @@ export function EffortPicker({
             transparent range input: the alternative is one rule per engine's
             slider pseudo-elements, and only Firefox has a "progress" part to
             colour. The track is inset by half a thumb so the thumb stays
-            inside the popover at both ends. */}
-        <div className="relative mt-3 mb-2 h-9">
+            inside the popover at both ends. At the provider's top level the
+            fill turns to a grey sweep with motes drifting up through it and a
+            band of light passing along; below that, nothing moves. */}
+        <div className="relative mt-4 mb-2 h-9">
           <div className="pointer-events-none absolute inset-x-3.5 top-1/2 -translate-y-1/2">
             <div className="relative h-5 overflow-hidden rounded-full bg-muted/80 ring-1 ring-border/40">
               <div
                 className={cn(
                   "relative h-full overflow-hidden rounded-full transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
-                  atMax ? "bg-linear-to-r from-primary via-amber-500 to-violet-500" : "bg-primary",
+                  atMax
+                    ? "bg-linear-to-r from-neutral-950 via-neutral-700 to-neutral-500 dark:from-neutral-700 dark:via-neutral-500 dark:to-neutral-400"
+                    : "bg-primary",
                 )}
                 style={{ width: `${fill}%` }}
               >
-                <EffortSparkLayer
-                  sparks={trackSparks}
-                  variant="track"
-                  className="absolute inset-0 overflow-hidden opacity-90"
-                />
+                {atMax && (
+                  <>
+                    <EffortSparkLayer sparks={trackSparks} variant="track" className="absolute inset-0" />
+                    <div className="effort-sheen absolute inset-y-0 left-0 w-1/3 bg-linear-to-r from-transparent via-white/20 to-transparent" />
+                  </>
+                )}
               </div>
-              {atMax && (
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-amber-200/25 to-violet-300/20 dark:via-amber-400/15 dark:to-violet-400/10" />
-              )}
             </div>
             {/* Stops, so the range is legible before anything is dragged. */}
             <div className="absolute inset-0 flex items-center justify-between px-1.5">
@@ -104,8 +106,11 @@ export function EffortPicker({
                   key={level.id}
                   className={cn(
                     "size-1.5 rounded-full transition-colors duration-300",
-                    at <= index ? "bg-primary-foreground/80 shadow-[0_0_6px_rgba(255,255,255,0.5)]" : "bg-muted-foreground/35",
-                    at === index && atMax && "bg-amber-100 shadow-[0_0_8px_rgba(251,191,36,0.9)]",
+                    at > index
+                      ? "bg-muted-foreground/35"
+                      : atMax
+                        ? "bg-white/70"
+                        : "bg-primary-foreground/70",
                   )}
                 />
               ))}
@@ -113,7 +118,7 @@ export function EffortPicker({
             <div
               className={cn(
                 "absolute top-1/2 size-7 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-background bg-foreground shadow-md transition-[left,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
-                atMax && "shadow-[0_0_0_3px_rgba(251,191,36,0.45),0_0_18px_rgba(167,139,250,0.35)]",
+                atMax && "shadow-[0_0_0_1px_var(--color-border),0_0_14px_rgba(0,0,0,0.18)] dark:shadow-[0_0_0_1px_var(--color-border),0_0_14px_rgba(255,255,255,0.2)]",
               )}
               style={{ left: `${fill}%` }}
             />
@@ -138,7 +143,7 @@ export function EffortPicker({
         </div>
 
         {current.hint && (
-          <p className="mt-2 border-t pt-2 text-[11px] leading-snug text-muted-foreground">
+          <p className="mt-2.5 border-t pt-2.5 text-[11px] leading-snug text-muted-foreground">
             {current.hint}
           </p>
         )}
@@ -147,15 +152,22 @@ export function EffortPicker({
   );
 }
 
-/** Soft lights rising through the prompt when thinking effort is at its max. */
+/** Soft motes rising through the prompt when thinking effort is at its max. */
 export function EffortMaxGlow({ active }: { active: boolean }) {
   const sparks = useMemo(() => effortSparkSet(100), []);
   if (!active) return null;
   return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-xl" aria-hidden>
-      <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-amber-400/15 via-violet-400/8 to-transparent dark:from-amber-300/20 dark:via-violet-300/10" />
-      <EffortSparkLayer sparks={sparks} variant="prompt" className="absolute inset-0" />
-    </div>
+    <motion.div
+      className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
+      aria-hidden
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.6, ease: "easeOut" }}
+    >
+      <div className="effort-breathe absolute inset-x-0 bottom-0 h-28 bg-linear-to-t from-foreground/[0.07] via-foreground/[0.02] to-transparent dark:from-white/[0.09] dark:via-white/[0.03]" />
+      <div className="absolute inset-x-12 bottom-0 h-px bg-linear-to-r from-transparent via-foreground/25 to-transparent dark:via-white/40" />
+      <EffortSparkLayer sparks={sparks} variant="prompt" className="absolute inset-x-0 bottom-0 h-full" />
+    </motion.div>
   );
 }
 

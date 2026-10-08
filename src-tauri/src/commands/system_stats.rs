@@ -4,12 +4,18 @@
 //! so the notch never blocks on `Get-Counter` or disk rescans.
 
 use serde::Serialize;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use sysinfo::{Disks, System};
 
 const SAMPLE_EVERY: Duration = Duration::from_secs(3);
 const DISK_EVERY: Duration = Duration::from_secs(30);
+/// Nobody has read the numbers for this long (the notch's Home is closed):
+/// the sampler rests instead of waking the CPU every few seconds for nothing.
+const IDLE_AFTER: Duration = Duration::from_secs(15);
+/// While resting, it looks this often for a reader to come back.
+const IDLE_CHECK: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,6 +47,18 @@ impl Default for SystemStatsSnapshot {
 }
 
 static CACHE: OnceLock<Arc<Mutex<SystemStatsSnapshot>>> = OnceLock::new();
+/// When the numbers were last read, in milliseconds since `epoch()`.
+static LAST_READ: AtomicU64 = AtomicU64::new(0);
+
+fn epoch() -> Instant {
+    static EPOCH: OnceLock<Instant> = OnceLock::new();
+    *EPOCH.get_or_init(Instant::now)
+}
+
+fn read_lately() -> bool {
+    let at = Duration::from_millis(LAST_READ.load(Ordering::Relaxed));
+    epoch().elapsed().saturating_sub(at) < IDLE_AFTER
+}
 
 fn cache() -> Arc<Mutex<SystemStatsSnapshot>> {
     CACHE
@@ -175,6 +193,10 @@ fn sampler_loop(store: Arc<Mutex<SystemStatsSnapshot>>) {
     let mut last_disk = Instant::now() - DISK_EVERY;
 
     loop {
+        if !read_lately() {
+            std::thread::sleep(IDLE_CHECK);
+            continue;
+        }
         let disk_due = last_disk.elapsed() >= DISK_EVERY;
         if disk_due {
             last_disk = Instant::now();
@@ -219,5 +241,6 @@ pub fn start_sampler() {
 
 #[tauri::command]
 pub fn system_stats_snapshot() -> SystemStatsSnapshot {
+    LAST_READ.store(epoch().elapsed().as_millis() as u64, Ordering::Relaxed);
     cache().lock().map(|g| g.clone()).unwrap_or_default()
 }

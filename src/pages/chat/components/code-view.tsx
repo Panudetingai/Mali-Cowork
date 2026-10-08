@@ -524,6 +524,7 @@ export function CodeView({ chat, chatId, project, root, withGit, initialOpen, on
     <ChatComposer
       key={`${chatId ?? "new"}:${mode}:${project?.id ?? ""}`}
       mode={mode}
+      chatId={chatId}
       projectId={project?.id}
       session={session}
       messages={messages}

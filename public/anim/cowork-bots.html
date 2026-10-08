@@ -1076,13 +1076,18 @@ document.getElementById("bot").contentWindow
 
   // ---------- shared animation loop ----------
   // At most 60 frames a second (a 120 Hz screen would draw twice as often
-  // for no visible gain), and none while the host pauses it (a bot it hides).
+  // for no visible gain), fewer when the host asks ({ fps }: a small bot, a
+  // slow machine — the motion runs on time, so it plays at the same speed),
+  // and none while the host pauses it (a bot it hides) or the page is hidden.
   var bots = [];
   var last = performance.now();
   var paused = false, pending = 0, MIN_MS = 1000/60 - 4, drawn = false;
+  function setFps(fps){
+    MIN_MS = 1000/Math.max(1, Math.min(60, fps)) - 4;
+  }
   function frame(now){
     pending = 0;
-    if (paused) return;
+    if (paused || document.hidden) return;
     if (now - last < MIN_MS){ pending = requestAnimationFrame(frame); return; }
     var dt = Math.min(0.05, (now - last)/1000); last = now;
     var f = dt*60;
@@ -1099,8 +1104,9 @@ document.getElementById("bot").contentWindow
   function setPaused(p){
     paused = p;
     if (paused && !drawn) drawOnce();
-    if (!paused && !pending){ last = performance.now(); pending = requestAnimationFrame(frame); }
+    if (!paused && !pending && !document.hidden){ last = performance.now(); pending = requestAnimationFrame(frame); }
   }
+  document.addEventListener("visibilitychange", function(){ setPaused(paused); });
   pending = requestAnimationFrame(frame);
 
   // ---------- demo sequence ----------
@@ -1224,6 +1230,7 @@ document.getElementById("bot").contentWindow
     var d = e.data; if (!d) return;
     if (typeof d === "string") return apply("all", d);
     if (typeof d.paused === "boolean") setPaused(d.paused);
+    if (typeof d.fps === "number" && isFinite(d.fps)) setFps(d.fps);
     if (typeof d.level === "number" && isFinite(d.level)){ VOICE.level = clamp01(d.level); VOICE.at = performance.now(); }
     if (d.state) apply(d.bot || "all", d.state);
   });

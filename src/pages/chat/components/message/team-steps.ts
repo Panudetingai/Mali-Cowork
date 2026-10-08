@@ -53,3 +53,16 @@ export function groupTeamSteps(steps: ActivityItem[]): StepGroup[] {
 export function reportText(report: ActivityItem | undefined) {
   return (report?.detail ?? "").replace(/^Report from [^\n]*:\n\n/, "").trim();
 }
+
+/**
+ * The lead's brief, split for reading: the job itself, and the context it
+ * passed along (after a "Context:" line), which most readers don't need.
+ */
+export function briefParts(detail: string | undefined): { job: string; context?: string } {
+  const clean = (detail ?? "").replace(/^Job from the lead:\s*/, "").trim();
+  const at = clean.search(/\n\s*Context:\s*(\n|$)/);
+  if (at < 0) return { job: clean };
+  const job = clean.slice(0, at).trim();
+  const context = clean.slice(at).replace(/^\s*Context:\s*/, "").trim();
+  return job ? { job, context: context || undefined } : { job: clean };
+}

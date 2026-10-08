@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use std::net::{IpAddr, Ipv4Addr, UdpSocket};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -31,6 +31,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{oneshot, watch};
 use tokio_rustls::TlsAcceptor;
 
+use super::keep_awake;
 use super::remote_domain::{self, Cloudflare, DomainSaved, Dns, MaliDns};
 use super::secure_fs::write_private;
 
@@ -58,6 +59,9 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(25);
 const PING_EVERY: Duration = Duration::from_secs(15);
 /// Wrong tokens allowed per minute before every request is turned away for the rest of it.
 const MAX_FAILURES: u32 = 20;
+/// How long the computer stays awake after the last phone goes. A locked
+/// phone drops its stream, so this covers the gaps between glances.
+const AWAKE_GRACE: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Saved {
@@ -70,6 +74,10 @@ struct Saved {
     ip_allowlist_enabled: bool,
     #[serde(default = "default_auto_allow_new_ips")]
     auto_allow_new_ips: bool,
+    /// Keep the computer from sleeping (its screen may still go dark) while
+    /// phones use the remote; see `update_awake`.
+    #[serde(default = "default_keep_awake")]
+    keep_awake: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tls_cert_pem: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -90,6 +98,10 @@ fn default_auto_allow_new_ips() -> bool {
     true
 }
 
+fn default_keep_awake() -> bool {
+    true
+}
+
 struct Hub {
     app: AppHandle,
     saved: Mutex<Saved>,
@@ -101,6 +113,10 @@ struct Hub {
     /// Phones waiting for an IP allow in Settings.
     pending_ips: Mutex<Vec<String>>,
     clients: AtomicUsize,
+    /// When the last phone went (the stay-awake grace runs from here).
+    last_client: Mutex<Option<Instant>>,
+    /// The window has a run going.
+    busy: AtomicBool,
     server: Mutex<Option<Server>>,
     failures: Mutex<(Instant, u32)>,
     /// The certificates the running server picks from; swapped on renewal.
@@ -139,6 +155,8 @@ fn hub(app: &AppHandle) -> &'static Hub {
         pending: Mutex::new(HashMap::new()),
         pending_ips: Mutex::new(Vec::new()),
         clients: AtomicUsize::new(0),
+        last_client: Mutex::new(None),
+        busy: AtomicBool::new(false),
         server: Mutex::new(None),
         failures: Mutex::new((Instant::now(), 0)),
         certs: Mutex::new(None),
@@ -172,6 +190,7 @@ fn load_saved() -> Saved {
             allowed_ips: Vec::new(),
             ip_allowlist_enabled: true,
             auto_allow_new_ips: false,
+            keep_awake: true,
             tls_cert_pem: None,
             tls_key_pem: None,
             domain: None,
@@ -360,6 +379,9 @@ pub struct RemoteStatus {
     clients: usize,
     ip_allowlist_enabled: bool,
     auto_allow_new_ips: bool,
+    keep_awake: bool,
+    /// The computer is being kept awake right now.
+    awake: bool,
     allowed_ips: Vec<String>,
     pending_ips: Vec<String>,
     device_labels: HashMap<String, String>,
@@ -455,6 +477,8 @@ fn status(hub: &Hub) -> RemoteStatus {
         clients: hub.clients.load(Ordering::Relaxed),
         ip_allowlist_enabled: saved.ip_allowlist_enabled,
         auto_allow_new_ips: saved.auto_allow_new_ips,
+        keep_awake: saved.keep_awake,
+        awake: keep_awake::held(),
         allowed_ips: saved.allowed_ips.clone(),
         device_labels: saved.device_labels.clone(),
         pending_ips: hub.pending_ips.lock().unwrap_or_else(PoisonError::into_inner).clone(),
@@ -547,6 +571,7 @@ pub async fn remote_start(app: AppHandle) -> Result<RemoteStatus, String> {
     drop(server);
     start_domain_loop(hub);
     maybe_setup_mali(hub);
+    update_awake(hub);
     Ok(status(hub))
 }
 
@@ -557,6 +582,7 @@ pub fn remote_stop(app: AppHandle) -> RemoteStatus {
         server.task.abort();
     }
     hub.epoch.send_modify(|e| *e += 1);
+    update_awake(hub);
     status(hub)
 }
 
@@ -607,6 +633,41 @@ pub fn remote_set_auto_allow_ips(app: AppHandle, enabled: bool) -> RemoteStatus 
         store_saved(&saved);
     }
     status(hub)
+}
+
+#[tauri::command]
+pub fn remote_set_keep_awake(app: AppHandle, enabled: bool) -> RemoteStatus {
+    let hub = hub(&app);
+    {
+        let mut saved = hub.saved.lock().unwrap_or_else(PoisonError::into_inner);
+        saved.keep_awake = enabled;
+        store_saved(&saved);
+    }
+    update_awake(hub);
+    status(hub)
+}
+
+/// The window has a run going (or not): the computer stays awake through it.
+#[tauri::command]
+pub fn remote_set_busy(app: AppHandle, busy: bool) {
+    let hub = hub(&app);
+    hub.busy.store(busy, Ordering::Relaxed);
+    update_awake(hub);
+}
+
+/// Whether the computer should stay awake: the remote is running, the user
+/// wants it, and a phone is open, was open within `AWAKE_GRACE`, or a run is
+/// going that a phone may come back to. Called whenever one of those changes.
+fn update_awake(hub: &Hub) {
+    let running = hub.server.lock().unwrap_or_else(PoisonError::into_inner).is_some();
+    let wanted = hub.saved.lock().unwrap_or_else(PoisonError::into_inner).keep_awake;
+    let recent = hub
+        .last_client
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .is_some_and(|at| at.elapsed() < AWAKE_GRACE);
+    let phone = hub.clients.load(Ordering::Relaxed) > 0 || recent;
+    keep_awake::set(running && wanted && (phone || hub.busy.load(Ordering::Relaxed)));
 }
 
 #[tauri::command]
@@ -1220,14 +1281,22 @@ impl Client {
     fn open(hub: &'static Hub) -> Self {
         let n = hub.clients.fetch_add(1, Ordering::Relaxed) + 1;
         let _ = hub.app.emit_to(MAIN_LABEL, CLIENTS_EVENT, n);
+        update_awake(hub);
         Client(hub)
     }
 }
 
 impl Drop for Client {
     fn drop(&mut self) {
-        let n = self.0.clients.fetch_sub(1, Ordering::Relaxed).saturating_sub(1);
-        let _ = self.0.app.emit_to(MAIN_LABEL, CLIENTS_EVENT, n);
+        let hub = self.0;
+        let n = hub.clients.fetch_sub(1, Ordering::Relaxed).saturating_sub(1);
+        let _ = hub.app.emit_to(MAIN_LABEL, CLIENTS_EVENT, n);
+        *hub.last_client.lock().unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
+        // Look again once the grace is over; a phone back by then has reset it.
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(AWAKE_GRACE + Duration::from_secs(1)).await;
+            update_awake(hub);
+        });
     }
 }
 
@@ -1315,6 +1384,7 @@ mod tests {
             allowed_ips: Vec::new(),
             ip_allowlist_enabled: false,
             auto_allow_new_ips: true,
+            keep_awake: true,
             tls_cert_pem: None,
             tls_key_pem: None,
             domain: None,
@@ -1406,6 +1476,7 @@ mod tests {
             allowed_ips: Vec::new(),
             ip_allowlist_enabled: true,
             auto_allow_new_ips: false,
+            keep_awake: true,
             tls_cert_pem: Some(own.cert.pem()),
             tls_key_pem: Some(own.key_pair.serialize_pem()),
             domain: Some(DomainSaved {

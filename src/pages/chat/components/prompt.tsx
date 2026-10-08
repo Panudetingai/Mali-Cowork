@@ -86,10 +86,17 @@ import { ModelPicker } from "./model-picker";
 import { PromptOptionsMenu } from "./prompt-options-menu";
 import { mergeReplyExcerpt } from "./reply-excerpt";
 import { ReplyExcerptBar } from "./reply-excerpt-bar";
+import {
+  clearComposerDraft,
+  composerDraftKey,
+  readComposerDraft,
+  writeComposerDraft,
+} from "../composer-draft";
 
 type Props = {
   ref: RefObject<HTMLTextAreaElement | null>;
   mode: WorkMode;
+  chatId?: string;
   /** The chat's project; its skills join the `/` picker. */
   projectId?: string;
   session?: ChatSession;
@@ -125,6 +132,7 @@ const LONG_PASTE_CHARS = 500;
 export default function PromptInput({
   ref,
   mode,
+  chatId,
   projectId,
   session,
   messages,
@@ -146,15 +154,44 @@ export default function PromptInput({
   onAllowFolder,
 }: Props) {
   const { t } = useTranslation();
-  const [prompt, setPrompt] = useState("");
+  const draftKey = composerDraftKey(session?.id ?? chatId, mode);
+  const [prompt, setPrompt] = useState(() => readComposerDraft(draftKey).prompt);
   /** Text the user highlighted in the thread — shown above the box, merged on send. */
-  const [replyExcerpt, setReplyExcerpt] = useState<string | null>(null);
+  const [replyExcerpt, setReplyExcerpt] = useState<string | null>(
+    () => readComposerDraft(draftKey).replyExcerpt,
+  );
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [importing, setImporting] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [modelId, setModelId] = useState(() => loadSelectedModelId(mode));
   const opencode = useOpencode();
   useFolderGrants(); // re-render when access changes
+
+  // Chat ↔ Code remount the composer; restore whatever was typed for this chat.
+  useEffect(() => {
+    const saved = readComposerDraft(draftKey);
+    setPrompt(saved.prompt);
+    setReplyExcerpt(saved.replyExcerpt);
+  }, [draftKey]);
+
+  const debouncedPrompt = useDebouncedValue(prompt, 250, true);
+  useEffect(() => {
+    writeComposerDraft(draftKey, { prompt: debouncedPrompt, replyExcerpt });
+  }, [draftKey, debouncedPrompt, replyExcerpt]);
+
+  const promptDraftRef = useRef(prompt);
+  const excerptDraftRef = useRef(replyExcerpt);
+  promptDraftRef.current = prompt;
+  excerptDraftRef.current = replyExcerpt;
+  useEffect(
+    () => () => {
+      writeComposerDraft(draftKey, {
+        prompt: promptDraftRef.current,
+        replyExcerpt: excerptDraftRef.current,
+      });
+    },
+    [draftKey],
+  );
 
   const { catalog, loading: catalogLoading, loadingGroupKeys } = useModelCatalog(mode);
   const refreshCatalogSources = useMemo(
@@ -507,6 +544,7 @@ export default function PromptInput({
     const excerpt = replyExcerpt;
     setPrompt("");
     setReplyExcerpt(null);
+    clearComposerDraft(draftKey);
     setAttachments([]);
     setPickedSkills([]);
     setPickedConnectors([]);

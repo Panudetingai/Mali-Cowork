@@ -71,6 +71,7 @@ import type { QuestionRequest } from "@/pages/chat/api/chat";
 import { EditLines, iconOf } from "./notch-pill";
 import { folderName, useAllowedFolders } from "./folders";
 import { CHAT_BOT, CHAT_INPUT, questionHeight, topRowOf } from "./layout";
+import { BOT_FPS_SMALL } from "./fps";
 import { NotchQuestion } from "./notch-question";
 import { NotchModelsPanel } from "./notch-models-panel";
 import type { RosterBot } from "./team";
@@ -368,7 +369,7 @@ export const NotchChat = forwardRef<HTMLTextAreaElement, Props>(function NotchCh
             className="flex shrink-0"
             style={{ height: questionHeight(props.question) }}
             initial={{ opacity: 0, y: 14, scale: 0.97, filter: "blur(4px)" }}
-            animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+            animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)", transitionEnd: { filter: "none" } }}
             exit={{ opacity: 0, y: 8, scale: 0.98, filter: "blur(4px)" }}
             transition={FLOW}
           >
@@ -953,7 +954,7 @@ function StepTrail({ turn, writing }: { turn: CoworkTurn; writing: boolean }) {
           animate={{ y: at * (TRAIL_ROW + TRAIL_GAP) + (TRAIL_ROW - TRAIL_BOT) / 2 }}
           transition={FLOW_SPRING}
         >
-          <CoworkBot size={TRAIL_BOT} state={poseOf(live)} theme={ink.botTheme} />
+          <CoworkBot size={TRAIL_BOT} fps={BOT_FPS_SMALL} state={poseOf(live)} theme={ink.botTheme} />
         </motion.div>
       )}
     </div>
@@ -1105,7 +1106,7 @@ function Waiting({ text }: { text: string }) {
   const ink = useChatInk();
   return (
     <div className={cn("flex items-center gap-2 text-[12px]", ink.muted)}>
-      <CoworkBot size={TRAIL_BOT} state="tool" theme={ink.botTheme} className="-my-1 -ml-1" />
+      <CoworkBot size={TRAIL_BOT} fps={BOT_FPS_SMALL} state="tool" theme={ink.botTheme} className="-my-1 -ml-1" />
       {text}
     </div>
   );
@@ -1118,7 +1119,7 @@ function ThinkingWait() {
   const seconds = Math.floor(useQuietFor(0) / 1000);
   return (
     <div role="status" className={cn("flex items-center gap-2 text-[12px]", ink.muted)}>
-      <CoworkBot size={TRAIL_BOT} state="thinking" theme={ink.botTheme} className="-my-1 -ml-1" />
+      <CoworkBot size={TRAIL_BOT} fps={BOT_FPS_SMALL} state="thinking" theme={ink.botTheme} className="-my-1 -ml-1" />
       {t("thinking")}
       {seconds >= SHOW_SECONDS_FROM && <span className="tabular-nums opacity-70">{seconds}s</span>}
     </div>

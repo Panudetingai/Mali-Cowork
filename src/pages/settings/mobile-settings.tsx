@@ -18,6 +18,7 @@ import {
   revokeRemoteIp,
   setMaliDomain,
   setRemoteAutoAllowIps,
+  setRemoteKeepAwake,
   setRemoteEnabled,
   setRemoteIpAllowlist,
   setupRemoteDomain,
@@ -80,7 +81,10 @@ const STRINGS = {
     newCodeBody: "Disconnects every phone. Use it if someone else saw the code.",
     reset: "Reset",
     links: "Links",
-    awake: "Keep this computer on and awake while you use Mali from your phone.",
+    awake: "Keep this computer on while you use Mali from your phone. A laptop with its lid closed on battery still sleeps.",
+    keepAwake: "Don't let the computer sleep",
+    keepAwakeBody: "While a phone is open, for 30 minutes after, and while a task runs. The screen can still turn off.",
+    awakeNow: "Staying awake now",
     fingerprint: "Certificate fingerprint (SHA-256)",
     couldntStart: "Phone access couldn't start",
     secureShort: "Secure",
@@ -120,7 +124,10 @@ const STRINGS = {
     newCodeBody: "มือถือทุกเครื่องจะถูกตัดการเชื่อมต่อ ใช้เมื่อมีคนอื่นเห็น QR",
     reset: "รีเซ็ต",
     links: "ลิงก์",
-    awake: "เปิดคอมเครื่องนี้ไว้และไม่ให้เครื่องหลับ ระหว่างใช้ Mali จากมือถือ",
+    awake: "เปิดคอมเครื่องนี้ไว้ระหว่างใช้ Mali จากมือถือ โน้ตบุ๊กที่พับจอโดยไม่เสียบชาร์จจะยังหลับอยู่",
+    keepAwake: "ไม่ให้คอมหลับ",
+    keepAwakeBody: "ตอนมือถือเปิดอยู่, อีก 30 นาทีหลังจากนั้น และตอนมีงานรันอยู่ หน้าจอยังดับได้ตามปกติ",
+    awakeNow: "กำลังกันเครื่องหลับอยู่",
     fingerprint: "ลายนิ้วมือ certificate (SHA-256)",
     couldntStart: "เปิดการใช้จากมือถือไม่สำเร็จ",
     secureShort: "ปลอดภัย",
@@ -356,6 +363,23 @@ function Advanced({ status, s }: { status: RemoteStatus; s: Strings }) {
           label={s.askFirst}
           description={s.askFirstBody}
           control={<Switch id="remote-ask-first" checked={askFirst} onCheckedChange={(on) => void setAskFirst(on)} />}
+        />
+        <SettingRow
+          htmlFor="remote-keep-awake"
+          label={s.keepAwake}
+          description={
+            <>
+              {s.keepAwakeBody}
+              {status.awake && <span className="mt-1 block font-medium text-foreground">{s.awakeNow}</span>}
+            </>
+          }
+          control={
+            <Switch
+              id="remote-keep-awake"
+              checked={status.keepAwake}
+              onCheckedChange={(on) => void setRemoteKeepAwake(on)}
+            />
+          }
         />
         <SettingRow
           label={s.newCode}

@@ -235,9 +235,10 @@ export default function ChatLayout() {
           viewKey={viewShellKey}
           reduceMotion={reduceMotion}
           slide={slide}
-          className="flex h-full min-h-0 w-full min-w-0"
+          // Relative: on a narrow window the Git panel floats over the chat instead of pushing past the edge.
+          className="relative flex h-full min-h-0 w-full min-w-0"
         >
-          <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col px-4 pt-6 pb-4 sm:px-6">
+          <div className="mx-auto flex min-h-0 w-full min-w-0 max-w-5xl flex-1 flex-col px-4 pt-6 pb-4 sm:px-6">
             <ChatModeNav mode={view} onModeChange={changeMode} />
 
             <div
@@ -319,6 +320,7 @@ export default function ChatLayout() {
               <ChatComposer
                 key={`${chatId ?? "new"}:${mode}:${project?.id ?? ""}`}
                 mode={mode}
+                chatId={chatId}
                 projectId={project?.id}
                 session={session}
                 messages={messages}

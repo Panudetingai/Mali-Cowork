@@ -10,8 +10,12 @@ if [[ ! -f "$MASTER" ]]; then
 fi
 
 python3 << PY
+import sys
 from PIL import Image
 from pathlib import Path
+
+sys.path.insert(0, str(Path("$ROOT") / "scripts"))
+from icon_white_plate import with_white_plate
 
 root = Path("$ROOT")
 master_path = Path("$MASTER")
@@ -51,13 +55,15 @@ ox = (side - cropped.width) // 2
 oy = (side - cropped.height) // 2
 canvas.paste(cropped, (ox, oy), cropped)
 up = canvas.resize((1024, 1024), Image.Resampling.LANCZOS)
-up.save(brand_dir / "mali-cowork-icon-1024.png", optimize=True)
+up.save(brand_dir / "mali-cowork-icon-1024-transparent.png", optimize=True)
+app_icon = with_white_plate(up, 1024)
+app_icon.save(brand_dir / "mali-cowork-icon-1024.png", optimize=True)
 
-# Public web icons (keep alpha — no white matte)
+# Public web icons (white plate — matches dock / app)
 public = root / "public"
 public.mkdir(parents=True, exist_ok=True)
 for size in (16, 32, 180, 512):
-    out = up.resize((size, size), Image.Resampling.LANCZOS)
+    out = app_icon.resize((size, size), Image.Resampling.LANCZOS)
     if size == 180:
         out.save(public / "apple-touch-icon.png", optimize=True)
     elif size == 512:

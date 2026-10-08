@@ -77,7 +77,18 @@ export function startRemoteRelay(modelsFor: (mode: WorkMode) => AiModel[]) {
         .catch(warn);
     }),
   ];
-  const stops = [subscribeToChats(schedule), subscribeToRuns(schedule)];
+  // A run going keeps the computer awake (its screen may still go dark), so a
+  // phone can come back to it; the remote's side decides (`update_awake`).
+  let busy: boolean | undefined;
+  const followBusy = () => {
+    const now = Object.keys(getRuns()).length > 0;
+    if (now === busy) return;
+    busy = now;
+    void invoke("remote_set_busy", { busy: now }).catch(warn);
+  };
+  followBusy();
+
+  const stops = [subscribeToChats(schedule), subscribeToRuns(schedule), subscribeToRuns(followBusy)];
   void invoke<RemoteStatus>("remote_status")
     .then((status) => onClients(status.clients))
     .catch(warn);
@@ -85,6 +96,7 @@ export function startRemoteRelay(modelsFor: (mode: WorkMode) => AiModel[]) {
   return () => {
     clearTimeout(timer);
     stops.forEach((stop) => stop());
+    void invoke("remote_set_busy", { busy: false }).catch(warn);
     listeners.forEach((stop) => void stop.then((unlisten) => unlisten()));
   };
 }

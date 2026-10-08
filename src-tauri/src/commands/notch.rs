@@ -322,7 +322,7 @@ fn put<R: Runtime>(window: &WebviewWindow<R>, screen: Screen) {
 /// app); clicks go through it meanwhile.
 fn stretch<R: Runtime>(window: &WebviewWindow<R>, rect: Rect) {
     let state = window.state::<NotchState>();
-    let _ = window.set_ignore_cursor_events(true);
+    take_clicks(window, false);
     state.inside.store(false, Ordering::SeqCst);
     {
         let mut placed = state.placed.lock().unwrap();
@@ -414,12 +414,25 @@ fn show_pill<R: Runtime>(window: &WebviewWindow<R>) {
         }
     }
     // Clicks go through until the cursor is on the pill itself.
-    let _ = window.set_ignore_cursor_events(true);
+    take_clicks(window, false);
     state.inside.store(false, Ordering::SeqCst);
     let _ = window.show();
     state.visible.store(true, Ordering::SeqCst);
     watch_cursor(window.app_handle().clone());
     emit_geometry(window);
+}
+
+/// Whether the window takes clicks or lets them through to the apps below.
+/// Kept in `NotchState::clicks` too, so every caller agrees with the window:
+/// the watch once kept its own copy, and after the pill was shown again (or
+/// an animation had it) it believed clicks were on while they went through —
+/// the pill stuck, nothing on it clickable.
+fn take_clicks<R: Runtime>(window: &WebviewWindow<R>, on: bool) {
+    window
+        .state::<NotchState>()
+        .clicks
+        .store(on, Ordering::SeqCst);
+    let _ = window.set_ignore_cursor_events(!on);
 }
 
 fn hide_pill<R: Runtime>(window: &WebviewWindow<R>) {
@@ -447,6 +460,7 @@ pub async fn notch_show<R: Runtime>(
     let focus = focus.unwrap_or(false);
     if focus {
         let _ = window.set_focusable(true);
+        app.state::<NotchState>().keys.store(true, Ordering::SeqCst);
     }
     show_pill(&window);
     if focus {
@@ -889,6 +903,8 @@ pub struct NotchState {
     hit: RwLock<Option<Area>>,
     /// The cursor is on the pill (it takes clicks) — as last told to the window.
     inside: AtomicBool,
+    /// The window takes clicks (else they go through): as last set (`take_clicks`).
+    clicks: AtomicBool,
     /// The pill shows more than its wings (Home, the ask box…).
     open: AtomicBool,
     /// `ScreenPref`, as a number.
@@ -1463,7 +1479,6 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
         let mut away: Option<(u64, Instant)> = None;
         // The pointer at the top of a screen, since when.
         let mut topped: Option<(u64, Instant)> = None;
-        let mut accept_events = false;
         #[cfg(target_os = "macos")]
         let mut clicks = mac::ClickWatch::default();
         #[cfg(windows)]
@@ -1487,6 +1502,10 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
                 if now != all {
                     all = now;
                     rehome(&window, &all);
+                }
+                // Say it again now and then, in case the window lost it.
+                if state.visible.load(Ordering::SeqCst) && !state.placed.lock().unwrap().stretched {
+                    let _ = window.set_ignore_cursor_events(!state.clicks.load(Ordering::SeqCst));
                 }
             }
             let visible = state.visible.load(Ordering::SeqCst);
@@ -1609,10 +1628,9 @@ fn watch_cursor<R: Runtime>(app: AppHandle<R>) {
                 let _ = window.emit(CLICK_AWAY, ());
             }
             // The open ask box needs drag-and-drop on Windows; the hit area alone is easy to miss while dragging.
-            let want_events = on_pill || state.open.load(Ordering::SeqCst);
-            if accept_events != want_events {
-                accept_events = want_events;
-                let _ = window.set_ignore_cursor_events(!want_events);
+            let want_events = on_pill || open;
+            if state.clicks.load(Ordering::SeqCst) != want_events {
+                take_clicks(&window, want_events);
             }
             // Open, a click away should fold it without a wait.
             sleep_ms = if on_pill || open {

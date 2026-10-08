@@ -175,3 +175,16 @@ test("markdown Authorize label still extracts canva.link sign-in", () => {
   expect(out.authActions).toHaveLength(1);
   expect(out.text).toBe("");
 });
+
+test("google docs links are not turned into sign-in cards", () => {
+  const out = extractChatBlocks(
+    "Open in Google Docs: https://docs.google.com/document/d/abc123/edit",
+  );
+  expect(out.authActions).toHaveLength(0);
+  expect(out.text).toContain("docs.google.com");
+});
+
+test("a markdown link whose label mentions google is not a sign-in card", () => {
+  const out = extractChatBlocks("[Google Drive file](https://drive.google.com/file/d/x/view)");
+  expect(out.authActions).toHaveLength(0);
+});

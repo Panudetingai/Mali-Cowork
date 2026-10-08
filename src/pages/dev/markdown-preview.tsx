@@ -97,6 +97,9 @@ export default function MarkdownPreviewPage() {
         <p className="mb-3 text-xs font-medium tracking-wide text-muted-foreground uppercase">Team chat</p>
         <TeamThread handoff={HANDOFF} />
         <TeamThread handoff={{ ...HANDOFF, key: "done", report: { ...HANDOFF.report!, done: true, detail: "Report from Momo Designer:\n\n**เสร็จแล้ว** — ดีไซน์โปรโมชั่นกาแฟ Vintage 90s 1 ชิ้น [เปิดใน Canva](https://canva.com)" }, steps: HANDOFF.steps.map((s) => ({ ...s, done: true })) }} />
+        <TeamThread handoff={{ ...HANDOFF, key: "stopped", report: { ...HANDOFF.report!, title: "Team: Momo Designer (failed)", done: true, detail: "Stopped by the user." }, steps: HANDOFF.steps.map((s) => ({ ...s, done: true })) }} />
+        <TeamThread handoff={{ ...HANDOFF, key: "failed", report: { ...HANDOFF.report!, title: "Team: Momo Designer (failed)", done: true, detail: "Canva rejected the request: the brand kit is gone." }, steps: [] }} />
+        <TeamThread handoff={{ ...HANDOFF, key: "waiting", brief: undefined, steps: [] }} />
       </section>
       <section className="dark mx-auto w-full max-w-[616px] rounded-[28px] bg-black p-4 text-white">
         <p className="mb-3 text-xs font-medium tracking-wide text-white/40 uppercase">Notch</p>

@@ -12,6 +12,7 @@ pub mod cursor;
 pub mod file_diff;
 pub mod antigravity;
 pub mod git;
+pub mod keep_awake;
 pub mod link_preview;
 pub mod mcp;
 pub mod mcp_bridge;

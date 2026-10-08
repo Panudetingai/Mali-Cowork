@@ -224,6 +224,8 @@ pub fn run() {
             commands::remote::remote_domain_mali,
             commands::remote::remote_set_ip_allowlist,
             commands::remote::remote_set_auto_allow_ips,
+            commands::remote::remote_set_keep_awake,
+            commands::remote::remote_set_busy,
             commands::remote::remote_allow_ip,
             commands::remote::remote_revoke_ip,
             commands::remote::remote_dismiss_pending_ip,
