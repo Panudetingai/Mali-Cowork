@@ -284,7 +284,13 @@ function ConnectCard({ status, s }: { status: RemoteStatus; s: Strings }) {
   const [showAnyway, setShowAnyway] = useState(false);
   const [copied, setCopied] = useState(false);
   const trusted = status.addresses.find((a) => a.kind === "domain");
-  const address = trusted ?? status.addresses.find((a) => a.kind === "lan") ?? status.addresses[0];
+  // Respect where the domain points: when the user picked Tailscale, the code
+  // must be the Tailscale address, not the Wi-Fi one (e.g. 11.x which Mali DNS
+  // rejects and phones can't reach).
+  const lan = status.addresses.find((a) => a.kind === "lan");
+  const tailscale = status.addresses.find((a) => a.kind === "tailscale");
+  const local = status.domain?.pointTo === "tailscale" ? (tailscale ?? lan) : (lan ?? tailscale);
+  const address = trusted ?? local ?? status.addresses[0];
   const preparing = isPreparing(status) && !showAnyway;
   const connected = status.clients > 0;
 

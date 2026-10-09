@@ -503,7 +503,10 @@ fn local_addresses() -> Vec<(&'static str, Ipv4Addr)> {
         }
     }
     let mut found = Vec::new();
-    if let Some(ip) = route_to("192.0.2.1:9").filter(|ip| !is_tailscale(*ip)) {
+    // Only advertise a LAN address phones can actually reach: RFC 1918 private
+    // or link-local. Anything else (e.g. 11.x squat, public IPs) is not a LAN
+    // for Mali DNS (`isPrivateIPv4`) nor for `peer_allowed`, so don't call it one.
+    if let Some(ip) = route_to("192.0.2.1:9").filter(|ip| !is_tailscale(*ip) && (ip.is_private() || ip.is_link_local())) {
         found.push(("lan", ip));
     }
     // Tailscale's own service address only routes through its interface.
