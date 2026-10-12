@@ -1,0 +1,1548 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Cowork Bot Mix Lab — ผสมสี ปั้นบอทเอง</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Mali:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#efeaf7; --stage:#ffffff; --ink:#2b2540; --muted:#77718f;
+    --line:#ddd5ef; --btn:#f1edf9; --btn-on:#2b2540; --btn-on-ink:#fff;
+    --accent:#7c5cf6; --accent2:#f7609f; --lime:#d9f26b;
+    --shadow:rgba(60,45,120,.14); --code:#f4f1fb; --card:#ffffff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#17141f; --stage:#211c30; --ink:#ece8f7; --muted:#a09ab8; --line:#37314c;
+      --btn:#2b2540; --btn-on:#ece8f7; --btn-on-ink:#17141f; --shadow:rgba(0,0,0,.45); --code:#292338; --card:#211c30;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#17141f; --stage:#211c30; --ink:#ece8f7; --muted:#a09ab8; --line:#37314c;
+    --btn:#2b2540; --btn-on:#ece8f7; --btn-on-ink:#17141f; --shadow:rgba(0,0,0,.45); --code:#292338; --card:#211c30;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"IBM Plex Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size:15.5px; line-height:1.6;
+  }
+  body::before{
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+    background:
+      radial-gradient(520px 300px at 8% -4%, rgba(124,92,246,.20), transparent 65%),
+      radial-gradient(560px 320px at 96% 4%, rgba(247,96,159,.16), transparent 65%);
+  }
+  .page{ max-width:1180px; margin:0 auto; padding:36px 20px 60px; position:relative; z-index:1; }
+  h1{ font-family:"Mali", system-ui, sans-serif; font-weight:700; font-size:clamp(26px,4vw,38px); line-height:1.2; margin:0 0 4px; }
+  h1 .dot{ color:var(--accent2); }
+  .lede{ color:var(--muted); margin:0 0 20px; max-width:72ch; }
+  .lede code{ background:var(--code); padding:1px 7px; border-radius:7px; font-size:.88em; }
+
+  .lab{ display:grid; grid-template-columns:minmax(300px,430px) minmax(0,1fr); gap:18px; align-items:start; }
+  @media (max-width:960px){ .lab{ grid-template-columns:1fr; } }
+
+  .preview{
+    background:var(--card); border:1px solid var(--line); border-radius:26px;
+    padding:20px 18px 16px; box-shadow:0 14px 34px var(--shadow);
+    position:sticky; top:16px;
+  }
+  @media (max-width:960px){ .preview{ position:static; } }
+  .preview-stage{
+    border-radius:18px; border:1.5px dashed var(--line);
+    background:
+      linear-gradient(45deg, rgba(130,130,160,.10) 25%, transparent 25%, transparent 75%, rgba(130,130,160,.10) 75%),
+      linear-gradient(45deg, rgba(130,130,160,.10) 25%, transparent 25%, transparent 75%, rgba(130,130,160,.10) 75%);
+    background-size:22px 22px; background-position:0 0, 11px 11px; background-color:transparent;
+  }
+  .bot-canvas{ width:100%; max-width:360px; margin:0 auto; aspect-ratio:1/1; }
+  .bot-canvas svg{ display:block; width:100%; height:auto; overflow:visible; }
+  .preview-name{ font-family:"Mali",system-ui,sans-serif; font-weight:700; font-size:22px; margin:12px 0 0; text-align:center; }
+  .preview-state{ text-align:center; color:var(--muted); font-size:14px; min-height:1.7em; margin:0 0 8px; }
+  .states{ display:flex; flex-wrap:wrap; gap:6px; justify-content:center; }
+  .states button, .rowbtns button{
+    font:inherit; font-size:13px; border:1px solid var(--line); background:var(--btn); color:var(--ink);
+    padding:5px 12px; border-radius:999px; cursor:pointer;
+  }
+  .states button[aria-pressed="true"]{ background:var(--btn-on); color:var(--btn-on-ink); border-color:var(--btn-on); }
+  .states button:focus-visible, .rowbtns button:focus-visible{ outline:2px solid #6f8cff; outline-offset:2px; }
+  .demo-line{ display:flex; align-items:center; justify-content:center; gap:8px; margin-top:10px; font-size:13.5px; color:var(--muted); }
+  .demo-line button{ font:inherit; font-size:13px; border:1px solid var(--line); background:var(--btn); color:var(--ink); padding:5px 14px; border-radius:999px; cursor:pointer; }
+  .demo-line button[aria-pressed="true"]{ background:#34c38f; border-color:#34c38f; color:#fff; }
+
+  .panel{ display:grid; gap:14px; }
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:20px; padding:16px 18px 18px;
+    box-shadow:0 8px 22px var(--shadow);
+  }
+  .card h2{ font-family:"Mali",system-ui,sans-serif; font-size:18px; margin:0 0 4px; }
+  .card h2 .n{ display:inline-grid; place-items:center; width:24px; height:24px; border-radius:8px; background:var(--lime); color:#2b2540; font-size:14px; margin-right:6px; vertical-align:2px; }
+  .card p.hint{ margin:0 0 12px; font-size:13px; color:var(--muted); }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; }
+  @media (max-width:560px){ .grid2{ grid-template-columns:1fr; } }
+  label.f{ display:grid; gap:5px; font-size:13.5px; }
+  label.f .t{ display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  label.f .t output{ color:var(--muted); font-size:12.5px; }
+  select, input[type="text"]{
+    font:inherit; font-size:14px; color:var(--ink); background:var(--bg);
+    border:1px solid var(--line); border-radius:12px; padding:8px 10px; width:100%;
+  }
+  input[type="range"]{ width:100%; accent-color:var(--accent); }
+  input[type="color"]{ width:100%; height:38px; border:1px solid var(--line); border-radius:12px; background:var(--bg); padding:3px; cursor:pointer; }
+  .swatches{ display:flex; flex-wrap:wrap; gap:6px; }
+  .swatches button{
+    border:2px solid transparent; border-radius:10px; width:34px; height:34px; cursor:pointer; padding:0;
+  }
+  .swatches button[aria-pressed="true"]{ border-color:var(--ink); }
+  .rowbtns{ display:flex; flex-wrap:wrap; gap:6px; }
+  .rowbtns button[aria-pressed="true"]{ background:var(--btn-on); color:var(--btn-on-ink); border-color:var(--btn-on); }
+  .check{ display:flex; align-items:center; gap:9px; font-size:14px; cursor:pointer; }
+  .check input{ width:18px; height:18px; accent-color:var(--accent); }
+  .mixbox{ background:var(--bg); border:1px solid var(--line); border-radius:14px; padding:12px; display:grid; gap:10px; margin-top:12px; }
+  .mixcols{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; align-items:end; }
+  @media (max-width:560px){ .mixcols{ grid-template-columns:1fr 1fr; } }
+  .mixprev{ height:34px; border-radius:10px; border:1px solid var(--line); }
+  .btn{
+    font:inherit; font-weight:600; font-size:14px; border:0; cursor:pointer; border-radius:14px;
+    padding:10px 16px; background:var(--accent); color:#fff;
+  }
+  .btn.ghost{ background:var(--btn); color:var(--ink); border:1px solid var(--line); font-weight:500; }
+  .btn.pink{ background:var(--accent2); }
+  .btnrow{ display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+
+  .export pre{
+    margin:10px 0 0; background:var(--code); border:1px solid var(--line); border-radius:14px;
+    padding:12px 14px; overflow-x:auto; font-size:12.5px; line-height:1.55; max-height:220px; overflow-y:auto;
+    white-space:pre-wrap; word-break:break-all;
+  }
+  .export h3{ font-size:14px; margin:16px 0 0; font-weight:600; }
+  .note{ font-size:13px; color:var(--muted); margin:8px 0 0; }
+
+  #embed{ display:none; }
+  html.embed, html.embed body{ margin:0; padding:0; width:100%; height:100%; background:transparent !important; overflow:hidden; }
+  html.embed body::before{ display:none; }
+  html.embed .page{ display:none !important; }
+  html.embed #embed{ display:flex !important; position:fixed; inset:0; align-items:center; justify-content:center; width:100%; height:100%; overflow:hidden; background:transparent !important; }
+  html.embed #embed .bot-canvas{ width:100%; height:100%; max-width:100%; max-height:100%; aspect-ratio:1/1; background:transparent; }
+  html.embed #embed .bot-canvas svg{ width:100%; height:100%; display:block; overflow:visible; background:transparent; }
+</style>
+<script>
+(function () {
+  var p = new URLSearchParams(location.search);
+  if (!p.get("embed")) return;
+  document.documentElement.classList.add("embed");
+  var theme = p.get("theme");
+  if (theme === "dark" || theme === "light") document.documentElement.setAttribute("data-theme", theme);
+})();
+</script>
+</head>
+<body>
+
+<div class="page">
+  <h1>Cowork Bot Mix Lab<span class="dot">.</span></h1>
+  <p class="lede">ห้องผสมน้องบอท — เลือกตัวตั้งต้น ผสมสีเอง เปลี่ยนตา หู ปาก รูปร่าง แล้วกดดูครบทุกท่า ได้ preset ไปแปะต่อด้วย <code>?embed=custom&amp;preset=…</code> เหมือนไฟล์ <code>cowork-bots.html</code> ทุกอย่าง (engine animation ตัวเดียวกัน)</p>
+
+  <div class="lab">
+    <div class="preview">
+      <div class="preview-stage"><div class="bot-canvas" id="mixCanvas"></div></div>
+      <p class="preview-name" id="mixName">Mochi + custom</p>
+      <p class="preview-state" id="mixState" aria-live="polite">รอคำสั่ง</p>
+      <div class="states" id="stateBtns" role="group" aria-label="ท่าทางพรีวิว"></div>
+      <div class="demo-line">
+        <button id="demoBtn" aria-pressed="true">หยุดเดโมออโต้</button>
+        <span>เดโมจะวนทุกท่าให้ดูเอง</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <section class="card">
+        <h2><span class="n">1</span>ตัวตั้งต้น</h2>
+        <p class="hint">ตำแหน่งตา ทรงพื้นฐาน และนิสัยการเคลื่อนไหว มาจากตัวนี้ก่อน แล้วค่อยแต่งต่อ</p>
+        <div class="grid2">
+          <label class="f"><span class="t"><span>เบส (8 ตัว)</span></span>
+            <select id="inBase">
+              <option value="mochi">Mochi — เหลือง</option>
+              <option value="jelly">Jelly — เขียว</option>
+              <option value="petal">Petal — ม่วง</option>
+              <option value="nori">Nori — ดำ</option>
+              <option value="sora">Sora — ฟ้า</option>
+              <option value="momo">Momo — ชมพู</option>
+              <option value="mikan">Mikan — ส้ม</option>
+              <option value="ichigo">Ichigo — แดง</option>
+            </select>
+          </label>
+          <label class="f"><span class="t"><span>ชื่อบอท (โชว์+ฝังใน preset)</span></span>
+            <input type="text" id="inName" value="Mochi + custom" maxlength="40">
+          </label>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2><span class="n">2</span>ผสมสีตัว</h2>
+        <p class="hint">สีบอทไล่จาก highlight → 32% → 72% → shade ปรับแยกทีละ stop ได้เลย หรือผสมจากสี A+B ข้างล่าง</p>
+        <div class="grid2" id="stopGrid">
+          <label class="f"><span class="t"><span>✨ highlight</span><output id="o0"></output></span><input type="color" id="c0"></label>
+          <label class="f"><span class="t"><span>◐ 32%</span><output id="o1"></output></span><input type="color" id="c1"></label>
+          <label class="f"><span class="t"><span>◑ 72%</span><output id="o2"></output></span><input type="color" id="c2"></label>
+          <label class="f"><span class="t"><span>⬢ shade</span><output id="o3"></output></span><input type="color" id="c3"></label>
+        </div>
+        <div class="mixbox">
+          <div class="mixcols">
+            <label class="f"><span class="t"><span>สี A</span></span><input type="color" id="mixA" value="#7c5cf6"></label>
+            <label class="f"><span class="t"><span>สี B</span></span><input type="color" id="mixB" value="#f7609f"></label>
+            <div><div class="mixprev" id="mixPrev"></div><div style="font-size:12px;color:var(--muted)" id="mixHex"></div></div>
+          </div>
+          <label class="f"><span class="t"><span>สัดส่วน A ↔ B</span><output id="oMix">50%</output></span>
+            <input type="range" id="mixT" min="0" max="100" value="50">
+          </label>
+          <div class="btnrow">
+            <button class="btn ghost" id="applyMix">ใช้สีผสม → เติม 4 stops อัตโนมัติ</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2><span class="n">3</span>ตา แก้ม หูด้านใน</h2>
+        <p class="hint">ตาดาว ตากลมโต ตา happy เพิ่มจาก engine เดิม — ทุกสไตล์ขยับ กระพริบ มองตาม ได้เหมือนเดิม</p>
+        <div class="grid2">
+          <div>
+            <div style="font-size:13.5px;margin-bottom:6px">สไตล์ตา</div>
+            <div class="rowbtns" id="eyeBtns" role="group" aria-label="สไตล์ตา">
+              <button data-v="normal" aria-pressed="true">แคปซูลเดิม</button>
+              <button data-v="round" aria-pressed="false">กลมโต</button>
+              <button data-v="star" aria-pressed="false">ดาว ★</button>
+              <button data-v="happy" aria-pressed="false">happy ⌒</button>
+            </div>
+          </div>
+          <label class="f"><span class="t"><span>สีตา eyeInk</span><output id="oInk"></output></span><input type="color" id="cInk" value="#000000"></label>
+        </div>
+        <div class="grid2" style="margin-top:10px">
+          <label class="check"><input type="checkbox" id="inBlush" checked> มีแก้ม (blush)</label>
+          <label class="f"><span class="t"><span>สีแก้ม</span><output id="oBlush"></output></span><input type="color" id="cBlush" value="#ff8fab"></label>
+        </div>
+        <div class="grid2" style="margin-top:10px">
+          <label class="f"><span class="t"><span>สีหูด้านใน</span><output id="oInner"></output></span><input type="color" id="cInner" value="#ff9ec0"></label>
+          <label class="f"><span class="t"><span>ขนาดหู</span><output id="oEar">100%</output></span>
+            <input type="range" id="inEarScale" min="30" max="130" value="100">
+          </label>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2><span class="n">4</span>รูปร่าง + ท่า Matrix</h2>
+        <p class="hint">หู ปาก ทรงตัว วิธีแยกร่างตอนคิด (line/tri) และท่าเต้นตอนทำงาน (wave/hop/orbit/snake)</p>
+        <div class="grid2">
+          <label class="f"><span class="t"><span>หู</span></span>
+            <select id="inEars">
+              <option value="tuft">tuft — จุก (mochi)</option>
+              <option value="leaf">leaf — ใบไม้ (jelly)</option>
+              <option value="bunny">bunny — กระต่าย</option>
+              <option value="cat">cat — แมว</option>
+              <option value="bear">bear — หมี</option>
+              <option value="fox">fox — จิ้งจอก</option>
+              <option value="panda">panda — แพนด้า</option>
+              <option value="none">none — ไม่มีหู</option>
+            </select>
+          </label>
+          <label class="f"><span class="t"><span>ปาก</span></span>
+            <select id="inMouth">
+              <option value="smile">smile — ยิ้ม</option>
+              <option value="cat">cat — เหมียว ω</option>
+              <option value="open">open — อ้ากว้าง</option>
+              <option value="o">o — โอ้ วงกลม</option>
+              <option value="sulk">sulk — บึ้งตึง</option>
+            </select>
+          </label>
+        </div>
+        <div class="grid2" style="margin-top:10px">
+          <label class="f"><span class="t"><span>ความกว้างตัว</span><output id="oW"></output></span>
+            <input type="range" id="inW" min="85" max="120" step="1" value="105">
+          </label>
+          <label class="f"><span class="t"><span>ความสูงตัว</span><output id="oH"></output></span>
+            <input type="range" id="inH" min="85" max="120" step="1" value="98">
+          </label>
+        </div>
+        <div class="grid2" style="margin-top:10px">
+          <div>
+            <div style="font-size:13.5px;margin-bottom:6px">แยกร่างตอนคิด (layout)</div>
+            <div class="rowbtns" id="layoutBtns"><button data-v="line" aria-pressed="true">line — เรียงแถว</button><button data-v="tri" aria-pressed="false">tri — สามเหลี่ยม</button></div>
+          </div>
+          <div>
+            <div style="font-size:13.5px;margin-bottom:6px">ท่าเต้นตอนทำงาน (work)</div>
+            <div class="rowbtns" id="workBtns">
+              <button data-v="wave" aria-pressed="true">wave</button><button data-v="hop" aria-pressed="false">hop</button><button data-v="orbit" aria-pressed="false">orbit</button><button data-v="snake" aria-pressed="false">snake</button>
+            </div>
+          </div>
+        </div>
+        <div class="btnrow">
+          <button class="btn ghost" id="btnShuffle">สุ่มสี+ทรงให้หน่อย</button>
+          <button class="btn ghost" id="btnReset">รีเซ็ตกลับตามเบส</button>
+        </div>
+      </section>
+
+      <section class="card export">
+        <h2><span class="n">5</span>Export — เอาไปใช้ต่อ</h2>
+        <p class="hint">preset นี้ใช้กับไฟล์นี้ (<code>cowork-bot-mixer.html?embed=custom&amp;preset=…</code>) ได้เต็มทุกออปชัน และใช้กับ <code>cowork-bots.html?embed=custom&amp;preset=…</code> ได้สำหรับสี หู ปาก smile/cat ทรง layout/work (ตาดาว/กลมโต/happy กับปาก open/o/sulk ต้องใช้ไฟล์ mixer)</p>
+        <div class="btnrow">
+          <button class="btn" id="btnCopyPreset">คัดลอก preset JSON</button>
+          <button class="btn ghost" id="btnCopyIframe">คัดลอก iframe code</button>
+          <button class="btn ghost" id="btnCopyJS">คัดลอก CoworkBots.set</button>
+          <button class="btn pink" id="btnSVG">ดาวน์โหลด SVG ปัจจุบัน</button>
+        </div>
+        <h3>preset JSON</h3>
+        <pre id="outPreset"><code></code></pre>
+        <h3>iframe embed</h3>
+        <pre id="outIframe"><code></code></pre>
+        <h3>CoworkBots.set</h3>
+        <pre id="outJS"><code></code></pre>
+        <p class="note" id="exportNote"></p>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div id="embed"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ============================================================
+     ENGINE — ยกมาจาก cowork-bots.html ทั้งก้อน (ห้ามเขียนใหม่)
+     ส่วนที่ mixer ขยายเพิ่มมีคอมเมนต์ [MIX+] กำกับไว้
+     ============================================================ */
+  var TAU = Math.PI * 2;
+  var REDUCED = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var PILL = "M-9.3 -11.3A9.3 9.3 0 0 1 0 -20.6L0 -20.6A9.3 9.3 0 0 1 9.3 -11.3L9.3 11.3A9.3 9.3 0 0 1 0 20.6L0 20.6A9.3 9.3 0 0 1 -9.3 11.3Z";
+  var HAPPY = "M-11 4Q0 -10 11 4";
+  /* [MIX+] ตาเพิ่ม: กลมโต / ดาว */
+  var ROUND_EYE = "M-9.5 0A9.5 9.5 0 1 0 9.5 0A9.5 9.5 0 1 0 -9.5 0Z";
+  var STAR_EYE = "M0 -11L2.9 -3.4L10.9 -3.4L4.5 1.3L6.6 8.9L0 4.6L-6.6 8.9L-4.5 1.3L-10.9 -3.4L-2.9 -3.4Z";
+  var LABELS = { idle:"รอคำสั่ง", thinking:"กำลังคิด…", working:"กำลังทำงาน…", done:"เสร็จแล้ว!",
+                 alert:"แจ้งเตือน!", welcome:"สวัสดี!", tool:"กำลังใช้เครื่องมือ…", connection:"รอเชื่อมต่อใหม่…", permission:"รออนุญาตคำสั่ง…",
+                 question:"รอคำตอบ…", listening:"กำลังฟัง…", speaking:"กำลังพูด…" };
+
+  var VOICE = { level: 0, at: -1e9 };
+
+  var ALERT_DEEP   = ["#ff9a9a","#e53935","#b71c1c","#5c0808"];
+  var ALERT_BRIGHT = ["#fff1f1","#ff7070","#ff2d2d","#c41616"];
+  var FINGERS = [
+    {x:-37, y:-42, len:34, w:10,   a:-22},
+    {x:-13, y:-52, len:40, w:10.5, a:-7},
+    {x: 12, y:-52, len:42, w:10.5, a:6},
+    {x: 36, y:-43, len:36, w:10,   a:20},
+    {x:-50, y:6,   len:32, w:11,   a:-72}
+  ];
+  function gearPath(){
+    var n = 8, d = "";
+    for (var i=0; i<n*4; i++){
+      var a = i/(n*4)*TAU, r = (i%4 < 2) ? 9 : 6.6;
+      d += (i ? "L" : "M") + (Math.cos(a)*r).toFixed(2) + " " + (Math.sin(a)*r).toFixed(2);
+    }
+    return d + "Z M3 0A3 3 0 1 0 -3 0A3 3 0 1 0 3 0Z";
+  }
+  var ICONS = [
+    gearPath(),
+    "M-2.2 -2L-2.2 9A2.2 2.2 0 0 0 2.2 9L2.2 -2A6 6 0 0 0 4.5 -9.5L2 -7L2 -4.2L-2 -4.2L-2 -7L-4.5 -9.5A6 6 0 0 0 -2.2 -2Z",
+    "M-8 -9h13a2 2 0 0 1 2 2v3a2 2 0 0 1 -2 2h-3.5v11a2 2 0 0 1 -4 0v-11H-8a2 2 0 0 1 -2 -2v-3a2 2 0 0 1 2 -2Z",
+    "M0 -9Q1.5 -1.5 9 0Q1.5 1.5 0 9Q-1.5 1.5 -9 0Q-1.5 -1.5 0 -9Z",
+    "M-4.5 0a4.5 4.5 0 1 0 9 0a4.5 4.5 0 1 0 -9 0Z",
+    "M-4 -4h8v8h-8Z",
+    "M0 -9Q1.5 -1.5 9 0Q1.5 1.5 0 9Q-1.5 1.5 -9 0Q-1.5 -1.5 0 -9Z"
+  ];
+  function arcUp(r){ var k = (r*0.7071).toFixed(2); return "M-" + k + " -" + k + "A" + r + " " + r + " 0 0 1 " + k + " -" + k; }
+
+  var RING_COLORS = ["#f5c518","#ff9a2e","#f0443a","#f7609f","#8b5cf6","#3aa3f5","#34c77b","#2a2a33"];
+  var RING_N = 44, RING_R = 108, RING_SWEEP = 0.8;
+
+  var PRESETS = {
+    mochi: {
+      name: "Mochi",
+      palettes: [
+        ["#fff6c2","#ffe45c","#ffd21f","#c79a00"],
+        ["#fbe7a6","#f5c542","#f0b429","#b8860b"],
+        ["#fffbe0","#fff07a","#f7dc3a","#caa414"]
+      ],
+      aspect: [1.08, 0.97],
+      base:  {2:0.025, 3:0.055, 5:0.02},
+      morph: {4:0.13, 7:0.05},
+      eyes: { L:{x:-29.79, y:14.6, m:[0.93,-0.14,0.23,0.68]}, R:{x:20.29, y:2.49, m:[0.94,-0.16,0.23,0.68]} },
+      blush: false,
+      layout: "line", work: "wave", squash: 0.015,
+      ears: "tuft", mouth: "smile"
+    },
+    jelly: {
+      name: "Jelly",
+      palettes: [
+        ["#dcfff0","#7ff0bd","#34d48c","#138a55"],
+        ["#effed0","#c2f06e","#8fd33a","#4f8a15"],
+        ["#d6f7e6","#5fd9a0","#1fb877","#0c6b45"]
+      ],
+      aspect: [1.05, 0.95],
+      base:  {2:0.035, 4:0.012},
+      morph: {3:0.13, 6:0.05},
+      eyes: { L:{x:-25, y:6, m:[0.95,0,0,0.74]}, R:{x:25, y:6, m:[0.95,0,0,0.74]} },
+      blush: true,
+      layout: "line", work: "hop", squash: 0.04,
+      ears: "leaf", mouth: "smile"
+    },
+    petal: {
+      name: "Petal",
+      palettes: [
+        ["#f1e8ff","#c9aaff","#9f78f7","#5e3bb5"],
+        ["#eadcff","#b388ff","#8250e6","#4b2296"],
+        ["#fbe6ff","#dca6f5","#b36fe0","#6c2f99"]
+      ],
+      aspect: [1, 1],
+      base:  {5:0.06, 3:0.012},
+      morph: {6:0.11, 2:0.06},
+      eyes: { L:{x:-23, y:9, m:[0.9,0.1,-0.08,0.7]}, R:{x:23, y:9, m:[0.9,-0.1,0.08,0.7]} },
+      blush: true,
+      layout: "tri", work: "orbit", squash: 0.02,
+      ears: "bunny", mouth: "smile"
+    },
+    nori: {
+      name: "Nori",
+      palettes: [
+        ["#8a8d99","#4a4d57","#2c2e35","#101115"],
+        ["#7f86a3","#3e4460","#23273a","#0c0e18"],
+        ["#9a9a9a","#555555","#333333","#111111"]
+      ],
+      aspect: [1.02, 0.98],
+      base:  {2:0.02, 4:0.03},
+      morph: {5:0.12, 3:0.05},
+      eyes: { L:{x:-22, y:4, m:[1,0,0,0.8]}, R:{x:22, y:4, m:[1,0,0,0.8]} },
+      eyeInk: "#ffffff",
+      blush: true,
+      layout: "line", work: "snake", squash: 0.025,
+      ears: "cat", mouth: "cat"
+    },
+    sora: {
+      name: "Sora",
+      palettes: [
+        ["#e3f4ff","#8fd0ff","#3aa3f5","#1565c0"],
+        ["#dff9ff","#7fe3f5","#22b8e0","#0b6f8f"],
+        ["#e8eeff","#9fb6ff","#5b7cf0","#2a44a8"]
+      ],
+      aspect: [1.06, 0.96],
+      base:  {3:0.03, 2:0.015},
+      morph: {5:0.12, 2:0.05},
+      eyes: { L:{x:-24, y:4, m:[0.9,0,0,0.78]}, R:{x:24, y:4, m:[0.9,0,0,0.78]} },
+      blush: false,
+      layout: "line", work: "hop", squash: 0.03,
+      ears: "bear", mouth: "smile"
+    },
+    momo: {
+      name: "Momo",
+      palettes: [
+        ["#ffe6f1","#ff9cc8","#f7609f","#b3246a"],
+        ["#fff0f5","#ffb3d1","#ff7eb0","#c43d7a"],
+        ["#ffe3ea","#ff9fb4","#f56c8c","#a8304f"]
+      ],
+      aspect: [1, 1.02],
+      base:  {2:0.02, 5:0.03},
+      morph: {4:0.12, 7:0.04},
+      eyes: { L:{x:-22, y:8, m:[0.85,0.08,-0.05,0.72]}, R:{x:22, y:8, m:[0.85,-0.08,0.05,0.72]} },
+      blush: true,
+      layout: "tri", work: "orbit", squash: 0.03,
+      ears: "cat", mouth: "cat"
+    },
+    mikan: {
+      name: "Mikan",
+      palettes: [
+        ["#ffe0bd","#ffa447","#ff8210","#b24a00"],
+        ["#ffd9b0","#ff9a36","#f57300","#a34200"],
+        ["#ffe6c7","#ffb05c","#ff8c21","#bd5500"]
+      ],
+      aspect: [1.04, 0.98],
+      base:  {2:0.03, 4:0.02},
+      morph: {3:0.12, 5:0.05},
+      eyes: { L:{x:-24, y:6, m:[0.92,0.05,-0.04,0.74]}, R:{x:24, y:6, m:[0.92,-0.05,0.04,0.74]} },
+      blush: true,
+      layout: "line", work: "wave", squash: 0.03,
+      ears: "fox", mouth: "cat"
+    },
+    ichigo: {
+      name: "Ichigo",
+      palettes: [
+        ["#ffe4e1","#ff8a80","#f0443a","#a3160f"],
+        ["#ffdcd6","#ff7066","#e53228","#8f1009"],
+        ["#ffe9e6","#ff9d94","#f5584f","#b02019"]
+      ],
+      aspect: [1.03, 0.99],
+      base:  {3:0.03, 5:0.02},
+      morph: {4:0.12, 2:0.05},
+      eyes: { L:{x:-23, y:6, m:[0.95,0,0,0.76]}, R:{x:23, y:6, m:[0.95,0,0,0.76]} },
+      blush: false,
+      layout: "tri", work: "orbit", squash: 0.025,
+      ears: "panda", mouth: "smile"
+    }
+  };
+
+  var EARS = {
+    cat:   { d:"M-15 8Q-13 -12 -4 -29Q0 -35 4 -29Q13 -12 15 8Z",
+             inner:"M-8 2Q-7 -9 -2 -19Q0 -22 2 -19Q7 -9 8 2Z", at:0.62 },
+    bunny: { d:"M-10 8C-15 -18 -11 -50 0 -53C11 -50 15 -18 10 8Z",
+             inner:"M-4.5 0C-7.5 -16 -5.5 -40 0 -42C5.5 -40 7.5 -16 4.5 0Z", at:0.42, flop:true },
+    bear:  { d:"M-16 -8A16 16 0 1 1 16 -8A16 16 0 1 1 -16 -8Z",
+             inner:"M-8 -11A8 8 0 1 1 8 -11A8 8 0 1 1 -8 -11Z", at:0.66 },
+    fox:   { d:"M-17 8Q-15 -17 -4 -40Q0 -45 4 -40Q15 -17 17 8Z",
+             inner:"M-9 2Q-8 -12 -2 -27Q0 -30 2 -27Q8 -12 9 2Z", innerFill:"#fff3e4", at:0.58 },
+    panda: { d:"M-17 8Q-19 -14 -6 -25Q0 -28 6 -25Q19 -14 17 8Z",
+             inner:"M-10 3Q-11 -10 -3 -17Q0 -19 3 -17Q11 -10 10 3Z", innerFill:"#ffffff", at:0.66 },
+    leaf:  { d:"M-2.5 8L-2 -12C-14 -14 -24 -26 -19 -40C-5 -40 3 -28 2 -13L2.5 8Z", at:0.08, single:true },
+    none:  { d:"M0 0", at:0, single:true },
+    tuft:  { d:"M-5 8Q-13 -10 -4 -22Q-3 -10 1 -5Q2 -18 11 -24Q9 -8 5 8Z", at:0.05, single:true }
+  };
+  var MOUTHS = {
+    smile: "M-5.5 0Q0 5 5.5 0",
+    cat:   "M-7 -0.5Q-3.5 4.5 0 -0.5Q3.5 4.5 7 -0.5"
+  };
+  /* [MIX+] ปากเพิ่ม: open / o / sulk (บึ้ง) */
+  MOUTHS.open = "M-8 -1.5Q0 13 8 -1.5Q0 1.5 -8 -1.5Z";
+  MOUTHS.o    = "M-4.6 0A4.6 4.6 0 1 0 4.6 0A4.6 4.6 0 1 0 -4.6 0Z";
+  MOUTHS.sulk = "M-6.5 2.5Q0 -0.5 6.5 2.5";
+  var MOUTH_FILL = { open:true, o:true };
+  var MOUTH_OPEN = "M-8 -1.5Q0 13 8 -1.5Q0 1.5 -8 -1.5Z";
+
+  function hex(h){ h=h.replace("#",""); return [parseInt(h.substr(0,2),16),parseInt(h.substr(2,2),16),parseInt(h.substr(4,2),16)]; }
+  function mix(a,b,f){ return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f]; }
+  function rgb(c){ return "rgb("+Math.round(c[0])+","+Math.round(c[1])+","+Math.round(c[2])+")"; }
+  function toHex(c){ function p(v){ v=Math.max(0,Math.min(255,Math.round(v))); var s=v.toString(16); return s.length<2?"0"+s:s; } return "#"+p(c[0])+p(c[1])+p(c[2]); }
+  function clamp01(v){ return v<0?0:(v>1?1:v); }
+  function frac(v){ return v - Math.floor(v); }
+  function palAt(P, p, j){
+    var n = P.length; p = ((p % n) + n) % n;
+    var i = Math.floor(p), f = p - i; f = f*f*(3-2*f);
+    return mix(P[i][j], P[(i+1)%n][j], f);
+  }
+  var ringRGB = RING_COLORS.map(hex);
+  var ringStroke = [];
+  for (var ri=0; ri<RING_N; ri++){
+    var u = ri/(RING_N-1)*(ringRGB.length-1), rk = Math.min(ringRGB.length-2, Math.floor(u));
+    ringStroke.push(rgb(mix(ringRGB[rk], ringRGB[rk+1], u-rk)));
+  }
+  function Spring(v, k, d){ return { v:v, t:v, vel:0, k:k, d:d }; }
+  function stepSpring(s, f){
+    s.vel += (s.t - s.v) * s.k * f;
+    s.vel *= Math.pow(s.d, f);
+    s.v += s.vel * f;
+  }
+  function blobPath(R, amps, ph, sx, sy){
+    var N = 40, pts = [], j, k;
+    for (j=0; j<N; j++){
+      var th = j/N*TAU, r = 1;
+      for (k=1; k<amps.length; k++){ if (amps[k]) r += amps[k]*Math.sin(k*th + ph[k]); }
+      r *= R;
+      pts.push([Math.cos(th)*r*sx, Math.sin(th)*r*sy]);
+    }
+    var d = "M" + pts[0][0].toFixed(2) + " " + pts[0][1].toFixed(2);
+    for (j=0; j<N; j++){
+      var p0=pts[(j-1+N)%N], p1=pts[j], p2=pts[(j+1)%N], p3=pts[(j+2)%N];
+      d += "C" + (p1[0]+(p2[0]-p0[0])/6).toFixed(2) + " " + (p1[1]+(p2[1]-p0[1])/6).toFixed(2) + " " +
+                 (p2[0]-(p3[0]-p1[0])/6).toFixed(2) + " " + (p2[1]-(p3[1]-p1[1])/6).toFixed(2) + " " +
+                 p2[0].toFixed(2) + " " + p2[1].toFixed(2);
+    }
+    return d + "Z";
+  }
+
+  var uid = 0;
+  /* [MIX+] override: preset ก้อนเดียวกับ customPreset (eyeStyle/mouthStyle/blushColor/innerFill) */
+  function createBot(container, key, override, onChange){
+    if (typeof override === "function"){ onChange = override; override = null; }
+    var P0 = PRESETS[key];
+    var P = {};
+    for (var pk in P0) P[pk] = P0[pk];
+    if (override) for (var ok in override) P[ok] = override[ok];
+    var id = key + (uid++);
+    var embedMode = document.documentElement.classList.contains("embed");
+    var pals = P.palettes.map(function(p){ return p.map(hex); });
+    var base = [], mo = [], amps = [], ph = [];
+    for (var k=0; k<8; k++){ base[k]=P.base[k]||0; mo[k]=P.morph[k]||0; amps[k]=base[k]; ph[k]=Math.random()*TAU; }
+
+    var INK = P.eyeInk || "#000";
+    var EAR = EARS[P.ears] || EARS.cat;
+    /* [MIX+] ตา 4 สไตล์ */
+    function eyeMarkup(e, cls){
+      var st = P.eyeStyle || "normal";
+      if (st === "star") return '<g class="'+cls+'"><path d="'+STAR_EYE+'" fill="'+INK+'"/></g>';
+      if (st === "round") return '<g class="'+cls+'"><path d="'+ROUND_EYE+'" fill="'+INK+'"/></g>';
+      if (st === "happy") return '<g class="'+cls+'"><path d="'+HAPPY+'" fill="none" stroke="'+INK+'" stroke-width="6.5" stroke-linecap="round"/></g>';
+      return '<g class="'+cls+'"><path d="'+PILL+'" fill="'+INK+'" transform="matrix('+e.m.join(",")+',0,0)"/></g>';
+    }
+    var mouthKey = MOUTHS[P.mouth] ? P.mouth : "smile";
+    var mouthIsFill = !!MOUTH_FILL[mouthKey];
+    var gooDef = embedMode ? "" :
+        '<filter id="goo'+id+'" filterUnits="userSpaceOnUse" x="-170" y="-170" width="340" height="340" color-interpolation-filters="sRGB">' +
+          '<feGaussianBlur in="SourceGraphic" stdDeviation="6.5" result="b"/>' +
+          '<feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -10"/>' +
+        '</filter>';
+    var gooAttr = embedMode ? "" : ' filter="url(#goo'+id+')"';
+    var innerFill = P.innerFill || EAR.innerFill || "#ff9ec0";
+    var blushFill = P.blushColor || "#ff8fab";
+    container.innerHTML =
+      '<svg viewBox="-125 -125 250 250" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="background:transparent">' +
+      '<defs>' +
+        gooDef +
+        '<radialGradient id="fill'+id+'" gradientUnits="userSpaceOnUse" cx="-50.56" cy="-63.2" r="244.9">' +
+          '<stop offset="0%"/><stop offset="32%"/><stop offset="72%"/><stop offset="100%"/>' +
+        '</radialGradient>' +
+        '<mask id="mask'+id+'" maskUnits="userSpaceOnUse" x="-170" y="-170" width="340" height="340">' +
+          '<rect x="-170" y="-170" width="340" height="340" fill="#fff"/>' +
+          '<path class="hL" d="'+HAPPY+'" fill="none" stroke="'+INK+'" stroke-width="5.5" stroke-linecap="round" opacity="0"/>' +
+          '<path class="hR" d="'+HAPPY+'" fill="none" stroke="'+INK+'" stroke-width="5.5" stroke-linecap="round" opacity="0"/>' +
+        '</mask>' +
+      '</defs>' +
+      '<ellipse class="shadow" cx="0" cy="112" rx="50" ry="6.5" fill="var(--shadow)"/>' +
+      '<g class="ring" fill="none" style="display:none"></g>' +
+      '<g class="halo" fill="none" stroke="#ff3b3b" style="display:none"><circle class="h0"/><circle class="h1"/></g>' +
+      '<circle class="connRing" r="104" fill="none" stroke="var(--muted)" stroke-width="2.5" stroke-dasharray="2 11" stroke-linecap="round" opacity="0"/>' +
+      '<g class="rig" mask="url(#mask'+id+')">' +
+        '<g'+gooAttr+'>' +
+          '<ellipse class="d0"/><ellipse class="d1"/><ellipse class="d2"/>' +
+          FINGERS.map(function(_, i){ return '<ellipse class="f'+i+'" fill="url(#fill'+id+')"/>'; }).join("") +
+          '<path class="earL" d="'+EAR.d+'" fill="url(#fill'+id+')"/>' +
+          (EAR.single ? '' : '<path class="earR" d="'+EAR.d+'" fill="url(#fill'+id+')"/>') +
+          '<path class="body" fill="url(#fill'+id+')"/>' +
+        '</g>' +
+        (EAR.inner ? '<path class="inL" d="'+EAR.inner+'" fill="'+innerFill+'" opacity=".85"/><path class="inR" d="'+EAR.inner+'" fill="'+innerFill+'" opacity=".85"/>' : '') +
+        (P.blush ? '<ellipse class="bL" rx="9" ry="5" fill="'+blushFill+'"/><ellipse class="bR" rx="9" ry="5" fill="'+blushFill+'"/>' : '') +
+      '</g>' +
+      '<g class="eyeFront">' + eyeMarkup(P.eyes.L, "eL") + eyeMarkup(P.eyes.R, "eR") +
+        '<path class="mouth" d="'+MOUTHS[mouthKey]+'" fill="'+(mouthIsFill?INK:"none")+'" stroke="'+(mouthIsFill?"none":INK)+'" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<path class="mouthOpen" d="'+MOUTH_OPEN+'" fill="'+INK+'" opacity="0"/>' +
+      '</g>' +
+      '<g class="waves" fill="none" stroke="var(--muted)" stroke-width="4" stroke-linecap="round" opacity="0">' +
+        '<path d="M80 -74Q89 -62 80 -50"/><path d="M92 -84Q106 -62 92 -40"/>' +
+        '<path d="M-80 -74Q-89 -62 -80 -50"/><path d="M-92 -84Q-106 -62 -92 -40"/>' +
+      '</g>' +
+      '<g class="sig" fill="none" stroke="var(--muted)" stroke-width="4" stroke-linecap="round" opacity="0">' +
+        '<circle class="s0" r="3.6" fill="var(--muted)" stroke="none"/>' +
+        '<path class="s1" d="' + arcUp(9) + '"/><path class="s2" d="' + arcUp(16) + '"/><path class="s3" d="' + arcUp(23) + '"/>' +
+      '</g>' +
+      '<g class="badge" opacity="0"><circle r="14" fill="#e02424" stroke="var(--stage)" stroke-width="3"/>' +
+        '<rect x="-2.2" y="-8.5" width="4.4" height="10" rx="2.2" fill="#fff"/><circle cy="5.8" r="2.4" fill="#fff"/></g>' +
+      '<g class="perm" opacity="0">' +
+        '<path d="M-26 -20h52a10 10 0 0 1 10 10v18a10 10 0 0 1 -10 10h-30l-12 11 2 -11h-12a10 10 0 0 1 -10 -10v-18a10 10 0 0 1 10 -10Z" fill="var(--stage)" stroke="var(--ink)" stroke-width="3" stroke-linejoin="round"/>' +
+        '<path class="shackle" d="M-19 -3v-4a5 5 0 0 1 10 0v4" fill="none" stroke="#f59e0b" stroke-width="3.2" stroke-linecap="round"/>' +
+        '<rect x="-22.5" y="-3.5" width="17" height="13" rx="3" fill="#f59e0b"/><circle cx="-14" cy="2.5" r="2" fill="var(--stage)"/>' +
+        '<circle class="pd0" cx="6" cy="2" r="3.2" fill="var(--ink)"/><circle class="pd1" cx="15" cy="2" r="3.2" fill="var(--ink)"/><circle class="pd2" cx="24" cy="2" r="3.2" fill="var(--ink)"/>' +
+      '</g>' +
+      '<g class="fx" fill-rule="evenodd"></g>' +
+      '</svg>';
+
+    var q = function(s){ return container.querySelector(s); };
+    var stops = container.querySelectorAll("stop");
+    var body = q(".body"), rig = q(".rig"), shadow = q(".shadow"), ring = q(".ring");
+    var dots = [q(".d0"), q(".d1"), q(".d2")];
+    var eL = q(".eL"), eR = q(".eR"), hL = q(".hL"), hR = q(".hR");
+    var bL = q(".bL"), bR = q(".bR");
+    var halo = q(".halo"), haloC = [q(".h0"), q(".h1")], connRing = q(".connRing");
+    var waves = q(".waves"), sig = q(".sig"), sigParts = [q(".s0"), q(".s1"), q(".s2"), q(".s3")];
+    var badge = q(".badge"), fx = q(".fx");
+    var perm = q(".perm"), shackle = q(".shackle"), permDots = [q(".pd0"), q(".pd1"), q(".pd2")];
+    var fingers = FINGERS.map(function(_, i){ return q(".f"+i); });
+    var earL = q(".earL"), earR = q(".earR"), inL = q(".inL"), inR = q(".inR");
+    var eyeFront = q(".eyeFront");
+    var mouth = q(".mouth"), mouthOpen = q(".mouthOpen");
+    var aDeep = ALERT_DEEP.map(hex), aBright = ALERT_BRIGHT.map(hex);
+    var parts = [], pool = [], toolClock = 0, puff = 0, connA = 0;
+    var ringSegs = [];
+    for (var s=0; s<RING_N; s++){
+      var seg = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      seg.setAttribute("stroke", ringStroke[s]);
+      seg.setAttribute("stroke-linecap", s === RING_N-1 ? "round" : "butt");
+      ring.appendChild(seg); ringSegs.push(seg);
+    }
+
+    var bodyS  = Spring(1,   0.07, 0.80);
+    var spread = Spring(0,   0.06, 0.80);
+    var dotS   = Spring(0.55,0.08, 0.78);
+    var eyeOpen= Spring(1,   0.20, 0.62);
+    var happy  = Spring(0,   0.15, 0.70);
+    var squint = Spring(1,   0.18, 0.62);
+    var lookX  = Spring(0,   0.12, 0.70);
+    var lookY  = Spring(0,   0.12, 0.70);
+    var morph  = Spring(0,   0.05, 0.85);
+    var work   = Spring(0,   0.05, 0.85);
+    var hopY   = Spring(0,   0.12, 0.72);
+    var dance  = Spring(0,   0.08, 0.80);
+    var ringOn = Spring(0,   0.06, 0.80);
+    var alertOn= Spring(0,   0.10, 0.75);
+    var handOn = Spring(0,   0.09, 0.72);
+    var waveOn = Spring(0,   0.08, 0.80);
+    var toolOn = Spring(0,   0.08, 0.80);
+    var connOn = Spring(0,   0.05, 0.85);
+    var permOn = Spring(0,   0.09, 0.72);
+    var headTilt = Spring(0, 0.06, 0.80);
+    var walkX   = Spring(0, 0.035, 0.86);
+    var walkOn  = Spring(0, 0.08, 0.80);
+    var stretch = Spring(0, 0.07, 0.78);
+    var twL     = Spring(0, 0.25, 0.60);
+    var twR     = Spring(0, 0.25, 0.60);
+    var listenOn = Spring(0, 0.07, 0.80);
+    var speakOn  = Spring(0, 0.09, 0.75);
+    var vox      = Spring(0, 0.35, 0.55);
+    var wiggleAt = -10, stepP = 0;
+    var springs = [bodyS, spread, dotS, eyeOpen, happy, squint, lookX, lookY, morph, work, hopY, dance, ringOn,
+                   alertOn, handOn, waveOn, toolOn, connOn, permOn, headTilt, walkX, walkOn, stretch, twL, twR,
+                   listenOn, speakOn, vox];
+
+    var t = Math.random()*10, colorP = Math.random()*pals.length, colorRate = 0.05;
+    var orbitA = 0, ringA = Math.random()*TAU, blinkY = 1, blinkOK = true, ambient = true;
+    var state = "idle", form = "face";
+    var timers = [];
+
+    function after(ms, fn){ timers.push(setTimeout(fn, ms)); }
+    function clearTimers(){ timers.forEach(clearTimeout); timers = []; }
+
+    function faceNeutral(){
+      eyeOpen.t=1; squint.t=1; lookX.t=0; lookY.t=0; morph.t=0; bodyS.t=1;
+      spread.t=0; dotS.t=0.55; happy.t=0; dance.t=0; ringOn.t=0;
+      blinkOK=true; ambient=true;
+    }
+    function toDots(fast, cb){
+      var s = fast ? 0.6 : 1;
+      form = "split"; blinkOK = false; ambient = false; happy.t = 0; dance.t = 0;
+      squint.t = 0.4; lookX.t = 5; lookY.t = -4; eyeOpen.t = 1;
+      after(550*s, function(){ squint.t=1; lookX.t=0; lookY.t=0; eyeOpen.t=1.18; bodyS.t=1.18; morph.t=1; });
+      after(1050*s, function(){ eyeOpen.t = 0; });
+      after(1300*s, function(){ spread.t=1; dotS.t=1; bodyS.t=0.28; morph.t=0.3; });
+      after(1750*s, function(){ bodyS.t=0; morph.t=0; form="dots"; if (cb) cb(); });
+    }
+    function toFace(cb){
+      form = "merge"; eyeOpen.t = 0; happy.t = 0; spread.t = 0; morph.t = 0.6;
+      squint.t = 1; lookX.t = 0; lookY.t = 0;
+      after(320, function(){ bodyS.t=1; dotS.t=0.55; });
+      after(700, function(){ morph.t=0; form="face"; if (cb) cb(); else faceNeutral(); });
+    }
+    function ensureFace(cb){ if (form === "face") cb(); else toFace(cb); }
+
+    function thinkLoop(){
+      toDots(false, function(){
+        after(2600, function(){
+          toFace(function(){ faceNeutral(); after(1500, thinkLoop); });
+        });
+      });
+    }
+    function workLoop(){
+      ambient=false; blinkOK=false;
+      eyeOpen.t=0; happy.t=1; dance.t=1; ringOn.t=1; bodyS.t=1; morph.t=0.35;
+      after(2800, function(){ ringOn.t=0; dance.t=0; morph.t=0; happy.t=0; eyeOpen.t=1; });
+      after(3300, function(){
+        toDots(true, function(){
+          after(2600, function(){ toFace(workLoop); });
+        });
+      });
+    }
+    function celebrate(){
+      blinkOK=false; ambient=false; eyeOpen.t=0; happy.t=1; bodyS.t=1; squint.t=1;
+      after(80,  function(){ hopY.t=-18; bodyS.t=1.08; });
+      after(300, function(){ hopY.t=0;   bodyS.t=1; });
+      after(520, function(){ hopY.t=-9; });
+      after(700, function(){ hopY.t=0; });
+      after(2000,function(){
+        faceNeutral(); state="idle"; colorRate=0.05;
+        if (onChange) onChange("idle");
+      });
+    }
+
+    function alertLoop(){
+      ambient=false; blinkOK=false; happy.t=0; eyeOpen.t=1.15; squint.t=1; lookY.t=0;
+      bodyS.t=1.05; morph.t=0.2; alertOn.t=1;
+      (function look(){ lookX.t = lookX.t > 0 ? -5 : 5; after(450, look); })();
+    }
+    function welcomeLoop(){
+      ambient=false; blinkOK=false; eyeOpen.t=0; happy.t=1; squint.t=1; bodyS.t=0.82; morph.t=0;
+      after(250,  function(){ handOn.t=1; });
+      after(700,  function(){ waveOn.t=1; });
+      after(3600, function(){ waveOn.t=0; });
+      after(4000, function(){ handOn.t=0; bodyS.t=1; });
+      after(4500, function(){ happy.t=0; eyeOpen.t=1; blinkOK=true; });
+      after(6200, welcomeLoop);
+    }
+    function toolLoop(){
+      ambient=false; blinkOK=true; happy.t=0; eyeOpen.t=1.05; squint.t=1; lookY.t=-5;
+      bodyS.t=1; morph.t=0.2; toolOn.t=1;
+      (function glance(){ lookX.t = (Math.random()*2-1)*6; after(600 + Math.random()*500, glance); })();
+    }
+    function connLoop(){
+      ambient=false; blinkOK=true; happy.t=0; eyeOpen.t=0.9; squint.t=1; bodyS.t=0.97; morph.t=0;
+      connOn.t=1; lookX.t=0; lookY.t=-5;
+      after(1300, function(){ lookX.t=-6; lookY.t=0; });
+      after(2400, function(){ lookX.t=6; });
+      after(3500, function(){ lookX.t=0; lookY.t=-6; eyeOpen.t=1.05; bodyS.t=1.02; hopY.t=-5; });
+      after(3800, function(){ hopY.t=0; });
+      after(4400, function(){ eyeOpen.t=0.9; bodyS.t=0.97; lookY.t=2; });
+      after(5400, connLoop);
+    }
+
+    function permLoop(){
+      ambient=false; blinkOK=true; happy.t=0; eyeOpen.t=1.05; squint.t=0.7; lookX.t=0; lookY.t=2;
+      bodyS.t=1; morph.t=0.1; permOn.t = state === "permission" ? 1 : 0;
+      after(900,  function(){ headTilt.t=9; lookX.t=3; });
+      after(2500, function(){ headTilt.t=-6; lookX.t=-3; });
+      after(3900, function(){ headTilt.t=0; lookX.t=0; hopY.t=-6; bodyS.t=1.04; });
+      after(4080, function(){ hopY.t=0; bodyS.t=1; });
+      after(4300, function(){ hopY.t=-5; bodyS.t=1.03; });
+      after(4480, function(){ hopY.t=0; bodyS.t=1; });
+      after(5400, permLoop);
+    }
+
+    function listenLoop(){
+      ambient=false; blinkOK=true; happy.t=0; eyeOpen.t=1.1; squint.t=1; lookX.t=0; lookY.t=1.5;
+      bodyS.t=1.02; morph.t=0.05; listenOn.t=1; headTilt.t=7;
+      (function sway(){
+        after(2200 + Math.random()*1400, function(){
+          headTilt.t = headTilt.t > 0 ? -6 : 7;
+          var ear = Math.random() < 0.5 ? twL : twR; ear.vel += 1.2;
+          sway();
+        });
+      })();
+    }
+    function speakLoop(){
+      ambient=false; blinkOK=true; happy.t=0; eyeOpen.t=1; squint.t=1; lookX.t=0; lookY.t=0;
+      bodyS.t=1; morph.t=0.1; speakOn.t=1;
+      (function gesture(){
+        after(1400 + Math.random()*1200, function(){
+          var r = Math.random();
+          if (r < 0.4) headTilt.t = (Math.random()*2-1)*5;
+          else if (r < 0.7){ lookX.t = (Math.random()*2-1)*4; after(700, function(){ lookX.t = 0; }); }
+          else { hopY.t = -4; after(160, function(){ hopY.t = 0; }); }
+          gesture();
+        });
+      })();
+    }
+
+    function setState(s){
+      if (!LABELS[s]) return;
+      if (s === state && s !== "done") return;
+      clearTimers(); state = s;
+      if (onChange) onChange(s);
+      dance.t = 0; ringOn.t = 0; hopY.t = 0;
+      alertOn.t = 0; handOn.t = 0; waveOn.t = 0; toolOn.t = 0; connOn.t = 0; permOn.t = 0; headTilt.t = 0;
+      listenOn.t = 0; speakOn.t = 0;
+      lookX.t = 0; lookY.t = 0; squint.t = 1;
+      work.t = (s === "working") ? 1 : 0;
+      if (s === "idle"){
+        colorRate = 0.05;
+        ensureFace(faceNeutral);
+      } else if (s === "thinking"){
+        colorRate = 0.15;
+        if (form === "face") thinkLoop();
+        else toFace(function(){ faceNeutral(); after(900, thinkLoop); });
+      } else if (s === "working"){
+        colorRate = 0.35;
+        ensureFace(workLoop);
+      } else if (s === "done"){
+        colorRate = 0.2;
+        ensureFace(celebrate);
+      } else if (s === "alert"){
+        colorRate = 0.1; alertOn.t = 1;
+        ensureFace(alertLoop);
+      } else if (s === "welcome"){
+        colorRate = 0.12;
+        ensureFace(welcomeLoop);
+      } else if (s === "tool"){
+        colorRate = 0.4;
+        ensureFace(toolLoop);
+      } else if (s === "connection"){
+        colorRate = 0.03; connOn.t = 1;
+        ensureFace(connLoop);
+      } else if (s === "permission"){
+        colorRate = 0.08; permOn.t = 1;
+        ensureFace(permLoop);
+      } else if (s === "question"){
+        colorRate = 0.08;
+        ensureFace(permLoop);
+      } else if (s === "listening"){
+        colorRate = 0.08;
+        ensureFace(listenLoop);
+      } else if (s === "speaking"){
+        colorRate = 0.12;
+        ensureFace(speakLoop);
+      }
+    }
+
+    function calm(){ return state === "idle" && ambient && form === "face" && !REDUCED; }
+    var HABITS = {
+      toddle: function(){
+        var to = (walkX.t > 0 ? -1 : 1) * (6 + Math.random()*8);
+        walkOn.t = 1; walkX.t = to; lookX.t = to > 0 ? 5 : -5;
+        setTimeout(function(){ walkOn.t = 0; if (calm()) lookX.t = 0; }, 1500 + Math.random()*700);
+      },
+      hop: function(){
+        hopY.t = -13; bodyS.t = 1.05;
+        setTimeout(function(){ hopY.t = 0; bodyS.t = 1; }, 190);
+        setTimeout(function(){ if (calm()) hopY.t = -6; }, 380);
+        setTimeout(function(){ hopY.t = 0; }, 520);
+      },
+      wiggle: function(){ wiggleAt = t; },
+      twitch: function(){
+        var s = Math.random() < 0.5 ? twL : twR; s.vel += 1.6;
+        if (Math.random() < 0.4) setTimeout(function(){ s.vel += 1.2; }, 230);
+      },
+      stretch: function(){
+        stretch.t = 1; squint.t = 0.35;
+        setTimeout(function(){ stretch.t = 0; squint.t = 1; }, 950);
+      },
+      sniff: function(){
+        [0, 170, 340].forEach(function(ms){
+          setTimeout(function(){ bodyS.t = 1.035; lookY.t = 2; }, ms);
+          setTimeout(function(){ bodyS.t = 1; lookY.t = 0; }, ms + 90);
+        });
+      }
+    };
+    var HABIT_ORDER = ["toddle","hop","wiggle","twitch","toddle","stretch","sniff","twitch","hop"];
+    (function habitLoop(){
+      setTimeout(function(){
+        if (calm()){
+          var pick = HABIT_ORDER[Math.floor(Math.random()*HABIT_ORDER.length)];
+          HABITS[pick]();
+        } else if (state !== "idle"){
+          walkX.t = 0; walkOn.t = 0;
+        }
+        habitLoop();
+      }, 2600 + Math.random()*3400);
+    })();
+
+    function blink(){ blinkY = 0.05; setTimeout(function(){ blinkY = 1; }, 110); }
+    (function blinkLoop(){
+      setTimeout(function(){
+        if (blinkOK && form === "face"){ blink(); if (Math.random() < 0.18) setTimeout(blink, 260); }
+        blinkLoop();
+      }, 2000 + Math.random()*3200);
+    })();
+    (function lookLoop(){
+      setTimeout(function(){
+        if (ambient && form === "face" && blinkOK && !REDUCED){
+          lookX.t = (Math.random()*2-1)*6; lookY.t = (Math.random()*2-1)*3.5;
+          setTimeout(function(){ if (ambient && form === "face"){ lookX.t=0; lookY.t=0; } }, 900 + Math.random()*700);
+        }
+        lookLoop();
+      }, 2600 + Math.random()*3000);
+    })();
+
+    var ao = 0, co = 0, flash = 0;
+    function tint(c, j){
+      if (co > 0.001){ var g = c[0]*0.3 + c[1]*0.59 + c[2]*0.11; c = mix(c, [g+6, g+8, g+14], 0.8*co); }
+      if (ao > 0.001){ c = mix(c, mix(aDeep[j], aBright[j], flash), ao); }
+      return c;
+    }
+    function emit(n, oy){
+      for (var i=0; i<n && parts.length < 70; i++){
+        var el = pool.pop() || document.createElementNS("http://www.w3.org/2000/svg", "path");
+        el.setAttribute("d", ICONS[Math.floor(Math.random()*ICONS.length)]);
+        fx.appendChild(el);
+        parts.push({ el:el, x:(Math.random()-0.5)*30, y:oy, vx:(Math.random()-0.5)*200, vy:-(150 + Math.random()*130),
+                     rot:Math.random()*360, vr:(Math.random()-0.5)*540, life:0, max:1.3 + Math.random()*0.7,
+                     s:1.15 + Math.random()*0.7, h:Math.random()*360, hr:(Math.random() < 0.5 ? -1 : 1)*(120 + Math.random()*240) });
+      }
+    }
+
+    function update(dt, f){
+      t += dt;
+      if (performance.now() - VOICE.at < 400) vox.t = VOICE.level;
+      else if (REDUCED) vox.t = 0.3;
+      else if (state === "speaking") vox.t = 0.2 + 0.55*Math.abs(Math.sin(t*8.5))*(0.55 + 0.45*Math.sin(t*1.9));
+      else vox.t = 0.08 + 0.06*Math.sin(t*2);
+      for (var i=0; i<springs.length; i++) stepSpring(springs[i], f);
+      var lsn = clamp01(listenOn.v), spk = clamp01(speakOn.v), vl = clamp01(vox.v);
+      var motion = REDUCED ? 0.2 : 1;
+
+      colorP += dt * colorRate;
+      ao = clamp01(alertOn.v); co = clamp01(connOn.v);
+      flash = REDUCED ? 0.5 : clamp01(0.5 + 1.6*Math.sin(TAU*t*2.2));
+      for (var j=0; j<4; j++) stops[j].setAttribute("stop-color", rgb(tint(palAt(pals, colorP, j), j)));
+
+      var dn = clamp01(dance.v) * (REDUCED ? 0 : 1);
+      var bounce = Math.abs(Math.sin(Math.PI*t/0.62));
+      var danceY = -12 * dn * bounce;
+      var tilt = dn * 7 * Math.sin(TAU*t/1.24);
+      var landSquash = dn * 0.07 * Math.pow(1 - bounce, 6) - dn * 0.03 * bounce;
+
+      var m = Math.max(0, morph.v);
+      for (var k=1; k<8; k++){
+        ph[k] += dt * (0.3 + 0.07*k) * (k%2 ? 1 : -1) * (1 + m*8) * motion;
+        amps[k] = base[k]*(1 - 0.4*Math.min(1,m)) + mo[k]*m;
+      }
+      var bs = Math.max(0, bodyS.v);
+      var w = Math.sin(t*2.4) * P.squash * motion;
+      puff *= Math.pow(0.85, f);
+      var st = Math.max(0, stretch.v);
+      var sx = P.aspect[0]*(1 + w + landSquash + 0.07*puff + 0.03*co - 0.06*st - 0.03*spk*vl + 0.03*lsn*vl),
+          sy = P.aspect[1]*(1 - w - landSquash - 0.07*puff - 0.04*co + 0.09*st + 0.05*spk*vl);
+      body.setAttribute("d", bs < 0.015 ? "M0 0" : blobPath(84*bs, amps, ph, sx, sy));
+
+      var sp = Math.max(0, spread.v);
+      var bob = REDUCED ? 0 : (-3 + 3*Math.cos(TAU*t/4.2)) * (1 - 0.5*clamp01(sp)) * (1 - dn);
+      var wo = clamp01(walkOn.v) * motion;
+      stepP += dt * TAU * 3.2 * Math.max(wo, dn);
+      var step = Math.sin(stepP);
+      var y = bob + hopY.v + danceY - 2.5*wo*Math.abs(step) - 4*spk*vl + 2*lsn*vl;
+      var wx = walkX.v;
+      var wg = t - wiggleAt < 0.9 ? 9*Math.sin((t - wiggleAt)*26)*(1 - (t - wiggleAt)/0.9) : 0;
+      var lean = lookX.v*0.7 + 3.5*wo*step + wg;
+      var shakeX = REDUCED ? 0 : ao * 3.2 * Math.sin(TAU*t*11) * (flash > 0.5 ? 1 : 0.3);
+      var wv = clamp01(waveOn.v), waveAng = REDUCED ? 0 : waveOn.v * 20 * Math.sin(TAU*t/0.72);
+      var rigT = "translate(" + (shakeX + wx).toFixed(2) + "," + y.toFixed(2) + ") rotate(" + (tilt + headTilt.v + lean).toFixed(2) + " 0 60) rotate(" + waveAng.toFixed(2) + " 0 70)";
+      rig.setAttribute("transform", rigT);
+      eyeFront.setAttribute("transform", rigT);
+
+      var R = 84*bs, handAway = 1 - clamp01(handOn.v*1.6);
+      var partsOn = clamp01((bs - 0.35)/0.45) * handAway;
+      function placeEar(el, inner, side, tw){
+        if (!el) return;
+        if (partsOn < 0.02){ el.setAttribute("transform", "scale(0)"); if (inner) inner.setAttribute("transform", "scale(0)"); return; }
+        var a = EAR.single ? EAR.at : side*EAR.at;
+        var bx = Math.sin(a)*R*sx*0.9, by = -Math.cos(a)*R*sy*0.9;
+        var flop = EAR.flop ? side*(6 + 4*Math.sin(t*1.7 + side))*(1 - 0.7*lsn) : 0;
+        var rot = a*180/Math.PI*(0.75 - 0.25*lsn) + flop + tw*18*side + (EAR.single ? 6*Math.sin(t*1.3) : 0);
+        var tf = "translate(" + bx.toFixed(2) + "," + by.toFixed(2) + ") rotate(" + rot.toFixed(2) + ") scale(" + (bs*partsOn*(P.earScale || 1)*(1 + 0.12*lsn)).toFixed(3) + ")";
+        el.setAttribute("transform", tf);
+        if (inner) inner.setAttribute("transform", tf);
+      }
+      placeEar(earL, inL, -1, twL.v);
+      placeEar(earR, inR, 1, twR.v);
+      if (inL && EAR.single){ inL.setAttribute("transform", "scale(0)"); inR.setAttribute("transform", "scale(0)"); }
+
+      var po = Math.max(0, permOn.v);
+      perm.setAttribute("opacity", clamp01(po).toFixed(3));
+      if (po > 0.01){
+        perm.setAttribute("transform", "translate(" + (42 + headTilt.v*0.6).toFixed(2) + "," + (-71 + y).toFixed(2) + ") scale(" + (0.5 + 0.5*po).toFixed(3) + ") translate(16,-29)");
+        var lift = REDUCED ? 0 : 3.5*Math.pow(Math.max(0, Math.sin(TAU*t/1.6)), 6);
+        shackle.setAttribute("transform", "translate(0," + (-lift).toFixed(2) + ")");
+        for (var pdi=0; pdi<3; pdi++){
+          var pdv = REDUCED ? 1 : 0.25 + 0.75*Math.pow(Math.max(0, Math.sin(TAU*(t/1.2 - pdi*0.18))), 2);
+          permDots[pdi].setAttribute("opacity", pdv.toFixed(3));
+        }
+      }
+
+      var hg = Math.max(0, handOn.v), hs = bs/0.82;
+      for (var fi=0; fi<fingers.length; fi++){
+        var F = FINGERS[fi], fe = fingers[fi];
+        if (hg < 0.02){ fe.setAttribute("rx", 0); fe.setAttribute("ry", 0); continue; }
+        var ang = F.a + (REDUCED ? 0 : wv*6*Math.sin(TAU*t/0.72 - fi*0.6));
+        var ar = ang*Math.PI/180, reach = F.len*0.6*hg;
+        var fcx = (F.x + Math.sin(ar)*reach)*hs, fcy = (F.y - Math.cos(ar)*reach)*hs;
+        fe.setAttribute("cx", fcx.toFixed(2)); fe.setAttribute("cy", fcy.toFixed(2));
+        fe.setAttribute("rx", (F.w*hs*clamp01(hg*2)).toFixed(2));
+        fe.setAttribute("ry", (F.len*0.7*hg*hs).toFixed(2));
+        fe.setAttribute("transform", "rotate(" + ang.toFixed(2) + " " + fcx.toFixed(2) + " " + fcy.toFixed(2) + ")");
+      }
+      waves.setAttribute("opacity", Math.max(wv*(0.35 + 0.65*Math.abs(Math.sin(TAU*t/1.44))), lsn*(0.15 + 0.85*vl)).toFixed(3));
+      waves.setAttribute("transform", "translate(0," + y.toFixed(2) + ") scale(" + (1 + 0.1*lsn*vl).toFixed(3) + ")");
+
+      if (ao < 0.01){ halo.style.display = "none"; badge.setAttribute("opacity", 0); }
+      else {
+        halo.style.display = "";
+        for (var hk=0; hk<2; hk++){
+          var hp2 = frac(t/1.1 + hk*0.5);
+          haloC[hk].setAttribute("r", (84 + 44*hp2).toFixed(2));
+          haloC[hk].setAttribute("stroke-width", (1 + 7*(1-hp2)).toFixed(2));
+          haloC[hk].setAttribute("opacity", (ao*(1-hp2)*0.7).toFixed(3));
+        }
+        halo.setAttribute("transform", "translate(" + shakeX.toFixed(2) + "," + y.toFixed(2) + ")");
+        badge.setAttribute("opacity", (ao*(0.35 + 0.65*flash)).toFixed(3));
+        badge.setAttribute("transform", "translate(" + (62 + shakeX).toFixed(2) + "," + (-72 + y).toFixed(2) + ") scale(" + (ao*(0.9 + 0.15*flash)).toFixed(3) + ")");
+      }
+
+      sig.setAttribute("opacity", co.toFixed(3));
+      connRing.setAttribute("opacity", (0.55*co).toFixed(3));
+      if (co > 0.01){
+        var lvl = REDUCED ? 4 : Math.floor(t*2.2) % 5;
+        for (var si=0; si<4; si++) sigParts[si].setAttribute("opacity", lvl > si ? 1 : 0.18);
+        sig.setAttribute("transform", "translate(0," + (-92 + y).toFixed(2) + ")");
+        connA += dt * 40 * (REDUCED ? 0.3 : 1);
+        connRing.setAttribute("transform", "translate(0," + y.toFixed(2) + ") rotate(" + connA.toFixed(2) + ")");
+      }
+
+      if (toolOn.t === 1 && toolOn.v > 0.6){
+        toolClock += dt;
+        if (toolClock > (REDUCED ? 0.8 : 0.3)){
+          toolClock = 0; puff = 1;
+          emit(REDUCED ? 1 : 2 + (Math.random() < 0.5 ? 1 : 0), y - 70*bs);
+        }
+      }
+      for (var pi=parts.length-1; pi>=0; pi--){
+        var pt = parts[pi];
+        pt.life += dt;
+        if (pt.life > pt.max){ fx.removeChild(pt.el); pool.push(pt.el); parts.splice(pi, 1); continue; }
+        pt.vy += 330*dt; pt.x += pt.vx*dt; pt.y += pt.vy*dt; pt.rot += pt.vr*dt; pt.h += pt.hr*dt;
+        var pop = Math.min(1, pt.life/0.15), fade = 1 - clamp01((pt.life - pt.max*0.65)/(pt.max*0.35));
+        pt.el.setAttribute("transform", "translate(" + pt.x.toFixed(2) + "," + pt.y.toFixed(2) + ") rotate(" + pt.rot.toFixed(1) + ") scale(" + (pt.s*pop).toFixed(3) + ")");
+        pt.el.setAttribute("fill", "hsl(" + (((pt.h % 360) + 360) % 360).toFixed(0) + ",88%,58%)");
+        pt.el.setAttribute("opacity", fade.toFixed(3));
+      }
+
+      var ro = ringOn.v;
+      if (ro < 0.01){ ring.style.display = "none"; }
+      else {
+        ring.style.display = "";
+        ringA += dt * 1.1 * (REDUCED ? 0.3 : 1);
+        var sweep = RING_SWEEP * clamp01(ro) * TAU;
+        var sc = 0.55 + 0.45*ro;
+        ring.setAttribute("transform", "translate(0," + y.toFixed(2) + ") rotate(" + (ringA*180/Math.PI).toFixed(2) + ") scale(" + sc.toFixed(3) + ")");
+        for (var r=0; r<RING_N; r++){
+          var a0 = r/RING_N*sweep, a1 = (r+1)/RING_N*sweep + 0.012, pos = r/(RING_N-1);
+          ringSegs[r].setAttribute("d",
+            "M" + (Math.cos(a0)*RING_R).toFixed(2) + " " + (Math.sin(a0)*RING_R).toFixed(2) +
+            "A" + RING_R + " " + RING_R + " 0 0 1 " + (Math.cos(a1)*RING_R).toFixed(2) + " " + (Math.sin(a1)*RING_R).toFixed(2));
+          ringSegs[r].setAttribute("stroke-width", (2 + 6*pos).toFixed(2));
+          ringSegs[r].setAttribute("opacity", ((0.2 + 0.8*pos) * clamp01(ro)).toFixed(3));
+        }
+      }
+
+      var wk = clamp01(work.v), ds = Math.max(0, dotS.v);
+      orbitA += dt * (0.5 + 2.8*wk) * motion;
+      var a1w = clamp01(sp)*(1-wk), a2w = clamp01(sp)*wk;
+      for (var d=0; d<3; d++){
+        var bx, by;
+        if (P.layout === "tri"){
+          var ang = -Math.PI/2 + d*TAU/3 + orbitA;
+          bx = Math.cos(ang)*46*sp; by = Math.sin(ang)*46*sp;
+        } else { bx = (d-1)*66*sp; by = 0; }
+        var ps = 1 - 0.5*Math.pow(Math.sin(Math.PI*(t/1.2 - d*0.15)), 2);
+        var rx = 1, ry = 1, oy = 0, h;
+        if (P.work === "wave"){
+          h = Math.max(0, Math.sin(TAU*(t/0.95 - d*0.16)));
+          oy = -20*h; rx = ry = 1 + 0.08*h;
+        } else if (P.work === "hop"){
+          var p = frac(t/1.1 - d*0.2);
+          if (p < 0.42){ h = Math.sin(Math.PI*p/0.42); oy = -28*h; rx = 1-0.1*h; ry = 1+0.12*h; }
+          else if (p < 0.56){ h = Math.sin(Math.PI*(p-0.42)/0.14); rx = 1+0.28*h; ry = 1-0.24*h; oy = 6*h; }
+        } else if (P.work === "snake"){
+          oy = -16*Math.sin(TAU*(t/1.0 - d*0.25));
+          rx = ry = 1 + 0.06*Math.cos(TAU*(t/1.0 - d*0.25));
+        } else {
+          rx = ry = 1 + 0.14*Math.sin(TAU*(t/0.8 - d/3));
+        }
+        if (REDUCED){ ps = 1; rx = ry = 1; oy = 0; }
+        var dsc = 1 - a1w*(1-ps);
+        var R0 = 24*ds*dsc;
+        var el = dots[d];
+        el.setAttribute("cx", bx.toFixed(2));
+        el.setAttribute("cy", (by + oy*a2w).toFixed(2));
+        el.setAttribute("rx", (R0*(1 + (rx-1)*a2w)).toFixed(2));
+        el.setAttribute("ry", (R0*(1 + (ry-1)*a2w)).toFixed(2));
+        el.setAttribute("fill", rgb(tint(palAt(pals, colorP + d*pals.length/3, 2), 2)));
+      }
+
+      /* [MIX+] ตา: ดาว/กลมโต ขยายกว่าปกติ 10%, happy ไม่กระพริบตาม blink */
+      var es = Math.min(1.25, bs), eo = Math.max(0, eyeOpen.v), hp = clamp01(happy.v);
+      var lx = lookX.v, ly = lookY.v;
+      var eyeBoost = (P.eyeStyle === "star" || P.eyeStyle === "round") ? 1.12 : 1;
+      function placeEye(g, e, squintY){
+        var happyEye = (P.eyeStyle === "happy");
+        var s1 = es*eo*eyeBoost, s2 = es*(happyEye ? eo : eo*blinkY*squintY)*eyeBoost;
+        g.setAttribute("transform", "translate(" + (e.x*es+lx).toFixed(2) + "," + (e.y*es+ly).toFixed(2) + ") scale(" + s1.toFixed(3) + "," + Math.max(0.001,s2).toFixed(3) + ")");
+      }
+      placeEye(eL, P.eyes.L, Math.max(0.05, squint.v));
+      placeEye(eR, P.eyes.R, 1);
+      function placeHappy(g, e){
+        var s = es*(0.6 + 0.4*hp);
+        g.setAttribute("transform", "translate(" + (e.x*es+lx).toFixed(2) + "," + (e.y*es-2).toFixed(2) + ") scale(" + s.toFixed(3) + ")");
+        g.setAttribute("opacity", hp.toFixed(3));
+      }
+      placeHappy(hL, P.eyes.L); placeHappy(hR, P.eyes.R);
+
+      if (bL){
+        var bo = (0.35 + 0.3*hp) * clamp01(Math.max(eo, hp)) * clamp01(bs);
+        [[bL, P.eyes.L], [bR, P.eyes.R]].forEach(function(pair){
+          pair[0].setAttribute("transform", "translate(" + (pair[1].x*es*1.12).toFixed(2) + "," + ((pair[1].y+22)*es).toFixed(2) + ") scale(" + es.toFixed(3) + ")");
+          pair[0].setAttribute("opacity", bo.toFixed(3));
+        });
+      }
+
+      var mx = ((P.eyes.L.x + P.eyes.R.x)/2)*es + lx*0.8, my = (Math.max(P.eyes.L.y, P.eyes.R.y) + 19)*es + ly*0.6;
+      var mo2 = partsOn * clamp01(bs);
+      var mt = "translate(" + mx.toFixed(2) + "," + my.toFixed(2) + ") scale(" + es.toFixed(3) + ")";
+      var talk = spk*clamp01(vl*1.5), tv = clamp01(talk*3), open = Math.max(hp, tv);
+      /* [MIX+] ปาก fill (open/o) โชว์ตลอด ไม่ต้องรอ happy */
+      var baseMouthOn = (mouthIsFill ? 1 : (1 - open));
+      mouth.setAttribute("transform", mt);
+      mouthOpen.setAttribute("transform", tv > hp
+        ? "translate(" + mx.toFixed(2) + "," + my.toFixed(2) + ") scale(" + (es*(0.9 + 0.5*talk)).toFixed(3) + "," + (es*(0.3 + 2*talk)).toFixed(3) + ")"
+        : mt);
+      mouth.setAttribute("opacity", (mo2*baseMouthOn).toFixed(3));
+      mouthOpen.setAttribute("opacity", (mo2*(mouthIsFill ? Math.max(tv*0.6, 0) : open)).toFixed(3));
+
+      shadow.setAttribute("cx", wx.toFixed(2));
+      var srx = (46 + 50*clamp01(sp)) * (1 + y/70);
+      shadow.setAttribute("rx", Math.max(10, srx).toFixed(2));
+      shadow.setAttribute("opacity", (0.9 + y/60).toFixed(3));
+    }
+
+    return { key:key, name:P.name, update:update, setState:setState, getState:function(){ return state; } };
+  }
+
+  var bots = [];
+  var last = performance.now();
+  var paused = false, pending = 0, MIN_MS = 1000/60 - 4, drawn = false;
+  function setFps(fps){ MIN_MS = 1000/Math.max(1, Math.min(60, fps)) - 4; }
+  function frame(now){
+    pending = 0;
+    if (paused || document.hidden) return;
+    if (now - last < MIN_MS){ pending = requestAnimationFrame(frame); return; }
+    var dt = Math.min(0.05, (now - last)/1000); last = now;
+    var f = dt*60;
+    for (var i=0; i<bots.length; i++) bots[i].update(dt, f);
+    drawn = true;
+    pending = requestAnimationFrame(frame);
+  }
+  function drawOnce(){
+    for (var i=0; i<bots.length; i++) bots[i].update(1/60, 1);
+    drawn = true;
+  }
+  function setPaused(p){
+    paused = p;
+    if (paused && !drawn) drawOnce();
+    if (!paused && !pending && !document.hidden){ last = performance.now(); pending = requestAnimationFrame(frame); }
+  }
+  document.addEventListener("visibilitychange", function(){ setPaused(paused); });
+  pending = requestAnimationFrame(frame);
+
+  /* [MIX+] demo วนครบ 12 ท่า */
+  var SEQ = [["idle",2500],["welcome",6200],["thinking",8000],["tool",6000],["working",9000],
+             ["alert",4000],["connection",6500],["permission",5400],["question",4500],
+             ["listening",5000],["speaking",6000],["done",2600]];
+  function startDemo(bot, offset){
+    stopDemo(bot);
+    var i = 0;
+    function next(){ var st = SEQ[i%SEQ.length]; bot.setState(st[0]); bot._demo = setTimeout(next, st[1]); i++; }
+    bot._demo = setTimeout(next, offset);
+  }
+  function stopDemo(bot){ if (bot._demo){ clearTimeout(bot._demo); bot._demo = null; } }
+
+  var params = new URLSearchParams(location.search);
+  var embedKey = params.get("embed");
+
+  /* [MIX+] customPreset ขยาย: อ่าน eyeStyle/mouthStyle/blushColor/innerFill เพิ่ม */
+  function customPreset(raw){
+    var c; try { c = JSON.parse(raw || ""); } catch(e){ return null; }
+    if (!c || typeof c !== "object") return null;
+    var B = PRESETS[c.base] || PRESETS.mochi;
+    var isHex = function(v){ return typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v); };
+    var pals = Array.isArray(c.palettes) ? c.palettes.filter(function(p){
+      return Array.isArray(p) && p.length === 4 && p.every(isHex);
+    }).slice(0, 4) : [];
+    var num = function(v, lo, hi, d){ return typeof v === "number" && isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d; };
+    var aspect = Array.isArray(c.aspect) ? [num(c.aspect[0], 0.85, 1.2, B.aspect[0]), num(c.aspect[1], 0.85, 1.2, B.aspect[1])] : B.aspect;
+    var eyeStyle = ["normal","round","star","happy"].indexOf(c.eyeStyle) >= 0 ? c.eyeStyle : "normal";
+    var mouthStyle = c.mouthStyle || c.mouth;
+    if (["smile","cat","open","o","sulk"].indexOf(mouthStyle) < 0) mouthStyle = MOUTHS[c.mouth] ? c.mouth : B.mouth;
+    return {
+      name: typeof c.name === "string" ? c.name.slice(0, 40) : B.name,
+      palettes: pals.length ? pals : B.palettes,
+      aspect: aspect,
+      base: B.base, morph: B.morph,
+      eyes: (PRESETS[c.eyes] || B).eyes,
+      eyeStyle: eyeStyle,
+      eyeInk: isHex(c.eyeInk) ? c.eyeInk : B.eyeInk,
+      blush: typeof c.blush === "boolean" ? c.blush : B.blush,
+      blushColor: isHex(c.blushColor) ? c.blushColor : "#ff8fab",
+      innerFill: isHex(c.innerFill) ? c.innerFill : undefined,
+      layout: c.layout === "tri" || c.layout === "line" ? c.layout : B.layout,
+      work: ["wave","hop","orbit","snake"].indexOf(c.work) >= 0 ? c.work : B.work,
+      squash: B.squash,
+      ears: EARS[c.ears] ? c.ears : B.ears,
+      earScale: num(c.earScale, 0.3, 1.3, 1),
+      /* limbs ถูกถอดออกแล้ว: อ่านค่าเก่าไว้เฉย ๆ เพื่อให้ preset เก่าไม่พัง (ignore) */
+      arms: typeof c.arms === "boolean" ? c.arms : true,
+      armScale: num(c.armScale, 0.5, 1.4, 1),
+      legs: typeof c.legs === "boolean" ? c.legs : true,
+      legScale: num(c.legScale, 0.5, 1.4, 1),
+      mouth: mouthStyle
+    };
+  }
+  if (embedKey === "custom") PRESETS.custom = customPreset(params.get("preset")) || PRESETS.mochi;
+
+  /* ---------- embed mode: ?embed=mix | ?embed=custom&preset=… ---------- */
+  if (embedKey && (PRESETS[embedKey] || embedKey === "mix")){
+    document.documentElement.classList.add("embed");
+    if (document.body) document.body.classList.add("embed");
+    var holder = document.createElement("div");
+    holder.className = "bot-canvas";
+    document.getElementById("embed").appendChild(holder);
+    var ekey = embedKey === "mix" ? "mochi" : embedKey;
+    var b = createBot(holder, ekey, function(s){
+      try { parent.postMessage({ type:"bot-state-changed", bot:embedKey, state:s }, "*"); } catch(e){}
+    });
+    if (params.get("shadow") === "0") {
+      var sh = holder.querySelector(".shadow");
+      if (sh) sh.style.display = "none";
+    }
+    bots.push(b);
+    if (params.get("demo") === "1") startDemo(b, 400);
+    else if (params.get("state")) b.setState(params.get("state"));
+  } else if (!embedKey) {
+    /* ================= MIXER UI ================= */
+    var $ = function(id){ return document.getElementById(id); };
+    var canvas = $("mixCanvas"), nameEl = $("mixName"), stateEl = $("mixState");
+    var STATES = ["idle","thinking","working","done","alert","welcome","tool","connection","permission","question","listening","speaking"];
+    var mixBot = null, curState = "idle", demoOn = true;
+
+    var S = {}; // mixer state → preset override
+    function baseDefaults(key){
+      var B = PRESETS[key];
+      return {
+        base: key,
+        name: B.name + " + custom",
+        palettes: [B.palettes[0].slice()],
+        aspect: B.aspect.slice(),
+        eyes: B.eyes, eyeStyle: "normal",
+        eyeInk: B.eyeInk || "#2b2540",
+        blush: B.blush, blushColor: "#ff8fab",
+        innerFill: (EARS[B.ears] && EARS[B.ears].innerFill) || "#ff9ec0",
+        ears: B.ears, earScale: 1,
+        mouth: (B.mouth === "cat" ? "cat" : "smile"),
+        layout: B.layout, work: B.work
+      };
+    }
+    function toOverride(){
+      var B = PRESETS[S.base];
+      return {
+        name: S.name, palettes: S.palettes, aspect: S.aspect,
+        base: B.base, morph: B.morph, squash: B.squash,
+        eyes: B.eyes, eyeStyle: S.eyeStyle, eyeInk: S.eyeInk,
+        blush: S.blush, blushColor: S.blushColor, innerFill: S.innerFill,
+        ears: S.ears, earScale: S.earScale, mouth: S.mouth,
+        layout: S.layout, work: S.work
+      };
+    }
+
+    function rebuild(keepState){
+      var st = keepState ? curState : curState;
+      if (mixBot) { stopDemo(mixBot); var ix = bots.indexOf(mixBot); if (ix >= 0) bots.splice(ix, 1); }
+      canvas.innerHTML = "";
+      mixBot = createBot(canvas, S.base, toOverride(), function(s){
+        curState = s; stateEl.textContent = LABELS[s] || s;
+        document.querySelectorAll("#stateBtns button").forEach(function(x){
+          x.setAttribute("aria-pressed", x.dataset.state === s ? "true" : "false");
+        });
+      });
+      bots.push(mixBot);
+      nameEl.textContent = S.name;
+      if (st && st !== "idle") mixBot.setState(st);
+      else if (demoOn) startDemo(mixBot, 600);
+      refreshExport();
+    }
+
+    // state buttons
+    var sWrap = $("stateBtns");
+    STATES.forEach(function(st){
+      var btn = document.createElement("button");
+      btn.dataset.state = st; btn.textContent = {idle:"รอ",thinking:"คิด",working:"ทำงาน",done:"เสร็จ",alert:"เตือน",welcome:"ทักทาย",tool:"เครื่องมือ",connection:"เชื่อมต่อ",permission:"อนุญาต",question:"ถาม",listening:"ฟัง",speaking:"พูด"}[st];
+      btn.setAttribute("aria-pressed", st === "idle" ? "true" : "false");
+      btn.addEventListener("click", function(){ setDemo(false); curState = st; mixBot.setState(st); });
+      sWrap.appendChild(btn);
+    });
+    function setDemo(on){
+      demoOn = on;
+      var db = $("demoBtn");
+      db.setAttribute("aria-pressed", on ? "true" : "false");
+      db.textContent = on ? "หยุดเดโมออโต้" : "เล่นเดโมออโต้";
+      if (!mixBot) return;
+      if (on) startDemo(mixBot, 300); else stopDemo(mixBot);
+    }
+    $("demoBtn").addEventListener("click", function(){ setDemo(!demoOn); });
+
+    // inputs
+    function segWire(id, fn){
+      var el = $(id);
+      el.querySelectorAll("button").forEach(function(bt){
+        bt.addEventListener("click", function(){
+          el.querySelectorAll("button").forEach(function(x){ x.setAttribute("aria-pressed", x === bt ? "true" : "false"); });
+          fn(bt.dataset.v);
+        });
+      });
+    }
+    function syncSeg(id, v){
+      $(id).querySelectorAll("button").forEach(function(x){ x.setAttribute("aria-pressed", x.dataset.v === v ? "true" : "false"); });
+    }
+
+    $("inBase").addEventListener("change", function(){
+      var nm = S.name;
+      S = baseDefaults(this.value);
+      S.name = nm;
+      syncAllInputs(); rebuild(true);
+    });
+    $("inName").addEventListener("input", function(){ S.name = this.value.slice(0,40) || "custom"; nameEl.textContent = S.name; refreshExport(); });
+
+    var cIds = ["c0","c1","c2","c3"], oIds = ["o0","o1","o2","o3"];
+    cIds.forEach(function(id, j){
+      $(id).addEventListener("input", function(){
+        S.palettes = [[$("c0").value, $("c1").value, $("c2").value, $("c3").value]];
+        $(oIds[j]).textContent = this.value;
+        rebuild(true);
+      });
+    });
+    $("cInk").addEventListener("input", function(){ S.eyeInk = this.value; $("oInk").textContent = this.value; rebuild(true); });
+    $("cBlush").addEventListener("input", function(){ S.blushColor = this.value; $("oBlush").textContent = this.value; rebuild(true); });
+    $("cInner").addEventListener("input", function(){ S.innerFill = this.value; $("oInner").textContent = this.value; rebuild(true); });
+    $("inBlush").addEventListener("change", function(){ S.blush = this.checked; rebuild(true); });
+    $("inEarScale").addEventListener("input", function(){ S.earScale = this.value/100; $("oEar").textContent = this.value + "%"; rebuild(true); });
+    $("inEars").addEventListener("change", function(){
+      S.ears = this.value;
+      var e = EARS[this.value];
+      if (e && e.innerFill){ S.innerFill = e.innerFill; $("cInner").value = e.innerFill; $("oInner").textContent = e.innerFill; }
+      rebuild(true);
+    });
+    $("inMouth").addEventListener("change", function(){ S.mouth = this.value; rebuild(true); });
+    $("inW").addEventListener("input", function(){ S.aspect[0] = this.value/100; $("oW").textContent = this.value + "%"; rebuild(true); });
+    $("inH").addEventListener("input", function(){ S.aspect[1] = this.value/100; $("oH").textContent = this.value + "%"; rebuild(true); });
+    segWire("eyeBtns", function(v){ S.eyeStyle = v; rebuild(true); });
+    segWire("layoutBtns", function(v){ S.layout = v; rebuild(true); });
+    segWire("workBtns", function(v){ S.work = v; rebuild(true); });
+
+    // A+B mixer
+    function mixHexNow(){
+      var a = hex($("mixA").value), b = hex($("mixB").value), f = $("mixT").value/100;
+      return toHex(mix(a, b, f));
+    }
+    function refreshMixPrev(){
+      var m = mixHexNow();
+      $("mixPrev").style.background = m;
+      $("mixHex").textContent = m;
+      $("oMix").textContent = $("mixT").value + "%";
+    }
+    ["mixA","mixB","mixT"].forEach(function(id){ $(id).addEventListener("input", refreshMixPrev); });
+    $("applyMix").addEventListener("click", function(){
+      var m = hex(mixHexNow()), white = [255,255,255], black = [20,16,32];
+      var stops = [toHex(mix(white, m, 0.28)), toHex(mix(white, m, 0.62)), toHex(mix(m, black, 0.18)), toHex(mix(m, black, 0.52))];
+      S.palettes = [stops];
+      syncStops(); rebuild(true);
+    });
+
+    $("btnShuffle").addEventListener("click", function(){
+      var keys = Object.keys(PRESETS);
+      var bk = keys[Math.floor(Math.random()*keys.length)];
+      S = baseDefaults(bk);
+      S.name = $("inName").value.slice(0,40) || S.name;
+      var a = hex("#" + Math.floor(Math.random()*0xffffff).toString(16).padStart(6,"0"));
+      var b = hex("#" + Math.floor(Math.random()*0xffffff).toString(16).padStart(6,"0"));
+      var f = Math.random();
+      var m = mix(a, b, f), white = [255,255,255], black = [20,16,32];
+      S.palettes = [[toHex(mix(white, m, 0.28)), toHex(mix(white, m, 0.62)), toHex(mix(m, black, 0.18)), toHex(mix(m, black, 0.52))]];
+      var eyes = ["normal","round","star","happy"], ms = ["smile","cat","open","o","sulk"], es = ["cat","bunny","bear","fox","panda","leaf","tuft","none"];
+      S.eyeStyle = eyes[Math.floor(Math.random()*eyes.length)];
+      S.mouth = ms[Math.floor(Math.random()*ms.length)];
+      S.ears = es[Math.floor(Math.random()*es.length)];
+      S.layout = Math.random() < 0.5 ? "line" : "tri";
+      S.work = ["wave","hop","orbit","snake"][Math.floor(Math.random()*4)];
+      S.aspect = [0.95 + Math.random()*0.2, 0.92 + Math.random()*0.16];
+      $("inBase").value = bk;
+      syncAllInputs(); rebuild(true);
+    });
+    $("btnReset").addEventListener("click", function(){
+      var nm = $("inName").value;
+      S = baseDefaults($("inBase").value);
+      S.name = nm;
+      syncAllInputs(); rebuild(true);
+    });
+
+    function syncStops(){
+      var st = S.palettes[0];
+      cIds.forEach(function(id, j){ $(id).value = st[j]; $(oIds[j]).textContent = st[j]; });
+    }
+    function syncAllInputs(){
+      $("inName").value = S.name;
+      syncStops();
+      $("cInk").value = /^#[0-9a-f]{6}$/i.test(S.eyeInk) ? S.eyeInk : "#2b2540"; $("oInk").textContent = $("cInk").value;
+      $("inBlush").checked = !!S.blush;
+      $("cBlush").value = S.blushColor; $("oBlush").textContent = S.blushColor;
+      $("cInner").value = /^#[0-9a-f]{6}$/i.test(S.innerFill) ? S.innerFill : "#ff9ec0"; $("oInner").textContent = $("cInner").value;
+      $("inEarScale").value = Math.round(S.earScale*100); $("oEar").textContent = Math.round(S.earScale*100) + "%";
+      $("inEars").value = S.ears; $("inMouth").value = S.mouth;
+      $("inW").value = Math.round(S.aspect[0]*100); $("oW").textContent = Math.round(S.aspect[0]*100) + "%";
+      $("inH").value = Math.round(S.aspect[1]*100); $("oH").textContent = Math.round(S.aspect[1]*100) + "%";
+      syncSeg("eyeBtns", S.eyeStyle); syncSeg("layoutBtns", S.layout); syncSeg("workBtns", S.work);
+      refreshMixPrev();
+    }
+
+    // export
+    function presetJSON(){
+      var compatMouth = (S.mouth === "smile" || S.mouth === "cat") ? S.mouth : "smile";
+      return {
+        base: S.base, name: S.name, palettes: S.palettes,
+        aspect: [Math.round(S.aspect[0]*100)/100, Math.round(S.aspect[1]*100)/100],
+        eyes: S.base, eyeStyle: S.eyeStyle, eyeInk: S.eyeInk,
+        blush: S.blush, blushColor: S.blushColor, innerFill: S.innerFill,
+        ears: S.ears, earScale: Math.round(S.earScale*100)/100,
+        mouth: compatMouth, mouthStyle: S.mouth,
+        layout: S.layout, work: S.work
+      };
+    }
+    function pageURL(){
+      return location.href.split("?")[0].split("#")[0];
+    }
+    function refreshExport(){
+      var pj = presetJSON();
+      var js = JSON.stringify(pj);
+      $("outPreset").textContent = JSON.stringify(pj, null, 2);
+      var enc = encodeURIComponent(js);
+      var here = pageURL();
+      var iframe = '<iframe src="' + here + '?embed=custom&preset=' + enc + '"\n        style="border:0;width:160px;height:160px;background:transparent"></iframe>';
+      $("outIframe").textContent = iframe + '\n\n// ส่งสถานะจาก agent:\n// document.querySelector("iframe").contentWindow.postMessage({ state: "working" }, "*");';
+      $("outJS").textContent = '// วางไฟล์นี้ในหน้าเดียวกัน แล้วเรียก:\nCoworkBots.set("custom", "working"); // "idle"|"thinking"|"working"|"done"|"alert"|"welcome"|"tool"|"connection"|"permission"|"question"|"listening"|"speaking"';
+      var extra = (S.eyeStyle !== "normal" || ["open","o","sulk"].indexOf(S.mouth) >= 0)
+        ? " — ตา " + S.eyeStyle + " + ปาก " + S.mouth + " ต้อง embed จากไฟล์ mixer นี้ (cowork-bots.html เดิมจะ fallback เป็นตาแคปซูล+ปากยิ้ม)"
+        : " — preset นี้ใช้กับ cowork-bots.html เดิมได้เต็ม ๆ";
+      $("exportNote").textContent = "preset ยาว " + enc.length + " ตัวอักษร (อยู่ใน URL ได้สบาย)" + extra;
+    }
+    function copyText(el, btn, label){
+      var txt = el.textContent;
+      function done(){ var o = btn.textContent; btn.textContent = "คัดลอกแล้ว ✓"; setTimeout(function(){ btn.textContent = o; }, 1400); }
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done, function(){ fallback(); });
+      else fallback();
+      function fallback(){ var ta = document.createElement("textarea"); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); done(); } catch(e){} document.body.removeChild(ta); }
+    }
+    $("btnCopyPreset").addEventListener("click", function(){ copyText($("outPreset"), this); });
+    $("btnCopyIframe").addEventListener("click", function(){ copyText($("outIframe"), this); });
+    $("btnCopyJS").addEventListener("click", function(){ copyText($("outJS"), this); });
+    $("btnSVG").addEventListener("click", function(){
+      var svg = canvas.querySelector("svg");
+      if (!svg) return;
+      var clone = svg.cloneNode(true);
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      clone.style.background = "transparent";
+      var blob = new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = (S.name || "cowork-bot").replace(/[^\wก-๙-]+/g, "-") + ".svg";
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 800);
+    });
+
+    // init
+    S = baseDefaults("mochi");
+    S.eyeInk = "#2b2540";
+    $("inBase").value = "mochi";
+    syncAllInputs();
+    rebuild(false);
+    setDemo(true);
+  }
+
+  function apply(botKey, s){
+    bots.forEach(function(b){ if (!botKey || botKey === "all" || botKey === b.key){ stopDemo(b); b.setState(s); } });
+  }
+  window.addEventListener("message", function(e){
+    var d = e.data; if (!d) return;
+    if (typeof d === "string") return apply("all", d);
+    if (typeof d.paused === "boolean") setPaused(d.paused);
+    if (typeof d.fps === "number" && isFinite(d.fps)) setFps(d.fps);
+    if (typeof d.level === "number" && isFinite(d.level)){ VOICE.level = clamp01(d.level); VOICE.at = performance.now(); }
+    if (d.state) apply(d.bot || "all", d.state);
+  });
+  window.CoworkBots = {
+    set: function(botKey, s){ if (s === undefined){ s = botKey; botKey = "all"; } apply(botKey, s); },
+    list: function(){ return bots.map(function(b){ return { bot:b.key, state:b.getState() }; }); }
+  };
+})();
+</script>
+</body>
+</html>
