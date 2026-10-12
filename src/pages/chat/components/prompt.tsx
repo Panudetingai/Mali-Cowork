@@ -56,7 +56,8 @@ import {
 } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type RefObject } from "react";
-import { contextUsage } from "../context-usage";
+import { chatContextUsage } from "../context-usage";
+import { canCompact, carriedSummary, liveMessages } from "../compaction";
 import type { SendMessage } from "../hooks/use-chat";
 import { useDebouncedValue } from "../hooks/use-debounced-value";
 import {
@@ -220,7 +221,13 @@ export default function PromptInput({
   const effortOpts = effortLevels(selected.efforts);
   const maxEffort = isMaxEffort(effortOpts, effort);
   const budget = contextBudgetFor(selected);
-  const usageLive = useMemo(() => contextUsage(messages, prompt), [messages, prompt]);
+  // After a summary the model hears it and only what came since.
+  const compactions = session?.compactions;
+  const usageLive = useMemo(() => {
+    const chat = { messages, compactions, continuedFrom: session?.continuedFrom };
+    return chatContextUsage(messages, liveMessages(chat), carriedSummary(chat), prompt);
+  }, [messages, compactions, session?.continuedFrom, prompt]);
+  const summarized = messages.length - liveMessages({ messages, compactions }).length;
   const usage = useDebouncedValue(usageLive, 400, !!isLoading);
   const contextRatio = Math.min(1, usageLive.usedTokens / budget.maxTokens);
   const contextNearMax = contextRatio >= CONTEXT_WARN_RATIO;
@@ -424,7 +431,11 @@ export default function PromptInput({
     () => (slash ? filterSkills(skills.filter((k) => k.enabled), slash.query) : []),
     [slash, skills],
   );
-  const slashList = useMemo(() => (slash ? slashItems(skillMatches, slash.query) : []), [slash, skillMatches]);
+  const canSummarizeNow = !!onSummarize && !isLoading && canCompact({ messages, compactions });
+  const slashList = useMemo(
+    () => (slash ? slashItems(skillMatches, slash.query, { canSummarize: canSummarizeNow }) : []),
+    [slash, skillMatches, canSummarizeNow],
+  );
 
   // Skills and connectors picked for this prompt, shown as badges.
   const [pickedSkills, setPickedSkills] = useState<string[]>([]);
@@ -483,6 +494,10 @@ export default function PromptInput({
     const next = `${prompt.slice(0, slash.start)}${keep}${prompt.slice(caret)}`;
     setPrompt(next);
     setSlash(null);
+    if (item.kind === "summary") {
+      onSummarize?.(selected, budget);
+      return;
+    }
     if (item.kind === "bot") {
       requestAnimationFrame(() => {
         ref.current?.focus();
@@ -908,7 +923,8 @@ export default function PromptInput({
               budget={budget}
               folders={folders}
               onNewChat={onNewChat}
-              onSummarize={onSummarize && !isLoading ? () => onSummarize(selected, budget) : undefined}
+              onSummarize={onSummarize && !isLoading && canCompact({ messages, compactions }) ? () => onSummarize(selected, budget) : undefined}
+              summarized={summarized}
             />
           )}
           <ModelPicker

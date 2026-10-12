@@ -3,6 +3,8 @@ import type { ChatMessage } from "@/pages/chat/types";
 import { AnimatePresence, motion } from "motion/react";
 import { extractCoworkBlock, looksLikeFileWork } from "../cowork-handoff";
 import { CoworkSuggestionCard, MovedToCoworkDivider } from "./cowork-handoff-ui";
+import { CompactionCard } from "./compaction-card";
+import { lastCompaction } from "../compaction";
 import { ChatMessageItem } from "./message/chat-message-item";
 
 type Props = {
@@ -39,6 +41,9 @@ export function ChatMessages({ messages, isLoading, onRetry, onRate, onEdit, ses
     else if (asked && looksLikeFileWork(asked.content)) offer = { messageId: latest.id, quiet: true };
   }
   const movedAfter = session?.movedToCowork?.afterMessageId;
+  // Summaries show where they were written; the latest one is what the model remembers.
+  const compactions = session?.compactions ?? [];
+  const current = session ? lastCompaction({ compactions, messages })?.id : undefined;
 
   return (
     <div className="flex w-full flex-col">
@@ -76,6 +81,11 @@ export function ChatMessages({ messages, isLoading, onRetry, onRate, onEdit, ses
               {session && offer?.messageId === msg.id && (
                 <CoworkSuggestionCard chatId={session.id} messageId={msg.id} task={offer.task} quiet={offer.quiet} />
               )}
+              {compactions
+                .filter((c) => c.afterMessageId === msg.id)
+                .map((c) => (
+                  <CompactionCard key={c.id} compaction={c} current={c.id === current} />
+                ))}
               {session?.movedToCowork && movedAfter === msg.id && (
                 <MovedToCoworkDivider folder={session.movedToCowork.folder} />
               )}

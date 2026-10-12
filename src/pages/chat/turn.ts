@@ -45,9 +45,10 @@ import { addProposal, botInstructions, leadInstructions, ownedByTeam, personalBo
 import { findGrant, grantsFor, isWithin, normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import type { HistoryMessage, PermissionRequest, QuestionRequest, StreamMetadata, TodoItem } from "@/pages/chat/api/chat";
 import { generateStream, runModelIdFor, runsOnMaliAgent } from "@/pages/chat/api/router";
-import { contextUsage } from "./context-usage";
+import { chatContextUsage } from "./context-usage";
 import { coworkInstructionsFor } from "./cowork-handoff";
-import { summarizeConversation, transcript } from "./summary";
+import { cannotSummarize, summarizeConversation, summaryRunFor, transcript } from "./summary";
+import { carriedSummary, compactChat, liveMessages } from "./compaction";
 import {
   apiModelOf,
   customCliOf,
@@ -110,19 +111,28 @@ export async function sendTurn(
     folders = [cwd, ...extra];
   }
 
-  // Past the provider's budget: carry on in a fresh chat, with a summary
-  // of this one, instead of failing.
+  // Past the provider's budget: summarize what came so far and keep going
+  // in this chat. Only if that fails, carry on in a fresh chat with a
+  // summary of this one, instead of failing.
   let continuedFrom: ChatSession["continuedFrom"];
   let previous: ChatSession | undefined;
   if (
     chat &&
     chat.messages.length > 0 &&
     budget.autoNewChat &&
-    contextUsage(chat.messages, prompt + context).usedTokens > budget.maxTokens
+    chatContextUsage(chat.messages, liveMessages(chat), carriedSummary(chat), prompt + context).usedTokens > budget.maxTokens
   ) {
-    continuedFrom = { id: chat.id, title: chat.title, summarizing: true };
-    previous = chat;
-    chat = undefined;
+    const compacted = await compactChat(chat.id, runModelIdFor(modelId), budget.maxTokens).then(
+      () => true,
+      () => false,
+    );
+    if (compacted) {
+      chat = getChat(chat.id) ?? chat;
+    } else {
+      continuedFrom = { id: chat.id, title: chat.title, summarizing: true };
+      previous = chat;
+      chat = undefined;
+    }
   }
 
   if (!chat) {
@@ -140,7 +150,8 @@ export async function sendTurn(
   }
 
   const chatKey = chat.id;
-  const earlier = chat.messages;
+  // After a summary, the model hears it and only what came since.
+  const earlier = liveMessages(chat);
   const history = toHistory(earlier);
   const assistantId = crypto.randomUUID();
   // The backend that actually runs: an API model moves onto OpenCode while
@@ -315,7 +326,7 @@ export async function sendTurn(
         skills: calledSkills(prompt, resend.skills, [...(project?.skills ?? []), ...getInstructions().skills]),
         effort: resend.effort,
         maxTokens: budget.maxTokens,
-        summary: getChat(chatKey)?.continuedFrom?.summary,
+        summary: carriedSummary(getChat(chatKey)),
       },
       {
         onChunk: (text) => {
@@ -646,9 +657,9 @@ export async function summarizeInto(chatKey: string, previous: ChatSession, mode
     const messages: ChatMessage[] = earlier
       ? [{ id: "earlier", role: "assistant", content: `Summary of an even earlier chat:\n${earlier}` }, ...previous.messages]
       : previous.messages;
-    settle(
-      (await summarizeConversation(messages, { modelId, runId: chatKey, maxTokens })) || undefined,
-    );
+    const run = summaryRunFor(modelId, { mode: sessionMode(previous), cwd: previous.cwd });
+    if (!run) throw new Error(cannotSummarize(modelId));
+    settle((await summarizeConversation(messages, { ...run, runId: chatKey, maxTokens })) || undefined);
   } catch {
     settle();
   }
