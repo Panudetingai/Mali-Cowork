@@ -41,7 +41,7 @@ import { getProviderConfig } from "@/features/providers";
 import { buildInstructions, getInstructions, skillSlug, skillsInPrompt, type Skill } from "@/features/instructions";
 import { getProject, projectContext } from "@/features/projects";
 import { skillsGrant } from "@/features/skills";
-import { addProposal, leadInstructions, ownedByTeam } from "@/features/team";
+import { addProposal, botInstructions, leadInstructions, ownedByTeam, personalBot } from "@/features/team";
 import { findGrant, grantsFor, isWithin, normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import type { HistoryMessage, PermissionRequest, QuestionRequest, StreamMetadata, TodoItem } from "@/pages/chat/api/chat";
 import { generateStream, runModelIdFor, runsOnMaliAgent } from "@/pages/chat/api/router";
@@ -146,9 +146,11 @@ export async function sendTurn(
   // The backend that actually runs: an API model moves onto OpenCode while
   // MCP is on, and then keeps an OpenCode session like any OpenCode model.
   const runModelId = runModelIdFor(modelId, chatMode);
+  // Talking to one of the user's own bots: its model, its instructions, its connectors.
+  const bot = personalBot(modelId);
   const isOpencode = isOpencodeModel(runModelId);
-  // An API key in Cowork, or in Chat with connectors or a team on, runs on Mali's own agent.
-  const isMali = runsOnMaliAgent(runModelId, chatMode);
+  // An API key in Cowork, in Chat with connectors or a team on, or as a personal bot, runs on Mali's own agent.
+  const isMali = runsOnMaliAgent(runModelId, chatMode, !!bot);
   const isCursor = isCursorModel(runModelId);
   const isCodex = isCodexModel(runModelId);
   const isAntigravity = isAntigravityModel(runModelId);
@@ -297,15 +299,19 @@ export async function sendTurn(
         cwd: folders[0],
         folders: [...grantsFor(folders), ...(skillGrant ? [skillGrant] : [])],
         attachments,
-        instructions: [
-          // Team mode: skills a bot owns are its duty, not the lead's.
-          buildInstructions(leadInstructions(), projectContext(project), chatMode === "chat" ? "chat" : "cowork"),
-          connectorInstructionsFor(),
-          chatMode === "chat" ? coworkInstructionsFor(prompt) : "",
-          pickedConnectorInstructions((resend.connectors ?? []).filter((id) => !ownedByTeam().connectors.has(id))),
-        ]
+        instructions: (bot
+          ? [botInstructions(bot, chatMode, projectContext(project)), pickedConnectorInstructions((resend.connectors ?? []).filter((id) => bot.connectors.includes(id)))]
+          : [
+              // Team mode: skills a bot owns are its duty, not the lead's.
+              buildInstructions(leadInstructions(), projectContext(project), chatMode === "chat" ? "chat" : "cowork"),
+              connectorInstructionsFor(),
+              chatMode === "chat" ? coworkInstructionsFor(prompt) : "",
+              pickedConnectorInstructions((resend.connectors ?? []).filter((id) => !ownedByTeam().connectors.has(id))),
+            ]
+        )
           .filter(Boolean)
           .join("\n\n"),
+        bot: bot?.id,
         skills: calledSkills(prompt, resend.skills, [...(project?.skills ?? []), ...getInstructions().skills]),
         effort: resend.effort,
         maxTokens: budget.maxTokens,

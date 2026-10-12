@@ -192,6 +192,29 @@ export function teammatePayload(
   };
 }
 
+/**
+ * A chat with a personal bot: it speaks for itself, with its own way of
+ * working and its skills. A bot on a CLI agent is told which connectors are
+ * its own (the CLI reaches every connector through Mali's gateway).
+ */
+export function botInstructions(
+  mate: Teammate,
+  mode: WorkMode,
+  project?: Parameters<typeof buildInstructions>[1],
+  state: InstructionsState = getInstructions(),
+): string {
+  const skills = state.skills.filter((k) => mate.skills.includes(k.id) && k.enabled !== false);
+  const cli = !apiModelOf(mate.modelId);
+  return [
+    `# You are ${mate.name}\nYour duty: ${mate.role.trim()}\nYou're talking with the user directly. Stay with your duty: if they ask for something else, say what you're for.`,
+    mate.instructions.trim() && `# How you work\n${mate.instructions.trim()}`,
+    buildInstructions({ custom: state.custom, skills: skills.map((k) => ({ ...k, enabled: true })) }, project, mode),
+    cli && mate.connectors.length ? `# Your connectors\nUse only these connectors: ${mate.connectors.join(", ")}.` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 /** What a lead's run carries about the team, or nothing when team mode is off. */
 export async function teamPayload(
   mode: WorkMode,
@@ -209,7 +232,8 @@ export async function teamPayload(
   return {
     lead: true,
     team: state.mates
-      .filter((m) => !m.paused)
+      // Paused with its plugin, or the user's own and not on the team: not the lead's to call.
+      .filter((m) => !m.paused && !(m.personal && !m.onTeam))
       .map((m) => teammatePayload(m, servers, mode))
       .filter((m): m is TeammatePayload => !!m),
     recentWork: recentWork(),

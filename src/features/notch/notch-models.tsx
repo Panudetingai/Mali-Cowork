@@ -31,7 +31,7 @@ const KINDS: { id: "all" | ModelSource; label: string }[] = [
   { id: "api", label: "API" },
   { id: "opencode", label: "OpenCode" },
 ];
-const ORDER: Record<ModelSource, number> = { cli: 0, api: 1, local: 2, opencode: 3 };
+const ORDER: Record<ModelSource, number> = { bot: -1, cli: 0, api: 1, local: 2, opencode: 3 };
 
 export function NotchModels({ catalog, inFolder, loading, selected, defaultName, onPick, onClose }: Props) {
   const t = useNotchText();

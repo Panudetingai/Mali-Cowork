@@ -20,6 +20,7 @@ import {
     setCoachModel,
     setLearning,
     setOnTeam,
+    setPersonal,
     setTeamEnabled,
     TEAMMATE_TEMPLATES,
     TOOL_SCOPES,
@@ -35,8 +36,10 @@ import { findModel } from "@/pages/chat/models";
 import {
     AlertTriangleIcon,
     BookOpenTextIcon,
+    DownloadIcon,
     GraduationCapIcon,
     LoaderIcon,
+    MessageCircleIcon,
     PlusIcon,
     RefreshCwIcon,
     Trash2Icon,
@@ -57,6 +60,7 @@ import {
     TileButton,
     TileGrid,
 } from "../ui";
+import { ImportBotDialog } from "./import-bot-dialog";
 import { TeammatePage } from "./teammate-page";
 
 export function TeamSettings() {
@@ -67,6 +71,7 @@ export function TeamSettings() {
   const { sub, open, back } = useSettingsSub();
   // Set while a proposal is open in the editor: saving it takes it off the list.
   const [reviewing, setReviewing] = useState<string>();
+  const [importing, setImporting] = useState(false);
 
   const newBot = (from?: Omit<TeammateDraft, "modelId">) => {
     // The connectors its duty names, when no other bot has them yet.
@@ -145,11 +150,17 @@ export function TeamSettings() {
         title="Team"
         description="Bots you make, each with one duty, its own model, skills and connectors. In team mode the chat’s model is the lead: it splits the work, hands each job to the bot whose duty it is, and reports back to you."
         actions={
-          <Button size="sm" className="h-9 gap-1.5" onClick={() => newBot()}>
-            <PlusIcon className="size-4" /> New bot
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" className="h-9 gap-1.5" onClick={() => setImporting(true)}>
+              <DownloadIcon className="size-4" /> Import bot
+            </Button>
+            <Button size="sm" className="h-9 gap-1.5" onClick={() => newBot()}>
+              <PlusIcon className="size-4" /> New bot
+            </Button>
+          </div>
         }
       />
+      <ImportBotDialog open={importing} onClose={() => setImporting(false)} />
 
       <div className="pb-7">
         <Steps
@@ -184,7 +195,7 @@ export function TeamSettings() {
       <SettingsGroup
         wide
         title={`Your bots${team.mates.length ? ` · ${team.mates.length}` : ""}`}
-        description="The switch puts a bot on the team: the lead calls it without asking. Off the team, you’re asked first."
+        description="The switch puts a bot on the team: the lead calls it without asking. Off the team, you’re asked first. The chat bubble makes it yours too: pick it in the chat box and talk to it directly."
       >
         {team.mates.length === 0 ? (
           <button
@@ -253,7 +264,7 @@ function BotCard({ mate, modelName, onEdit }: { mate: Teammate; modelName?: stri
     <div
       className={cn(
         "group relative flex min-w-0 flex-col gap-3 rounded-xl border border-border/70 bg-card p-4 transition-[border-color,box-shadow,opacity] hover:border-foreground/20 hover:shadow-[0_6px_16px_-10px_rgb(0_0_0/0.25)]",
-        !mate.onTeam && "bg-muted/20",
+        !mate.onTeam && !mate.personal && "bg-muted/20",
       )}
     >
       <button type="button" onClick={onEdit} aria-label={`Edit ${mate.name}`} className="absolute inset-0 rounded-xl outline-none focus-visible:ring-3 focus-visible:ring-ring/50" />
@@ -262,6 +273,11 @@ function BotCard({ mate, modelName, onEdit }: { mate: Teammate; modelName?: stri
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="truncate text-sm font-semibold">{mate.name}</span>
+            {mate.personal && (
+              <span className="shrink-0 rounded bg-primary/10 px-1.5 py-px text-[10px] font-semibold text-primary">
+                {mate.onTeam ? "yours + team" : "yours"}
+              </span>
+            )}
             {mate.origin === "lead" && (
               <span className="shrink-0 rounded bg-violet-500/10 px-1.5 py-px text-[10px] font-semibold text-violet-700 dark:text-violet-300">
                 from the lead
@@ -273,6 +289,17 @@ function BotCard({ mate, modelName, onEdit }: { mate: Teammate; modelName?: stri
           </span>
         </div>
         <div className="pointer-events-auto relative z-10 flex shrink-0 items-center gap-0.5">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-pressed={!!mate.personal}
+            onClick={() => setPersonal(mate.id, !mate.personal)}
+            aria-label={mate.personal ? `Stop offering ${mate.name} in the chat box` : `Talk to ${mate.name} from the chat box`}
+            title={mate.personal ? "Your own bot: in the chat box's model menu" : "Make it your own bot too: talk to it from the chat box"}
+            className={cn(mate.personal ? "text-primary" : "text-muted-foreground")}
+          >
+            <MessageCircleIcon className={cn(mate.personal && "fill-current/15")} />
+          </Button>
           <Switch
             checked={mate.onTeam}
             onCheckedChange={(on) => setOnTeam(mate.id, on)}

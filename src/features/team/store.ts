@@ -36,6 +36,13 @@ export type Teammate = {
   tools: ToolScope;
   /** On the team: the lead calls it without asking; otherwise the user allows it first. */
   onTeam: boolean;
+  /**
+   * The user's own bot too: it's in the chat box's model picker, and a chat
+   * with it runs on its model, instructions, skills and connectors — no lead.
+   * One that's personal and not on the team is the user's alone: the lead
+   * doesn't hand it jobs.
+   */
+  personal?: boolean;
   /** Made by the user, or proposed by the lead and taken on. */
   origin: "user" | "lead";
   createdAt: number;
@@ -131,6 +138,7 @@ function reviveMate(value: Partial<Teammate>): Teammate | null {
     createdAt: typeof value.createdAt === "number" ? value.createdAt : Date.now(),
     ...(typeof value.plugin === "string" ? { plugin: value.plugin } : {}),
     ...(value.paused === true ? { paused: true } : {}),
+    ...(value.personal === true ? { personal: true } : {}),
   };
 }
 
@@ -223,6 +231,31 @@ export function setTeammatesPaused(ids: string[], paused: boolean) {
 
 export function setOnTeam(id: string, onTeam: boolean) {
   store.set((s) => ({ ...s, mates: s.mates.map((m) => (m.id === id ? { ...m, onTeam } : m)) }));
+}
+
+/** Offer a bot in the chat box (or stop offering it). */
+export function setPersonal(id: string, personal: boolean) {
+  store.set((s) => ({
+    ...s,
+    mates: s.mates.map((m) => {
+      if (m.id !== id) return m;
+      const { personal: _was, ...rest } = m;
+      return personal ? { ...rest, personal: true } : rest;
+    }),
+  }));
+}
+
+/** The prefix a personal bot's entry carries in the model picker: `bot:<id>`. */
+export const BOT_MODEL_PREFIX = "bot:";
+
+export function botIdOf(modelId: string | undefined): string | undefined {
+  return modelId?.startsWith(BOT_MODEL_PREFIX) ? modelId.slice(BOT_MODEL_PREFIX.length) : undefined;
+}
+
+/** The personal bot a picker id names, when it's still one. */
+export function personalBot(modelId: string | undefined, state: TeamState = store.get()): Teammate | undefined {
+  const id = botIdOf(modelId);
+  return id ? state.mates.find((m) => m.id === id && m.personal && !m.paused) : undefined;
 }
 
 /** A mascot no bot wears yet, so a new bot is told apart at a glance. */

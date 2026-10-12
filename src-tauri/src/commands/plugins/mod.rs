@@ -26,12 +26,14 @@
 //! plugin brought it. Installing never runs anything — a plugin's hooks are
 //! not supported for exactly that reason.
 
+mod bots;
 mod files;
 mod manifest;
 mod marketplace;
 
 use std::path::PathBuf;
 
+pub use bots::plugins_unpack_bot;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

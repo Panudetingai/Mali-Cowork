@@ -38,6 +38,8 @@ export type AgentRequest = {
   contextLimit?: number;
   /** The model takes pictures: it can look at files, thumbnails and what tools return. */
   vision: boolean;
+  /** A personal bot's run: the file and command tools it may use (`none`, `read`, `files`, `all`). */
+  toolScope?: string;
 } & Partial<TeamPayload>;
 
 export async function agentGenerateStream(request: AgentRequest, handlers: ChatStreamHandlers) {

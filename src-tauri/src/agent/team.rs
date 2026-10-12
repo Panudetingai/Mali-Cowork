@@ -110,6 +110,12 @@ pub enum ToolScope {
 const READ_TOOLS: &[&str] = &["read_file", "list_dir", "glob", "grep", "todo_write", "list_templates", "read_document"];
 const WRITE_TOOLS: &[&str] = &["write_file", "edit_file", "fill_template", "save_template", "make_template"];
 
+/// `"none"`, `"read"`, `"files"` or `"all"` from the app; missing or null is no limit.
+pub fn scope_from_name<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<ToolScope>, D::Error> {
+    let name: Option<String> = serde::Deserialize::deserialize(deserializer)?;
+    Ok(name.as_deref().map(ToolScope::parse))
+}
+
 impl ToolScope {
     pub fn parse(value: &str) -> Self {
         match value {
@@ -913,6 +919,23 @@ mod tests {
         assert_eq!(team[0].mcp.len(), 1);
         assert_eq!(team[1].mcp.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), vec!["notion"]);
         assert_eq!(owned_connectors(&team).len(), 2);
+    }
+
+    #[test]
+    fn a_personal_bots_chat_carries_its_file_access() {
+        let request = |extra: serde_json::Value| -> super::super::AgentRequest {
+            let mut v = json!({
+                "prompt": "", "provider": "", "model": "", "apiKey": null, "baseUrl": null,
+                "instructions": null, "effort": null, "runId": "r"
+            });
+            v.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            serde_json::from_value(v).unwrap()
+        };
+        assert_eq!(request(json!({ "toolScope": "none" })).tool_scope, Some(ToolScope::Connectors));
+        assert_eq!(request(json!({ "toolScope": "files" })).tool_scope, Some(ToolScope::Files));
+        // An ordinary chat says nothing and keeps every tool.
+        assert_eq!(request(json!({})).tool_scope, None);
+        assert_eq!(request(json!({ "toolScope": null })).tool_scope, None);
     }
 
     #[test]
