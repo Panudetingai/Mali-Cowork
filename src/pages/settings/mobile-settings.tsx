@@ -20,6 +20,7 @@ import {
   setRemoteAutoAllowIps,
   setRemoteKeepAwake,
   setRemoteEnabled,
+  setRemotePointTo,
   setRemoteIpAllowlist,
   setupRemoteDomain,
   useRemoteEnabled,
@@ -88,6 +89,10 @@ const STRINGS = {
     fingerprint: "Certificate fingerprint (SHA-256)",
     couldntStart: "Phone access couldn't start",
     secureShort: "Secure",
+    connectOver: "Connect over",
+    sameTailnet: "Your phone needs Tailscale on, signed in to the same tailnet as this computer.",
+    noAddress: "No address your phone can reach",
+    noAddressBody: "This network's address isn't a private one (some campus or office networks are like that), so phones are turned away. Join a home or office Wi-Fi, or turn on Tailscale on both devices.",
   },
   th: {
     title: "มือถือ",
@@ -131,6 +136,10 @@ const STRINGS = {
     fingerprint: "ลายนิ้วมือ certificate (SHA-256)",
     couldntStart: "เปิดการใช้จากมือถือไม่สำเร็จ",
     secureShort: "ปลอดภัย",
+    connectOver: "เชื่อมต่อผ่าน",
+    sameTailnet: "มือถือต้องเปิด Tailscale และล็อกอิน tailnet เดียวกับคอมเครื่องนี้",
+    noAddress: "ไม่มี IP ที่มือถือเข้าถึงได้",
+    noAddressBody: "IP ของเครือข่ายนี้ไม่ใช่ IP ภายใน (เครือข่ายมหาวิทยาลัยหรือออฟฟิศบางแห่งเป็นแบบนี้) มือถือจึงเข้าไม่ได้ ให้ต่อ Wi-Fi บ้าน/ออฟฟิศ หรือเปิด Tailscale ทั้งสองเครื่อง",
   },
 };
 type Strings = (typeof STRINGS)["en"];
@@ -284,7 +293,11 @@ function ConnectCard({ status, s }: { status: RemoteStatus; s: Strings }) {
   const [showAnyway, setShowAnyway] = useState(false);
   const [copied, setCopied] = useState(false);
   const trusted = status.addresses.find((a) => a.kind === "domain");
-  const address = trusted ?? status.addresses.find((a) => a.kind === "lan") ?? status.addresses[0];
+  const lan = status.addresses.find((a) => a.kind === "lan");
+  const tailscale = status.addresses.find((a) => a.kind === "tailscale");
+  // The network the user picked; the other one only while it's down.
+  const network = status.pointTo === "tailscale" ? (tailscale ?? lan) : (lan ?? tailscale);
+  const address = trusted ?? network;
   const preparing = isPreparing(status) && !showAnyway;
   const connected = status.clients > 0;
 
@@ -327,7 +340,29 @@ function ConnectCard({ status, s }: { status: RemoteStatus; s: Strings }) {
               </li>
             ))}
           </ol>
-          <p className="text-[13px] leading-relaxed text-muted-foreground">{s.sameWifi}</p>
+          {lan && tailscale && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[13px] font-semibold">{s.connectOver}</span>
+              <Segmented
+                label={s.connectOver}
+                value={network?.kind === "tailscale" ? "tailscale" : "lan"}
+                onChange={(next) => void setRemotePointTo(next)}
+                options={[
+                  { value: "lan", label: "Wi-Fi" },
+                  { value: "tailscale", label: "Tailscale" },
+                ]}
+              />
+            </div>
+          )}
+          {network ? (
+            <p className="text-[13px] leading-relaxed text-muted-foreground">
+              {network.kind === "tailscale" ? s.sameTailnet : s.sameWifi}
+            </p>
+          ) : (
+            <Notice tone="warning" title={s.noAddress}>
+              {s.noAddressBody}
+            </Notice>
+          )}
           {!preparing && address && !trusted && <p className="text-[13px] leading-relaxed text-amber-700 dark:text-amber-400">{s.warnOnce}</p>}
           <div className="flex flex-wrap gap-2">
             {preparing ? (
@@ -436,6 +471,7 @@ const DOMAIN_STRINGS = {
     tryAgain: "Try again",
     maliName: "Free Mali name",
     maliOff: "Off. Turn it on and the phone won't warn about the certificate.",
+    noAddress: "Needs a home or office Wi-Fi, or Tailscale: Mali DNS only points at an address that stays on your own network.",
     turnOn: "Turn on",
     useOwnInstead: "Use my own domain instead",
     domainName: "Domain name",
@@ -484,6 +520,7 @@ const DOMAIN_STRINGS = {
     tryAgain: "ลองอีกครั้ง",
     maliName: "ชื่อฟรีจาก Mali",
     maliOff: "ปิดอยู่ — เปิดแล้วมือถือจะไม่ขึ้นคำเตือน certificate",
+    noAddress: "ต้องต่อ Wi-Fi บ้าน/ออฟฟิศ หรือเปิด Tailscale ก่อน — Mali DNS ชี้ได้เฉพาะ IP ที่อยู่ในเครือข่ายของคุณเอง",
     turnOn: "เปิด",
     useOwnInstead: "ใช้โดเมนของฉันเองแทน",
     domainName: "ชื่อโดเมน",
@@ -537,7 +574,9 @@ function DomainSetup({ status }: { status: RemoteStatus }) {
   const [ownForm, setOwnForm] = useState(false);
   const [hostname, setHostname] = useState(domain?.provider === "cloudflare" ? domain.hostname : "");
   const [token, setToken] = useState("");
-  const [pointTo, setPointTo] = useState<"lan" | "tailscale">(domain?.pointTo ?? "lan");
+  const [pointTo, setPointTo] = useState<"lan" | "tailscale">(domain?.pointTo ?? status.pointTo ?? "lan");
+  // Mali DNS points only at a private or Tailscale address: without one it would refuse.
+  const reachable = status.addresses.some((a) => a.kind === "lan" || a.kind === "tailscale");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -614,9 +653,9 @@ function DomainSetup({ status }: { status: RemoteStatus }) {
             <SettingRow
               icon={<GlobeIcon />}
               label={d.maliName}
-              description={d.maliOff}
+              description={reachable ? d.maliOff : d.noAddress}
               control={
-                <Button size="sm" disabled={busy} onClick={() => void run(() => setMaliDomain(true))}>
+                <Button size="sm" disabled={busy || !reachable} onClick={() => void run(() => setMaliDomain(true))}>
                   {d.turnOn}
                 </Button>
               }

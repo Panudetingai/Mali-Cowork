@@ -139,6 +139,8 @@ export type RemoteStatus = {
   /** Getting a Mali DNS name failed. */
   domainError?: string | null;
   domainRegistering?: boolean;
+  /** The network the phone link (and a domain) uses when both are up. */
+  pointTo?: "lan" | "tailscale";
 };
 
 /** The user's own domain on Cloudflare, for a certificate the phone trusts. */

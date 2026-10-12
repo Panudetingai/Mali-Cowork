@@ -54,8 +54,25 @@ export type Size = { width: number; height: number };
 export type Frame = { x: number; y: number; size: number };
 export type Box = { x: number; y: number; width: number; height: number };
 
-/** The agent's question card: one question at a time, its options a row each; past the cap it scrolls. */
-export const QUESTION = { pad: 12, header: 24, line: 19, chars: 56, option: 34, gap: 4, custom: 34, footer: 32, max: 300 } as const;
+/**
+ * The agent's question card: one question at a time, its options a row each
+ * (two lines when an option explains itself); past the cap it scrolls.
+ */
+export const QUESTION = {
+  pad: 14,
+  header: 26,
+  line: 20,
+  chars: 52,
+  /** Lines of the question shown before it scrolls. */
+  lines: 4,
+  option: 38,
+  /** An option with a description under its label. */
+  optionTall: 52,
+  gap: 6,
+  custom: 36,
+  footer: 32,
+  max: 340,
+} as const;
 /** Options shown before the list scrolls. */
 const QUESTION_ROWS = 5;
 /** The question view: the bot on the left, the card beside it. */
@@ -63,10 +80,12 @@ export const QUESTION_LEFT = 116;
 
 function questionItemHeight(item: QuestionItem) {
   const q = QUESTION;
-  const lines = Math.min(3, Math.max(1, Math.ceil(item.question.length / q.chars)));
-  const rows = Math.min(item.options.length, QUESTION_ROWS);
-  const options = rows ? rows * q.option + (rows - 1) * q.gap + 8 : 0;
-  const custom = item.custom || item.options.length === 0 ? q.custom + 8 : 0;
+  const lines = Math.min(q.lines, Math.max(1, Math.ceil(item.question.length / q.chars)));
+  const shown = item.options.slice(0, QUESTION_ROWS);
+  const options = shown.length
+    ? shown.reduce((sum, o) => sum + (o.description ? q.optionTall : q.option), 0) + (shown.length - 1) * q.gap + 10
+    : 0;
+  const custom = item.custom || item.options.length === 0 ? q.custom + 10 : 0;
   return lines * q.line + 8 + options + custom;
 }
 
@@ -75,7 +94,7 @@ export function questionHeight(request: QuestionRequest | undefined) {
   if (!request?.questions.length) return 0;
   const q = QUESTION;
   const tallest = Math.max(...request.questions.map(questionItemHeight));
-  return Math.min(q.max, 2 * q.pad + q.header + 6 + tallest + q.footer);
+  return Math.min(q.max, 2 * q.pad + q.header + 8 + tallest + q.footer + 8);
 }
 
 /** What a view holds that changes its size: the chat's thread and files, a peek's kind, the list's length, the team. */

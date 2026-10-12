@@ -28,6 +28,7 @@ export async function writeCommitMessage(folder: string): Promise<string> {
       mode: "chat",
       runId: `git-commit-${crypto.randomUUID()}`,
       history: [],
+      helper: true,
     },
     {
       onChunk: (chunk) => {

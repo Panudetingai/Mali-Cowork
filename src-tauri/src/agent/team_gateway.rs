@@ -36,9 +36,11 @@ struct LeadState {
     handoffs: usize,
 }
 
-fn slot() -> &'static Mutex<Option<Arc<CliLead>>> {
-    static SLOT: OnceLock<Mutex<Option<Arc<CliLead>>>> = OnceLock::new();
-    SLOT.get_or_init(Default::default)
+/// Every CLI lead running now, oldest first. Each chat's run is its own: one
+/// starting (another chat, the Quick bar) never stops another's hand-off.
+fn leads() -> &'static Mutex<Vec<Arc<CliLead>>> {
+    static LEADS: OnceLock<Mutex<Vec<Arc<CliLead>>>> = OnceLock::new();
+    LEADS.get_or_init(Default::default)
 }
 
 /// Per chat, what outlives one run: teammates allowed with "Always", and each
@@ -50,8 +52,14 @@ fn memory() -> &'static Mutex<HashMap<String, Memory>> {
     MEMORY.get_or_init(Default::default)
 }
 
+/// The lead the gateway answers for: the newest run.
 fn current() -> Option<Arc<CliLead>> {
-    slot().lock().unwrap().clone()
+    leads().lock().unwrap().last().cloned()
+}
+
+/// The teammates working right now, in any run.
+fn working_now(leads: &[Arc<CliLead>]) -> HashSet<String> {
+    leads.iter().filter_map(|lead| lead.working.lock().unwrap().clone()).collect()
 }
 
 /// A CLI lead starts: the gateway offers it the team until [`end`].
@@ -66,25 +74,26 @@ pub fn begin(mut request: AgentRequest, on_event: Channel<ChatStreamEvent>) {
         state: Default::default(),
         working: Mutex::new(None),
     });
-    if let Some(previous) = slot().lock().unwrap().replace(lead) {
-        let _ = previous.stop.send(true);
+    let mut leads = leads().lock().unwrap();
+    // The same run starting over replaces itself; other runs carry on.
+    if let Some(at) = leads.iter().position(|l| l.request.run_id == lead.request.run_id) {
+        let _ = leads.remove(at).stop.send(true);
     }
+    leads.push(lead);
 }
 
 /// The CLI lead's run is over (finished or stopped): so is any hand-off in flight.
 pub fn end(run_id: &str) {
-    let mut slot = slot().lock().unwrap();
-    if slot.as_ref().is_some_and(|lead| lead.request.run_id == run_id) {
-        if let Some(lead) = slot.take() {
-            let _ = lead.stop.send(true);
-        }
+    let mut leads = leads().lock().unwrap();
+    if let Some(at) = leads.iter().position(|l| l.request.run_id == run_id) {
+        let _ = leads.remove(at).stop.send(true);
     }
 }
 
 /// The team tools a CLI lead sees; none while a teammate works (that's the teammate listing).
 pub fn specs() -> Vec<ToolSpec> {
     let Some(lead) = current() else { return Vec::new() };
-    if lead.working.lock().unwrap().is_some() {
+    if !working_now(&leads().lock().unwrap()).is_empty() {
         return Vec::new();
     }
     let note = team::lead_note(&lead.request);
@@ -100,15 +109,22 @@ pub fn specs() -> Vec<ToolSpec> {
         .collect()
 }
 
-/// Connectors the lead may not use: the teammates', except the one working now.
+/// Connectors a lead may not use: the teammates', except those of a teammate working now.
 pub fn hidden_connectors() -> HashSet<String> {
-    let Some(lead) = current() else { return HashSet::new() };
-    let working = lead.working.lock().unwrap().clone();
-    lead.request
-        .team
+    let leads = leads().lock().unwrap();
+    let working = working_now(&leads);
+    let open: HashSet<String> = leads
         .iter()
-        .filter(|m| Some(&m.id) != working.as_ref())
+        .flat_map(|lead| lead.request.team.iter())
+        .filter(|m| working.contains(&m.id))
         .flat_map(|m| m.mcp.iter().map(|s| s.id.clone()))
+        .collect();
+    leads
+        .iter()
+        .flat_map(|lead| lead.request.team.iter())
+        .filter(|m| !working.contains(&m.id))
+        .flat_map(|m| m.mcp.iter().map(|s| s.id.clone()))
+        .filter(|id| !open.contains(id))
         .collect()
 }
 
@@ -231,7 +247,17 @@ mod tests {
 
         end("another-chat");
         assert!(current().is_some(), "only its own run ends it");
+
+        // Another run starting (a second chat, the Quick bar) leaves chat-a's hand-off alone.
+        let mut stopped = current().unwrap().stop.subscribe();
+        begin(request("chat-b"), Channel::new(|_| Ok(())));
+        assert!(!*stopped.borrow_and_update(), "a new run must not stop another's hand-off");
+        end("chat-b");
+        assert_eq!(current().unwrap().request.run_id, "chat-a");
+        assert!(!*stopped.borrow_and_update());
+
         end("chat-a");
+        assert!(*stopped.borrow_and_update(), "its own end stops its hand-off");
         assert!(specs().is_empty() && hidden_connectors().is_empty() && !is_team_tool(team::DELEGATE));
     }
 }

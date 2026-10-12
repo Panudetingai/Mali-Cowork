@@ -69,6 +69,12 @@ export async function setRemoteKeepAwake(enabled: boolean) {
   statusStore.set(await invoke<RemoteStatus>("remote_set_keep_awake", { enabled }));
 }
 
+/** Which network the phone link uses when both Wi-Fi and Tailscale are up; a domain follows. */
+export async function setRemotePointTo(pointTo: "lan" | "tailscale") {
+  if (!isTauri()) return;
+  statusStore.set(await invoke<RemoteStatus>("remote_set_point_to", { pointTo }));
+}
+
 export async function allowRemoteIp(ip: string) {
   if (!isTauri()) return;
   statusStore.set(await invoke<RemoteStatus>("remote_allow_ip", { ip }));
