@@ -389,6 +389,20 @@ mod tests {
         assert!(p.revision.is_none(), "a folder has no revision");
     }
 
+    /// A bot made with bot-forge (`bot-forge/`) installs as a plugin: one agent, its skill, its connector.
+    #[tokio::test]
+    async fn reads_a_bot_forge_bot() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/examples/bot-forge-news-digest");
+        let path = dir.canonicalize().unwrap().to_string_lossy().to_string();
+        let p = plugins_fetch(PluginSource::Folder { path }, None).await.unwrap().plugin.unwrap();
+        assert_eq!(p.id, "news-digest");
+        assert_eq!(p.agents.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["news-digest"]);
+        assert!(p.agents[0].content.contains("mali-connectors: fetch"));
+        assert_eq!(p.skills.len(), 1);
+        assert_eq!(p.mcp_servers.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(), ["fetch"]);
+        assert!(p.unsupported.is_empty(), "{:?}", p.unsupported);
+    }
+
     /// Hits GitHub: `cargo test --lib plugins:: -- --ignored`.
     #[tokio::test]
     #[ignore]

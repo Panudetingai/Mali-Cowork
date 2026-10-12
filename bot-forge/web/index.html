@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>bot-forge</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --panel: #ffffff; --panel-2: #f1f1ee; --line: #e4e4df; --text: #18181b;
+    --muted: #6b6b73; --faint: #9a9aa2; --accent: #4f46e5; --accent-2: #eef0ff; --accent-text: #ffffff;
+    --ok: #16a34a; --ok-bg: #e9f8ee; --warn: #b45309; --warn-bg: #fdf3e2; --bad: #dc2626; --bad-bg: #fdecec;
+    --radius: 14px; --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px -12px rgba(0,0,0,.12);
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f0f12; --panel: #17171b; --panel-2: #1f1f24; --line: #2a2a31; --text: #ededf0;
+      --muted: #a1a1aa; --faint: #6f6f78; --accent: #8b85ff; --accent-2: #24224a; --accent-text: #0f0f12;
+      --ok: #4ade80; --ok-bg: #12301d; --warn: #fbbf24; --warn-bg: #33270d; --bad: #f87171; --bad-bg: #3a1515;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.6);
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  button, input, textarea, select { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  button:disabled { cursor: default; opacity: .5; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+    background: color-mix(in srgb, var(--bg) 85%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; }
+  .logo-mark { width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center; color: #fff;
+    background: linear-gradient(135deg, #6366f1, #a855f7); box-shadow: 0 4px 12px -4px #6366f1aa; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px;
+    background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .spacer { flex: 1; }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 34px; padding: 0 14px;
+    border-radius: 10px; border: 1px solid var(--line); background: var(--panel); font-weight: 500; transition: background .15s, border-color .15s; }
+  .btn:hover:not(:disabled) { background: var(--panel-2); }
+  .btn.primary { background: var(--accent); border-color: transparent; color: var(--accent-text); }
+  .btn.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
+  .btn.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+  .btn.ghost:hover:not(:disabled) { background: var(--panel-2); color: var(--text); }
+  .btn.danger { color: var(--bad); }
+  .btn.sm { height: 28px; padding: 0 10px; font-size: 13px; border-radius: 8px; }
+
+  .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: calc(100vh - 57px); }
+  .side { border-right: 1px solid var(--line); padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  .main { padding: 24px; min-width: 0; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .composer { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .composer textarea { width: 100%; min-height: 96px; resize: vertical; border: 0; outline: 0; background: transparent; line-height: 1.5; }
+  .composer-foot { display: flex; align-items: center; gap: 8px; }
+  .label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+
+  .bots { display: flex; flex-direction: column; gap: 4px; }
+  .bot-row { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; padding: 10px; border-radius: 12px;
+    border: 1px solid transparent; background: transparent; }
+  .bot-row:hover { background: var(--panel-2); }
+  .bot-row.active { background: var(--panel); border-color: var(--line); box-shadow: var(--shadow); }
+  .avatar { flex: none; width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; font-weight: 700; color: #fff; font-size: 15px; }
+  .bot-row .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bot-row .d { color: var(--muted); font-size: 12.5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .bot-row .m { color: var(--faint); font-size: 11.5px; margin-top: 2px; }
+  .muted { color: var(--muted); }
+  .faint { color: var(--faint); }
+
+  .hero { max-width: 680px; margin: 8vh auto 0; text-align: center; display: flex; flex-direction: column; gap: 18px; }
+  .hero h1 { font-size: 32px; letter-spacing: -.02em; margin: 0; }
+  .hero .composer textarea { min-height: 110px; font-size: 15px; }
+  .ideas { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .idea { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 12px; font-size: 13px; color: var(--muted); }
+  .idea:hover { color: var(--text); border-color: var(--accent); }
+
+  .bot-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; align-items: start; max-width: 1180px; margin: 0 auto; }
+  .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .section { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+  .section-head { display: flex; align-items: center; gap: 8px; }
+  .section-head h2 { font-size: 15px; margin: 0; }
+  .count { font-size: 12px; color: var(--faint); }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field > span { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+  .input, .textarea, .select { width: 100%; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 8px 10px; outline: none; }
+  .input:focus, .textarea:focus, .select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-2); }
+  .textarea { min-height: 220px; resize: vertical; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; }
+  .title-input { font-size: 22px; font-weight: 700; letter-spacing: -.01em; border: 0; padding: 2px 0; background: transparent; width: 100%; outline: none; }
+  .duty-input { color: var(--muted); border: 0; padding: 0; background: transparent; width: 100%; outline: none; resize: none; font-size: 14.5px; }
+  .seg { display: inline-flex; padding: 3px; gap: 2px; border-radius: 10px; background: var(--panel-2); flex-wrap: wrap; }
+  .seg button { border: 0; background: transparent; border-radius: 8px; padding: 5px 10px; font-size: 13px; color: var(--muted); }
+  .seg button[aria-checked="true"] { background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
+  .savebar { display: flex; gap: 8px; align-items: center; }
+
+  .item { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+  .item .icon { flex: none; width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; background: var(--accent-2); color: var(--accent); font-weight: 700; font-size: 13px; }
+  .item .body { min-width: 0; flex: 1; }
+  .item .name { font-weight: 600; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .item .desc { color: var(--muted); font-size: 13px; }
+  .code { font-family: var(--mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .vars { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .var { font-family: var(--mono); font-size: 11.5px; padding: 1px 7px; border-radius: 6px; background: var(--panel-2); color: var(--muted); }
+  .var.missing { background: var(--warn-bg); color: var(--warn); }
+  .empty { padding: 14px; border: 1px dashed var(--line); border-radius: 12px; color: var(--faint); text-align: center; font-size: 13px; }
+
+  .picker { border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--panel-2); }
+  .catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; max-height: 320px; overflow: auto; }
+  .cat { text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 2px; }
+  .cat:hover:not(:disabled) { border-color: var(--accent); }
+  .cat b { font-size: 13.5px; }
+  .cat span { font-size: 12px; color: var(--muted); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .grow { flex: 1; min-width: 160px; }
+
+  .summary { position: sticky; top: 76px; overflow: hidden; }
+  .sum-head { padding: 18px; background: linear-gradient(160deg, var(--accent-2), transparent 70%); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+  .sum-head .who { display: flex; gap: 12px; align-items: center; }
+  .sum-head h3 { margin: 0; font-size: 17px; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px; text-align: center; }
+  .stat b { display: block; font-size: 18px; }
+  .stat span { font-size: 11.5px; color: var(--muted); }
+  .sum-part { padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+  .sum-part:last-child { border-bottom: 0; }
+  .caps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+  .caps li { display: flex; gap: 8px; font-size: 13px; }
+  .caps li::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-top: 7px; }
+  .conn { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; }
+  .dot { flex: none; width: 9px; height: 9px; border-radius: 50%; margin-top: 6px; }
+  .dot.connected { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
+  .dot.ready { background: transparent; border: 2px solid var(--faint); }
+  .dot.needs-setup { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-bg); }
+  .dot.failed { background: var(--bad); box-shadow: 0 0 0 3px var(--bad-bg); }
+  .state { font-size: 11.5px; padding: 0 7px; border-radius: 999px; }
+  .state.connected { background: var(--ok-bg); color: var(--ok); }
+  .state.ready { background: var(--panel-2); color: var(--muted); }
+  .state.needs-setup { background: var(--warn-bg); color: var(--warn); }
+  .state.failed { background: var(--bad-bg); color: var(--bad); }
+  .examples { display: flex; flex-direction: column; gap: 6px; }
+  .example { font-size: 13px; padding: 7px 10px; border-radius: 10px; background: var(--panel-2); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .notice { padding: 10px 12px; border-radius: 10px; font-size: 13px; background: var(--warn-bg); color: var(--warn); }
+  .loading { display: flex; flex-direction: column; gap: 12px; align-items: center; padding: 60px 0; color: var(--muted); }
+  .spinner { width: 26px; height: 26px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .chip-btn { cursor: pointer; transition: border-color .15s, color .15s; }
+  .chip-btn:hover { border-color: var(--accent); color: var(--text); }
+  .chip-btn .pip { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+  .chip-btn.off .pip { background: var(--warn); }
+  .providers { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; max-height: 260px; overflow: auto; }
+  .prov { text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 3px; }
+  .prov:hover { border-color: var(--accent); }
+  .prov[aria-checked="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-2); }
+  .prov b { font-size: 13px; }
+  .badge { align-self: flex-start; font-size: 11px; padding: 0 7px; border-radius: 999px; background: var(--panel-2); color: var(--muted); }
+  .badge.free { background: var(--ok-bg); color: var(--ok); }
+  .badge.missing { background: var(--warn-bg); color: var(--warn); }
+  .hint { font-size: 12.5px; color: var(--faint); margin: 0; }
+  .modal.wide { width: min(640px, 100%); max-height: calc(100vh - 32px); overflow: auto; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 20; max-width: min(560px, calc(100vw - 32px));
+    padding: 10px 14px; border-radius: 12px; background: var(--text); color: var(--bg); box-shadow: var(--shadow); font-size: 13.5px; }
+  .toast.error { background: var(--bad); color: #fff; }
+  .modal-back { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.4); display: grid; place-items: center; padding: 16px; }
+  .modal { width: min(520px, 100%); padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .modal h3 { margin: 0; }
+  .modal ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+
+  /* Narrow: what the bot can do and is connected to comes first. */
+  @media (max-width: 1020px) { .bot-grid { grid-template-columns: minmax(0, 1fr); } .summary { position: static; order: -1; } }
+  @media (max-width: 760px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    .side { border-right: 0; border-bottom: 1px solid var(--line); }
+    .main { padding: 16px; }
+    .top { padding: 10px 16px; }
+    .hero h1 { font-size: 26px; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="logo"><span class="logo-mark">✦</span>bot-forge</div>
+  <button class="chip chip-btn" id="model-chip" title="Pick the model that designs bots"><span class="pip"></span><span id="model-text">…</span></button>
+  <span class="spacer"></span>
+  <label class="btn sm" title="Import a bot (.zip or bot.json)">Import<input id="import-file" type="file" accept=".zip,.json,application/zip,application/json" hidden /></label>
+</header>
+<div class="layout">
+  <aside class="side">
+    <button class="btn primary" id="new-btn">+ New bot</button>
+    <div class="label">Your bots</div>
+    <div class="bots" id="bots"></div>
+  </aside>
+  <main class="main" id="main"></main>
+</div>
+<script>
+"use strict";
+const TOKEN = "__BOT_FORGE_TOKEN__";
+const IDEAS = [
+  "A bot that reviews my GitHub pull requests and leaves a checklist of issues",
+  "บอทสรุปข่าวจากเว็บที่ฉันให้ลิงก์ เป็นภาษาไทยสั้นๆ",
+  "A Postgres analyst that answers questions about my sales data",
+  "A researcher that searches the web and writes a sourced brief",
+];
+const SCOPES = [
+  ["none", "Connectors only"], ["read", "Read files"], ["files", "Change files"], ["all", "Files + commands"],
+];
+const COLORS = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#a855f7", "#14b8a6", "#ec4899"];
+const STATE_TEXT = { connected: "Connected", ready: "Not checked", "needs-setup": "Needs setup", failed: "Failed" };
+
+const state = { bots: [], current: null, view: null, catalog: [], picker: null, skillForm: false, busy: false, config: null };
+
+/* ── tiny DOM helper: text only, never HTML from data ── */
+function h(tag, attrs, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "class") el.className = v;
+    else if (k === "style") el.setAttribute("style", v);
+    else if (k === "value") el.value = v;
+    else el.setAttribute(k, v === true ? "" : String(v));
+  }
+  for (const c of children.flat()) if (c != null && c !== false) el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  return el;
+}
+const $ = (id) => document.getElementById(id);
+const colorOf = (s) => COLORS[[...s].reduce((a, c) => a + c.codePointAt(0), 0) % COLORS.length];
+const initial = (name) => ([...name.trim()][0] || "?").toUpperCase();
+
+async function api(path, { method = "GET", body, raw } = {}) {
+  const res = await fetch(`/api/${path}`, {
+    method,
+    headers: { "x-bot-forge-token": TOKEN, ...(body && !raw ? { "content-type": "application/json" } : {}) },
+    body: raw ? body : body ? JSON.stringify(body) : undefined,
+  });
+  if (path.endsWith("/export") && res.ok) return res.blob();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+let toastTimer;
+function toast(message, error) {
+  document.querySelector(".toast")?.remove();
+  const t = h("div", { class: `toast${error ? " error" : ""}`, role: error ? "alert" : "status" }, message);
+  document.body.append(t);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.remove(), error ? 6000 : 2600);
+}
+
+function confirmDialog(title, lines, okText = "Go ahead", danger) {
+  return new Promise((resolve) => {
+    const close = (v) => { back.remove(); resolve(v); };
+    const back = h("div", { class: "modal-back", onclick: (e) => e.target === back && close(false) },
+      h("div", { class: "card modal", role: "dialog", "aria-modal": "true", "aria-label": title },
+        h("h3", {}, title),
+        lines.length ? h("ul", {}, lines.map((l) => h("li", { class: "code" }, l))) : null,
+        h("div", { class: "actions", style: "justify-content:flex-end" },
+          h("button", { class: "btn ghost", onclick: () => close(false) }, "Cancel"),
+          h("button", { class: `btn ${danger ? "danger" : "primary"}`, onclick: () => close(true) }, okText))));
+    document.body.append(back);
+    back.querySelector(".btn:last-child").focus();
+    back.addEventListener("keydown", (e) => e.key === "Escape" && close(false));
+  });
+}
+
+async function run(task, okMessage) {
+  if (state.busy) return;
+  state.busy = true;
+  document.body.setAttribute("aria-busy", "true");
+  try {
+    const out = await task();
+    if (okMessage) toast(okMessage);
+    return out;
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    state.busy = false;
+    document.body.removeAttribute("aria-busy");
+  }
+}
+
+/* ── loading ── */
+async function loadBots() {
+  state.bots = (await api("bots")).bots;
+  renderBots();
+}
+async function openBot(slug) {
+  state.current = slug;
+  state.picker = null;
+  state.skillForm = false;
+  state.view = await api(`bots/${encodeURIComponent(slug)}`);
+  renderBots();
+  renderMain();
+}
+function setView(view) {
+  state.view = view;
+  state.current = view.spec.slug;
+  renderMain();
+  loadBots();
+}
+
+/* ── sidebar ── */
+function renderBots() {
+  const list = $("bots");
+  list.replaceChildren();
+  if (!state.bots.length) list.append(h("div", { class: "faint", style: "font-size:13px;padding:4px 2px" }, "No bots yet."));
+  for (const b of state.bots) {
+    list.append(h("button", { class: `bot-row${b.slug === state.current ? " active" : ""}`, onclick: () => run(() => openBot(b.slug)) },
+      h("span", { class: "avatar", style: `background:${colorOf(b.slug)}` }, initial(b.name)),
+      h("span", { style: "min-width:0" },
+        h("div", { class: "t" }, b.name),
+        h("div", { class: "d" }, b.duty),
+        h("div", { class: "m" }, `${b.connectors} connectors · ${b.skills} skills`))));
+  }
+}
+
+/* ── main: new bot ── */
+function renderHome() {
+  const input = h("textarea", { placeholder: "Describe the bot you need — what it's for, what it should do, which tools or services it works with…", "aria-label": "Describe the bot" });
+  const go = async () => {
+    const prompt = input.value.trim();
+    if (!prompt) return input.focus();
+    $("main").replaceChildren(h("div", { class: "loading" }, h("div", { class: "spinner" }), `Designing your bot with ${state.config?.model || "the model"}…`, h("span", { class: "faint", style: "font-size:12.5px" }, "Writing its duty, instructions and skills, and picking connectors.")));
+    const out = await run(() => api("generate", { method: "POST", body: { prompt } }));
+    if (!out) return renderHome();
+    if (out.notes) toast(out.notes);
+    if (out.unknownConnectors?.length) toast(`Left out (not in the catalog): ${out.unknownConnectors.join(", ")}`);
+    setView(out);
+  };
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) go(); });
+  $("main").replaceChildren(h("div", { class: "hero" },
+    h("h1", {}, "Describe a bot. Get a bot."),
+    h("p", { class: "muted", style: "margin:0" }, "bot-forge writes its duty and instructions, picks its connectors and skills, and packs it as a plugin for Mali Cowork or Claude Code."),
+    state.config?.problem ? h("div", { class: "notice", style: "text-align:left;display:flex;gap:10px;align-items:center" },
+      h("span", { class: "grow" }, state.config.problem), h("button", { class: "btn sm", onclick: openSettings }, "Choose model")) : null,
+    h("div", { class: "card composer", style: "text-align:left" }, input,
+      h("div", { class: "composer-foot" }, h("span", { class: "faint", style: "font-size:12px" }, "⌘/Ctrl + Enter"), h("span", { class: "spacer" }),
+        h("button", { class: "btn sm ghost", onclick: openSettings, title: "Change the model" }, state.config?.model ? state.config.model : "Choose model"),
+        h("button", { class: "btn primary", onclick: go }, "Generate bot"))),
+    h("div", { class: "ideas" }, IDEAS.map((idea) => h("button", { class: "idea", onclick: () => { input.value = idea; input.focus(); } }, idea)))));
+  input.focus();
+}
+
+/* ── main: one bot ── */
+function renderMain() {
+  if (!state.view) return renderHome();
+  const { spec, summary } = state.view;
+  $("main").replaceChildren(h("div", { class: "bot-grid" },
+    h("div", { class: "stack" }, identityCard(spec), instructionsCard(spec), connectorsCard(spec, summary), skillsCard(spec)),
+    summaryCard(spec, summary)));
+}
+
+function patch(fields, message = "Saved") {
+  return run(async () => setView(await api(`bots/${state.current}`, { method: "PATCH", body: fields })), message);
+}
+
+function identityCard(spec) {
+  const name = h("input", { class: "title-input", value: spec.name, "aria-label": "Name" });
+  const duty = h("textarea", { class: "duty-input", rows: "2", "aria-label": "Duty" }, spec.duty);
+  const save = () => {
+    if (name.value.trim() !== spec.name || duty.value.trim() !== spec.duty) patch({ name: name.value, duty: duty.value });
+  };
+  name.addEventListener("change", save);
+  duty.addEventListener("change", save);
+  return h("section", { class: "card section" },
+    h("div", { class: "row", style: "align-items:flex-start;flex-wrap:nowrap" },
+      h("span", { class: "avatar", style: `background:${colorOf(spec.slug)};width:44px;height:44px;font-size:19px;border-radius:13px` }, initial(spec.name)),
+      h("div", { class: "grow" }, name, duty)),
+    h("div", { class: "field" }, h("span", {}, "Access"),
+      h("div", { class: "seg", role: "radiogroup", "aria-label": "Access" },
+        SCOPES.map(([value, label]) => h("button", { role: "radio", "aria-checked": String(spec.tools === value), onclick: () => spec.tools !== value && patch({ tools: value }) }, label)))));
+}
+
+function instructionsCard(spec) {
+  const area = h("textarea", { class: "textarea", "aria-label": "Instructions" }, spec.instructions);
+  const saveBtn = h("button", { class: "btn sm primary", disabled: true, onclick: () => patch({ instructions: area.value }, "Instructions saved") }, "Save");
+  area.addEventListener("input", () => (saveBtn.disabled = area.value === spec.instructions));
+  return h("section", { class: "card section" },
+    h("div", { class: "section-head" }, h("h2", {}, "Instructions"), h("span", { class: "spacer" }), saveBtn),
+    h("p", { class: "muted", style: "margin:0;font-size:13px" }, "What it does and how — written to the bot. Markdown."), area);
+}
+
+function connectorsCard(spec, summary) {
+  const byName = Object.fromEntries(summary.connections.map((c) => [c.name, c]));
+  const items = spec.connectors.map((c) => {
+    const s = byName[c.name];
+    return h("div", { class: "item" },
+      h("span", { class: "icon" }, initial(c.title)),
+      h("div", { class: "body" },
+        h("div", { class: "name" }, c.title, h("span", { class: `state ${s.state}` }, STATE_TEXT[s.state]), h("span", { class: "faint code" }, c.name)),
+        c.description ? h("div", { class: "desc" }, c.description) : null,
+        h("div", { class: "code" }, s.target),
+        c.env.length ? h("div", { class: "vars" }, c.env.map((v) => h("span", { class: `var${s.missing.includes(v.var) ? " missing" : ""}`, title: v.label || v.var }, v.var))) : null),
+      h("button", { class: "btn sm ghost", "aria-label": `Remove ${c.title}`, onclick: () => run(async () => setView(await api(`bots/${state.current}/connectors/${encodeURIComponent(c.name)}`, { method: "DELETE" })), `Removed ${c.title}`) }, "Remove"));
+  });
+  return h("section", { class: "card section" },
+    h("div", { class: "section-head" }, h("h2", {}, "Connectors"), h("span", { class: "count" }, `${spec.connectors.length}`), h("span", { class: "spacer" }),
+      h("button", { class: "btn sm", onclick: () => { state.picker = state.picker ? null : "catalog"; renderMain(); } }, state.picker ? "Close" : "+ Add connector")),
+    state.picker ? picker(spec) : null,
+    items.length ? items : h("div", { class: "empty" }, "No connectors — it works with its own tools only."));
+}
+
+function picker(spec) {
+  const tabs = h("div", { class: "seg", role: "tablist" },
+    [["catalog", "Catalog"], ["custom", "Custom MCP server"]].map(([v, l]) =>
+      h("button", { role: "tab", "aria-checked": String(state.picker === v), onclick: () => { state.picker = v; renderMain(); } }, l)));
+  const add = (body, label) => run(async () => { state.picker = null; setView(await api(`bots/${state.current}/connectors`, { method: "POST", body })); }, `Added ${label}`);
+  if (state.picker === "catalog") {
+    const have = new Set(spec.connectors.map((c) => c.catalogId).filter(Boolean));
+    const search = h("input", { class: "input", placeholder: "Search connectors…", "aria-label": "Search connectors" });
+    const grid = h("div", { class: "catalog" });
+    const fill = () => {
+      const q = search.value.toLowerCase();
+      grid.replaceChildren(...state.catalog
+        .filter((c) => !q || `${c.id} ${c.name} ${c.description} ${c.category}`.toLowerCase().includes(q))
+        .map((c) => h("button", { class: "cat", disabled: have.has(c.id), onclick: () => add({ catalogId: c.id }, c.name) },
+          h("b", {}, c.name, have.has(c.id) ? " ✓" : ""), h("span", {}, c.description),
+          c.env.length ? h("span", { class: "code" }, `needs ${c.env.map((v) => v.var).join(", ")}`) : null)));
+    };
+    search.addEventListener("input", fill);
+    fill();
+    setTimeout(() => search.focus());
+    return h("div", { class: "picker" }, tabs, search, grid);
+  }
+  const kind = h("select", { class: "select", "aria-label": "Kind", style: "width:auto" }, h("option", { value: "url" }, "Remote (URL)"), h("option", { value: "command" }, "Local (command)"));
+  const target = h("input", { class: "input grow", placeholder: "https://example.com/mcp", "aria-label": "URL or command" });
+  const name = h("input", { class: "input", placeholder: "Name (optional)", "aria-label": "Name", style: "max-width:200px" });
+  const header = h("input", { class: "input grow", placeholder: "Header, e.g. Authorization=Bearer ${API_TOKEN}", "aria-label": "Header" });
+  const env = h("input", { class: "input grow", placeholder: "Variables it needs, comma-separated (e.g. API_TOKEN)", "aria-label": "Variables" });
+  kind.addEventListener("change", () => {
+    target.placeholder = kind.value === "url" ? "https://example.com/mcp" : "npx -y @scope/some-mcp-server@1.2.3";
+    header.hidden = kind.value !== "url";
+  });
+  const submit = () => {
+    const value = target.value.trim();
+    if (!value) return target.focus();
+    const vars = env.value.split(",").map((v) => v.trim()).filter(Boolean);
+    const body = kind.value === "url" ? { url: value, env: vars } : { command: value, env: vars };
+    if (name.value.trim()) body.name = name.value.trim();
+    if (kind.value === "url" && header.value.includes("=")) {
+      const at = header.value.indexOf("=");
+      body.headers = { [header.value.slice(0, at).trim()]: header.value.slice(at + 1).trim() };
+    }
+    add(body, name.value.trim() || "the connector");
+  };
+  return h("div", { class: "picker" }, tabs,
+    h("div", { class: "row" }, kind, target), h("div", { class: "row" }, name, header), env,
+    h("p", { class: "faint", style: "margin:0;font-size:12.5px" }, "Write secrets as ${VARIABLE}: the value is read from the environment where the bot runs and never saved in its files."),
+    h("div", { class: "row" }, h("span", { class: "spacer" }), h("button", { class: "btn sm primary", onclick: submit }, "Add")));
+}
+
+function skillsCard(spec) {
+  const items = spec.skills.map((s) => h("div", { class: "item" },
+    h("span", { class: "icon" }, "✦"),
+    h("div", { class: "body" }, h("div", { class: "name" }, s.name, h("span", { class: "faint code" }, s.source)), h("div", { class: "desc" }, s.description)),
+    h("button", { class: "btn sm ghost", "aria-label": `Remove ${s.name}`, onclick: () => run(async () => setView(await api(`bots/${state.current}/skills/${encodeURIComponent(s.name)}`, { method: "DELETE" })), `Removed ${s.name}`) }, "Remove")));
+  let form = null;
+  if (state.skillForm) {
+    const text = h("textarea", { class: "textarea", style: "min-height:160px", placeholder: "---\nname: weekly-report\ndescription: Formats the weekly report\n---\n\n1. …", "aria-label": "SKILL.md" });
+    const file = h("input", { type: "file", accept: ".md,text/markdown,text/plain", hidden: true });
+    let fileName;
+    file.addEventListener("change", async () => {
+      const f = file.files[0];
+      if (!f) return;
+      fileName = f.name.replace(/\.md$/i, "");
+      text.value = await f.text();
+    });
+    form = h("div", { class: "picker" }, text,
+      h("div", { class: "row" }, h("label", { class: "btn sm" }, "Load a SKILL.md", file), h("span", { class: "spacer" }),
+        h("button", { class: "btn sm primary", onclick: () => run(async () => { state.skillForm = false; setView(await api(`bots/${state.current}/skills`, { method: "POST", body: { content: text.value, name: fileName } })); }, "Skill added") }, "Add skill")));
+    setTimeout(() => text.focus());
+  }
+  return h("section", { class: "card section" },
+    h("div", { class: "section-head" }, h("h2", {}, "Skills"), h("span", { class: "count" }, `${spec.skills.length}`), h("span", { class: "spacer" }),
+      h("button", { class: "btn sm", onclick: () => { state.skillForm = !state.skillForm; renderMain(); } }, state.skillForm ? "Close" : "+ Add skill")),
+    form,
+    items.length ? items : h("div", { class: "empty" }, "No skills. Add a SKILL.md for procedures it should follow."));
+}
+
+function summaryCard(spec, summary) {
+  const c = summary.counts;
+  const check = () => run(async () => {
+    const { plan } = await api(`bots/${state.current}/check`);
+    const ok = await confirmDialog("Check connections?", plan.map((p) => `${p.title}: ${p.run}`), "Check now");
+    if (!ok) return;
+    toast("Checking… a first run can take a minute while servers download.");
+    setView(await api(`bots/${state.current}/check`, { method: "POST", body: { confirmed: true } }));
+  });
+  const exportZip = () => run(async () => {
+    const blob = await api(`bots/${state.current}/export`);
+    const a = h("a", { href: URL.createObjectURL(blob), download: `${spec.slug}.zip` });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }, "Exported — in Mali Cowork: Settings › Team › Import bot. Or load it in Claude Code as a plugin.");
+  const remove = () => run(async () => {
+    if (!(await confirmDialog(`Delete ${spec.name}?`, [], "Delete", true))) return;
+    await api(`bots/${state.current}`, { method: "DELETE" });
+    state.view = null; state.current = null;
+    await loadBots(); renderMain();
+  }, "Deleted");
+
+  return h("aside", { class: "card summary", "aria-label": "Summary" },
+    h("div", { class: "sum-head" },
+      h("div", { class: "who" }, h("span", { class: "avatar", style: `background:${colorOf(spec.slug)}` }, initial(spec.name)),
+        h("div", { style: "min-width:0" }, h("h3", {}, spec.name), h("div", { class: "muted", style: "font-size:12.5px" }, summary.access))),
+      h("div", { class: "stats" },
+        h("div", { class: "stat" }, h("b", {}, `${c.connected}/${c.connectors}`), h("span", {}, "connected")),
+        h("div", { class: "stat" }, h("b", {}, c.needsSetup + c.failed), h("span", {}, "need attention")),
+        h("div", { class: "stat" }, h("b", {}, c.skills), h("span", {}, "skills")))),
+    h("div", { class: "sum-part" }, h("div", { class: "label" }, "Can do"),
+      summary.capabilities.length ? h("ul", { class: "caps" }, summary.capabilities.map((x) => h("li", {}, x))) : h("span", { class: "faint" }, "—")),
+    h("div", { class: "sum-part" }, h("div", { class: "row" }, h("div", { class: "label" }, "Connections"), h("span", { class: "spacer" }),
+        spec.connectors.length ? h("button", { class: "btn sm", onclick: check }, "Check") : null),
+      summary.connections.length ? summary.connections.map((x) => h("div", { class: "conn" }, h("span", { class: `dot ${x.state}` }),
+        h("div", { style: "min-width:0" }, h("div", {}, h("b", {}, x.title), " ", h("span", { class: "faint" }, `· ${STATE_TEXT[x.state]}`)),
+          x.missing.length ? h("div", { class: "faint", style: "font-size:12px" }, `Set ${x.missing.join(", ")}`) : null,
+          x.tools.length ? h("div", { class: "faint", style: "font-size:12px" }, `${x.tools.length} tools: ${x.tools.slice(0, 5).join(", ")}${x.tools.length > 5 ? "…" : ""}`) : null,
+          x.error ? h("div", { style: "font-size:12px;color:var(--bad)" }, x.error) : null)))
+        : h("span", { class: "faint" }, "None")),
+    summary.examples.length ? h("div", { class: "sum-part" }, h("div", { class: "label" }, "Try asking"),
+      h("div", { class: "examples" }, summary.examples.map((e) => h("div", { class: "example" }, `“${e}”`)))) : null,
+    h("div", { class: "sum-part" }, h("div", { class: "label" }, "Works with"), h("div", { class: "muted", style: "font-size:13px" }, summary.worksWith.join(" · ")),
+      h("div", { class: "actions" }, h("button", { class: "btn primary", onclick: exportZip }, "Export .zip"), h("span", { class: "spacer" }), h("button", { class: "btn ghost danger", onclick: remove }, "Delete"))));
+}
+
+/* ── the model that designs bots ── */
+function renderChip() {
+  const c = state.config;
+  const chip = $("model-chip");
+  chip.classList.toggle("off", !c || !!c.problem);
+  $("model-text").textContent = c ? `${c.label} · ${c.model || "pick a model"}` : "no generator";
+}
+
+const badgeText = (x) => ({ none: "Free · local", env: "Key set", session: "Key entered", optional: "Key optional" })[x.key] ?? "Key needed";
+
+function openSettings() {
+  const c = state.config;
+  if (!c) return;
+  let picked = c.provider;
+  let addresses = { [c.provider]: c.baseUrl };
+  const close = () => back.remove();
+  const list = h("div", { class: "providers", role: "radiogroup", "aria-label": "Provider" });
+  const base = h("input", { class: "input", "aria-label": "Server address", placeholder: "http://localhost:8000/v1" });
+  const key = h("input", { class: "input", type: "password", autocomplete: "off", "aria-label": "API key" });
+  const keyHint = h("p", { class: "hint" });
+  const model = h("input", { class: "input", list: "model-list", "aria-label": "Model", placeholder: "Model name", value: c.model });
+  const options = h("datalist", { id: "model-list" });
+  const modelsHint = h("p", { class: "hint" });
+  const note = h("p", { class: "hint" });
+  const baseField = h("label", { class: "field" }, h("span", {}, "Server address"), base);
+  const keyField = h("label", { class: "field" }, h("span", {}, "API key"), key, keyHint);
+
+  const presetOf = (id) => c.presets.find((p) => p.id === id);
+  const loadModels = async () => {
+    options.replaceChildren();
+    modelsHint.textContent = "Loading models…";
+    try {
+      const { models, config } = await api("models", { method: "POST", body: { provider: picked, baseUrl: base.value.trim(), apiKey: key.value.trim() } });
+      c.presets = config.presets;
+      list.querySelectorAll(".prov .badge").forEach((b, i) => {
+        const x = c.presets[i];
+        b.className = `badge${x.local ? " free" : x.key === "missing" ? " missing" : ""}`;
+        b.textContent = badgeText(x);
+      });
+      options.replaceChildren(...models.map((m) => h("option", { value: m })));
+      modelsHint.textContent = models.length ? `${models.length} models — type to search.` : "No models listed: type the name.";
+      if (!model.value && models.length === 1) model.value = models[0];
+    } catch (e) {
+      modelsHint.textContent = `Couldn't list models (${e.message}). You can still type the name.`;
+    }
+  };
+  const show = () => {
+    const p = presetOf(picked);
+    list.replaceChildren(...c.presets.map((x) => h("button", { class: "prov", role: "radio", "aria-checked": String(x.id === picked), onclick: () => { addresses[picked] = base.value; picked = x.id; model.value = x.id === c.provider ? c.model : ""; key.value = ""; show(); } },
+      h("b", {}, x.label),
+      h("span", { class: `badge${x.local ? " free" : x.key === "missing" ? " missing" : ""}` }, badgeText(x)))));
+    baseField.hidden = p.kind !== "openai";
+    base.value = addresses[p.id] ?? p.baseUrl;
+    keyField.hidden = p.local;
+    key.placeholder = p.key === "env" ? `Using $${p.keyEnv} — type to use another` : p.key === "session" ? "Entered for this session" : p.keyEnv ? `Paste the key, or set $${p.keyEnv}` : "Optional";
+    keyHint.textContent = "A key typed here is kept only until bot-forge stops — it's never saved.";
+    note.textContent = p.note;
+    loadModels();
+  };
+  base.addEventListener("change", loadModels);
+  key.addEventListener("change", () => key.value.trim() && loadModels());
+  const save = () => run(async () => {
+    state.config = await api("config", { method: "PUT", body: { provider: picked, model: model.value.trim(), baseUrl: presetOf(picked).kind === "openai" && base.value.trim() !== presetOf(picked).baseUrl ? base.value.trim() : "", apiKey: key.value } });
+    renderChip();
+    close();
+    if (!state.view) renderHome();
+    if (state.config.problem) toast(state.config.problem, true);
+  }, "Saved — new bots use this model");
+
+  const back = h("div", { class: "modal-back", onclick: (e) => e.target === back && close() },
+    h("div", { class: "card modal wide", role: "dialog", "aria-modal": "true", "aria-label": "Model" },
+      h("h3", {}, "Which model designs your bots?"),
+      h("p", { class: "hint" }, "Any provider works. Local models (Ollama, LM Studio) cost nothing; bigger models write better instructions."),
+      list, note, baseField, keyField,
+      h("label", { class: "field" }, h("span", {}, "Model"), model, options, modelsHint),
+      h("div", { class: "actions", style: "justify-content:flex-end" },
+        h("button", { class: "btn ghost", onclick: close }, "Cancel"),
+        h("button", { class: "btn primary", onclick: save }, "Use this model"))));
+  back.addEventListener("keydown", (e) => e.key === "Escape" && close());
+  document.body.append(back);
+  show();
+  model.focus();
+}
+$("model-chip").addEventListener("click", openSettings);
+
+/* ── import ── */
+$("import-file").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  run(async () => {
+    const out = await api("import", { method: "POST", body: await file.arrayBuffer(), raw: true });
+    setView(out);
+    if (out.dropped?.length) toast(`Left out values written into its .mcp.json: ${out.dropped.join(", ")}`);
+  }, "Imported — nothing in it was run");
+});
+$("new-btn").addEventListener("click", () => { state.view = null; state.current = null; renderBots(); renderMain(); });
+
+(async () => {
+  const [config, catalog] = await Promise.all([api("config").catch(() => null), api("catalog").catch(() => ({ connectors: [] }))]);
+  state.catalog = catalog.connectors;
+  state.config = config;
+  renderChip();
+  await loadBots().catch((e) => toast(e.message, true));
+  // `#model` opens the model picker: a link to send someone setting bot-forge up.
+  if (location.hash === "#model") setTimeout(openSettings);
+  if (state.bots[0]) await openBot(state.bots[0].slug).catch(() => renderMain());
+  else renderMain();
+})();
+</script>
+</body>
+</html>

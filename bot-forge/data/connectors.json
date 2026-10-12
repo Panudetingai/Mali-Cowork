@@ -1,0 +1,186 @@
+{
+  "source": "Mali Cowork src/features/mcp/catalog.ts",
+  "connectors": [
+    {
+      "id": "word",
+      "name": "Word",
+      "description": "Create and edit .docx files: text, tables, styles, comments.",
+      "category": "Documents",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "office-word-mcp-server==1.1.11",
+        "word_mcp_server"
+      ],
+      "env": [],
+      "setup": "Office-Word-MCP-Server. Works without Microsoft Word; needs uv (uvx) or Python 3.11+."
+    },
+    {
+      "id": "exec",
+      "name": "Exec",
+      "description": "Let the agent run shell commands on this device.",
+      "category": "Execute",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@mkusaka/mcp-shell-server@0.1.1"
+      ],
+      "env": []
+    },
+    {
+      "id": "filesystem",
+      "name": "Filesystem",
+      "description": "Read and write files in the working folder.",
+      "category": "Dev",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem@2026.8.31"
+      ],
+      "env": []
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "description": "Connect AI assistants to GitHub — manage repos, issues, PRs, and workflows via API.",
+      "category": "Dev",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github@2025.4.8"
+      ],
+      "env": [
+        {
+          "var": "GITHUB_PERSONAL_ACCESS_TOKEN",
+          "label": "GitHub personal access token",
+          "required": false,
+          "secret": true
+        }
+      ],
+      "repositoryUrl": "https://github.com/github/github-mcp-server"
+    },
+    {
+      "id": "fetch",
+      "name": "Fetch",
+      "description": "Open web pages and read their content.",
+      "category": "Web",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-puppeteer@2025.5.12"
+      ],
+      "env": []
+    },
+    {
+      "id": "playwright",
+      "name": "Playwright",
+      "description": "Automate a browser, test sites, take screenshots.",
+      "category": "Web",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@0.0.82"
+      ],
+      "env": []
+    },
+    {
+      "id": "sqlite",
+      "name": "SQLite",
+      "description": "Query local .db files.",
+      "category": "Data",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-sqlite@1.0.9"
+      ],
+      "env": []
+    },
+    {
+      "id": "postgres",
+      "name": "Postgres",
+      "description": "Query a Postgres database.",
+      "category": "Data",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres@0.6.2"
+      ],
+      "env": [
+        {
+          "var": "POSTGRES_CONNECTION_STRING",
+          "label": "Connection URL",
+          "required": true,
+          "secret": true
+        }
+      ]
+    },
+    {
+      "id": "memory",
+      "name": "Memory",
+      "description": "Long-term memory across sessions.",
+      "category": "Memory",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory@2026.8.31"
+      ],
+      "env": []
+    },
+    {
+      "id": "sequential-thinking",
+      "name": "Sequential Thinking",
+      "description": "Step-by-step thinking for complex tasks.",
+      "category": "Memory",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking@2026.8.31"
+      ],
+      "env": []
+    },
+    {
+      "id": "brave-search",
+      "name": "Brave Search",
+      "description": "Live web search.",
+      "category": "Web",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-brave-search@0.6.2"
+      ],
+      "env": [
+        {
+          "var": "BRAVE_API_KEY",
+          "label": "Brave Search API key",
+          "required": true,
+          "secret": true
+        }
+      ]
+    },
+    {
+      "id": "slack",
+      "name": "Slack",
+      "description": "Read and post in Slack channels.",
+      "category": "Dev",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-slack@2025.4.25"
+      ],
+      "env": [
+        {
+          "var": "SLACK_BOT_TOKEN",
+          "label": "Bot token",
+          "required": true,
+          "secret": true
+        },
+        {
+          "var": "SLACK_TEAM_ID",
+          "label": "Workspace ID",
+          "required": true,
+          "secret": false
+        }
+      ]
+    }
+  ]
+}

@@ -38,7 +38,7 @@ import {
 import { removeTemplate, syncTemplateSkill, updateTemplate } from "@/features/templates";
 import { fetchPlugin, installPluginFiles, peekPlugin, removePluginFiles, sameSource, sourceLabel } from "./api";
 import { clearPanelStorage } from "./bridge";
-import { agentToTeammate, commandToSkill, humanize, mcpToConnector } from "./convert";
+import { agentToTeammate, commandToSkill, humanize, mcpToConnector, ownedParts } from "./convert";
 import { forgetPlugin, getPlugin, getPlugins, patchPlugin, savePlugin, type InstalledPlugin } from "./store";
 import type { PluginDoc, PluginFile, PluginMcp, PluginPackage } from "./types";
 
@@ -117,17 +117,19 @@ export async function installPlugin(
     ? await installSkills(planned.map((p) => ({ slug: p.slug, content: toSkillFile(p.draft), files: p.files })))
     : [];
   const skillIds: string[] = [];
+  /** A skill's name in the plugin → its id here, for the bots that own it. */
+  const skillByName = new Map<string, string>();
   for (const p of planned) {
     const landed = installed.find((i) => i.slug === p.slug);
-    skillIds.push(
-      saveSkill({
-        ...p.draft,
-        id: p.replaces?.id,
-        // An update keeps what the user switched off; a paused plugin stays paused.
-        enabled: pluginOn && (p.replaces?.enabled ?? true),
-        install: landed ? toInstallRecord(landed) : undefined,
-      }),
-    );
+    const id = saveSkill({
+      ...p.draft,
+      id: p.replaces?.id,
+      // An update keeps what the user switched off; a paused plugin stays paused.
+      enabled: pluginOn && (p.replaces?.enabled ?? true),
+      install: landed ? toInstallRecord(landed) : undefined,
+    });
+    skillIds.push(id);
+    skillByName.set(skillSlug(p.draft), id);
   }
   for (const [, old] of mine) {
     if (skillIds.includes(old.id)) continue;
@@ -139,6 +141,8 @@ export async function installPlugin(
   // Added but not connected: the user connects each one (and gives it keys) themselves.
   const oldConnectors = getCustomMcps().filter((c) => before?.connectors.includes(c.id));
   const connectorIds: string[] = [];
+  /** A connector's `.mcp.json` name → its id here, for the bots that own it. */
+  const connectorByName = new Map<string, string>();
   for (const server of choices.connectors) {
     if (server.skipped) {
       skipped.push(`${server.name} — ${server.skipped}`);
@@ -150,6 +154,7 @@ export async function installPlugin(
     saveCustomMcp({ ...connector, createdAt: existing?.createdAt ?? connector.createdAt });
     if (Object.keys(env).length) setMcpEnv(id, env);
     connectorIds.push(id);
+    connectorByName.set(server.name, id);
   }
   for (const old of oldConnectors) {
     if (!connectorIds.includes(old.id)) await removeConnector(old.id).catch(() => undefined);
@@ -171,8 +176,13 @@ export async function installPlugin(
       skipped.push(`${humanize(doc.name)} — pick a model for new bots`);
       continue;
     }
+    // A new bot gets the connectors and skills its agent names (and the user kept); one already here keeps its own.
+    const owned = ownedParts(doc);
+    const pick = (names: string[], ids: Map<string, string>) => names.flatMap((n) => ids.get(n) ?? ids.get(n.toLowerCase()) ?? []);
     const draft: TeammateDraft = {
       ...agentToTeammate(doc, { modelId, mascot: existing?.mascot ?? freeMascot(getTeam().mates), pluginId: pkg.id }),
+      skills: pick(owned.skills, skillByName),
+      connectors: pick(owned.connectors, connectorByName),
       ...(existing ? { id: existing.id, onTeam: existing.onTeam, skills: existing.skills, connectors: existing.connectors } : {}),
       ...(pluginOn ? {} : { paused: true }),
     };

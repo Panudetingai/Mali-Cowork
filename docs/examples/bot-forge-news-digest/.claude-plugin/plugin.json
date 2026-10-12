@@ -1,0 +1,9 @@
+{
+  "name": "news-digest",
+  "version": "0.1.0",
+  "description": "Summarizes web articles the user links into short Thai briefs.",
+  "keywords": [
+    "bot",
+    "bot-forge"
+  ]
+}

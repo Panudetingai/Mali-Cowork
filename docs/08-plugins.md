@@ -59,6 +59,7 @@ my-plugin/
 | `skills/*/SKILL.md` | Skill ใน library | ไฟล์ข้าง SKILL.md ติดตั้งด้วย (ไม่รวมไฟล์โปรแกรม `.exe` `.dylib` …) |
 | `commands/*.md` | Skill แบบ "slash only" | ไม่อยู่ใน system prompt — ส่งไปเฉพาะตอนพิมพ์ `/name`; `$ARGUMENTS` = ข้อความหลัง `/name` |
 | `agents/*.md` | Bot ในทีม | `description` → หน้าที่, เนื้อหา → วิธีทำงาน, `tools` → สิทธิ์ไฟล์ (ไม่ระบุ = อ่านอย่างเดียว); lead ต้องขออนุญาตก่อนเรียก; ชื่อซ้ำ bot เดิมจะไม่ถูกเพิ่ม (หนึ่งหน้าที่ หนึ่ง bot) |
+| `agents/*.md` (บรรทัด `mali-name`, `mali-connectors`, `mali-skills`) | ของที่ bot เป็นเจ้าของ | ชื่อที่แสดง, connector (ชื่อใน `.mcp.json`) และ skill ของ plugin ที่เป็นของ bot นี้ — bot ใหม่ได้ของเหล่านี้ตอนติดตั้ง (bot ที่สร้างด้วย [`bot-forge`](../bot-forge/README.md) เขียนให้อัตโนมัติ) |
 | `.mcp.json` | Connector (ปิดอยู่) | ผู้ใช้กด Connect และใส่ key เองในหน้า connector; `${VAR}` ใน `env` กลายเป็นช่องให้กรอก |
 | `mali/instructions.md` | Instructions | อยู่ในทุกแชทขณะ plugin เปิด |
 | `mali/templates/*.docx` | Template | เข้า template library พร้อม `/` skill ของมัน |
