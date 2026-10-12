@@ -158,9 +158,9 @@ export function DiffCards({ detail, className }: { detail: string; className?: s
         title="Hide diff"
         aria-label="Hide diff"
         onClick={() => setDismissed(true)}
-        className="absolute -top-1 right-0 z-10 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+        className="absolute -top-2 right-0 z-10 rounded-md border border-border/70 bg-card p-1.5 text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
       >
-        <XIcon className="size-3.5" />
+        <XIcon className="size-4" />
       </button>
       {files.map((file) => (
         <DiffCard

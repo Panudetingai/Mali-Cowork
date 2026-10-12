@@ -313,11 +313,10 @@ export const CodeBlockContainer = ({
       className
     )}
     data-language={language}
-    style={{
-      containIntrinsicSize: "auto 200px",
-      contentVisibility: "auto",
-      ...style,
-    }}
+    // NOTE: no `content-visibility: auto` here. It makes the browser skip
+    // rendering off-screen code and report a stale `scrollHeight`, so the
+    // chat's "Follow reply" pins to the wrong place while a reply streams.
+    style={style}
     {...props}
   />
 );

@@ -344,7 +344,11 @@ export const MessageResponse = memo(
         (isAnimating ? { animation: "fadeIn", stagger: 36, duration: 260 } : false)
       }
       lineNumbers={false}
-      codeBlockMaxHeight={420}
+      // While streaming the code must grow outward so the chat's "Follow
+      // reply" can pin the outer scroll to the bottom. Clamping to 420px
+      // with an inner scrollbar would trap new lines inside the block and
+      // look like follow stopped working.
+      codeBlockMaxHeight={isAnimating ? undefined : 420}
       {...props}
     />
   ),
