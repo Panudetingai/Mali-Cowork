@@ -8,6 +8,7 @@ import { useWeeklyRecapAutoOpen, WeeklyRecapDialog } from "@/features/work-recei
 import { AppLayout } from "@/layouts/app-layout";
 // Registers plugin instructions with every chat; loaded with the app.
 import { onOpenTeam, playMainReturn, startNotchRelay, useMainAwake } from "@/features/notch";
+import { startBotSharing, subscribeToBotWords, getPendingBotWords } from "@/features/team";
 import "@/features/plugins";
 import { listenForQuickSaves, onOpenChatRequest, onOpenQuickSettings, serveQuickTheme } from "@/features/quick";
 import { startTaskQueue } from "@/features/tasks";
@@ -43,6 +44,8 @@ function App() {
   useEffect(() => startTaskQueue(), []);
   // The notch pill shows the agent's step and approvals while this window is away.
   useEffect(() => startNotchRelay(), []);
+  // Your bots, for Claude Code and other agents on this computer (Settings › Team).
+  useEffect(() => startBotSharing(), []);
   // Coming back from notch mode, the window opens out of the drop.
   useEffect(() => playMainReturn(), []);
   // Thai work templates (quotation, invoice, official letter…) join the skills once.
@@ -70,6 +73,16 @@ function App() {
   // "New bot" in the notch: Settings → Team, with the new-bot form open.
   useEffect(
     () => onOpenTeam(({ create }) => navigate(`/settings?tab=team${create ? "&new=1" : ""}`)),
+    [navigate],
+  );
+  // `/bot …` in the chat box: Settings › Team writes it from those words.
+  useEffect(
+    () => {
+      const stop = subscribeToBotWords(() => {
+        if (getPendingBotWords()) navigate("/settings?tab=team&describe=1");
+      });
+      return () => void stop();
+    },
     [navigate],
   );
 

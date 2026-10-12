@@ -478,9 +478,18 @@ export default function PromptInput({
   function pickSlash(item: SlashItem) {
     if (!slash) return;
     const caret = ref.current?.selectionStart ?? prompt.length;
-    const next = `${prompt.slice(0, slash.start)}${prompt.slice(caret)}`;
+    // "Make a bot" stays as `/bot `, for the words that follow.
+    const keep = item.kind === "bot" ? "/bot " : "";
+    const next = `${prompt.slice(0, slash.start)}${keep}${prompt.slice(caret)}`;
     setPrompt(next);
     setSlash(null);
+    if (item.kind === "bot") {
+      requestAnimationFrame(() => {
+        ref.current?.focus();
+        ref.current?.setSelectionRange(slash.start + keep.length, slash.start + keep.length);
+      });
+      return;
+    }
     if (item.kind === "files") void pickFiles();
     else {
       const slug = skillSlug(item.skill);

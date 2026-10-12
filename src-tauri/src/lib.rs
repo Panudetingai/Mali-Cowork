@@ -20,7 +20,7 @@ pub mod bench {
 }
 
 use commands::app_cache::{app_cache_size, app_clear_cache};
-use commands::agent::{agent_abort, agent_answer_question, agent_generate, agent_reply_permission, team_lead_begin, team_lead_end, team_reflect, team_suggest};
+use commands::agent::{agent_abort, agent_answer_question, agent_generate, agent_reply_permission, team_lead_begin, team_lead_end, team_reflect, team_suggest, team_write_bot};
 use commands::mcp_hub::{mcp_hub_set_servers, mcp_hub_set_workspace, mcp_hub_sign_in, mcp_hub_sign_out, mcp_hub_sync};
 use commands::mcp_bridge::mcp_release_other_apps;
 use commands::templates::{
@@ -184,6 +184,8 @@ pub fn run() {
             commands::plugins::serve_panel_request(&request)
         })
         .setup(|app| {
+            // Your bots for Claude Code: back on if they were.
+            agent::bot_server::resume();
             supervisor::exit_on_signals();
             start_system_stats_sampler();
             // The main window starts hidden: at login (the login item passes
@@ -257,6 +259,7 @@ pub fn run() {
             team_lead_begin,
             team_lead_end,
             team_reflect,
+            team_write_bot,
             team_suggest,
             agent_answer_question,
             mcp_hub_sync,
@@ -408,6 +411,10 @@ pub fn run() {
             plugins_install_files,
             plugins_remove_files,
             plugins_unpack_bot,
+            agent::bot_server::bots_mcp_publish,
+            agent::bot_server::bots_mcp_status,
+            agent::bot_server::bots_mcp_set_enabled,
+            agent::bot_server::bots_mcp_reset_token,
             skills_scan_folder,
             skills_export_folder,
             skills_read_asset,

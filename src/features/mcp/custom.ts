@@ -75,6 +75,7 @@ bindSecrets(store, { prefix: "mcp-headers:", ...headerSecrets });
 
 export const useCustomMcps = store.use;
 export const getCustomMcps = store.get;
+export const subscribeToCustomMcps = store.subscribe;
 
 /** A stable, backend-safe id from a display name. */
 export function customMcpId(name: string, taken: string[] = store.get().map((s) => s.id)) {

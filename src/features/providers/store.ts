@@ -36,6 +36,7 @@ const envStore = createStore<string[]>([]);
 let envRequested = false;
 
 export const useProviderConfigs = configStore.use;
+export const subscribeToProviderConfigs = configStore.subscribe;
 
 export function useEnvKeys() {
   useEffect(() => {

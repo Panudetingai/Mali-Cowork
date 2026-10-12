@@ -24,8 +24,17 @@ import {
     setTeamEnabled,
     TEAMMATE_TEMPLATES,
     TOOL_SCOPES,
+    botsMcpStatus,
+    clearPendingBotWords,
+    getPendingBotWords,
+    writeBot,
+    claudeCodeCommand,
+    mcpJsonConfig,
+    resetBotsMcpToken,
+    setBotsMcpEnabled,
     useTeam,
     useTeamModels,
+    type BotsMcpStatus,
     type Proposal,
     type Teammate,
     type TeammateDraft,
@@ -35,17 +44,23 @@ import { ModelPicker } from "@/pages/chat/components/model-picker";
 import { findModel } from "@/pages/chat/models";
 import {
     AlertTriangleIcon,
+    CheckIcon,
+    CopyIcon,
+    TerminalIcon,
     BookOpenTextIcon,
     DownloadIcon,
     GraduationCapIcon,
     LoaderIcon,
     MessageCircleIcon,
+    SparklesIcon,
     PlusIcon,
     RefreshCwIcon,
     Trash2Icon,
     UsersIcon,
     XIcon,
 } from "lucide-react";
+import { toast } from "@/components/ui/sonner";
+import { Textarea } from "@/components/ui/textarea";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useSettingsSub } from "../route";
@@ -97,6 +112,16 @@ export function TeamSettings() {
   const review = (proposal: Proposal) => {
     setReviewing(proposal.id);
     setDraft(draftFromProposal(proposal, defaultTeamModel(models) ?? ""));
+    open("new");
+  };
+  /** A bot the model wrote from the user's words: open in the editor, theirs to change before it's added. */
+  const written = (proposal: Awaited<ReturnType<typeof writeBot>>) => {
+    setDraft({
+      ...draftFromProposal({ ...proposal, at: Date.now() }, defaultTeamModel(models) ?? ""),
+      origin: "user",
+      personal: true,
+      onTeam: team.enabled,
+    });
     open("new");
   };
   const unusedTemplates = TEAMMATE_TEMPLATES.filter((t) => !team.mates.some((m) => m.name === t.name));
@@ -182,6 +207,8 @@ export function TeamSettings() {
         />
       </SettingsGroup>
 
+      <DescribeBot onWritten={written} />
+
       {team.proposals.length > 0 && (
         <SettingsGroup wide title="Proposed by the lead" description="The lead noticed a duty nobody on the team has. Nothing changes until you accept.">
           <div className="mt-1 grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -242,6 +269,7 @@ export function TeamSettings() {
         </SettingsGroup>
       )}
 
+      <ShareSection />
       <CoachSection />
       <NotebookSection />
     </SettingsPage>
@@ -465,4 +493,181 @@ function insightStatus(team: ReturnType<typeof useTeam>, insight: { pattern: str
 function insightStatusClass(team: ReturnType<typeof useTeam>, insight: { pattern: string; count: number }) {
   const looked = team.suggested.includes(insight.pattern.trim().toLowerCase());
   return !looked && insight.count >= READY_AT ? "font-medium text-violet-700 dark:text-violet-300" : undefined;
+}
+
+/** Your own bots as tools in Claude Code (or any agent on this computer that speaks MCP). */
+function ShareSection() {
+  const team = useTeam();
+  const [status, setStatus] = useState<BotsMcpStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState<string>();
+  const [showJson, setShowJson] = useState(false);
+  const own = team.mates.filter((m) => m.personal && !m.paused);
+
+  useEffect(() => {
+    void botsMcpStatus().then(setStatus).catch(() => undefined);
+    // The tools follow the bots: read them again when the bots change.
+  }, [team.mates]);
+
+  const toggle = async (on: boolean) => {
+    setBusy(true);
+    try {
+      setStatus(await setBotsMcpEnabled(on));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const copy = async (what: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(what);
+      setTimeout(() => setCopied(undefined), 1500);
+    } catch {
+      toast.error("Couldn't copy: select the text and copy it yourself.");
+    }
+  };
+  const reset = async () => setStatus(await resetBotsMcpToken());
+
+  return (
+    <SettingsGroup
+      title="Use your bots from Claude Code"
+      description="Mali serves your own bots to agents on this computer as an MCP server: each one becomes a tool (ask_<bot>) that runs the bot here — on its model, with its skills and connectors — and returns its answer. Mali has to be open."
+    >
+      <SettingRow
+        icon={<TerminalIcon />}
+        htmlFor="bots-mcp"
+        label="Serve my bots"
+        description={
+          status?.error
+            ? status.error
+            : status?.enabled
+              ? `On 127.0.0.1:${status.port} — only this computer, only with the token.`
+              : "Off: nothing outside Mali can call your bots."
+        }
+        control={<Switch id="bots-mcp" checked={!!status?.enabled} disabled={busy || !status} onCheckedChange={(on) => void toggle(on)} />}
+      />
+      {status?.enabled && (
+        <div className="flex flex-col gap-3 py-3">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-muted-foreground">Tools:</span>
+            {own.length === 0 ? (
+              <span className="text-amber-700 dark:text-amber-400">none yet — on a bot, turn on “As my own bot” (the chat bubble on its card).</span>
+            ) : (
+              status.tools.map((t) => (
+                <span key={t} className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px]">
+                  {t}
+                </span>
+              ))
+            )}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium">Add to Claude Code — run this once in a terminal:</span>
+            <CodeBlock text={claudeCodeCommand(status)} copied={copied === "cmd"} onCopy={() => void copy("cmd", claudeCodeCommand(status))} />
+          </div>
+          <button type="button" className="self-start text-xs text-muted-foreground underline underline-offset-4" onClick={() => setShowJson((v) => !v)}>
+            {showJson ? "Hide" : "Another agent? Its MCP config"}
+          </button>
+          {showJson && <CodeBlock text={mcpJsonConfig(status)} copied={copied === "json"} onCopy={() => void copy("json", mcpJsonConfig(status))} />}
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span>The token opens your bots — don't share it. Claude Code asks you before each call.</span>
+            <Button size="sm" variant="outline" className="h-7" onClick={() => void reset()}>
+              New token
+            </Button>
+          </div>
+        </div>
+      )}
+    </SettingsGroup>
+  );
+}
+
+function CodeBlock({ text, copied, onCopy }: { text: string; copied: boolean; onCopy: () => void }) {
+  return (
+    <div className="relative">
+      <pre className="overflow-x-auto rounded-lg border bg-muted/40 py-2.5 pr-11 pl-3 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</pre>
+      <Button size="icon-sm" variant="ghost" className="absolute top-1.5 right-1.5" aria-label="Copy" onClick={onCopy}>
+        {copied ? <CheckIcon /> : <CopyIcon />}
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * A bot from the user's own words, written by a model they pick (the coach
+ * by default). Words typed after `/bot` in the chat box land here and start
+ * at once.
+ */
+function DescribeBot({ onWritten }: { onWritten: (proposal: Awaited<ReturnType<typeof writeBot>>) => void }) {
+  const team = useTeam();
+  const models = useTeamModels();
+  const [words, setWords] = useState("");
+  const [writerId, setWriterId] = useState<string>();
+  const [writing, setWriting] = useState(false);
+  const [error, setError] = useState<string>();
+  const writer = writerId ?? team.coachModelId ?? defaultTeamModel(models);
+  const local = !!writer && /^api:(ollama|lmstudio|lm-studio)\//.test(writer);
+
+  const write = async (text = words) => {
+    const need = text.trim();
+    if (!need || !writer) return;
+    setWriting(true);
+    setError(undefined);
+    try {
+      onWritten(await writeBot(need, writer));
+      setWords("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setWriting(false);
+    }
+  };
+
+  // From the chat box: `/bot <words>`.
+  useEffect(() => {
+    const pending = getPendingBotWords();
+    if (!pending) return;
+    clearPendingBotWords();
+    setWords(pending.words);
+    if (pending.words.trim() && writer) void write(pending.words);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <SettingsGroup
+      wide
+      title="Describe a bot"
+      description="Say what you need in your own words. A model writes its duty, instructions, file access and connectors; you look it over before it's added. Tip: type /bot in the chat box."
+    >
+      <div className="flex flex-col gap-3 pt-1">
+        <Textarea
+          value={words}
+          onChange={(e) => setWords(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void write();
+          }}
+          disabled={writing}
+          placeholder="e.g. บอทสรุปข่าวจากลิงก์ที่ฉันส่ง เป็นภาษาไทย 5 ข้อ — or: a bot that files my Gmail receipts into a Notion table"
+          className="min-h-24"
+          aria-label="What the bot should do"
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground">Written by</span>
+          {models.length ? (
+            <div className="w-full sm:w-64">
+              <ModelPicker appearance="field" models={models} selected={findModel(models, writer ?? models[0].id)} onSelect={(m) => setWriterId(m.id)} />
+            </div>
+          ) : (
+            <span className="text-xs text-muted-foreground">Add an API key or sign in to a CLI agent in Settings → Models first.</span>
+          )}
+          <Button className="ml-auto gap-1.5" disabled={writing || !words.trim() || !writer} onClick={() => void write()}>
+            {writing ? <LoaderIcon className="size-4 animate-spin" /> : <SparklesIcon className="size-4" />}
+            {writing ? "Writing…" : "Write the bot"}
+          </Button>
+        </div>
+        {writing && local && <p className="text-xs text-muted-foreground">A model on this computer can take a few minutes.</p>}
+        {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
+      </div>
+    </SettingsGroup>
+  );
 }

@@ -15,6 +15,7 @@ import {
 } from "@/features/chat-history";
 import type { Attachment } from "@/features/attachments";
 import { tryChatInstallFromPrompt } from "@/features/install-from-chat";
+import { tryBotFromPrompt } from "@/features/team";
 import {
   notifyPermissionPending,
   notifyQuestionPending,
@@ -362,6 +363,8 @@ export function useChat(
   const sendMessage = useCallback(
     async (payload: SendMessage): Promise<boolean> => {
       if (tryChatInstallFromPrompt(payload.prompt)) return true;
+      // `/bot <what it should do>`: Settings › Team writes the bot.
+      if (tryBotFromPrompt(payload.prompt)) return true;
       return executeSend(turnInputFor(payload));
     },
     [executeSend],

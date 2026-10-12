@@ -83,6 +83,8 @@ export function useMcpConnections() {
   return store.use();
 }
 
+export const subscribeToMcpConnections = store.subscribe;
+
 export function getMcpConnections() {
   return store.get();
 }
