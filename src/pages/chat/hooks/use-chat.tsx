@@ -1,13 +1,11 @@
 "use client";
 
 import {
-    createChat,
     endRun,
     getChat,
     getRun,
     sessionMode,
     startRun,
-    updateChat,
     updateChatMessages,
     useChatRuns,
     useChatSessions,
@@ -25,6 +23,8 @@ import { getOpencodeModels, type PermissionReply, type WorkMode } from "@/featur
 import type { PermissionRequest, QuestionRequest } from "@/pages/chat/api/chat";
 import { effortFor } from "@/features/effort";
 import { runModelIdFor } from "@/pages/chat/api/router";
+import { toast } from "@/components/ui/sonner";
+import { canCompact, compactChat } from "../compaction";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -36,7 +36,6 @@ import {
   replyToPermission,
   sendTurn,
   stopRun,
-  summarizeInto,
   type TurnInput,
 } from "../turn";
 import { loadSelectedModelId, resendSettingsFor, type AiModel, type ContextBudget } from "../models";
@@ -438,32 +437,32 @@ export function useChat(
   );
 
   /**
-   * Start a new chat that carries a summary of this one, so a long
-   * conversation can go on without its full weight.
+   * Summarize the chat so far and keep going in it: the model hears the
+   * summary instead of what came before, and the summary shows in the chat.
+   * The chat is busy (nothing can be sent) while it's written.
    */
   const summarizeAndContinue = useCallback(
     async (model: AiModel, budget: ContextBudget) => {
       if (!chatId || getRun(chatId)) return;
       const chat = getChat(chatId);
-      if (!chat || chat.messages.length === 0) return;
-      const next = createChat(chat.title, {
-        mode: sessionMode(chat),
-        view: chat.view,
-        cwd: chat.cwd,
-        projectId: chat.projectId,
-        continuedFrom: { id: chat.id, title: chat.title, summarizing: true },
-      });
-      if (chat.folders?.length) updateChat(next.id, (s) => ({ ...s, folders: chat.folders }));
-      navigate(`/chat/${next.id}`);
+      if (!chat || !canCompact(chat)) {
+        toast("Nothing new to summarize yet.");
+        return;
+      }
       const modelId = runModelIdFor(model.id);
-      const token = startRun(next.id, modelId);
+      const token = startRun(chatId, modelId);
       try {
-        await summarizeInto(next.id, chat, modelId, budget.maxTokens);
+        const done = await compactChat(chatId, modelId, budget.maxTokens);
+        toast.success(`Summarized ${done.messages} message${done.messages === 1 ? "" : "s"} — keep going here`, {
+          description: "The model remembers the summary. Open it in the chat to see what it kept.",
+        });
+      } catch (e) {
+        toast.error("Couldn't summarize the chat", { description: e instanceof Error ? e.message : String(e) });
       } finally {
-        endRun(next.id, token);
+        endRun(chatId, token);
       }
     },
-    [chatId, navigate],
+    [chatId],
   );
 
   /** Thumbs up/down on an assistant reply; tapping again clears it. */

@@ -78,3 +78,15 @@ function messageTokens(message: ChatMessage) {
   );
   return estimateTokens(message.content) + activity + PER_MESSAGE_TOKENS;
 }
+
+/**
+ * A chat's usage with its summaries: the cost covers the whole chat, the
+ * context only what the model still hears — the latest summary and what
+ * came after it.
+ */
+export function chatContextUsage(messages: ChatMessage[], live: ChatMessage[], summary: string | undefined, pendingPrompt = ""): ContextUsage {
+  const whole = contextUsage(messages, pendingPrompt);
+  if (live.length === messages.length && !summary) return whole;
+  const now = contextUsage(live, pendingPrompt);
+  return { ...whole, usedTokens: now.usedTokens + (summary ? estimateTokens(summary) + PER_MESSAGE_TOKENS : 0), reported: now.reported };
+}

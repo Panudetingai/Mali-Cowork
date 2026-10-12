@@ -1,19 +1,22 @@
 "use client";
 
 import { skillSlug, type Skill } from "@/features/instructions";
-import { BotIcon, CheckIcon, PaperclipIcon, ScrollTextIcon } from "lucide-react";
+import { BotIcon, CheckIcon, ListCollapseIcon, PaperclipIcon, ScrollTextIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 import { PickerRow, PickerShell } from "./picker-shell";
 
-export type SlashItem = { kind: "files" } | { kind: "bot" } | { kind: "skill"; skill: Skill };
+export type SlashItem = { kind: "files" } | { kind: "summary" } | { kind: "bot" } | { kind: "skill"; skill: Skill };
 
 /** "Add files" and "Make a bot" while the query could still mean them, then the matching skills. */
-export function slashItems(matches: Skill[], query: string): SlashItem[] {
+export function slashItems(matches: Skill[], query: string, { canSummarize = false } = {}): SlashItem[] {
   const q = query.toLowerCase();
+  const summary =
+    canSummarize && (!q || ["summarize", "summary", "compact", "สรุป"].some((word) => word.startsWith(q)));
   const files = !q || "add files".startsWith(q) || "files".startsWith(q);
   const bot = !q || "bot".startsWith(q) || "make a bot".startsWith(q) || "new bot".startsWith(q) || "สร้างบอท".startsWith(q);
   return [
     ...(files ? [{ kind: "files" as const }] : []),
+    ...(summary ? [{ kind: "summary" as const }] : []),
     ...(bot ? [{ kind: "bot" as const }] : []),
     ...matches.map((skill) => ({ kind: "skill" as const, skill })),
   ];
@@ -34,9 +37,11 @@ export function SkillPopup({ items, hasSkills, picked, active, onActiveChange, o
   const detail =
     current?.kind === "skill"
       ? current.skill.description || undefined
-      : current?.kind === "bot"
-        ? "Type what the bot should do and send. Mali writes it, and you look it over in Settings › Team before it's added."
-        : undefined;
+      : current?.kind === "summary"
+        ? "Summarize everything so far now. The model remembers the summary instead of the full messages; you keep them on screen and can open the summary in the chat."
+        : current?.kind === "bot"
+          ? "Type what the bot should do and send. Mali writes it, and you look it over in Settings › Team before it's added."
+          : undefined;
 
   return (
     <PickerShell
@@ -58,7 +63,19 @@ export function SkillPopup({ items, hasSkills, picked, active, onActiveChange, o
       }
     >
       {items.map((item, i) =>
-        item.kind === "bot" ? (
+        item.kind === "summary" ? (
+          <PickerRow
+            key="summary"
+            id={`skill-item-${i}`}
+            active={i === active}
+            onHover={() => onActiveChange(i)}
+            onPick={() => onSelect(item)}
+            icon={<ListCollapseIcon className="size-4" />}
+          >
+            <span className="truncate">Summarize the chat</span>
+            <span className="ml-1 truncate text-xs text-muted-foreground">— and keep going here</span>
+          </PickerRow>
+        ) : item.kind === "bot" ? (
           <PickerRow
             key="bot"
             id={`skill-item-${i}`}

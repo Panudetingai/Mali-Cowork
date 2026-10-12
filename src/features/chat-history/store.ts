@@ -56,6 +56,12 @@ export type ChatSession = {
   movedToCowork?: { at: number; afterMessageId?: string; folder: string };
   /** A reply whose "continue in Cowork" hint the user closed. */
   coworkHintDismissed?: string;
+  /**
+   * Summaries written in this chat (the context meter's "Summarize", or at
+   * the context limit). The model hears the latest instead of everything up
+   * to its `afterMessageId`; those messages stay on screen for the user.
+   */
+  compactions?: ChatCompaction[];
   /** Chat this one continues after the context limit was reached. */
   continuedFrom?: {
     id: string;
@@ -65,6 +71,22 @@ export type ChatSession = {
     /** True while the summary is being written. */
     summarizing?: boolean;
   };
+};
+
+/** One "summarize and keep going" in a chat. */
+export type ChatCompaction = {
+  id: string;
+  /** The last message it covers: the model hears the summary instead of it and everything before. */
+  afterMessageId: string;
+  /** What the chat covered up to there; it includes the summary before it. */
+  summary?: string;
+  /** True while the summary is being written. */
+  summarizing?: boolean;
+  /** How many messages it took the place of (since the summary before it). */
+  messages: number;
+  /** About how many tokens those messages were. */
+  tokensBefore: number;
+  at: number;
 };
 
 type NewChat = Pick<
