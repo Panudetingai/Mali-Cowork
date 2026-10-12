@@ -5,7 +5,10 @@ import type { ChatMessage } from "./types";
 // The model that writes the summary, stood in for.
 let reply: string | Error = "Goal: a budget sheet.\nDone: columns set up.";
 const asked: ChatMessage[][] = [];
+// Only the call to the model is stood in for; the rest of the module is real (other test files use it).
+const actual = await import("./summary");
 mock.module(new URL("./summary.ts", import.meta.url).pathname, () => ({
+  ...actual,
   summarizeConversation: async (messages: ChatMessage[]) => {
     asked.push(messages);
     if (reply instanceof Error) throw reply;

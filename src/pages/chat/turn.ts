@@ -47,7 +47,7 @@ import type { HistoryMessage, PermissionRequest, QuestionRequest, StreamMetadata
 import { generateStream, runModelIdFor, runsOnMaliAgent } from "@/pages/chat/api/router";
 import { chatContextUsage } from "./context-usage";
 import { coworkInstructionsFor } from "./cowork-handoff";
-import { summarizeConversation, transcript } from "./summary";
+import { cannotSummarize, summarizeConversation, summaryRunFor, transcript } from "./summary";
 import { carriedSummary, compactChat, liveMessages } from "./compaction";
 import {
   apiModelOf,
@@ -657,9 +657,9 @@ export async function summarizeInto(chatKey: string, previous: ChatSession, mode
     const messages: ChatMessage[] = earlier
       ? [{ id: "earlier", role: "assistant", content: `Summary of an even earlier chat:\n${earlier}` }, ...previous.messages]
       : previous.messages;
-    settle(
-      (await summarizeConversation(messages, { modelId, runId: chatKey, maxTokens })) || undefined,
-    );
+    const run = summaryRunFor(modelId, { mode: sessionMode(previous), cwd: previous.cwd });
+    if (!run) throw new Error(cannotSummarize(modelId));
+    settle((await summarizeConversation(messages, { ...run, runId: chatKey, maxTokens })) || undefined);
   } catch {
     settle();
   }

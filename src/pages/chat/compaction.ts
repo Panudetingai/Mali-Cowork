@@ -6,9 +6,9 @@
  * own session starts a fresh one that hears the summary, so the weight is
  * really gone, not just hidden.
  */
-import { clearAgentSessions, getChat, updateChat, type ChatCompaction, type ChatSession } from "@/features/chat-history";
+import { clearAgentSessions, getChat, sessionMode, updateChat, type ChatCompaction, type ChatSession } from "@/features/chat-history";
 import { estimateTokens } from "./context-usage";
-import { summarizeConversation } from "./summary";
+import { cannotSummarize, summarizeConversation, summaryRunFor } from "./summary";
 import type { ChatMessage } from "./types";
 
 /**
@@ -46,6 +46,9 @@ export function canCompact(chat: Pick<ChatSession, "messages" | "compactions"> |
 export async function compactChat(chatId: string, modelId: string, maxTokens: number): Promise<ChatCompaction> {
   const chat = getChat(chatId);
   if (!chat || !canCompact(chat)) throw new Error("There's nothing new to summarize yet.");
+  // A model that can't answer in Chat (OpenCode Zen's free tier) summarizes in Cowork, or another model does.
+  const run = summaryRunFor(modelId, { mode: sessionMode(chat), cwd: chat.cwd });
+  if (!run) throw new Error(cannotSummarize(modelId));
   const live = liveMessages(chat);
   const last = chat.messages.at(-1)!;
   const compaction: ChatCompaction = {
@@ -70,7 +73,7 @@ export async function compactChat(chatId: string, modelId: string, maxTokens: nu
     const messages: ChatMessage[] = earlier
       ? [{ id: "earlier", role: "assistant", content: `Summary of the conversation before this point:\n${earlier}` }, ...live]
       : live;
-    const summary = (await summarizeConversation(messages, { modelId, runId: `${chatId}:summary`, maxTokens })).trim();
+    const summary = (await summarizeConversation(messages, { ...run, runId: `${chatId}:summary`, maxTokens })).trim();
     if (!summary) throw new Error("The model didn't write a summary. Try again, or pick another model.");
     settle({ summary, summarizing: false });
     // Agents that keep their own session start a fresh one, which hears the summary.
