@@ -75,13 +75,28 @@ export function dutyOf(description: string): string {
   return (end > 80 ? cut.slice(0, end + 1) : `${cut.trimEnd()}…`).trim();
 }
 
+/**
+ * The plugin's connectors (by `.mcp.json` name) and skills (by name) an
+ * agent says are its own, with `mali-connectors:` / `mali-skills:` lines —
+ * bot-forge writes them, so a bot keeps its duty's tools when installed.
+ */
+export function ownedParts(doc: PluginDoc): { connectors: string[]; skills: string[] } {
+  const { meta } = splitFrontMatter(doc.content);
+  const list = (value: string | undefined) =>
+    (value ?? "")
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+  return { connectors: list(meta["mali-connectors"]), skills: list(meta["mali-skills"]) };
+}
+
 /** A plugin's agent as a bot for the team, on `modelId`. */
 export function agentToTeammate(
   doc: PluginDoc,
   { modelId, mascot, pluginId }: { modelId: string; mascot: CoworkBotId; pluginId: string },
 ): TeammateDraft {
   const { meta, body } = splitFrontMatter(doc.content);
-  const name = humanize(meta.name || doc.name);
+  const name = meta["mali-name"]?.trim() || humanize(meta.name || doc.name);
   return {
     name,
     mascot,

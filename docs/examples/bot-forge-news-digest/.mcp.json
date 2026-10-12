@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "fetch": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-puppeteer@2025.5.12"
+      ]
+    }
+  }
+}

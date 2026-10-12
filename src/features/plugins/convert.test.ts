@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { addInstructionSource, buildInstructions, filterSkills, skillsInPrompt, type Skill } from "@/features/instructions/store";
-import { agentToTeammate, commandToSkill, dutyOf, mcpToConnector, toolScopeOf } from "./convert";
+import { agentToTeammate, commandToSkill, dutyOf, mcpToConnector, ownedParts, toolScopeOf } from "./convert";
 
 test("a slash command becomes a skill called only by name", () => {
   const skill = commandToSkill(
@@ -104,4 +104,18 @@ test("a server's placeholders become settings the user fills in", () => {
   expect(remote.kind).toBe("remote");
   expect(remote.url).toBe("https://docs.dev/mcp");
   expect(remote.headers).toEqual({ "X-Key": "1" });
+});
+
+test("a bot-forge bot names its own connectors and skills, and its display name", () => {
+  const doc = {
+    name: "news-digest",
+    path: "agents/news-digest.md",
+    content: "---\nname: news-digest\ndescription: Summarizes links\ntools: mcp__fetch\nmali-name: News Digest\nmali-connectors: fetch, example\nmali-skills: thai-brief\n---\n\nSummarize.",
+  };
+  expect(ownedParts(doc)).toEqual({ connectors: ["fetch", "example"], skills: ["thai-brief"] });
+  const bot = agentToTeammate(doc, { modelId: "m", mascot: "momo", pluginId: "p" });
+  expect(bot.name).toBe("News Digest");
+  expect(bot.tools).toBe("none");
+  // A plain Claude Code agent claims nothing.
+  expect(ownedParts({ name: "a", path: "agents/a.md", content: "---\nname: a\n---\nHi" })).toEqual({ connectors: [], skills: [] });
 });

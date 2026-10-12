@@ -1,0 +1,36 @@
+{
+  "name": "bot-forge",
+  "version": "0.1.0",
+  "description": "Describe a bot, get a bot: generates single-duty agents with MCP connectors and skills, as portable plugin folders (Mali Cowork, Claude Code).",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "bot-forge": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "web",
+    "data"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "bun src/cli.ts",
+    "serve": "bun src/cli.ts serve",
+    "build": "bun build src/cli.ts --target node --outfile dist/cli.js",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "sync-catalog": "bun scripts/sync-catalog.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "fflate": "^0.8.2",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.0",
+    "@types/node": "^22.20.3",
+    "typescript": "~6.0.3"
+  }
+}

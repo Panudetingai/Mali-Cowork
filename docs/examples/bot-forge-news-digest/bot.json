@@ -1,0 +1,41 @@
+{
+  "specVersion": 1,
+  "slug": "news-digest",
+  "name": "News Digest",
+  "duty": "Summarizes web articles the user links into short Thai briefs.",
+  "instructions": "You read each link the user sends and write a short brief in Thai.\n\n1. Open the page with the fetch tools.\n2. Follow the thai-brief skill for the shape of the answer.\n3. If a page won't open, say so and skip it — never guess its content.",
+  "tools": "none",
+  "capabilities": [
+    "Opens web pages the user links",
+    "Writes five-bullet summaries in plain Thai"
+  ],
+  "examples": [
+    "สรุปข่าวนี้ให้หน่อย https://example.com/news"
+  ],
+  "connectors": [
+    {
+      "name": "fetch",
+      "title": "Fetch",
+      "description": "Open web pages and read their content.",
+      "catalogId": "fetch",
+      "env": [],
+      "kind": "local",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-puppeteer@2025.5.12"
+      ]
+    }
+  ],
+  "skills": [
+    {
+      "name": "thai-brief",
+      "description": "Five bullets in plain Thai, with the source",
+      "body": "1. One-line title in Thai.\n2. Five bullets, each under 20 words.\n3. The source link at the end.",
+      "source": "/var/folders/bt/g2jpnl3x6y914yyvk4f3zmz80000gn/T/tmp.bOGT62Q4qo/s/thai-brief/SKILL.md"
+    }
+  ],
+  "version": "0.1.0",
+  "createdAt": "2026-10-12T00:00:00.000Z",
+  "updatedAt": "2026-10-12T04:04:37.855Z"
+}
