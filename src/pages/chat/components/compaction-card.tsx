@@ -75,7 +75,7 @@ export function CompactionCard({ compaction, current }: { compaction: ChatCompac
             transition={{ duration: 0.2, ease: "easeOut" }}
             className="overflow-hidden"
           >
-            <div className="mx-auto max-w-2xl px-2 pt-2 pb-1">
+            <div className="w-full pt-3 pb-1">
               <p className="mb-2 text-[11px] text-muted-foreground">
                 {current
                   ? "What the model remembers from here up — the messages above aren't sent again."
