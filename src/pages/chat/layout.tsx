@@ -238,7 +238,8 @@ export default function ChatLayout() {
           // Relative: on a narrow window the Git panel floats over the chat instead of pushing past the edge.
           className="relative flex h-full min-h-0 w-full min-w-0"
         >
-          <div className="mx-auto flex min-h-0 w-full min-w-0 max-w-5xl flex-1 flex-col px-4 pt-6 pb-4 sm:px-6">
+          {/* Isolated: its layers (bots, suggestions, the composer's pickers) sort among themselves, under a floating Git panel. */}
+          <div className="isolate mx-auto flex min-h-0 w-full min-w-0 max-w-5xl flex-1 flex-col px-4 pt-6 pb-4 sm:px-6">
             <ChatModeNav mode={view} onModeChange={changeMode} />
 
             <div
@@ -310,7 +311,8 @@ export default function ChatLayout() {
               </div>
             )}
 
-            <div className="relative mt-4 shrink-0">
+            {/* Above the empty chat's suggestions (z-20): the `/` and `@` pickers open upward over them. */}
+            <div className="relative z-30 mt-4 shrink-0">
               {session?.inboxTask || session?.taskFrom ? (
                 <TaskChatNote from={session.taskFrom} />
               ) : (

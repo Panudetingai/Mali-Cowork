@@ -59,6 +59,7 @@ export async function summarizeConversation(
       mode: "chat",
       runId,
       history: [],
+      helper: true,
     },
     {
       onChunk: (chunk) => {

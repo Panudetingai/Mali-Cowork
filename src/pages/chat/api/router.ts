@@ -71,6 +71,11 @@ export type GenerateRequest = {
    * uses that model's setting and never a level it would reject.
    */
   effort?: string;
+  /**
+   * A helper run behind the scenes (a chat summary, a commit message): it
+   * never leads the team, so it can't take the gateway from a chat's lead.
+   */
+  helper?: boolean;
 };
 
 /** Skills called with `/name` travel with this one prompt, for every backend. */
@@ -152,7 +157,7 @@ export async function generateStream(
     firstTokenMs ??= performance.now() - started;
   };
   // Team mode with a CLI lead: the team reaches it through Mali's gateway for this run.
-  const cliLead = await beginCliLead(request, handlers).catch(() => false);
+  const cliLead = !request.helper && (await beginCliLead(request, handlers).catch(() => false));
   const routed = cliLead
     ? { ...request, instructions: [request.instructions, CLI_LEAD_NOTE].filter(Boolean).join("\n\n") }
     : request;

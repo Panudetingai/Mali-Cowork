@@ -92,6 +92,14 @@ struct Saved {
     /// so Settings can name it instead of showing only a number.
     #[serde(default)]
     device_labels: HashMap<String, String>,
+    /// The network the phone link (and a domain) uses when both are up:
+    /// `lan` or `tailscale`.
+    #[serde(default = "default_point_to")]
+    point_to: String,
+}
+
+fn default_point_to() -> String {
+    "lan".into()
 }
 
 fn default_auto_allow_new_ips() -> bool {
@@ -196,6 +204,7 @@ fn load_saved() -> Saved {
             domain: None,
             mali_domain_off: false,
             device_labels: HashMap::new(),
+            point_to: default_point_to(),
         };
         store_saved(&saved);
         saved
@@ -395,6 +404,8 @@ pub struct RemoteStatus {
     domain_error: Option<String>,
     /// A Mali DNS name is being set up now.
     domain_registering: bool,
+    /// The network the user picked for the phone link: `lan` or `tailscale`.
+    point_to: String,
 }
 
 #[derive(Serialize)]
@@ -488,11 +499,15 @@ fn status(hub: &Hub) -> RemoteStatus {
         mali_domain_off: saved.mali_domain_off,
         domain_error,
         domain_registering,
+        point_to: saved.point_to.clone(),
     }
 }
 
 /// The address the default route leaves from, and Tailscale's when it is up.
-/// A UDP "connect" only picks a route; nothing is sent.
+/// A UDP "connect" only picks a route; nothing is sent. The default route
+/// counts as `lan` only on a private network: a phone from anywhere else is
+/// turned away (`peer_allowed`), and Mali DNS won't point a name at it — some
+/// campus networks hand out public-looking addresses like 11.x.
 fn local_addresses() -> Vec<(&'static str, Ipv4Addr)> {
     fn route_to(target: &str) -> Option<Ipv4Addr> {
         let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
@@ -503,7 +518,7 @@ fn local_addresses() -> Vec<(&'static str, Ipv4Addr)> {
         }
     }
     let mut found = Vec::new();
-    if let Some(ip) = route_to("192.0.2.1:9").filter(|ip| !is_tailscale(*ip)) {
+    if let Some(ip) = route_to("192.0.2.1:9").filter(|ip| is_lan(*ip)) {
         found.push(("lan", ip));
     }
     // Tailscale's own service address only routes through its interface.
@@ -516,6 +531,11 @@ fn local_addresses() -> Vec<(&'static str, Ipv4Addr)> {
 fn is_tailscale(ip: Ipv4Addr) -> bool {
     let [a, b, ..] = ip.octets();
     a == 100 && (b & 0xc0) == 64
+}
+
+/// A home or office network's own address (10/8, 172.16/12, 192.168/16, 169.254/16).
+fn is_lan(ip: Ipv4Addr) -> bool {
+    (ip.is_private() || ip.is_link_local()) && !is_tailscale(ip)
 }
 
 /// Only phones on the same network, or the same tailnet.
@@ -635,6 +655,33 @@ pub fn remote_set_auto_allow_ips(app: AppHandle, enabled: bool) -> RemoteStatus 
     status(hub)
 }
 
+/// Which network the phone link uses when both are up. A domain follows
+/// along: its DNS record moves to that network's address.
+#[tauri::command]
+pub fn remote_set_point_to(app: AppHandle, point_to: String) -> RemoteStatus {
+    let hub = hub(&app);
+    let point_to = if point_to == "tailscale" { "tailscale" } else { "lan" }.to_string();
+    let domain = {
+        let mut saved = hub.saved.lock().unwrap_or_else(PoisonError::into_inner);
+        saved.point_to = point_to.clone();
+        if address_for(&point_to).is_some() {
+            if let Some(d) = saved.domain.as_mut() {
+                d.point_to = point_to;
+            }
+        }
+        store_saved(&saved);
+        saved.domain.clone()
+    };
+    if let Some(d) = domain {
+        let token = hub.domain.lock().unwrap_or_else(PoisonError::into_inner).token.clone();
+        tauri::async_runtime::spawn(async move {
+            follow_address(hub, &d, token.as_deref()).await;
+            let _ = hub.app.emit_to(MAIN_LABEL, DOMAIN_EVENT, ());
+        });
+    }
+    status(hub)
+}
+
 #[tauri::command]
 pub fn remote_set_keep_awake(app: AppHandle, enabled: bool) -> RemoteStatus {
     let hub = hub(&app);
@@ -750,10 +797,11 @@ pub async fn remote_domain_setup(
             provider: "cloudflare".into(),
             zone_id: zone,
             record_id: Some(record_id),
-            point_to,
+            point_to: point_to.clone(),
             ip: Some(ip.to_string()),
             ..keep
         });
+        saved.point_to = point_to;
         store_saved(&saved);
         if let Some(certs) = hub.certs.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
             certs.set_domain(saved.domain.as_ref());
@@ -856,8 +904,9 @@ async fn setup_mali(hub: &'static Hub) -> Result<(), String> {
 
 async fn register_mali(hub: &'static Hub) -> Result<(), String> {
     let url = remote_domain::mali_service().ok_or("Mali DNS isn't available in this build.")?;
-    let point_to = if address_for("lan").is_some() { "lan" } else { "tailscale" };
-    let ip = address_for(point_to).ok_or("This computer isn't on a network.")?.to_string();
+    let wanted = hub.saved.lock().unwrap_or_else(PoisonError::into_inner).point_to.clone();
+    let (point_to, ip) = reachable(&wanted).ok_or(NO_ADDRESS)?;
+    let ip = ip.to_string();
     let service = MaliDns::new(&url)?;
     // This install's registration, if it has one.
     let existing = hub
@@ -941,6 +990,15 @@ async fn drop_domain(hub: &'static Hub) {
 fn address_for(point_to: &str) -> Option<Ipv4Addr> {
     let kind = if point_to == "tailscale" { "tailscale" } else { "lan" };
     local_addresses().into_iter().find(|(k, _)| *k == kind).map(|(_, ip)| ip)
+}
+
+const NO_ADDRESS: &str = "This computer has no address a phone can reach: join a home or office Wi-Fi, or turn on Tailscale.";
+
+/// The network the user picked, or the other one when it's down.
+fn reachable(wanted: &str) -> Option<(&'static str, Ipv4Addr)> {
+    let found = local_addresses();
+    let wanted = if wanted == "tailscale" { "tailscale" } else { "lan" };
+    found.iter().find(|(k, _)| *k == wanted).or_else(|| found.first()).copied()
 }
 
 /// Get (or renew) the certificate in the background, unless one is on its way.
@@ -1027,7 +1085,9 @@ fn start_domain_loop(hub: &'static Hub) {
 /// The DNS record follows this computer when its address changes (a new
 /// Wi-Fi lease). Mali DNS also hears from it daily, or it forgets the name.
 async fn follow_address(hub: &'static Hub, d: &DomainSaved, token: Option<&str>) {
-    let Some(ip) = address_for(&d.point_to).map(|ip| ip.to_string()) else { return };
+    // The picked network, or the other one while it's down.
+    let Some((point_to, ip)) = reachable(&d.point_to) else { return };
+    let ip = ip.to_string();
     let now = remote_domain::now_secs();
     let ping_due = d.provider == "mali" && now - hub.domain.lock().unwrap_or_else(PoisonError::into_inner).pinged_at > 24 * 3600;
     if d.ip.as_deref() == Some(ip.as_str()) && !ping_due {
@@ -1040,6 +1100,7 @@ async fn follow_address(hub: &'static Hub, d: &DomainSaved, token: Option<&str>)
             let mut saved = hub.saved.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(current) = saved.domain.as_mut().filter(|c| c.hostname == d.hostname) {
                 current.ip = Some(ip);
+                current.point_to = point_to.into();
                 if record_id.is_some() {
                     current.record_id = record_id;
                 }
@@ -1375,6 +1436,19 @@ mod tests {
     }
 
     #[test]
+    fn only_private_networks_count_as_lan() {
+        let ip = |s: &str| s.parse::<Ipv4Addr>().unwrap();
+        assert!(is_lan(ip("192.168.1.20")));
+        assert!(is_lan(ip("10.0.0.5")));
+        assert!(is_lan(ip("172.20.1.1")));
+        // A campus network's public-looking block: phones can't use it, nor can Mali DNS.
+        assert!(!is_lan(ip("11.0.0.160")));
+        // Tailscale has its own kind.
+        assert!(!is_lan(ip("100.119.39.94")));
+        assert!(is_tailscale(ip("100.119.39.94")));
+    }
+
+    #[test]
     fn builds_https_config_without_panicking() {
         // Regression: with both rustls backends compiled in, `ServerConfig::builder()`
         // panicked, poisoning the pairing lock and crashing the app on the next status.
@@ -1390,6 +1464,7 @@ mod tests {
             domain: None,
             mali_domain_off: false,
             device_labels: HashMap::new(),
+            point_to: default_point_to(),
         };
         let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
         saved.tls_cert_pem = Some(cert.cert.pem());
@@ -1487,6 +1562,7 @@ mod tests {
             }),
             mali_domain_off: false,
             device_labels: HashMap::new(),
+            point_to: default_point_to(),
         };
         let (config, _) = tls_config(&saved).unwrap();
         assert_eq!(presented(config.clone(), "mali.example.com").await, trusted.cert.der().to_vec());

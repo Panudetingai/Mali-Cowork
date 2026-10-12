@@ -156,19 +156,40 @@ export function NotchQuestion({ request, asker, busy, onAnswer, keys, className 
   const many = questions.length > 1;
   // A single pick sends itself; Send is for several picks or written words.
   const needsSend = item.multiple || item.custom || item.options.length === 0;
+  const showKeys = keys && item.options.length > 0;
   return (
     <div
       role="alertdialog"
       aria-label={t("asks", { name: asker })}
-      className={cn("flex min-h-0 flex-col rounded-[18px] bg-white/[0.06] p-3 ring-1 ring-white/[0.08]", className)}
+      className={cn(
+        // min-w-0: in the notch's flex row the card takes the room it's given, never its content's width.
+        "relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[20px] p-3.5",
+        "bg-gradient-to-b from-white/[0.09] to-white/[0.035] shadow-[0_8px_30px_-12px_rgba(10,132,255,0.35)] ring-1 ring-white/[0.09]",
+        className,
+      )}
     >
-      <div className="flex h-6 shrink-0 items-center gap-1.5 text-[11.5px]">
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-full" style={{ background: `${PICK}2e`, color: PICK }}>
+      {/* A soft wash of the accent behind the header, so the card reads as a question at a glance. */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-16"
+        style={{ background: `radial-gradient(120% 100% at 0% 0%, ${PICK}26, transparent 70%)` }}
+      />
+      <div className="relative flex h-[26px] min-w-0 shrink-0 items-center gap-2 text-[11.5px]">
+        <span
+          className="flex size-[22px] shrink-0 items-center justify-center rounded-full"
+          style={{ background: `${PICK}33`, color: PICK, boxShadow: `inset 0 0 0 1px ${PICK}55` }}
+        >
           <CircleHelpIcon className="size-3.5" />
         </span>
-        <span className="shrink-0 font-semibold text-white/85">{t("asks", { name: asker })}</span>
-        {item.header && <span className="min-w-0 truncate rounded-full bg-white/[0.08] px-2 py-px text-white/60">{item.header}</span>}
-        <span className="shrink-0 text-white/35">· {item.multiple ? t("pickAny") : t("pickOne")}</span>
+        <span className="min-w-0 shrink truncate font-semibold text-white/90">{t("asks", { name: asker })}</span>
+        {item.header && (
+          <span className="min-w-0 max-w-[40%] shrink truncate rounded-full bg-white/[0.09] px-2 py-0.5 text-[11px] font-medium text-white/70">
+            {item.header}
+          </span>
+        )}
+        <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10.5px] font-medium text-white/45 ring-1 ring-white/[0.1]">
+          {item.multiple ? t("pickAny") : t("pickOne")}
+        </span>
         {many && (
           <span className="ml-auto flex shrink-0 items-center gap-1.5 text-white/45 tabular-nums">
             {questions.map((_, i) => (
@@ -185,12 +206,12 @@ export function NotchQuestion({ request, asker, busy, onAnswer, keys, className 
           </span>
         )}
       </div>
-      <div className="relative mt-1.5 flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="relative mt-2 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <AnimatePresence mode="popLayout" initial={false} custom={dir}>
           <motion.div
             key={`${request.id}:${index}`}
             custom={dir}
-            className="flex min-h-0 flex-1 flex-col"
+            className="flex min-h-0 min-w-0 flex-1 flex-col"
             initial={{ opacity: 0, x: dir * 24, filter: "blur(4px)" }}
             animate={{ opacity: 1, x: 0, filter: "blur(0px)", transitionEnd: { filter: "none" } }}
             exit={{ opacity: 0, x: dir * -24, filter: "blur(4px)" }}
@@ -208,13 +229,13 @@ export function NotchQuestion({ request, asker, busy, onAnswer, keys, className 
           </motion.div>
         </AnimatePresence>
       </div>
-      <div className="mt-2 flex h-8 shrink-0 items-center gap-1.5">
+      <div className="relative mt-2.5 flex h-8 min-w-0 shrink-0 items-center gap-1.5 border-t border-white/[0.06] pt-2">
         <button
           type="button"
           onClick={() => onAnswer([])}
           disabled={busy}
           title={t("skipHint")}
-          className="h-7 rounded-full px-2.5 text-[12px] text-white/45 transition-colors hover:bg-white/[0.08] hover:text-white/80 disabled:opacity-40"
+          className="h-7 shrink-0 rounded-full px-2.5 text-[12px] text-white/45 transition-colors hover:bg-white/[0.08] hover:text-white/80 disabled:opacity-40"
         >
           {t("skip")}
         </button>
@@ -223,14 +244,14 @@ export function NotchQuestion({ request, asker, busy, onAnswer, keys, className 
             type="button"
             onClick={back}
             disabled={busy}
-            className="flex h-7 items-center gap-0.5 rounded-full px-2 text-[12px] text-white/55 transition-colors hover:bg-white/[0.08] hover:text-white"
+            className="flex h-7 shrink-0 items-center gap-0.5 rounded-full px-2 text-[12px] text-white/55 transition-colors hover:bg-white/[0.08] hover:text-white"
           >
             <ChevronLeftIcon className="size-3.5" />
             {t("back")}
           </button>
         )}
-        {keys && item.options.length > 0 && (
-          <span className="ml-auto truncate text-[11px] text-white/30">
+        {showKeys && (
+          <span className="ml-auto min-w-0 truncate text-[11px] text-white/30">
             {t("keysHint", { n: Math.min(item.options.length, KEYED) })}
           </span>
         )}
@@ -241,13 +262,14 @@ export function NotchQuestion({ request, asker, busy, onAnswer, keys, className 
             disabled={!ready || busy}
             whileTap={{ scale: 0.95 }}
             className={cn(
-              "flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-white px-3 text-[12px] font-medium text-black transition-opacity disabled:opacity-30",
-              !(keys && item.options.length > 0) && "ml-auto",
+              "flex h-7 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[12px] font-semibold text-white transition-opacity disabled:opacity-30",
+              !showKeys && "ml-auto",
             )}
+            style={{ background: PICK, boxShadow: `0 4px 14px -4px ${PICK}aa` }}
           >
             {busy ? <Loader2Icon className="size-3.5 animate-spin" /> : null}
             {last ? t("sendAnswer") : t("next")}
-            {!busy && <CornerDownLeftIcon className="size-3 opacity-50" />}
+            {!busy && <CornerDownLeftIcon className="size-3 opacity-60" />}
           </motion.button>
         )}
       </div>
@@ -274,22 +296,40 @@ function Body({
 }) {
   const t = useNotchText();
   const writable = item.custom || item.options.length === 0;
+  // More options below the fold: the list's edge fades, so it reads as a scroll, not a cut.
+  const list = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState(false);
+  const measure = () => {
+    const el = list.current;
+    setMore(!!el && el.scrollTop + el.clientHeight < el.scrollHeight - 2);
+  };
+  useEffect(() => {
+    measure();
+    const el = list.current;
+    if (!el) return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [item]);
   return (
     <>
-      <div
-        className="relative max-h-[5.5rem] shrink-0 overflow-hidden [mask-image:linear-gradient(to_bottom,black_65%,transparent_100%)]"
-        title={item.question}
-      >
+      {/* A long question scrolls rather than being cut off. */}
+      <div className="scroll-hidden max-h-[5.25rem] min-w-0 shrink-0 overflow-y-auto pr-1" title={item.question}>
         <MarkdownSurface>
-          <MessageResponse className="text-[14px] leading-[19px] font-medium text-white [&_a]:text-sky-300 [&_code]:rounded [&_code]:bg-white/10 [&_code]:px-1 [&_p]:my-0">
+          <MessageResponse className="text-[14.5px] leading-[20px] font-semibold tracking-[-0.005em] break-words text-white [&_a]:text-sky-300 [&_code]:rounded [&_code]:bg-white/10 [&_code]:px-1 [&_p]:my-0">
             {item.question}
           </MessageResponse>
         </MarkdownSurface>
       </div>
       {item.options.length > 0 && (
         <div
+          ref={list}
+          onScroll={measure}
           role={item.multiple ? "group" : "radiogroup"}
-          className="scroll-hidden mt-2 flex min-h-0 flex-col gap-1 overflow-y-auto"
+          className={cn(
+            "scroll-hidden mt-2.5 flex min-h-0 min-w-0 flex-col gap-1.5 overflow-y-auto",
+            more && "[mask-image:linear-gradient(to_bottom,black_calc(100%-28px),transparent)]",
+          )}
         >
           {item.options.map((option, i) => {
             const on = picked.includes(option.label);
@@ -301,21 +341,22 @@ function Body({
                 aria-checked={on}
                 disabled={busy}
                 onClick={() => onChoose(option.label)}
-                title={option.description ?? option.label}
+                title={option.description ? `${option.label}\n${option.description}` : option.label}
                 className={cn(
-                  "group flex h-[34px] w-full shrink-0 items-center gap-2.5 rounded-xl px-2.5 text-left transition-colors disabled:opacity-60",
-                  on ? "text-white" : "bg-white/[0.04] text-white/80 hover:bg-white/[0.09] hover:text-white",
+                  "group flex w-full min-w-0 shrink-0 items-center gap-2.5 rounded-xl px-2.5 text-left transition-colors disabled:opacity-60",
+                  option.description ? "min-h-[52px] py-2" : "min-h-[38px] py-1.5",
+                  on ? "text-white" : "bg-white/[0.045] text-white/85 ring-1 ring-white/[0.04] hover:bg-white/[0.09] hover:text-white",
                 )}
-                style={on ? { background: `${PICK}2b`, boxShadow: `inset 0 0 0 1px ${PICK}99` } : undefined}
+                style={on ? { background: `${PICK}2b`, boxShadow: `inset 0 0 0 1px ${PICK}aa` } : undefined}
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0, transition: { delay: 0.03 * i, duration: 0.2 } }}
                 whileTap={{ scale: 0.985 }}
               >
                 <span
                   className={cn(
-                    "flex size-[18px] shrink-0 items-center justify-center text-[10.5px] font-semibold tabular-nums transition-colors",
-                    item.multiple ? "rounded-[5px]" : "rounded-full",
-                    on ? "text-white" : "bg-white/[0.08] text-white/50 group-hover:text-white/80",
+                    "flex size-5 shrink-0 items-center justify-center text-[10.5px] font-semibold tabular-nums transition-colors",
+                    item.multiple ? "rounded-[6px]" : "rounded-full",
+                    on ? "text-white" : "bg-white/[0.08] text-white/55 group-hover:bg-white/[0.14] group-hover:text-white/85",
                   )}
                   style={on ? { background: PICK } : undefined}
                 >
@@ -327,19 +368,22 @@ function Body({
                     i + 1
                   ) : null}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{option.label}</span>
-                {option.description && (
-                  <span className="hidden min-w-0 truncate text-[11.5px] text-white/40 sm:inline sm:max-w-[42%]">
-                    {option.description}
-                  </span>
-                )}
+                {/* Label over its description: both stay readable at any length. */}
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="truncate text-[13px] leading-[17px] font-medium">{option.label}</span>
+                  {option.description && (
+                    <span className={cn("line-clamp-2 text-[11.5px] leading-[15px] break-words", on ? "text-white/65" : "text-white/45")}>
+                      {option.description}
+                    </span>
+                  )}
+                </span>
               </motion.button>
             );
           })}
         </div>
       )}
       {writable && (
-        <label className="mt-2 flex h-[34px] shrink-0 items-center gap-2 rounded-xl bg-white/[0.04] px-2.5 ring-1 ring-white/[0.06] transition-shadow focus-within:ring-white/25">
+        <label className="mt-2.5 flex h-9 min-w-0 shrink-0 items-center gap-2 rounded-xl bg-white/[0.04] px-2.5 ring-1 ring-white/[0.07] transition-shadow focus-within:bg-white/[0.06] focus-within:ring-[#0a84ff]/60">
           <PencilLineIcon className="size-3.5 shrink-0 text-white/40" />
           <input
             value={custom}
