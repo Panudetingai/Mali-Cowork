@@ -8,13 +8,15 @@ import type { MediaKind } from "@/features/media";
 import type { PuterModel } from "@/features/media/puter-catalog";
 import { brandLogoForModelName } from "@/features/providers/model-logo";
 import { providerContextLimit, type ProviderDef } from "@/features/providers";
+import { BOT_MODEL_PREFIX, personalBot, type Teammate } from "@/features/team/store";
 
 /**
  * Where a model runs, so API models and CLI agents never share a heading:
  * `api` = the user's own API key, `local` = a server on this machine,
  * `opencode` = through OpenCode, `cli` = a signed-in CLI agent.
  */
-export type ModelSource = "api" | "local" | "opencode" | "cli";
+/** `bot`: one of the user's personal bots, on the model it was given (see `botModels`). */
+export type ModelSource = "api" | "local" | "opencode" | "cli" | "bot";
 
 export type AiModel = {
   id: string;
@@ -50,6 +52,9 @@ export type AiModel = {
    * absent means the model has no such setting and no control is shown.
    */
   efforts?: string[];
+  /** A personal bot: the model it runs on, and the character it wears. */
+  runsOn?: string;
+  mascot?: string;
 };
 
 /**
@@ -584,7 +589,9 @@ export function findModel(catalog: AiModel[], id: string): AiModel {
  * Which backend actually runs a model id. Each keeps its own session, so a
  * chat that changes agent starts over: worth saying out loud before it does.
  */
-export function agentOf(modelId: string): "opencode" | "cursor" | "codex" | "antigravity" | "cli" | "api" {
+export function agentOf(id: string): "opencode" | "cursor" | "codex" | "antigravity" | "cli" | "api" {
+  // A personal bot runs where its model does.
+  const modelId = personalBot(id)?.modelId ?? id;
   if (isOpencodeModel(modelId)) return "opencode";
   if (isCliModel(modelId)) return "cli";
   if (isCursorModel(modelId)) return "cursor";
@@ -777,4 +784,19 @@ export function saveSelectedModelId(mode: WorkMode, id: string) {
   } catch {
     // Selection then lasts for this session only.
   }
+}
+
+/**
+ * The user's personal bots as entries of the model picker, each wearing its
+ * model: picked, a chat talks to the bot (its instructions, skills,
+ * connectors) on that model. A bot whose model isn't offered here is left out.
+ */
+export function botModels(catalog: AiModel[], mates: Teammate[]): AiModel[] {
+  return mates
+    .filter((m) => m.personal && !m.paused)
+    .flatMap((mate) => {
+      const model = catalog.find((m) => m.id === mate.modelId);
+      if (!model || model.issue) return [];
+      return [{ ...model, id: `${BOT_MODEL_PREFIX}${mate.id}`, name: mate.name, source: "bot" as const, group: "Your bots", runsOn: model.name, mascot: mate.mascot }];
+    });
 }

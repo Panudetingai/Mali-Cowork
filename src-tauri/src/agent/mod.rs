@@ -102,8 +102,8 @@ pub struct AgentRequest {
     /// Teammates the lead proposed and the user turned down.
     #[serde(default)]
     pub declined: Vec<String>,
-    /// A teammate's run: the file and command tools its role allows.
-    #[serde(skip)]
+    /// A teammate's run, or a personal bot's chat: the file and command tools its role allows.
+    #[serde(default, deserialize_with = "team::scope_from_name")]
     pub tool_scope: Option<team::ToolScope>,
     /// Team mode: a stronger model that writes and coaches bots for the lead.
     #[serde(default)]

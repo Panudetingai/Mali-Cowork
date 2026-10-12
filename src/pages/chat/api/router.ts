@@ -15,7 +15,7 @@ import {
 } from "@/features/opencode";
 import { mediaGenerateStream } from "@/features/media";
 import { requestConfigFor } from "@/features/providers";
-import { beginCliLead, CLI_LEAD_NOTE, endCliLead, maybeReflect, teamActive, teamPayload } from "@/features/team";
+import { beginCliLead, CLI_LEAD_NOTE, endCliLead, getTeam, maybeReflect, personalBot, teamActive, teamPayload } from "@/features/team";
 import { recordUsage } from "@/features/usage/ledger";
 import type { AgentUsage } from "../types";
 import {
@@ -76,6 +76,12 @@ export type GenerateRequest = {
    * never leads the team, so it can't take the gateway from a chat's lead.
    */
   helper?: boolean;
+  /**
+   * A chat with one of the user's personal bots (its id): `modelId` is the
+   * bot's model and `instructions` its own; here it gets only its connectors
+   * and its file access, and no team.
+   */
+  bot?: string;
 };
 
 /** Skills called with `/name` travel with this one prompt, for every backend. */
@@ -114,7 +120,8 @@ const NO_IMAGES = (name: string) =>
  * `runsOnMaliAgent`), never by moving it onto OpenCode.
  */
 export function runModelIdFor(modelId: string, _mode?: WorkMode): string {
-  return modelId;
+  // A personal bot runs on the model it was given.
+  return personalBot(modelId)?.modelId ?? modelId;
 }
 
 /**
@@ -122,10 +129,11 @@ export function runModelIdFor(modelId: string, _mode?: WorkMode): string {
  * and in Chat while connectors are on (connectors only). Otherwise a chat
  * reply is a plain API call.
  */
-export function runsOnMaliAgent(modelId: string, mode: WorkMode) {
+export function runsOnMaliAgent(modelId: string, mode: WorkMode, bot = false) {
   const api = apiModelOf(modelId);
   if (!api || mediaKindForId(modelId, getOpencodeModels())) return false;
-  return mode === "cowork" || hasHubMcp() || teamActive();
+  // A personal bot always does: its connectors and file access are kept to its own there.
+  return bot || mode === "cowork" || hasHubMcp() || teamActive();
 }
 
 /**
@@ -157,7 +165,7 @@ export async function generateStream(
     firstTokenMs ??= performance.now() - started;
   };
   // Team mode with a CLI lead: the team reaches it through Mali's gateway for this run.
-  const cliLead = !request.helper && (await beginCliLead(request, handlers).catch(() => false));
+  const cliLead = !request.helper && !request.bot && (await beginCliLead(request, handlers).catch(() => false));
   const routed = cliLead
     ? { ...request, instructions: [request.instructions, CLI_LEAD_NOTE].filter(Boolean).join("\n\n") }
     : request;
@@ -267,7 +275,8 @@ async function routeStream(
   // An API key on Mali's own agent, which keeps its own session and reaches
   // the connectors through Mali's MCP hub. A plain chat reply only carries
   // text, so a prompt with pictures goes to the agent too.
-  if (api && !opencode && (runsOnMaliAgent(modelId, request.mode) || images.length > 0)) {
+  const bot = request.bot ? getTeam().mates.find((m) => m.id === request.bot) : undefined;
+  if (api && !opencode && (runsOnMaliAgent(modelId, request.mode, !!bot) || images.length > 0)) {
     if (request.mode === "cowork" && !request.cwd) return handlers.onError("Pick the folder Cowork works in first.");
     return agentGenerateStream(
       {
@@ -284,14 +293,15 @@ async function routeStream(
         autoApprove: loadOpencodeSettings().autoApprove,
         sandbox: loadCommandSandbox(),
         runId: request.runId,
-        mcp: await hubMcpServers(request.mode === "cowork" ? request.cwd : undefined),
+        mcp: (await hubMcpServers(request.mode === "cowork" ? request.cwd : undefined)).filter((s) => !bot || bot.connectors.includes(s.id)),
+        ...(bot ? { toolScope: bot.tools } : {}),
         images,
         contextLimit: request.maxTokens,
         vision: !!getOpencodeModels()
           ?.models.find((m) => m.id === `${api.provider}/${api.model}`)
           ?.input?.includes("image"),
-        // Team mode: this model leads, and hands each job to the bot whose duty it is.
-        ...(await teamPayload(
+        // Team mode: this model leads, and hands each job to the bot whose duty it is. A personal bot works alone.
+        ...(bot ? {} : await teamPayload(
           request.mode,
           request.mode === "cowork" ? request.cwd : undefined,
           request.mode === "cowork" ? (request.folders ?? []) : [],

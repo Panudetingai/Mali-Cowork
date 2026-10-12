@@ -63,6 +63,7 @@ use commands::outputs::{outputs_stat, outputs_trash};
 use commands::system_stats::{start_sampler as start_system_stats_sampler, system_stats_snapshot};
 use commands::plugins::{
     plugins_example_dir, plugins_fetch, plugins_install_files, plugins_peek, plugins_remove_files, plugins_resolve,
+    plugins_unpack_bot,
 };
 use commands::preview_image::preview_image;
 use commands::quick::{
@@ -406,6 +407,7 @@ pub fn run() {
             plugins_peek,
             plugins_install_files,
             plugins_remove_files,
+            plugins_unpack_bot,
             skills_scan_folder,
             skills_export_folder,
             skills_read_asset,

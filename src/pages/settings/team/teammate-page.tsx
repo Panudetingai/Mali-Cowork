@@ -3,6 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ModelPicker } from "@/pages/chat/components/model-picker";
 import { findModel } from "@/pages/chat/models";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { CoworkBot } from "@/components/anim/cowork-bot";
 import { BOTS } from "@/features/cowork-bot";
@@ -11,7 +12,7 @@ import { McpToolIcon, useInstalledConnectors } from "@/features/mcp";
 import { draftIssue, ownerOf, runsOn, saveTeammate, TOOL_SCOPES, useTeam, type TeammateDraft } from "@/features/team";
 import { cn } from "@/lib/utils";
 import type { AiModel } from "@/pages/chat/models";
-import { CheckIcon, ScrollTextIcon } from "lucide-react";
+import { CheckIcon, MessageCircleIcon, ScrollTextIcon, UsersIcon } from "lucide-react";
 import { useId, useState, type ReactNode } from "react";
 import { Field, PageHeader, Step } from "../ui";
 
@@ -161,7 +162,7 @@ export function TeammatePage({
           </div>
         </Step>
 
-        <Step n={4} title="What it owns" description="Only this bot gets them — the lead and the other bots don't." last>
+        <Step n={4} title="What it owns" description="Only this bot gets them — the lead and the other bots don't.">
           <div className="flex flex-col gap-5">
             <Field
               label="Connectors"
@@ -199,6 +200,25 @@ export function TeammatePage({
             </Field>
           </div>
         </Step>
+
+        <Step n={5} title="Where you use it" done={form.onTeam || !!form.personal} last>
+          <div className="flex max-w-2xl flex-col gap-2">
+            <UseRow
+              icon={<MessageCircleIcon />}
+              title="As my own bot"
+              hint="In the chat box's model menu, under Your bots: talk to it directly, on its model, with its skills and connectors."
+              checked={!!form.personal}
+              onChange={(personal) => set({ personal })}
+            />
+            <UseRow
+              icon={<UsersIcon />}
+              title="On the team"
+              hint="In team mode the lead hands it jobs without asking. Off: the lead asks you first — or, if it's only your own bot, leaves it to you."
+              checked={form.onTeam}
+              onChange={(onTeam) => set({ onTeam })}
+            />
+          </div>
+        </Step>
       </div>
 
       <div className="sticky bottom-0 z-10 -mx-1 flex items-center justify-between gap-2 border-t border-border/60 bg-background/90 px-1 py-3 backdrop-blur">
@@ -210,7 +230,7 @@ export function TeammatePage({
             Cancel
           </Button>
           <Button onClick={save} disabled={!!issue} className="h-10 px-5">
-            {form.id ? "Save" : "Add to team"}
+            {form.id ? "Save" : form.personal && !form.onTeam ? "Add bot" : "Add to team"}
           </Button>
         </div>
       </div>
@@ -258,5 +278,19 @@ function PickList({
         );
       })}
     </div>
+  );
+}
+
+function UseRow({ icon, title, hint, checked, onChange }: { icon: ReactNode; title: string; hint: string; checked: boolean; onChange: (on: boolean) => void }) {
+  const id = useId();
+  return (
+    <label htmlFor={id} className={cn("flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors", checked && "border-primary/50 bg-primary/5")}>
+      <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted [&_svg]:size-4">{icon}</span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="text-sm font-medium">{title}</span>
+        <span className="text-xs text-muted-foreground">{hint}</span>
+      </span>
+      <Switch id={id} checked={checked} onCheckedChange={onChange} />
+    </label>
   );
 }

@@ -38,9 +38,10 @@ const KIND_LABEL: Record<GroupKind, { badge: string; title: string }> = {
  * work. They keep their place in the rail so a key can still be added from
  * here, but below everything that is ready, under a heading that says so.
  */
-type SectionId = "cli" | "key" | "opencode" | "setup";
+type SectionId = "bots" | "cli" | "key" | "opencode" | "setup";
 
 const SECTIONS: { id: SectionId; label: string; hint: string }[] = [
+  { id: "bots", label: "Your bots", hint: "Talk to one of your bots: its instructions, skills, connectors and model" },
   { id: "cli", label: "CLI agents", hint: "Runs on the subscription you signed in with" },
   { id: "key", label: "Your API keys", hint: "Runs on Mali with your own key — no OpenCode in between" },
   { id: "opencode", label: "Via OpenCode", hint: "Routed through the OpenCode server" },
@@ -533,6 +534,7 @@ function groupIsConnected(items: AiModel[]) {
 }
 
 function sectionOf(model: AiModel): SectionId {
+  if (model.source === "bot") return "bots";
   if (!modelIsConnected(model)) return "setup";
   if (model.source === "cli") return "cli";
   if (model.source === "opencode") return "opencode";
@@ -554,6 +556,7 @@ function groupKeyOf(model: AiModel) {
  * the heading no longer says which is which.
  */
 function noteFor(model: AiModel) {
+  if (model.source === "bot") return undefined;
   if (model.source === "api" || model.source === "local") return "· your key";
   if (model.source === "cli") return model.needsLogin ? "· CLI agent, sign in" : undefined;
   if (model.source === "opencode" && model.id !== OPENCODE_DEFAULT_ID) return "· via OpenCode";
@@ -580,7 +583,7 @@ export function buildGroups(models: AiModel[]): Group[] {
       key,
       label: model.group,
       note: noteFor(model),
-      kind: model.source === "opencode" || model.source === "cli" ? "agent" : "chat",
+      kind: model.source === "opencode" || model.source === "cli" || model.source === "bot" ? "agent" : "chat",
       section: sectionOf(model),
       items: [model],
     });

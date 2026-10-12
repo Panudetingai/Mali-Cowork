@@ -5,7 +5,8 @@ import { useCursor } from "@/features/cursor";
 import { useOpencode, type WorkMode } from "@/features/opencode";
 import { listConfiguredProviders, useEnvKeys, useProviderConfigs } from "@/features/providers";
 import { useMemo } from "react";
-import { buildModelCatalog } from "../models";
+import { useTeam } from "@/features/team/store";
+import { botModels, buildModelCatalog } from "../models";
 
 /** Matches `groupKeyOf` in the model picker (`section:label`). */
 const OPENCODE_GROUP_KEY = "opencode:OpenCode";
@@ -47,7 +48,8 @@ export function useModelCatalog(mode: WorkMode) {
     () => ({ models: antigravity.models, loggedIn: !!antigravity.check?.loggedIn }),
     [antigravity.models, antigravity.check?.loggedIn],
   );
-  const catalog = useMemo(
+  const { mates } = useTeam();
+  const models = useMemo(
     () =>
       buildModelCatalog(
         opencode.models,
@@ -61,6 +63,8 @@ export function useModelCatalog(mode: WorkMode) {
       ),
     [opencode.models, providerConfigs, envKeys, mode, cursorStatus, antigravityStatus, customClis, cliFilter],
   );
+  // The user's personal bots lead the list, each on the model it was given.
+  const catalog = useMemo(() => [...botModels(models, mates), ...models], [models, mates]);
   const loadingGroupKeys = useMemo(
     () =>
       loadingGroupKeysFor({
