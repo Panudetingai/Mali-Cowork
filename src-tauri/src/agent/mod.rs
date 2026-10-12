@@ -6,6 +6,7 @@
 //! It streams the same [`ChatStreamEvent`]s as the other agents, so the chat,
 //! its steps, the permission cards and the Task Inbox work unchanged.
 
+pub(crate) mod bot_server;
 pub(crate) mod coach;
 pub(crate) mod compact;
 pub(crate) mod images;

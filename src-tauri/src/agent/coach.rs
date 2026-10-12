@@ -48,6 +48,52 @@ pub struct Written {
     pub connectors: Vec<String>,
 }
 
+impl Written {
+    /// A bot as a model wrote it, read kindly: small models send steps as a
+    /// list, connectors as objects, or leave fields out.
+    pub fn from_value(value: &Value) -> Option<Self> {
+        Self::read(value).filter(|w| !w.name.trim().is_empty() && !w.role.trim().is_empty())
+    }
+
+    /// The same, without asking for a name and a duty (a rewrite only has instructions).
+    pub fn read(value: &Value) -> Option<Self> {
+        fn text(v: &Value) -> String {
+            match v {
+                Value::String(s) => s.clone(),
+                Value::Array(items) => items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, item)| {
+                        let line = text(item);
+                        // Numbered already, or numbered now.
+                        if line.trim_start().chars().next().is_some_and(|c| c.is_ascii_digit()) { line } else { format!("{}. {line}", i + 1) }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                Value::Object(o) => ["name", "id", "text", "description"].iter().find_map(|k| o.get(*k).and_then(Value::as_str)).unwrap_or_default().to_string(),
+                Value::Number(n) => n.to_string(),
+                Value::Bool(b) => b.to_string(),
+                Value::Null => String::new(),
+            }
+        }
+        let o = value.as_object()?;
+        let field = |k: &str| o.get(k).map(text).unwrap_or_default();
+        let connectors = match o.get("connectors") {
+            Some(Value::Array(items)) => items.iter().map(text).filter(|c| !c.trim().is_empty()).collect(),
+            Some(Value::String(s)) => s.split(',').map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect(),
+            _ => Vec::new(),
+        };
+        Some(Written {
+            name: field("name"),
+            role: field("role"),
+            instructions: field("instructions"),
+            reason: field("reason"),
+            tools: field("tools"),
+            connectors,
+        })
+    }
+}
+
 /// One thing the user keeps doing, with the chats that show it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -69,8 +115,12 @@ pub struct ChatDigest {
     pub asked: String,
 }
 
-/// The first JSON value in a reply, fenced or not.
+/// The first JSON value in a reply, fenced or not, past a reasoning model's `<think>` section.
 pub fn json_in(text: &str) -> Option<Value> {
+    let text = match (text.find("<think>"), text.rfind("</think>")) {
+        (Some(_), Some(end)) => &text[end + "</think>".len()..],
+        _ => text,
+    };
     let text = text.trim();
     if let Ok(value) = serde_json::from_str(text) {
         return Some(value);
@@ -142,10 +192,18 @@ in one sentence, \"instructions\": numbered steps, \"reason\": why the user need
 \"tools\": \"none\" | \"read\" | \"files\" | \"all\" (the least it needs), \"connectors\": [connector ids it should own, \
 only ones no bot owns]}",
     );
-    let reply = ask(model, WRITER, prompt, usage, cancel).await?;
-    let written: Written = json_in(&reply)
-        .and_then(|v| serde_json::from_value(v).ok())
-        .ok_or_else(|| "The coach didn't answer with a bot. Try again, or pick another coach model.".to_string())?;
+    let reply = ask(model, WRITER, prompt.clone(), usage, cancel).await?;
+    let written = match json_in(&reply).and_then(|v| Written::from_value(&v)) {
+        Some(written) => written,
+        // Small models slip: ask once more, plainly.
+        None => {
+            let again = format!("{prompt}\n\nAnswer with one JSON object only — no other text — with the fields name, role, instructions, reason, tools, connectors.");
+            let reply = ask(model, WRITER, again, usage, cancel).await?;
+            json_in(&reply)
+                .and_then(|v| Written::from_value(&v))
+                .ok_or_else(|| "The coach didn't answer with a bot. Try again, or pick another coach model.".to_string())?
+        }
+    };
     if written.name.trim().is_empty() || written.role.trim().is_empty() {
         return Err("The coach's bot had no name or duty.".into());
     }
@@ -215,8 +273,8 @@ one or two sentences}}",
         roster = roster(team),
     );
     let reply = ask(model, WRITER, prompt, usage, cancel).await?;
-    let mut written: Written = json_in(&reply)
-        .and_then(|v| serde_json::from_value(v).ok())
+    let mut written = json_in(&reply)
+        .and_then(|v| Written::read(&v))
         .ok_or_else(|| "The coach didn't answer with instructions.".to_string())?;
     if written.instructions.trim().is_empty() {
         return Err("The coach's instructions were empty.".into());
@@ -269,6 +327,18 @@ pub async fn reflect(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_small_models_bot_is_read_kindly() {
+        let reply = "<think>Plan the bot…</think>Sure! {\"name\": \"สรุปข่าว\", \"role\": \"สรุปข่าวจากลิงก์\", \"instructions\": [\"Open the link\", \"Write five bullets\"], \"tools\": \"none\", \"connectors\": [{\"id\": \"fetch\"}]}";
+        let written = Written::from_value(&json_in(reply).unwrap()).unwrap();
+        assert_eq!(written.name, "สรุปข่าว");
+        assert_eq!(written.instructions, "1. Open the link\n2. Write five bullets");
+        assert_eq!(written.connectors, vec!["fetch"]);
+        assert!(Written::from_value(&serde_json::json!({ "instructions": "x" })).is_none());
+        assert_eq!(Written::read(&serde_json::json!({ "instructions": "x" })).unwrap().instructions, "x");
+    }
+
     use super::*;
     use serde_json::json;
 

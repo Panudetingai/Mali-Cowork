@@ -160,6 +160,7 @@ const store = createStore<TeamState>(EMPTY, {
 
 export const useTeam = store.use;
 export const getTeam = store.get;
+export const subscribeToTeam = store.subscribe;
 
 export function setTeamEnabled(enabled: boolean) {
   store.set((s) => ({ ...s, enabled }));

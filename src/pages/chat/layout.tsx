@@ -16,6 +16,7 @@ import { SmartSuggestions } from "@/features/smart-start";
 import { getProject, useProjects } from "@/features/projects";
 import { carriedConversation, ChatTasksStrip, enqueueTask, TaskChatNote } from "@/features/tasks";
 import { tryChatInstallFromPrompt } from "@/features/install-from-chat";
+import { tryBotFromPrompt } from "@/features/team";
 import { folderName, normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import { MALI_EASE } from "@/lib/motion-presets";
 import { cn } from "@/lib/utils";
@@ -167,6 +168,7 @@ export default function ChatLayout() {
   // and this chat stays free; the strip above the composer tracks it.
   const sendInBackground = async (payload: SendMessage) => {
     if (tryChatInstallFromPrompt(payload.prompt)) return true;
+    if (tryBotFromPrompt(payload.prompt)) return true;
     if (!coworkFolder || !(await requestFolderAccess(coworkFolder))) return false;
     const input = turnInputFor(payload);
     // The task starts in a new chat: bring this conversation so "the content

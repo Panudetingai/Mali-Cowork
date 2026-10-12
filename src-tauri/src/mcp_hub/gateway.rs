@@ -78,20 +78,20 @@ async fn serve(listener: TcpListener, gateway: Gateway) {
     }
 }
 
-struct Request {
-    method: String,
-    path: String,
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
+pub(crate) struct Request {
+    pub method: String,
+    pub path: String,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
 }
 
 impl Request {
-    fn header(&self, name: &str) -> Option<&str> {
+    pub fn header(&self, name: &str) -> Option<&str> {
         self.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
     }
 }
 
-async fn read_request(stream: &mut TcpStream) -> Option<Request> {
+pub(crate) async fn read_request(stream: &mut TcpStream) -> Option<Request> {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 8192];
     let head_end = loop {
@@ -135,7 +135,7 @@ async fn read_request(stream: &mut TcpStream) -> Option<Request> {
     Some(Request { method, path, headers, body })
 }
 
-async fn respond(stream: &mut TcpStream, status: &str, extra: &[(&str, String)], body: &str) {
+pub(crate) async fn respond(stream: &mut TcpStream, status: &str, extra: &[(&str, String)], body: &str) {
     let mut head = format!(
         "HTTP/1.1 {status}\r\ncontent-length: {}\r\nconnection: close\r\ncache-control: no-store\r\n",
         body.len()
@@ -153,12 +153,12 @@ async fn respond(stream: &mut TcpStream, status: &str, extra: &[(&str, String)],
 }
 
 /// Compare without leaking how much of the token matched.
-fn same_secret(a: &str, b: &str) -> bool {
+pub(crate) fn same_secret(a: &str, b: &str) -> bool {
     a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 /// Only loopback names on our own port: a web page can't point its own domain here.
-fn host_ok(host: Option<&str>, port: u16) -> bool {
+pub(crate) fn host_ok(host: Option<&str>, port: u16) -> bool {
     let Some(host) = host else { return false };
     ["127.0.0.1", "localhost", "[::1]"].iter().any(|name| host.eq_ignore_ascii_case(&format!("{name}:{port}")))
 }

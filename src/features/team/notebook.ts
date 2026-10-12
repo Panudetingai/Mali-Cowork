@@ -37,7 +37,7 @@ function notebookModel(fallbackModelId?: string) {
 }
 
 /** The user's connectors as the coach reads them: `id — name`. */
-function connectorList(): string[] {
+export function connectorList(): string[] {
   const custom = getCustomMcps();
   const ids = new Set([...custom.map((c) => c.id), ...Object.keys(getMcpConnections())]);
   return [...ids].map((id) => `${id} — ${custom.find((c) => c.id === id)?.name ?? catalogServer(id)?.name ?? id}`);
