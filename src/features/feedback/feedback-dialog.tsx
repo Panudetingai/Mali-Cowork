@@ -373,7 +373,7 @@ async function mailtoFeedbackUrl(stars: number, topics: string[], comment: strin
 
 /** A GitHub issue ready to post when no contact email is configured. */
 async function issueUrl(stars: number, topics: string[], comment: string) {
-  const { title, body } = await feedbackMeta(stars, topics, comment);
+  const { body } = await feedbackMeta(stars, topics, comment);
   const ghTitle = `Feedback: ${topics[0] ?? STAR_LABELS[stars]} (${stars}★)`;
   return `${GITHUB_ISSUES_URL}?title=${encodeURIComponent(ghTitle)}&body=${encodeURIComponent(body)}&labels=feedback`;
 }
