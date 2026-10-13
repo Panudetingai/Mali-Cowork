@@ -91,16 +91,16 @@ export function DiffCard({
           <span className={cn("shrink-0 rounded px-1.5 py-px text-[10px] font-medium", meta.className)}>{meta.label}</span>
           <DiffStat additions={diff.additions} deletions={diff.deletions} className="ml-auto pl-1" />
         </button>
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-1.5">
           {open && tall && (
             <button
               type="button"
               onClick={() => setFull((v) => !v)}
               title={full ? "Show less" : "Show all lines"}
               aria-label={full ? "Show less" : "Show all lines"}
-              className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
-              {full ? <Minimize2Icon className="size-3.5" /> : <Maximize2Icon className="size-3.5" />}
+              {full ? <Minimize2Icon className="size-4" /> : <Maximize2Icon className="size-4" />}
             </button>
           )}
           {actions}
