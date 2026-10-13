@@ -42,6 +42,7 @@ import {
     pickAndImportSharedChat,
     sessionMode,
     TEMPORARY_CHAT_QUERY,
+    useChatAttention,
     useChatRuns,
     useChatSessions,
     type ChatSession,
@@ -73,7 +74,7 @@ import {
     Settings2Icon,
     SparklesIcon,
     SquarePenIcon,
-Trash2Icon,
+    Trash2Icon,
     XIcon,
     MessageCircle,
   } from "lucide-react";
@@ -148,9 +149,15 @@ function NavItem({
         <Icon strokeWidth={1.75} />
         <span className={fadeLabel}>{title}</span>
         {!!badge && (
-          <span className="relative ml-auto flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold tabular-nums text-white group-hover/nav:hidden group-data-[collapsible=icon]:hidden">
-            {badge}
-          </span>
+          <>
+            <span className="relative ml-auto flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold tabular-nums text-white group-hover/nav:hidden group-data-[collapsible=icon]:hidden">
+              {badge}
+            </span>
+            <span
+              aria-hidden
+              className="relative ml-auto hidden size-2 shrink-0 rounded-full bg-amber-500 group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:top-1 group-data-[collapsible=icon]:right-1 group-data-[collapsible=icon]:ml-0 group-data-[collapsible=icon]:block"
+            />
+          </>
         )}
         {shortcut && <Hint keys={shortcut} />}
       </NavLink>
@@ -253,6 +260,7 @@ function HistoryGroup({
   onToggleGroup,
   limit,
   actions,
+  attentionByChatId,
 }: {
   label: string;
   sessions: ChatSession[];
@@ -263,6 +271,7 @@ function HistoryGroup({
   /** Rows shown folded; all of them when searching. */
   limit?: number;
   actions?: ReactNode;
+  attentionByChatId: Record<string, { permissions: number; questions: number }>;
 }) {
   const { t } = useTranslation();
   const runs = useChatRuns();
@@ -311,6 +320,7 @@ function HistoryGroup({
                 key={session.id}
                 session={session}
                 running={!!runs[session.id]}
+                needsYou={!!attentionByChatId[session.id]}
                 selecting={selecting}
                 selected={selected.has(session.id)}
                 onToggleSelected={() => onToggleSession(session.id)}
@@ -382,6 +392,36 @@ function useShortcuts(search: RefObject<HTMLInputElement | null>, collapsed: boo
 }
 
 /** Parts that leave as the sidebar folds, and come back as it opens. */
+/** Jumps to the chat that is waiting on permission or an answer. */
+function SidebarAttentionAlert({
+  chatCount,
+  firstChatId,
+  onOpen,
+}: {
+  chatCount: number;
+  firstChatId?: string;
+  onOpen: (chatId: string) => void;
+}) {
+  const { t } = useTranslation();
+  if (chatCount <= 0 || !firstChatId) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(firstChatId)}
+      className="mx-2 mb-2 flex w-[calc(100%-1rem)] items-center gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-left transition-colors hover:bg-amber-500/15"
+    >
+      <span className="relative flex size-2.5 shrink-0">
+        <span className="absolute inline-flex size-full animate-ping rounded-full bg-amber-400 opacity-50" />
+        <span className="relative inline-flex size-2.5 rounded-full bg-amber-500" />
+      </span>
+      <span className="min-w-0 flex-1 text-xs leading-snug font-medium text-amber-950 dark:text-amber-100">
+        {chatCount === 1 ? t("sidebarAttentionOne") : t("sidebarAttentionMany", { count: String(chatCount) })}
+      </span>
+      <ChevronRightIcon className="size-4 shrink-0 text-amber-700/70 dark:text-amber-200/70" strokeWidth={2} />
+    </button>
+  );
+}
+
 function Unfolded({ show, children, className }: { show: boolean; children: ReactNode; className?: string }) {
   return (
     <AnimatePresence initial={false}>
@@ -404,6 +444,7 @@ export function AppSidebar() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const inboxAttention = useInboxAttention();
+  const chatAttention = useChatAttention();
   const hasPanels = usePlugins().plugins.some((p) => p.enabled && p.panels.length > 0);
   const sessions = useChatSessions();
   const runs = useChatRuns();
@@ -590,9 +631,21 @@ export function AppSidebar() {
 
           <ActiveIndicatorList>
           <SidebarMenu className="gap-0.5">
-            <NavItem title={t("newChat")} url="/?mode=chat" icon={SquarePenIcon} shortcut={combo("1")} />
+            <NavItem
+              title={t("newChat")}
+              url="/?mode=chat"
+              icon={SquarePenIcon}
+              shortcut={combo("1")}
+              badge={chatAttention.chatModeCount || undefined}
+            />
             <NavItem title={t("newTemporaryChat")} url={newChatHomeUrl("chat", { temporary: true })} icon={GhostIcon} shortcut={combo("2")} />
-            <NavItem title={t("cowork")} url="/?mode=cowork" icon={SparklesIcon} shortcut={combo("3")} />
+            <NavItem
+              title={t("cowork")}
+              url="/?mode=cowork"
+              icon={SparklesIcon}
+              shortcut={combo("3")}
+              badge={chatAttention.coworkModeCount || undefined}
+            />
             <NavItem title={t("code")} url="/?mode=code" icon={CodeXmlIcon} shortcut={combo("4")} />
             <NavItem title={t("visual")} url="/visual" icon={ImagesIcon} shortcut={combo("5")} />
             <NavItem title={t("botStudio")} url="/bots" icon={BotIcon} shortcut={combo("6")} />
@@ -615,6 +668,11 @@ export function AppSidebar() {
 
         <SidebarContent className="relative gap-0 px-1 pt-1 pb-3">
           <Unfolded show={!collapsed} className="flex flex-col">
+            <SidebarAttentionAlert
+              chatCount={chatAttention.chatCount}
+              firstChatId={chatAttention.firstChatId}
+              onOpen={(id) => navigate(`/chat/${encodeURIComponent(id)}`)}
+            />
           <ActiveIndicatorList className="flex flex-col">
           {/* {sessions.some(isListedChat) && !collapsed && (
             <NavLink
@@ -634,6 +692,7 @@ export function AppSidebar() {
             onToggleGroup={toggleGroup}
             limit={searching ? undefined : FOLDED.pinned}
             actions={firstGroup === "pinned" ? headActions : undefined}
+            attentionByChatId={chatAttention.byChatId}
           />
           {dayGroups.map((group) => (
             <HistoryGroup
@@ -646,6 +705,7 @@ export function AppSidebar() {
               onToggleGroup={toggleGroup}
               limit={searching ? undefined : FOLDED.other}
               actions={firstGroup === group.id ? headActions : undefined}
+              attentionByChatId={chatAttention.byChatId}
             />
           ))}
 

@@ -25,9 +25,6 @@ import {
     TEAMMATE_TEMPLATES,
     TOOL_SCOPES,
     botsMcpStatus,
-    clearPendingBotWords,
-    getPendingBotWords,
-    writeBot,
     claudeCodeCommand,
     mcpJsonConfig,
     resetBotsMcpToken,
@@ -60,9 +57,10 @@ import {
     XIcon,
 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
-import { Textarea } from "@/components/ui/textarea";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { newChatHomeUrl } from "@/features/chat-history";
+import { composerDraftKey, writeComposerDraft } from "@/pages/chat/composer-draft";
 import { useSettingsSub } from "../route";
 import {
     PageEnter,
@@ -70,7 +68,7 @@ import {
     SettingRow,
     SettingsGroup,
     SettingsPage,
-    Steps,
+    SectionLabel,
     Tile,
     TileButton,
     TileGrid,
@@ -112,16 +110,6 @@ export function TeamSettings() {
   const review = (proposal: Proposal) => {
     setReviewing(proposal.id);
     setDraft(draftFromProposal(proposal, defaultTeamModel(models) ?? ""));
-    open("new");
-  };
-  /** A bot the model wrote from the user's words: open in the editor, theirs to change before it's added. */
-  const written = (proposal: Awaited<ReturnType<typeof writeBot>>) => {
-    setDraft({
-      ...draftFromProposal({ ...proposal, at: Date.now() }, defaultTeamModel(models) ?? ""),
-      origin: "user",
-      personal: true,
-      onTeam: team.enabled,
-    });
     open("new");
   };
   const unusedTemplates = TEAMMATE_TEMPLATES.filter((t) => !team.mates.some((m) => m.name === t.name));
@@ -173,7 +161,7 @@ export function TeamSettings() {
     <SettingsPage>
       <SectionHeader
         title="Team"
-        description="Bots you make, each with one duty, its own model, skills and connectors. In team mode the chat’s model is the lead: it splits the work, hands each job to the bot whose duty it is, and reports back to you."
+        description="Bots that each do one job, with their own model, skills and connectors. With team mode on, the chat’s model leads them: it splits your request, hands each part to the bot whose job it is, and brings the answers back to you."
         actions={
           <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" className="h-9 gap-1.5" onClick={() => setImporting(true)}>
@@ -187,27 +175,7 @@ export function TeamSettings() {
       />
       <ImportBotDialog open={importing} onClose={() => setImporting(false)} />
 
-      <div className="pb-7">
-        <Steps
-          steps={[
-            { title: "Make bots", description: "Give each one duty. A connector or a skill belongs to one bot only." },
-            { title: "Turn on team mode", description: "In the chat’s + menu → Team. Tick the bots on the chat’s team." },
-            { title: "Ask the lead", description: "It hands jobs out. A bot off the team starts only when you allow it." },
-          ]}
-        />
-      </div>
-
-      <SettingsGroup title="Team mode" description="Works with models on an API key, which run on Mali’s own agent.">
-        <SettingRow
-          icon={<UsersIcon />}
-          htmlFor="team-mode"
-          label="Let the chat’s model lead your bots"
-          description="Off: every chat works alone, as before."
-          control={<Switch id="team-mode" checked={team.enabled} onCheckedChange={setTeamEnabled} />}
-        />
-      </SettingsGroup>
-
-      <DescribeBot onWritten={written} />
+      <GettingStarted />
 
       {team.proposals.length > 0 && (
         <SettingsGroup wide title="Proposed by the lead" description="The lead noticed a duty nobody on the team has. Nothing changes until you accept.">
@@ -222,12 +190,12 @@ export function TeamSettings() {
       <SettingsGroup
         wide
         title={`Your bots${team.mates.length ? ` · ${team.mates.length}` : ""}`}
-        description="The switch puts a bot on the team: the lead calls it without asking. Off the team, you’re asked first. The chat bubble makes it yours too: pick it in the chat box and talk to it directly."
+        description="Click a bot to change its job, model, skills and connectors. The two switches on each card decide where you can use it."
       >
         {team.mates.length === 0 ? (
           <button
             type="button"
-            onClick={() => newBot()}
+            onClick={() => scrollToAdd()}
             className="mt-2 flex flex-col items-center gap-2 rounded-xl border border-dashed border-border px-6 py-10 text-center transition-colors hover:border-foreground/30 hover:bg-muted/30"
           >
             <span className="flex size-11 items-center justify-center rounded-xl bg-muted">
@@ -235,44 +203,237 @@ export function TeamSettings() {
             </span>
             <span className="text-sm font-medium">No bots yet</span>
             <span className="max-w-sm text-[13px] text-muted-foreground">
-              Make one, or start from a ready-made bot below. The lead can also propose bots as it learns what you work on.
+              Describe one in your own words or start from a ready-made bot, just below. The lead can also propose bots as it learns what you work on.
             </span>
           </button>
         ) : (
-          <div className="mt-1 grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
-            {team.mates.map((mate) => (
-              <BotCard key={mate.id} mate={mate} modelName={models.find((m) => m.id === mate.modelId)?.name} onEdit={() => open(mate.id)} />
-            ))}
-          </div>
+          <>
+            <dl className="mb-3 grid grid-cols-1 gap-2 rounded-xl bg-muted/40 px-3.5 py-3 text-xs sm:grid-cols-2">
+              <div className="flex gap-2">
+                <UsersIcon className="mt-px size-3.5 shrink-0 text-muted-foreground" />
+                <span>
+                  <dt className="inline font-medium">On the team</dt>
+                  <dd className="inline text-muted-foreground"> — the lead hands it work without asking. Off: the lead asks you first.</dd>
+                </span>
+              </div>
+              <div className="flex gap-2">
+                <MessageCircleIcon className="mt-px size-3.5 shrink-0 text-muted-foreground" />
+                <span>
+                  <dt className="inline font-medium">In the chat box</dt>
+                  <dd className="inline text-muted-foreground"> — pick it in the chat box’s model menu and talk to it directly.</dd>
+                </span>
+              </div>
+            </dl>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+              {team.mates.map((mate) => (
+                <BotCard key={mate.id} mate={mate} modelName={models.find((m) => m.id === mate.modelId)?.name} onEdit={() => open(mate.id)} />
+              ))}
+            </div>
+          </>
         )}
       </SettingsGroup>
 
-      {unusedTemplates.length > 0 && (
-        <SettingsGroup wide id="team-templates" title="Start from" description="Ready-made bots. Pick one, then give it its model and connectors.">
-          <TileGrid className="mt-1">
-            {unusedTemplates.map((t) => (
-              <Tile
-                key={t.name}
-                icon={<CoworkBot bot={t.mascot} size={30} />}
-                title={t.name}
-                description={t.role}
-                onOpen={() => newBot(t)}
-                openLabel={`Make ${t.name}`}
-                action={
-                  <TileButton label={`Make ${t.name}`} onClick={() => newBot(t)}>
-                    <PlusIcon />
-                  </TileButton>
-                }
-              />
-            ))}
-          </TileGrid>
-        </SettingsGroup>
-      )}
+      <SettingsGroup
+        wide
+        id="team-add"
+        title="Add a bot"
+        description="Give each bot one job. A connector or a skill belongs to one bot only, so the lead always knows who does what."
+      >
+        <div className="flex flex-col gap-6">
+          <MakeInChat />
+          {unusedTemplates.length > 0 && (
+            <div id="team-templates" className="flex scroll-mt-24 flex-col gap-2.5">
+              <SubHead title="Or start from a ready-made bot" description="Pick one, then give it a model and its connectors." />
+              <TileGrid>
+                {unusedTemplates.map((t) => (
+                  <Tile
+                    key={t.name}
+                    icon={<CoworkBot bot={t.mascot} size={30} />}
+                    title={t.name}
+                    description={t.role}
+                    onOpen={() => newBot(t)}
+                    openLabel={`Make ${t.name}`}
+                    action={
+                      <TileButton label={`Make ${t.name}`} onClick={() => newBot(t)}>
+                        <PlusIcon />
+                      </TileButton>
+                    }
+                  />
+                ))}
+              </TileGrid>
+            </div>
+          )}
+        </div>
+      </SettingsGroup>
 
-      <ShareSection />
+      <div className="flex flex-col gap-1 border-t border-border/60 pt-9 pb-1">
+        <SectionLabel>Advanced</SectionLabel>
+        <p className="text-[13px] text-muted-foreground">Optional. The team works without any of these.</p>
+      </div>
       <CoachSection />
       <NotebookSection />
+      <ShareSection />
     </SettingsPage>
+  );
+}
+
+/** Bots are written in a chat now: `/bot <what it should do>` brings three to pick from. */
+function MakeInChat() {
+  const navigate = useNavigate();
+  const start = () => {
+    writeComposerDraft(composerDraftKey(undefined, "cowork"), { prompt: "/bot ", replyExcerpt: null });
+    navigate(newChatHomeUrl("cowork"));
+  };
+  return (
+    <div className="flex flex-col gap-4 rounded-xl border border-border/70 bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <MessageCircleIcon className="size-4.5" />
+        </span>
+        <div className="flex min-w-0 flex-col gap-1">
+          <h4 className="text-sm font-medium">Describe it in a chat</h4>
+          <p className="text-[13px] leading-relaxed text-muted-foreground">
+            In any chat, type <code className="rounded bg-muted px-1 py-px font-mono text-[12px] text-foreground">/bot</code> and what it
+            should do — e.g. <span className="text-foreground/80">/bot สรุปข่าวจากลิงก์ที่ฉันส่ง เป็นภาษาไทย 5 ข้อ</span>. Mali writes three
+            bots right in the chat; open each to see how it works, and save the one you like.
+          </p>
+        </div>
+      </div>
+      <Button size="sm" className="shrink-0 gap-1.5" onClick={start}>
+        <SparklesIcon className="size-4" /> Try it in Cowork
+      </Button>
+    </div>
+  );
+}
+
+function scrollToAdd() {
+  document.getElementById("team-add")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function SubHead({ title, description }: { title: string; description?: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <h4 className="text-sm font-medium">{title}</h4>
+      {description && <p className="text-[13px] text-muted-foreground">{description}</p>}
+    </div>
+  );
+}
+
+/**
+ * How a team works, as three steps ticked off as they're done — with team
+ * mode's own switch in the second, so setting up never leaves this card.
+ */
+function GettingStarted() {
+  const team = useTeam();
+  const onTeam = team.mates.filter((m) => m.onTeam && !m.paused);
+  const steps = [
+    {
+      title: "Make a bot",
+      description: "One job each: “summarise links”, “file my receipts”…",
+      done: team.mates.length > 0,
+      action:
+        team.mates.length > 0 ? (
+          <span className="text-xs text-muted-foreground">
+            {team.mates.length} {team.mates.length === 1 ? "bot" : "bots"} · {onTeam.length} on the team
+          </span>
+        ) : (
+          <Button size="sm" variant="outline" className="h-7 gap-1" onClick={scrollToAdd}>
+            <PlusIcon className="size-3.5" /> Add a bot
+          </Button>
+        ),
+    },
+    {
+      title: "Turn on team mode",
+      description: "Works with models on an API key, which run on Mali’s own agent.",
+      done: team.enabled,
+      action: (
+        <label htmlFor="team-mode" className="flex cursor-pointer items-center gap-2 text-xs font-medium">
+          <Switch id="team-mode" checked={team.enabled} onCheckedChange={setTeamEnabled} />
+          {team.enabled ? "On" : "Off — every chat works alone"}
+        </label>
+      ),
+    },
+    {
+      title: "Ask in a chat",
+      description: "Open a chat’s + menu → Team, tick the bots for that chat, then ask as usual. The lead hands out the work.",
+      done: false,
+    },
+  ];
+  const ready = steps[0].done && steps[1].done;
+
+  return (
+    <section className="mb-7 flex flex-col gap-5 rounded-2xl border border-border/70 bg-card p-5 sm:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <h3 className="text-[15px] font-semibold tracking-tight">How a team works</h3>
+          <Flow mates={onTeam} />
+        </div>
+        <span
+          className={cn(
+            "inline-flex h-6 w-fit shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-medium",
+            ready ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-muted text-muted-foreground",
+          )}
+        >
+          {ready ? <CheckIcon className="size-3" /> : <span className="size-1.5 rounded-full bg-current" />}
+          {ready ? "Ready to use" : "Not set up yet"}
+        </span>
+      </div>
+      <ol className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        {steps.map((step, i) => (
+          <li
+            key={step.title}
+            className={cn(
+              "flex flex-col gap-2.5 rounded-xl border p-3.5 transition-colors",
+              step.done ? "border-emerald-500/25 bg-emerald-500/[0.04]" : "border-border/70 bg-background",
+            )}
+          >
+            <div className="flex items-center gap-2.5">
+              <span
+                className={cn(
+                  "flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+                  step.done ? "bg-emerald-500 text-white" : "border border-border bg-background",
+                )}
+              >
+                {step.done ? <CheckIcon className="size-3.5" strokeWidth={3} /> : i + 1}
+              </span>
+              <span className="text-sm font-medium">{step.title}</span>
+            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">{step.description}</p>
+            {step.action && <div className="mt-auto pt-0.5">{step.action}</div>}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+/** You → the lead → the bots on the team → one answer, drawn with the team's own mascots. */
+function Flow({ mates }: { mates: Teammate[] }) {
+  const pill = "inline-flex h-6 items-center gap-1.5 rounded-full border border-border/70 bg-background px-2 text-[11px] font-medium";
+  const arrow = <span className="text-muted-foreground/60">→</span>;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 pt-1 text-muted-foreground">
+      <span className={pill}>You ask</span>
+      {arrow}
+      <span className={pill}>
+        <SparklesIcon className="size-3" /> The lead (chat’s model)
+      </span>
+      {arrow}
+      <span className={pill}>
+        {mates.length > 0 ? (
+          <span className="flex -space-x-1">
+            {mates.slice(0, 4).map((m) => (
+              <CoworkBot key={m.id} bot={m.mascot} size={16} />
+            ))}
+          </span>
+        ) : (
+          <UsersIcon className="size-3" />
+        )}
+        {mates.length > 0 ? `${mates.length} on the team` : "Your bots"}
+      </span>
+      {arrow}
+      <span className={pill}>One answer</span>
+    </div>
   );
 }
 
@@ -301,11 +462,6 @@ function BotCard({ mate, modelName, onEdit }: { mate: Teammate; modelName?: stri
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="truncate text-sm font-semibold">{mate.name}</span>
-            {mate.personal && (
-              <span className="shrink-0 rounded bg-primary/10 px-1.5 py-px text-[10px] font-semibold text-primary">
-                {mate.onTeam ? "yours + team" : "yours"}
-              </span>
-            )}
             {mate.origin === "lead" && (
               <span className="shrink-0 rounded bg-violet-500/10 px-1.5 py-px text-[10px] font-semibold text-violet-700 dark:text-violet-300">
                 from the lead
@@ -316,23 +472,7 @@ function BotCard({ mate, modelName, onEdit }: { mate: Teammate; modelName?: stri
             {modelName ?? (mate.modelId ? mate.modelId.replace(/^api:/, "") : "No model — pick one")} · {scope}
           </span>
         </div>
-        <div className="pointer-events-auto relative z-10 flex shrink-0 items-center gap-0.5">
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-pressed={!!mate.personal}
-            onClick={() => setPersonal(mate.id, !mate.personal)}
-            aria-label={mate.personal ? `Stop offering ${mate.name} in the chat box` : `Talk to ${mate.name} from the chat box`}
-            title={mate.personal ? "Your own bot: in the chat box's model menu" : "Make it your own bot too: talk to it from the chat box"}
-            className={cn(mate.personal ? "text-primary" : "text-muted-foreground")}
-          >
-            <MessageCircleIcon className={cn(mate.personal && "fill-current/15")} />
-          </Button>
-          <Switch
-            checked={mate.onTeam}
-            onCheckedChange={(on) => setOnTeam(mate.id, on)}
-            aria-label={mate.onTeam ? `Take ${mate.name} off the team` : `Put ${mate.name} on the team`}
-          />
+        <div className="pointer-events-auto relative z-10 shrink-0">
           <Button size="icon-sm" variant="ghost" onClick={() => removeTeammate(mate.id)} aria-label={`Remove ${mate.name}`} title="Remove" className="text-muted-foreground hover:text-destructive">
             <Trash2Icon />
           </Button>
@@ -368,6 +508,18 @@ function BotCard({ mate, modelName, onEdit }: { mate: Teammate; modelName?: stri
           )}
         </div>
       ))}
+      <div className="relative z-10 mt-auto flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-border/60 pt-3 text-xs">
+        <label className="flex cursor-pointer items-center gap-2">
+          <Switch size="sm" checked={mate.onTeam} onCheckedChange={(on) => setOnTeam(mate.id, on)} />
+          <UsersIcon className="size-3.5 text-muted-foreground" />
+          On the team
+        </label>
+        <label className="flex cursor-pointer items-center gap-2">
+          <Switch size="sm" checked={!!mate.personal} onCheckedChange={(on) => setPersonal(mate.id, on)} />
+          <MessageCircleIcon className="size-3.5 text-muted-foreground" />
+          In the chat box
+        </label>
+      </div>
     </div>
   );
 }
@@ -553,7 +705,7 @@ function ShareSection() {
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
             <span className="text-muted-foreground">Tools:</span>
             {own.length === 0 ? (
-              <span className="text-amber-700 dark:text-amber-400">none yet — on a bot, turn on “As my own bot” (the chat bubble on its card).</span>
+              <span className="text-amber-700 dark:text-amber-400">none yet — on a bot’s card, turn on “In the chat box”.</span>
             ) : (
               status.tools.map((t) => (
                 <span key={t} className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px]">
@@ -590,84 +742,5 @@ function CodeBlock({ text, copied, onCopy }: { text: string; copied: boolean; on
         {copied ? <CheckIcon /> : <CopyIcon />}
       </Button>
     </div>
-  );
-}
-
-/**
- * A bot from the user's own words, written by a model they pick (the coach
- * by default). Words typed after `/bot` in the chat box land here and start
- * at once.
- */
-function DescribeBot({ onWritten }: { onWritten: (proposal: Awaited<ReturnType<typeof writeBot>>) => void }) {
-  const team = useTeam();
-  const models = useTeamModels();
-  const [words, setWords] = useState("");
-  const [writerId, setWriterId] = useState<string>();
-  const [writing, setWriting] = useState(false);
-  const [error, setError] = useState<string>();
-  const writer = writerId ?? team.coachModelId ?? defaultTeamModel(models);
-  const local = !!writer && /^api:(ollama|lmstudio|lm-studio)\//.test(writer);
-
-  const write = async (text = words) => {
-    const need = text.trim();
-    if (!need || !writer) return;
-    setWriting(true);
-    setError(undefined);
-    try {
-      onWritten(await writeBot(need, writer));
-      setWords("");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setWriting(false);
-    }
-  };
-
-  // From the chat box: `/bot <words>`.
-  useEffect(() => {
-    const pending = getPendingBotWords();
-    if (!pending) return;
-    clearPendingBotWords();
-    setWords(pending.words);
-    if (pending.words.trim() && writer) void write(pending.words);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  return (
-    <SettingsGroup
-      wide
-      title="Describe a bot"
-      description="Say what you need in your own words. A model writes its duty, instructions, file access and connectors; you look it over before it's added. Tip: type /bot in the chat box."
-    >
-      <div className="flex flex-col gap-3 pt-1">
-        <Textarea
-          value={words}
-          onChange={(e) => setWords(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void write();
-          }}
-          disabled={writing}
-          placeholder="e.g. บอทสรุปข่าวจากลิงก์ที่ฉันส่ง เป็นภาษาไทย 5 ข้อ — or: a bot that files my Gmail receipts into a Notion table"
-          className="min-h-24"
-          aria-label="What the bot should do"
-        />
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-muted-foreground">Written by</span>
-          {models.length ? (
-            <div className="w-full sm:w-64">
-              <ModelPicker appearance="field" models={models} selected={findModel(models, writer ?? models[0].id)} onSelect={(m) => setWriterId(m.id)} />
-            </div>
-          ) : (
-            <span className="text-xs text-muted-foreground">Add an API key or sign in to a CLI agent in Settings → Models first.</span>
-          )}
-          <Button className="ml-auto gap-1.5" disabled={writing || !words.trim() || !writer} onClick={() => void write()}>
-            {writing ? <LoaderIcon className="size-4 animate-spin" /> : <SparklesIcon className="size-4" />}
-            {writing ? "Writing…" : "Write the bot"}
-          </Button>
-        </div>
-        {writing && local && <p className="text-xs text-muted-foreground">A model on this computer can take a few minutes.</p>}
-        {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
-      </div>
-    </SettingsGroup>
   );
 }

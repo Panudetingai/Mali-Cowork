@@ -1,7 +1,7 @@
 {
   "name": "mali_cowork",
   "private": true,
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Desktop coworking app for AI chat and agent-assisted work on your files (Tauri + React + Rust).",
   "type": "module",
   "scripts": {
@@ -84,6 +84,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.2",
+    "playwright": "1.49.1",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.3",
     "vite": "^8.0.16"

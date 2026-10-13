@@ -3,6 +3,7 @@ import type { ChatMessage } from "@/pages/chat/types";
 import { AnimatePresence, motion } from "motion/react";
 import { extractCoworkBlock, looksLikeFileWork } from "../cowork-handoff";
 import { CoworkSuggestionCard, MovedToCoworkDivider } from "./cowork-handoff-ui";
+import { BotMakerCard, ReplyBots } from "./bot-maker-card";
 import { CompactionCard } from "./compaction-card";
 import { lastCompaction } from "../compaction";
 import { ChatMessageItem } from "./message/chat-message-item";
@@ -54,6 +55,9 @@ export function ChatMessages({ messages, isLoading, onRetry, onRate, onEdit, ses
           const retryTarget =
             isLast && (msg.role === "assistant" || msg.role === "error") ? retrySource : undefined;
           const rate = onRate && msg.role === "assistant" ? onRate : undefined;
+          // `/bot`'s card stands alone; a reply's bots go under its text.
+          const cardOnly = !!msg.botMaker && !msg.content.trim();
+          const streaming = !!msg.isStreaming && !!isLoading;
           return (
             <motion.div
               key={msg.id}
@@ -68,9 +72,12 @@ export function ChatMessages({ messages, isLoading, onRetry, onRate, onEdit, ses
               {index > 0 && (
                 <div className="absolute top-0 right-0 left-0 h-px bg-gradient-to-r from-transparent via-border to-transparent opacity-60" />
               )}
+              {cardOnly && session ? (
+                <BotMakerCard chatId={session.id} message={msg} />
+              ) : (
               <ChatMessageItem
                 message={msg}
-                streaming={!!msg.isStreaming && !!isLoading}
+                streaming={streaming}
                 onRetry={retryTarget && onRetry ? () => onRetry(retryTarget) : undefined}
                 onRate={rate ? (v) => rate(msg.id, v) : undefined}
                 onEdit={
@@ -78,6 +85,10 @@ export function ChatMessages({ messages, isLoading, onRetry, onRate, onEdit, ses
                 }
                 session={session}
               />
+              )}
+              {session && !cardOnly && msg.role === "assistant" && !streaming && (
+                <ReplyBots chatId={session.id} message={msg} />
+              )}
               {session && offer?.messageId === msg.id && (
                 <CoworkSuggestionCard chatId={session.id} messageId={msg.id} task={offer.task} quiet={offer.quiet} />
               )}

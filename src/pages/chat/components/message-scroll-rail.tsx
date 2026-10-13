@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 import type { ChatMessage } from "@/pages/chat/types";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { USER_SCROLL_EVENT } from "../hooks/use-chat";
 
 /** Dashes on each side of the one you're on — the rail never shows more than 2 × RAIL_SIDE + 1. */
 const RAIL_SIDE = 4;
@@ -121,9 +122,10 @@ export function MessageScrollRail({
   }, [containerRef, measure]);
 
   const jumpToMessage = (id: string) => {
-    containerRef.current
-      ?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const el = containerRef.current;
+    // Going to an earlier message: stop following the reply, or it pulls the view back down.
+    el?.dispatchEvent(new Event(USER_SCROLL_EVENT));
+    el?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   if (messages.length === 0) return null;

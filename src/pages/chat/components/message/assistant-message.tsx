@@ -15,9 +15,11 @@ import { CoworkBot } from "@/components/anim/cowork-bot";
 import { extractChatBlocks } from "@/features/chat-blocks";
 import { useToastError } from "@/components/ui/sonner";
 import { speak, speakerLevel, speakerState, stopSpeaking, subscribeSpeaker, Waveform } from "@/features/voice";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
     CheckIcon,
+    ClockIcon,
     CopyIcon,
     LoaderIcon,
     ReceiptIcon,
@@ -25,15 +27,17 @@ import {
     ThumbsDownIcon,
     ThumbsUpIcon,
     Volume2Icon,
+    ZapIcon,
 } from "lucide-react";
 import { useId, useMemo, useState, useSyncExternalStore, type ComponentProps } from "react";
 import type { TodoItem } from "../../api/chat";
-import type { ActivityItem } from "../../types";
+import type { ActivityItem, AgentUsage } from "../../types";
 import { AgentSteps, segmentReply } from "./agent-steps";
 import { AgentTaskPlan } from "./agent-task-plan";
 import { extractCoworkBlock } from "../../cowork-handoff";
 import { ConnectorSuggestions } from "./connector-suggestions";
 import { extractConnectorBlocks } from "@/features/mcp/agent-install";
+import { extractBotBlocks } from "@/features/team/bot-blocks";
 import { ExpandableClamp } from "./expandable-clamp";
 import { MarkdownLink } from "./markdown-link";
 import { ReplyStatus } from "./reply-status";
@@ -59,14 +63,7 @@ type Props = {
   todos?: TodoItem[];
   modelId?: string;
   isStreaming?: boolean;
-  usage?: {
-    inputTokens?: number;
-    outputTokens?: number;
-    cacheReadTokens?: number;
-    reasoningTokens?: number;
-    totalTokens?: number;
-    cost?: number;
-  };
+  usage?: AgentUsage;
   sessionId?: string;
   durationMs?: number;
   feedback?: "up" | "down";
@@ -75,6 +72,8 @@ type Props = {
   onRate?: (value: "up" | "down") => void;
   /** Cowork turns: open the work receipt. Undefined hides the button. */
   onOpenReceipt?: () => void;
+  /** Cowork sessions show token/time badges; plain Chat hides them. */
+  cowork?: boolean;
 };
 
 export function AssistantMessage({
@@ -85,12 +84,12 @@ export function AssistantMessage({
   modelId,
   isStreaming,
   usage,
-  sessionId,
   durationMs,
   feedback,
   onRetry,
   onRate,
   onOpenReceipt,
+  cowork,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const id = modelId ?? "";
@@ -104,8 +103,9 @@ export function AssistantMessage({
   );
   // ```connector blocks become install cards instead of code.
   // ```cowork is shown as a "Continue in Cowork" card under the thread.
+  // ```bot blocks become the bot card under the reply (see `ChatMessages`).
   const { text: visibleContent, suggestions } = useMemo(
-    () => extractConnectorBlocks(extractCoworkBlock(afterRichBlocks).text),
+    () => extractConnectorBlocks(extractBotBlocks(extractCoworkBlock(afterRichBlocks).text).text),
     [afterRichBlocks],
   );
   const hasContent = Boolean(content.trim());
@@ -243,29 +243,86 @@ export function AssistantMessage({
               <ReceiptIcon className="size-3.5" />
             </MessageAction>
           )}
-          {(usage || sessionId || durationMs) && (
-            <span className="ml-2 inline-flex items-center gap-1.5 text-[11px] leading-none text-muted-foreground">
-              {usage?.inputTokens != null && (
-                <span>in:{usage.inputTokens}</span>
-              )}
-              {usage?.outputTokens != null && (
-                <span>out:{usage.outputTokens}</span>
-              )}
-              {usage?.reasoningTokens != null && (
-                <span>reason:{usage.reasoningTokens}</span>
-              )}
-              {usage?.totalTokens != null && (
-                <span>total:{usage.totalTokens}</span>
-              )}
-              {usage?.cost != null && <span>${usage.cost.toFixed(4)}</span>}
-              {durationMs != null && (
-                <span>{(durationMs / 1000).toFixed(1)}s</span>
-              )}
-            </span>
-          )}
+          {cowork && <ReplyUsageMeta usage={usage} durationMs={durationMs} />}
         </MessageActions>
       )}
     </Message>
+  );
+}
+
+type UsageShape = NonNullable<Props["usage"]>;
+
+const compactTokens = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
+const exactTokens = new Intl.NumberFormat("en-US");
+
+function tokenTotal(usage?: UsageShape) {
+  if (!usage) return undefined;
+  if (usage.totalTokens != null && usage.totalTokens > 0) return usage.totalTokens;
+  const sum =
+    (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) + (usage.reasoningTokens ?? 0) + (usage.cacheReadTokens ?? 0);
+  return sum > 0 ? sum : undefined;
+}
+
+function formatDuration(ms: number) {
+  return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`;
+}
+
+function formatCost(cost: number) {
+  if (cost <= 0) return undefined;
+  const tiny = cost < 0.01;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: tiny ? 2 : 2,
+    maximumFractionDigits: tiny ? 4 : 2,
+  }).format(cost);
+}
+
+/** Token and time for a finished Cowork reply. */
+function ReplyUsageMeta({ usage, durationMs }: { usage?: UsageShape; durationMs?: number }) {
+  const total = tokenTotal(usage);
+  const costText = usage?.cost != null ? formatCost(usage.cost) : undefined;
+  const hasAnything = total != null || durationMs != null || costText;
+
+  if (!hasAnything) return null;
+
+  const tokenLabel =
+    total != null
+      ? total >= 10_000
+        ? `${compactTokens.format(total)} tokens`
+        : `${exactTokens.format(total)} tokens`
+      : undefined;
+
+  const detail = [
+    usage?.inputTokens != null && `Read ${exactTokens.format(usage.inputTokens)}`,
+    usage?.outputTokens != null && `Wrote ${exactTokens.format(usage.outputTokens)}`,
+    usage?.reasoningTokens != null && `Thought ${exactTokens.format(usage.reasoningTokens)}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const badgeClass = "h-5 gap-1 px-2 text-[10px] font-normal tabular-nums text-muted-foreground";
+
+  return (
+    <span className="ml-1 inline-flex flex-wrap items-center gap-1" title={detail || undefined}>
+      {tokenLabel && (
+        <Badge variant="secondary" className={badgeClass}>
+          <ZapIcon className="size-3 opacity-70" aria-hidden />
+          {tokenLabel}
+        </Badge>
+      )}
+      {durationMs != null && (
+        <Badge variant="outline" className={badgeClass}>
+          <ClockIcon className="size-3 opacity-70" aria-hidden />
+          {formatDuration(durationMs)}
+        </Badge>
+      )}
+      {costText && (
+        <Badge variant="outline" className={badgeClass}>
+          {costText}
+        </Badge>
+      )}
+    </span>
   );
 }
 

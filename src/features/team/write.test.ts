@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { slashItems } from "@/pages/chat/components/mention/skill-popup";
-import { botWordsIn, clearPendingBotWords, getPendingBotWords, tryBotFromPrompt } from "./write";
+import { botWordsIn } from "./write";
 
 test("/bot and its words, in English or Thai", () => {
   expect(botWordsIn("/bot บอทสรุปข่าวเป็นภาษาไทย")).toBe("บอทสรุปข่าวเป็นภาษาไทย");
@@ -9,15 +9,6 @@ test("/bot and its words, in English or Thai", () => {
   expect(botWordsIn("/bot")).toBe("");
   expect(botWordsIn("/botany is a science")).toBeUndefined();
   expect(botWordsIn("make a /bot please")).toBeUndefined();
-});
-
-test("a /bot prompt goes to Settings › Team, not to the model", () => {
-  clearPendingBotWords();
-  expect(tryBotFromPrompt("hello")).toBe(false);
-  expect(getPendingBotWords()).toBeNull();
-  expect(tryBotFromPrompt("/bot summarize links")).toBe(true);
-  expect(getPendingBotWords()?.words).toBe("summarize links");
-  clearPendingBotWords();
 });
 
 test("the / menu offers Make a bot while the query could mean it", () => {
