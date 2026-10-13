@@ -55,8 +55,25 @@ import { activeBackdropClass, chatRowClass } from "./sidebar-styles";
 const menuItemClass =
   "flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground";
 
-/** Only what needs a glance: still working, or it failed. */
-function StatusMark({ session, running }: { session: ChatSession; running: boolean }) {
+/** Only what needs a glance: waiting on you, still working, or it failed. */
+function StatusMark({
+  session,
+  running,
+  needsYou,
+}: {
+  session: ChatSession;
+  running: boolean;
+  needsYou?: boolean;
+}) {
+  const { t } = useTranslation();
+  if (needsYou) {
+    return (
+      <span className="relative flex size-2.5 shrink-0" title={t("chatWaitingForYou")}>
+        <span className="absolute inline-flex size-full animate-ping rounded-full bg-amber-400 opacity-50" />
+        <span className="relative inline-flex size-2.5 rounded-full bg-amber-500" />
+      </span>
+    );
+  }
   if (running) return <LoaderCircleIcon strokeWidth={2} className="relative size-3.5 shrink-0 animate-spin text-sky-500" />;
   const last = session.messages[session.messages.length - 1];
   if (last?.role === "error") return <span className="relative size-1.5 shrink-0 rounded-full bg-red-500" title="Failed" />;
@@ -66,12 +83,14 @@ function StatusMark({ session, running }: { session: ChatSession; running: boole
 export function ChatHistoryItem({
   session,
   running,
+  needsYou = false,
   selecting = false,
   selected = false,
   onToggleSelected,
 }: {
   session: ChatSession;
   running: boolean;
+  needsYou?: boolean;
   selecting?: boolean;
   selected?: boolean;
   onToggleSelected?: () => void;
@@ -163,7 +182,7 @@ export function ChatHistoryItem({
           }}
         >
           <span className="relative min-w-0 flex-1 truncate">{session.title}</span>
-          <StatusMark session={session} running={running} />
+          <StatusMark session={session} running={running} needsYou={needsYou} />
         </NavLink>
       )}
 

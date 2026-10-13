@@ -11,6 +11,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useState, type ReactNode } from "react";
 import { AgentSteps } from "./agent-steps";
 import { briefParts, reportText, type TeamHandoff } from "./team-steps";
+import { Loader } from "@/components/ui/loader";
 
 const pop = { type: "spring", stiffness: 420, damping: 30, mass: 0.8 } as const;
 /** Folding and unfolding: quick, without a bounce. */
@@ -64,11 +65,11 @@ export function TeamThread({ handoff }: { handoff: TeamHandoff }) {
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 12, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
       transition={pop}
       className={cn(
-        "not-prose my-3 overflow-hidden rounded-xl border bg-card/40 transition-colors",
+        "not-prose my-3 overflow-hidden rounded-xl transition-colors",
         phase === "waiting" ? "border-amber-500/40" : phase === "failed" ? "border-red-500/30" : "border-border/70",
       )}
     >
@@ -392,15 +393,6 @@ function Brief({ job, context }: { job: string; context?: string }) {
 /** The bot is writing. */
 function Typing() {
   return (
-    <span className="flex h-5 items-center gap-1" aria-label="Working">
-      {[0, 1, 2].map((i) => (
-        <motion.span
-          key={i}
-          className="size-1.5 rounded-full bg-muted-foreground/60"
-          animate={{ y: [0, -4, 0], opacity: [0.4, 1, 0.4] }}
-          transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.15 }}
-        />
-      ))}
-    </span>
+    <Loader variant="typing" size="md" />
   );
 }

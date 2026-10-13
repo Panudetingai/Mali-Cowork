@@ -46,6 +46,14 @@ pub struct Written {
     pub reason: String,
     pub tools: String,
     pub connectors: Vec<String>,
+    /// Skill ids it should use, when the user's skills were listed.
+    pub skills: Vec<String>,
+    /// Connectors it needs that the user hasn't added: ids from the list offered.
+    pub install_connectors: Vec<String>,
+    /// Words to find a connector it needs that no list had (e.g. "slack").
+    pub find_connectors: Vec<String>,
+    /// Skills to install for it: ids from the list offered.
+    pub install_skills: Vec<String>,
 }
 
 impl Written {
@@ -78,11 +86,16 @@ impl Written {
         }
         let o = value.as_object()?;
         let field = |k: &str| o.get(k).map(text).unwrap_or_default();
-        let connectors = match o.get("connectors") {
+        let list = |k: &str| match o.get(k).or_else(|| o.get(&camel(k))) {
             Some(Value::Array(items)) => items.iter().map(text).filter(|c| !c.trim().is_empty()).collect(),
             Some(Value::String(s)) => s.split(',').map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect(),
             _ => Vec::new(),
         };
+        let connectors = list("connectors");
+        let skills = list("skills");
+        let install_connectors = list("install_connectors");
+        let find_connectors = list("find_connectors");
+        let install_skills = list("install_skills");
         Some(Written {
             name: field("name"),
             role: field("role"),
@@ -90,8 +103,29 @@ impl Written {
             reason: field("reason"),
             tools: field("tools"),
             connectors,
+            skills,
+            install_connectors,
+            find_connectors,
+            install_skills,
         })
     }
+}
+
+/// `install_skills` → `installSkills`: small models answer in either.
+fn camel(key: &str) -> String {
+    let mut out = String::new();
+    let mut up = false;
+    for c in key.chars() {
+        if c == '_' {
+            up = true;
+        } else if up {
+            out.extend(c.to_uppercase());
+            up = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// One thing the user keeps doing, with the chats that show it.
@@ -190,7 +224,7 @@ pub async fn write_teammate(
         "\n\nWrite one new bot whose duty overlaps no one's. JSON: {\"name\": short name with its job, \"role\": its duty \
 in one sentence, \"instructions\": numbered steps, \"reason\": why the user needs it, citing their work if you can, \
 \"tools\": \"none\" | \"read\" | \"files\" | \"all\" (the least it needs), \"connectors\": [connector ids it should own, \
-only ones no bot owns]}",
+only ones no bot owns], \"skills\": [skill ids it should use, only from a list of skills if one is given]}",
     );
     let reply = ask(model, WRITER, prompt.clone(), usage, cancel).await?;
     let written = match json_in(&reply).and_then(|v| Written::from_value(&v)) {
@@ -337,6 +371,14 @@ mod tests {
         assert_eq!(written.connectors, vec!["fetch"]);
         assert!(Written::from_value(&serde_json::json!({ "instructions": "x" })).is_none());
         assert_eq!(Written::read(&serde_json::json!({ "instructions": "x" })).unwrap().instructions, "x");
+    }
+
+    #[test]
+    fn the_skills_a_bot_should_use_are_read_too() {
+        let skills = |v: Value| Written::from_value(&v).unwrap().skills;
+        assert_eq!(skills(json!({ "name": "a", "role": "b", "skills": ["meeting-notes", { "id": "invoices" }] })), vec!["meeting-notes", "invoices"]);
+        assert_eq!(skills(json!({ "name": "a", "role": "b", "skills": "x, y" })), vec!["x", "y"]);
+        assert!(skills(json!({ "name": "a", "role": "b" })).is_empty());
     }
 
     use super::*;

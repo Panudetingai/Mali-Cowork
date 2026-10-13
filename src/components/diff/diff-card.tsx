@@ -1,6 +1,8 @@
+import { MALI_EASE } from "@/lib/motion-presets";
 import { cn } from "@/lib/utils";
 import { ChevronDownIcon, FileMinusIcon, FilePenIcon, FilePlusIcon, Maximize2Icon, Minimize2Icon } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { CodeDiff } from "./code-diff";
 import { DiffStat } from "./diff-view";
 import type { FileDiff } from "./types";
@@ -15,6 +17,8 @@ const KIND: Record<DiffCardKind, { icon: typeof FilePlusIcon; label: string; cla
 
 /** Past this many lines the card opens folded to a short, scrollable window. */
 const TALL = 14;
+/** The folded window's height in px (Tailwind's `max-h-72`). */
+const FOLDED = 288;
 
 /** `src/features/a.ts` → folder (muted) and name (bold), like a PR's file header. */
 export function FilePath({ path, className }: { path: string; className?: string }) {
@@ -50,23 +54,37 @@ export function DiffCard({
   className?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  // The highlighted lines stay mounted once shown, so opening again is only a slide.
+  const [shown, setShown] = useState(defaultOpen);
   const [full, setFull] = useState(false);
+  const reduced = useReducedMotion();
+  const ease = { duration: reduced ? 0 : 0.32, ease: MALI_EASE };
   const meta = KIND[kind];
   const Icon = meta.icon;
   const lines = diff.hunks.reduce((sum, h) => sum + h.lines.length, 0);
   const tall = lines > TALL;
+  // Folded, the window is never taller than the lines themselves.
+  const body = useRef<HTMLDivElement>(null);
+  const [bodyHeight, setBodyHeight] = useState<number>();
+  useLayoutEffect(() => {
+    if (shown && body.current) setBodyHeight(body.current.scrollHeight);
+  }, [shown, diff]);
+  const folded = Math.min(FOLDED, bodyHeight ?? FOLDED);
 
   return (
     <div className={cn("not-prose overflow-hidden rounded-xl border border-border/70 bg-card", className)}>
       <div className="flex min-w-0 items-center gap-2 px-2.5 py-1.5">
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => {
+            setShown(true);
+            setOpen((v) => !v);
+          }}
           aria-expanded={open}
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
         >
           <ChevronDownIcon
-            className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", !open && "-rotate-90")}
+            className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-300 ease-out", !open && "-rotate-90")}
           />
           <Icon className="size-3.5 shrink-0 text-muted-foreground" />
           <FilePath path={path} />
@@ -88,21 +106,43 @@ export function DiffCard({
           {actions}
         </div>
       </div>
-      {open && (
-        <div className="border-t border-border/60">
-          <div className={cn("overflow-y-auto", !full && tall && "max-h-72")}>
-            <CodeDiff diff={diff} path={path} />
-          </div>
-          {!full && tall && (
-            <button
-              type="button"
-              onClick={() => setFull(true)}
-              className="w-full border-t border-border/60 py-1 text-center text-[11px] text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+      {shown && (
+        <motion.div
+          initial={false}
+          animate={{ height: open ? "auto" : 0, opacity: open ? 1 : 0 }}
+          transition={ease}
+          className="overflow-hidden"
+          aria-hidden={!open}
+        >
+          <div className="border-t border-border/60">
+            <motion.div
+              initial={false}
+              animate={{ height: tall && !full ? folded : "auto" }}
+              transition={ease}
+              className={cn(tall && !full ? "overflow-y-auto" : "overflow-hidden")}
             >
-              Show all {lines} lines
-            </button>
-          )}
-        </div>
+              <div ref={body}>
+                <CodeDiff diff={diff} path={path} />
+              </div>
+            </motion.div>
+            <AnimatePresence initial={false}>
+              {!full && tall && (
+                <motion.button
+                  key="all"
+                  type="button"
+                  onClick={() => setFull(true)}
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={ease}
+                  className="w-full overflow-hidden border-t border-border/60 text-center text-[11px] text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                >
+                  <span className="block py-1">Show all {lines} lines</span>
+                </motion.button>
+              )}
+            </AnimatePresence>
+          </div>
+        </motion.div>
       )}
     </div>
   );

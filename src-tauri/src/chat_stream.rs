@@ -49,6 +49,18 @@ pub struct TeammateProposal {
     /// Connector ids it would own.
     #[serde(default)]
     pub connectors: Vec<String>,
+    /// Skill ids it would use (only when the user's skills were offered).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skills: Vec<String>,
+    /// Built-in connectors it needs that the user hasn't added yet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub install_connectors: Vec<String>,
+    /// Words to search the MCP Registry with, for an app it needs that isn't built in.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub find_connectors: Vec<String>,
+    /// Skills from the catalog it should have installed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub install_skills: Vec<String>,
     /// Set when this is new instructions for a teammate already on the team (the coach's).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updates: Option<String>,

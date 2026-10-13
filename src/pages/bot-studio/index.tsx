@@ -19,14 +19,14 @@ import {
   MOVES,
   SHAPES,
   UNLOCKS,
-  downloadBotExport,
   distillFromRecentChats,
   importBotBundle,
   lookFrom,
-  parseBotImport,
+  pickBotImport,
   presetOf,
   previewSize,
   removeCustomBot,
+  saveBotExport,
   saveCustomBot,
   setActiveBot,
   stageOf,
@@ -38,6 +38,7 @@ import {
   type LookPart,
 } from "@/features/bot-studio";
 import { partLabel } from "@/features/bot-studio/level-up";
+import { toast } from "@/components/ui/sonner";
 import { useTranslation, type TranslationKey } from "@/features/i18n";
 import { MALI_EASE } from "@/lib/motion-presets";
 import { cn } from "@/lib/utils";
@@ -118,6 +119,32 @@ export default function BotStudioPage() {
     setActiveBot(id);
   };
 
+  // Comes in as a new bot, so it's the one shown next.
+  const importFile = async () => {
+    try {
+      const parsed = await pickBotImport();
+      if (!parsed) return;
+      if ("error" in parsed) {
+        toast.error(parsed.error);
+        return;
+      }
+      const bot = importBotBundle({
+        name: `${parsed.name} (${t("botStudioImportCopy")})`,
+        color: parsed.color,
+        mascot: parsed.mascot,
+        look: parsed.look,
+        role: parsed.role ?? "",
+        styleNotes: parsed.styleNotes ?? "",
+        xp: parsed.xp ?? 0,
+        knowledge: parsed.knowledge ?? [],
+      });
+      select(bot.id);
+      toast.success(t("botStudioImported", { name: bot.name }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-8 sm:px-6 lg:flex-row lg:items-start lg:gap-10 lg:py-10">
       <aside className="flex w-full shrink-0 flex-col gap-4 lg:sticky lg:top-10 lg:w-56">
@@ -143,6 +170,16 @@ export default function BotStudioPage() {
         >
           <PlusIcon className="size-4" />
           {t("botStudioCreate")}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="-mt-2 gap-2 rounded-xl"
+          title={t("botStudioImportHint")}
+          onClick={() => void importFile()}
+        >
+          <UploadIcon className="size-4" />
+          {t("botStudioImport")}
         </Button>
         <nav className="flex flex-col gap-1">
           {bots.map((bot) => (
@@ -187,7 +224,6 @@ export default function BotStudioPage() {
 
 function BotEditor({ bot, isMain, onRemoved }: { bot: CustomBot; isMain: boolean; onRemoved: () => void }) {
   const { t } = useTranslation();
-  const fileRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(bot.name);
   const [role, setRole] = useState(bot.role);
   const [styleNotes, setStyleNotes] = useState(bot.styleNotes);
@@ -195,7 +231,7 @@ function BotEditor({ bot, isMain, onRemoved }: { bot: CustomBot; isMain: boolean
   const [pose, setPose] = useState<BotState>("idle");
   /** Show it fully grown, to see what it's growing into. */
   const [grownPreview, setGrownPreview] = useState(false);
-  const [importError, setImportError] = useState<string>();
+  const [saving, setSaving] = useState(false);
   const [learnNote, setLearnNote] = useState<string>();
 
   const level = bot.level;
@@ -233,23 +269,17 @@ function BotEditor({ bot, isMain, onRemoved }: { bot: CustomBot; isMain: boolean
     setTimeout(() => setLearnNote(undefined), 3200);
   };
 
-  const onImportFile = async (file: File) => {
-    setImportError(undefined);
-    const parsed = parseBotImport(await file.text());
-    if ("error" in parsed) {
-      setImportError(parsed.error);
-      return;
+  const saveFile = async () => {
+    setSaving(true);
+    try {
+      // What's typed but not yet blurred goes in the file too.
+      const path = await saveBotExport(persist());
+      if (path) toast.success(t("botStudioSaved", { path }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
     }
-    importBotBundle({
-      name: `${parsed.name} (${t("botStudioImportCopy")})`,
-      color: parsed.color,
-      mascot: parsed.mascot,
-      look: parsed.look,
-      role: parsed.role,
-      styleNotes: parsed.styleNotes,
-      xp: parsed.xp,
-      knowledge: parsed.knowledge,
-    });
   };
 
   const lockOf = (part: LookPart) => (unlocked(part, level) ? undefined : UNLOCKS[part]);
@@ -285,21 +315,6 @@ function BotEditor({ bot, isMain, onRemoved }: { bot: CustomBot; isMain: boolean
               {t("botStudioUseAsMain")}
             </Button>
           )}
-          <Button type="button" variant="outline" size="sm" className="gap-1.5 rounded-xl" onClick={() => downloadBotExport(bot)}>
-            <DownloadIcon className="size-3.5" />
-            {t("botStudioExport")}
-          </Button>
-          <Button type="button" variant="outline" size="sm" className="gap-1.5 rounded-xl" onClick={() => fileRef.current?.click()}>
-            <UploadIcon className="size-3.5" />
-            {t("botStudioImport")}
-          </Button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="application/json,.json"
-            className="hidden"
-            onChange={(e) => e.target.files?.[0] && void onImportFile(e.target.files[0])}
-          />
           <Button
             type="button"
             variant="ghost"
@@ -526,7 +541,6 @@ function BotEditor({ bot, isMain, onRemoved }: { bot: CustomBot; isMain: boolean
         </div>
         {learnNote && <p className="text-xs text-emerald-600 dark:text-emerald-400">{learnNote}</p>}
         {saturated && <p className="text-xs text-amber-700 dark:text-amber-400">{t("botStudioSaturated")}</p>}
-        {importError && <p className="text-xs text-destructive">{importError}</p>}
 
         {!bot.knowledge.length ? (
           <p className="rounded-2xl bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">{t("botStudioNoKnowledge")}</p>
@@ -541,6 +555,26 @@ function BotEditor({ bot, isMain, onRemoved }: { bot: CustomBot; isMain: boolean
             ))}
           </ul>
         )}
+      </section>
+
+      <section className="flex flex-col gap-4 rounded-2xl p-4 ring-1 ring-border/60 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-col gap-1">
+          <h3 className="text-sm font-semibold">{t("botStudioShareTitle")}</h3>
+          <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
+            {t("botStudioShareDesc", { count: bot.knowledge.length })}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="shrink-0 gap-1.5 rounded-xl"
+          disabled={saving}
+          onClick={() => void saveFile()}
+        >
+          <DownloadIcon className="size-3.5" />
+          {t("botStudioExport")}
+        </Button>
       </section>
     </div>
   );

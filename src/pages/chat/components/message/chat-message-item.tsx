@@ -1,7 +1,7 @@
 "use client";
 
 import { FilesChanged } from "@/features/checkpoints";
-import type { ChatSession } from "@/features/chat-history";
+import { sessionMode, type ChatSession } from "@/features/chat-history";
 import { buildWorkReceipt, WorkReceiptDialog } from "@/features/work-receipt";
 import type { ChatMessage } from "@/pages/chat/types";
 import { memo, useMemo, useState } from "react";
@@ -98,6 +98,7 @@ function Reply({ message, streaming, onRetry, onRate, onEdit, onOpenReceipt, ses
           onRetry={onRetry}
           onRate={onRate}
           onOpenReceipt={onOpenReceipt}
+          cowork={session ? sessionMode(session) === "cowork" : false}
         />
       );
     case "error":

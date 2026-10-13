@@ -63,6 +63,14 @@ export type TeammateProposal = {
   reason: string;
   tools: ToolScope;
   connectors: string[];
+  /** Skill ids it would use, when the writer was shown the user's skills. */
+  skills?: string[];
+  /** Built-in connectors (catalog ids) it needs that the user hasn't added. */
+  installConnectors?: string[];
+  /** Words to find, in the MCP Registry, an app it needs that isn't built in. */
+  findConnectors?: string[];
+  /** Skills from `RECOMMENDED_SKILLS` it should have. */
+  installSkills?: string[];
   /** Set when the coach rewrote how a bot on the team works: that bot's id. */
   updates?: string;
 };
@@ -387,6 +395,23 @@ export function connectorsItNeeds(
     const word = c.name.toLowerCase().replace(/\s*(mcp|connector)$/i, "").trim();
     return word.length > 2 && text.includes(word);
   });
+}
+
+/** Skills whose name shows up in the bot's duty and aren't assigned yet. */
+export function skillsItNeeds(
+  mate: Pick<Teammate, "role" | "instructions" | "skills">,
+  skills: { id: string; name: string; description: string; enabled: boolean }[],
+): { id: string; name: string }[] {
+  const text = `${mate.role}\n${mate.instructions}`.toLowerCase();
+  return skills
+    .filter((k) => {
+      if (!k.enabled || mate.skills.includes(k.id)) return false;
+      const name = k.name.toLowerCase().trim();
+      if (name.length > 2 && text.includes(name)) return true;
+      const desc = k.description.toLowerCase();
+      return desc.length > 8 && text.includes(desc.slice(0, Math.min(desc.length, 48)));
+    })
+    .map((k) => ({ id: k.id, name: k.name }));
 }
 
 export type TeammateTemplate = Omit<TeammateDraft, "modelId">;

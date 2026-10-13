@@ -40,7 +40,7 @@ export function SkillPopup({ items, hasSkills, picked, active, onActiveChange, o
       : current?.kind === "summary"
         ? "Summarize everything so far now. The model remembers the summary instead of the full messages; you keep them on screen and can open the summary in the chat."
         : current?.kind === "bot"
-          ? "Type what the bot should do and send. Mali writes it, and you look it over in Settings › Team before it's added."
+          ? "Type what the bot should do and send. Mali writes three bots right here in the chat: open each to see how it works, and save the one you like."
           : undefined;
 
   return (

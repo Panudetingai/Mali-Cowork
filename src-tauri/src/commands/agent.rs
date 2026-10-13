@@ -99,6 +99,10 @@ pub async fn team_suggest(request: SuggestRequest) -> Result<Vec<(String, Option
                 },
                 // Only connectors the user has, and no bot owns yet.
                 connectors: w.connectors.into_iter().filter(|c| known.contains(&c.as_str()) && !owned.contains(c)).collect(),
+                skills: Vec::new(),
+                install_connectors: Vec::new(),
+                find_connectors: Vec::new(),
+                install_skills: Vec::new(),
                 updates: None,
             });
         out.push((insight.pattern.clone(), proposal));
@@ -124,6 +128,18 @@ pub struct WriteBotRequest {
     /// The user's connectors, `id — name`.
     #[serde(default)]
     pub connectors: Vec<String>,
+    /// The user's skills it may use, `id — name: what it does`.
+    #[serde(default)]
+    pub skills: Vec<String>,
+    /// Built-in connectors the user hasn't added, `id — name: what it does`.
+    #[serde(default)]
+    pub catalog_connectors: Vec<String>,
+    /// Skills the user could install, `id — name: what it does`.
+    #[serde(default)]
+    pub catalog_skills: Vec<String>,
+    /// The chat it was asked from, as a transcript: what "from this session" means.
+    #[serde(default)]
+    pub context: String,
 }
 
 /// A bot written from the user's description, for them to look over before it's added.
@@ -137,13 +153,47 @@ pub async fn team_write_bot(request: WriteBotRequest) -> Result<crate::chat_stre
     let mut usage = Default::default();
     let owned = agent::team::owned_connectors(&request.team);
     let known: Vec<&str> = request.connectors.iter().filter_map(|c| c.split(" — ").next()).collect();
+    let skill_ids: Vec<&str> = request.skills.iter().filter_map(|k| k.split(" — ").next()).collect();
+    let catalog_ids: Vec<&str> = request.catalog_connectors.iter().filter_map(|c| c.split(" — ").next()).collect();
+    let catalog_skill_ids: Vec<&str> = request.catalog_skills.iter().filter_map(|k| k.split(" — ").next()).collect();
     let free: Vec<&String> = request.connectors.iter().filter(|c| c.split(" — ").next().is_some_and(|id| !owned.contains(id))).collect();
     let mut asked = format!("The user describes the bot they want, in their own words: {need}");
+    let context = request.context.trim();
+    if !context.is_empty() {
+        asked.push_str(&format!(
+            "\n\nThey asked from this chat. When their words point at it (\"from this session\", \"like above\", \"จากแชทนี้\") \
+or leave out what the bot is for, build the bot from what was actually done and asked here — its real steps, tools and \
+sources — not a generic one:\n<chat>\n{context}\n</chat>"
+        ));
+    }
     asked.push_str(&if free.is_empty() {
         "\n\nThey have no free connectors: give it none.".to_string()
     } else {
         format!("\n\nConnectors it may own (id — name):\n- {}", free.iter().map(|c| c.as_str()).collect::<Vec<_>>().join("\n- "))
     });
+    if !request.skills.is_empty() {
+        asked.push_str(&format!(
+            "\n\nSkills it may use (id — name: what it does); pick only the ones its duty really needs, or none:\n- {}",
+            request.skills.join("\n- ")
+        ));
+    }
+    if !request.catalog_connectors.is_empty() {
+        asked.push_str(&format!(
+            "\n\nConnectors the user hasn't added yet (id — name: what it does):\n- {}",
+            request.catalog_connectors.join("\n- ")
+        ));
+    }
+    if !request.catalog_skills.is_empty() {
+        asked.push_str(&format!(
+            "\n\nSkills the user could install (id — name: what it does):\n- {}",
+            request.catalog_skills.join("\n- ")
+        ));
+    }
+    asked.push_str(
+        "\n\nAlso say what the user should add for this bot to work well, only what its duty really needs: \
+\"install_connectors\": [ids from the connectors not added yet], \"find_connectors\": [one or two words naming \
+an app it needs that no list has, e.g. \"slack\"], \"install_skills\": [ids from the skills to install].",
+    );
     asked.push_str("\n\nWrite the name, duty and instructions in the language the user wrote in.");
     let w = agent::coach::write_teammate(&request.model, &asked, &request.team, &[], &mut usage, &mut cancel).await?;
     Ok(crate::chat_stream::TeammateProposal {
@@ -158,6 +208,12 @@ pub async fn team_write_bot(request: WriteBotRequest) -> Result<crate::chat_stre
         },
         // Only connectors the user has, and no bot owns yet.
         connectors: w.connectors.into_iter().filter(|c| known.contains(&c.as_str()) && !owned.contains(c)).collect(),
+        // Only skills it was offered.
+        skills: w.skills.into_iter().filter(|k| skill_ids.contains(&k.as_str())).collect(),
+        // Only from the lists offered; search words are kept short.
+        install_connectors: w.install_connectors.into_iter().filter(|c| catalog_ids.contains(&c.as_str())).take(3).collect(),
+        find_connectors: w.find_connectors.into_iter().map(|q| q.trim().to_string()).filter(|q| !q.is_empty() && q.len() <= 40).take(2).collect(),
+        install_skills: w.install_skills.into_iter().filter(|k| catalog_skill_ids.contains(&k.as_str())).take(3).collect(),
         updates: None,
     })
 }

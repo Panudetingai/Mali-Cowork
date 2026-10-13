@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { catalogServer } from "./catalog";
+import { catalogServer, MCP_SERVERS, type McpDef } from "./catalog";
 import { getCustomMcps, useCustomMcps } from "./custom";
 import { getMcpConnections, useMcpConnections } from "./store";
 import type { McpToolRef } from "./tool-label";
@@ -48,4 +48,14 @@ export function pickedConnectorInstructions(ids: string[] = []) {
     .map((ref) => `- ${ref.serverName} (tools named \`${ref.serverId}_…\`)`);
   if (!names.length) return "";
   return `The user picked these connectors for this request. Use their tools to answer it, rather than guessing or using other tools:\n${names.join("\n")}`;
+}
+
+/** Built-in MCP servers the duty text names that the user hasn't added yet. */
+export function catalogConnectorsSuggested(role: string, instructions: string, installedIds: Set<string>): McpDef[] {
+  const text = `${role}\n${instructions}`.toLowerCase();
+  return MCP_SERVERS.filter((s) => {
+    if (installedIds.has(s.id)) return false;
+    const word = s.name.toLowerCase().replace(/\s*(mcp|connector)$/i, "").trim();
+    return word.length > 2 && text.includes(word);
+  });
 }

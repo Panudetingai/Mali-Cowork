@@ -41,7 +41,7 @@ import { getProviderConfig } from "@/features/providers";
 import { buildInstructions, getInstructions, skillSlug, skillsInPrompt, type Skill } from "@/features/instructions";
 import { getProject, projectContext } from "@/features/projects";
 import { skillsGrant } from "@/features/skills";
-import { addProposal, botInstructions, leadInstructions, ownedByTeam, personalBot } from "@/features/team";
+import { addProposal, botBlockInstructions, botInstructions, leadInstructions, ownedByTeam, personalBot } from "@/features/team";
 import { findGrant, grantsFor, isWithin, normalizeFolder, requestFolderAccess } from "@/features/workspace";
 import type { HistoryMessage, PermissionRequest, QuestionRequest, StreamMetadata, TodoItem } from "@/pages/chat/api/chat";
 import { generateStream, runModelIdFor, runsOnMaliAgent } from "@/pages/chat/api/router";
@@ -316,6 +316,8 @@ export async function sendTurn(
               // Team mode: skills a bot owns are its duty, not the lead's.
               buildInstructions(leadInstructions(), projectContext(project), chatMode === "chat" ? "chat" : "cowork"),
               connectorInstructionsFor(),
+              // "Make a bot from this Notion page": the reply carries it in a ```bot block.
+              botBlockInstructions(),
               chatMode === "chat" ? coworkInstructionsFor(prompt) : "",
               pickedConnectorInstructions((resend.connectors ?? []).filter((id) => !ownedByTeam().connectors.has(id))),
             ]

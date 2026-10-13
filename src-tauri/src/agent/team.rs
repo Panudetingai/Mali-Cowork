@@ -837,6 +837,10 @@ pub async fn propose(
         reason,
         tools,
         connectors,
+        skills: Vec::new(),
+        install_connectors: Vec::new(),
+        find_connectors: Vec::new(),
+        install_skills: Vec::new(),
         updates: None,
     };
     let _ = on_event.send(ChatStreamEvent::TeammateProposal { proposal });
@@ -874,6 +878,10 @@ pub async fn coach(
         reason: written.reason.clone(),
         tools: mate.tools.clone(),
         connectors: Vec::new(),
+        skills: Vec::new(),
+        install_connectors: Vec::new(),
+        find_connectors: Vec::new(),
+        install_skills: Vec::new(),
         updates: Some(mate.id.clone()),
     };
     let _ = on_event.send(ChatStreamEvent::TeammateProposal { proposal });

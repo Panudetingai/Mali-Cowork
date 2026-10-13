@@ -4,11 +4,12 @@ import { FORCE_ONBOARDING, openOnboarding } from "@/features/onboarding";
 import { OnboardingGate } from "@/features/onboarding/onboarding-gate";
 import { watchSkills } from "@/features/skills";
 import { UpdateDialog } from "@/features/updater/update-dialog";
+import { FeedbackDialog, useFeedbackAutoOpen } from "@/features/feedback";
 import { useWeeklyRecapAutoOpen, WeeklyRecapDialog } from "@/features/work-receipt";
 import { AppLayout } from "@/layouts/app-layout";
 // Registers plugin instructions with every chat; loaded with the app.
 import { onOpenTeam, playMainReturn, startNotchRelay, useMainAwake } from "@/features/notch";
-import { startBotSharing, subscribeToBotWords, getPendingBotWords } from "@/features/team";
+import { startBotSharing } from "@/features/team";
 import "@/features/plugins";
 import { listenForQuickSaves, onOpenChatRequest, onOpenQuickSettings, serveQuickTheme } from "@/features/quick";
 import { startTaskQueue } from "@/features/tasks";
@@ -20,8 +21,10 @@ import BotStudioPage from "./pages/bot-studio";
 import ChatLayout from "./pages/chat/layout";
 import RecentsPage from "./pages/chats/recents-page";
 import ChatBlocksPreviewPage from "./pages/dev/chat-blocks-preview";
+import FeedbackPreviewPage from "./pages/dev/feedback-preview";
 import MarkdownPreviewPage from "./pages/dev/markdown-preview";
 import NotchPreviewPage from "./pages/dev/notch-preview";
+import UpdatePreviewPage from "./pages/dev/update-preview";
 import InboxPage from "./pages/inbox";
 import OnboardingPage from "./pages/onboarding";
 import OutputsPage from "./pages/outputs";
@@ -59,6 +62,8 @@ function App() {
 
   // Auto-open weekly recap on the first visit each Monday.
   useWeeklyRecapAutoOpen();
+  // Auto-open the review popup after a few launches.
+  useFeedbackAutoOpen();
 
   // "Open in Mali" from the Quick bar.
   const navigate = useNavigate();
@@ -73,16 +78,6 @@ function App() {
   // "New bot" in the notch: Settings → Team, with the new-bot form open.
   useEffect(
     () => onOpenTeam(({ create }) => navigate(`/settings?tab=team${create ? "&new=1" : ""}`)),
-    [navigate],
-  );
-  // `/bot …` in the chat box: Settings › Team writes it from those words.
-  useEffect(
-    () => {
-      const stop = subscribeToBotWords(() => {
-        if (getPendingBotWords()) navigate("/settings?tab=team&describe=1");
-      });
-      return () => void stop();
-    },
     [navigate],
   );
 
@@ -124,6 +119,8 @@ function App() {
               <Route path="dev/chat-blocks" element={<ChatBlocksPreviewPage />} />
               <Route path="dev/notch" element={<NotchPreviewPage />} />
               <Route path="dev/markdown" element={<MarkdownPreviewPage />} />
+              <Route path="dev/update" element={<UpdatePreviewPage />} />
+              <Route path="dev/feedback" element={<FeedbackPreviewPage />} />
             </>
           ) : null}
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -131,6 +128,7 @@ function App() {
         </Route>
       </Routes>
       <WeeklyRecapDialog />
+      <FeedbackDialog />
     </>
   );
 }

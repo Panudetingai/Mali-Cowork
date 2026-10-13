@@ -1,6 +1,7 @@
 "use client";
 
 import {
+    createChat,
     endRun,
     getChat,
     getRun,
@@ -13,7 +14,7 @@ import {
 } from "@/features/chat-history";
 import type { Attachment } from "@/features/attachments";
 import { tryChatInstallFromPrompt } from "@/features/install-from-chat";
-import { tryBotFromPrompt } from "@/features/team";
+import { botWordsIn } from "@/features/team";
 import {
   notifyPermissionPending,
   notifyQuestionPending,
@@ -24,6 +25,7 @@ import type { PermissionRequest, QuestionRequest } from "@/pages/chat/api/chat";
 import { effortFor } from "@/features/effort";
 import { runModelIdFor } from "@/pages/chat/api/router";
 import { toast } from "@/components/ui/sonner";
+import { makeBotsInChat } from "../bot-maker";
 import { canCompact, compactChat } from "../compaction";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -51,6 +53,12 @@ const STICK_DISTANCE = 48;
 /** Time constant of the glide toward the bottom; smaller catches up faster. */
 const GLIDE_MS = 90;
 const UP_KEYS = new Set(["ArrowUp", "PageUp", "Home"]);
+/** A scroll this soon after a wheel, touch or key is the user's; later ones are the page settling. */
+const INTENT_MS = 250;
+/** Right after "Follow reply", a trackpad still coasting from the last flick isn't a new scroll up. */
+const COAST_MS = 500;
+/** Sent on the scroll container by anything that moves it on purpose (the scroll rail's jumps). */
+export const USER_SCROLL_EVENT = "mali:user-scroll";
 
 function snapToBottom(el: HTMLElement) {
   el.scrollTop = el.scrollHeight - el.clientHeight;
@@ -74,6 +82,8 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
   loadingRef.current = isLoading;
   const [atBottom, setAtBottom] = useState(true);
   const atBottomRef = useRef(true);
+  /** When following was last turned back on: see `COAST_MS`. */
+  const followedAtRef = useRef(0);
 
   const updateAtBottom = useCallback((value: boolean) => {
     if (atBottomRef.current === value) return;
@@ -141,6 +151,7 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
   /** Follow the conversation again (the button, or a new prompt). */
   const scrollToBottom = useCallback(() => {
     followRef.current = true;
+    followedAtRef.current = performance.now();
     cancelAnimationFrame(rafRef.current);
     rafRef.current = 0;
     updateAtBottom(true);
@@ -156,12 +167,23 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
     if (!el || !content) return;
 
     let lastTop = el.scrollTop;
+    // Only the user lets go of the reply. The page also moves on its own — a
+    // reply re-rendering shorter for a frame, a step folding away — and the
+    // browser then pulls scrollTop up; that must not stop following.
+    let lastIntent = 0;
+    let pointerHeld = false;
+    const intent = () => {
+      lastIntent = performance.now();
+    };
+    const coasting = () => performance.now() - followedAtRef.current < COAST_MS;
+    const byUser = () => !coasting() && (pointerHeld || performance.now() - lastIntent < INTENT_MS);
+
     const onScroll = () => {
       const distance = distanceToBottom(el);
       const scrollingUp = el.scrollTop < lastTop - 1;
       const scrollingDown = el.scrollTop > lastTop + 1;
 
-      if (scrollingUp) stopFollowing();
+      if (scrollingUp && byUser()) stopFollowing();
 
       if (distance < STICK_DISTANCE) {
         // Re-attach only when the user scrolls back down to the bottom, not while leaving it.
@@ -169,25 +191,43 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
           followRef.current = true;
           glide();
         }
-        updateAtBottom(!scrollingUp && followRef.current);
+        updateAtBottom(followRef.current);
       } else if (!followRef.current) {
         updateAtBottom(false);
+      } else if (scrollingUp && loadingRef.current) {
+        // Pulled up by the page, still following: back to the latest line.
+        stickIfFollowing();
       }
       lastTop = el.scrollTop;
     };
     // Let go the moment the user reaches up, before the next frame pulls back down.
     const onWheel = (event: WheelEvent) => {
-      if (event.deltaY < 0 && el.scrollTop > 0) stopFollowing();
+      intent();
+      if (event.deltaY < 0 && el.scrollTop > 0 && !coasting()) stopFollowing();
     };
     let touchY = 0;
     const onTouchStart = (event: TouchEvent) => {
+      intent();
       touchY = event.touches[0]?.clientY ?? 0;
     };
     const onTouchMove = (event: TouchEvent) => {
+      intent();
       if ((event.touches[0]?.clientY ?? 0) > touchY + 4) stopFollowing();
     };
     const onKeyDown = (event: KeyboardEvent) => {
+      intent();
       if (UP_KEYS.has(event.key)) stopFollowing();
+    };
+    // Dragging a text selection upward scrolls too.
+    const onPointerDown = () => {
+      pointerHeld = true;
+    };
+    const onPointerUp = () => {
+      pointerHeld = false;
+    };
+    const onUserScroll = () => {
+      stopFollowing();
+      updateAtBottom(false);
     };
     const onContentChange = () => {
       if (followRef.current) {
@@ -203,6 +243,9 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
     el.addEventListener("touchstart", onTouchStart, { passive: true });
     el.addEventListener("touchmove", onTouchMove, { passive: true });
     el.addEventListener("keydown", onKeyDown);
+    el.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointerup", onPointerUp);
+    el.addEventListener(USER_SCROLL_EVENT, onUserScroll);
     // The reply growing (text, steps, a picture loading) resizes `content`;
     // no MutationObserver, which on a long chat fired on every streamed token.
     const resize = new ResizeObserver(onContentChange);
@@ -214,6 +257,9 @@ export function useScroll({ messages, isLoading }: ScrollProps) {
       el.removeEventListener("touchstart", onTouchStart);
       el.removeEventListener("touchmove", onTouchMove);
       el.removeEventListener("keydown", onKeyDown);
+      el.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointerup", onPointerUp);
+      el.removeEventListener(USER_SCROLL_EVENT, onUserScroll);
       resize.disconnect();
       cancelAnimationFrame(rafRef.current);
       rafRef.current = 0;
@@ -362,11 +408,30 @@ export function useChat(
   const sendMessage = useCallback(
     async (payload: SendMessage): Promise<boolean> => {
       if (tryChatInstallFromPrompt(payload.prompt)) return true;
-      // `/bot <what it should do>`: Settings › Team writes the bot.
-      if (tryBotFromPrompt(payload.prompt)) return true;
+      // `/bot <what it should do>`: bots to pick from, right here in the chat.
+      const botWords = botWordsIn(payload.prompt);
+      if (botWords !== undefined) {
+        if (!botWords) {
+          toast.info("Say what the bot should do after /bot — e.g. /bot summarize the links I send in 5 points.");
+          return false;
+        }
+        let id = chatId && getChat(chatId) ? chatId : undefined;
+        if (!id) {
+          const chat = createChat(botWords, {
+            mode: newChatMode,
+            projectId: newChatProjectId,
+            view: newChatView,
+            ephemeral: newChatEphemeral,
+          });
+          id = chat.id;
+          navigate(`/chat/${chat.id}?mode=${newChatMode === "cowork" ? "cowork" : "chat"}${newChatProjectId ? `&project=${newChatProjectId}` : ""}`);
+        }
+        makeBotsInChat(id, botWords, payload.model.id);
+        return true;
+      }
       return executeSend(turnInputFor(payload));
     },
-    [executeSend],
+    [executeSend, chatId, newChatMode, newChatProjectId, newChatView, newChatEphemeral, navigate],
   );
 
   /**

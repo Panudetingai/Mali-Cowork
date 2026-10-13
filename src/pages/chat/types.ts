@@ -1,6 +1,7 @@
 import type { Attachment } from "@/features/attachments";
 import type { TurnFiles } from "@/features/checkpoints";
 import type { TodoItem } from "./api/chat";
+import type { TeammateProposal } from "@/features/team/store";
 
 export type ChatRole = "user" | "assistant" | "error";
 
@@ -73,6 +74,11 @@ export type ChatMessage = {
   fix?: ErrorFix;
   /** Thumbs up/down on a finished assistant reply. */
   feedback?: "up" | "down";
+  /**
+   * `/bot …` in the chat box: bots written from the user's words, to look
+   * over and save. Its `content` stays empty, so the model never hears it.
+   */
+  botMaker?: BotMaker;
   /** What the user asked with: lets "retry" resend without the picker. */
   resend?: {
     modelId: string;
@@ -86,4 +92,29 @@ export type ChatMessage = {
     /** Connector ids picked as badges in the composer. */
     connectors?: string[];
   };
+};
+
+/** Bots written in the chat from the user's words; see `bot-maker.ts`. */
+export type BotMaker = {
+  /** What the user typed after `/bot`. */
+  words: string;
+  /** The model that writes them: the coach, or the chat's model. */
+  writerId?: string;
+  /** Written by the chat's AI in its reply (```bot blocks), not by `/bot`. */
+  fromReply?: boolean;
+  options: BotOption[];
+};
+
+/** One of the bots to pick from: writing (neither set), written, or failed. */
+export type BotOption = {
+  /** How this one reads the words: Focused, Thorough… */
+  angle: string;
+  proposal?: TeammateProposal;
+  error?: string;
+  /** The bot it was saved as. */
+  savedId?: string;
+  /** Picks before save; seeded from the proposal and what its duty mentions. */
+  draftConnectors?: string[];
+  draftSkills?: string[];
+  draftTools?: TeammateProposal["tools"];
 };

@@ -16,3 +16,4 @@ export * from "./discover";
 export * from "./install";
 export * from "./sync";
 export * from "./open-editor";
+export * from "./recommended";
