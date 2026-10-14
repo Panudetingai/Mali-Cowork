@@ -10,6 +10,7 @@ import {
   useMcpLive,
   type ConnectorSuggestion,
   type RegistryServer,
+  connectorLiveConnected,
 } from "@/features/mcp";
 import { RegistryIcon } from "@/pages/settings/mcp/connector-icon";
 import { CheckIcon, LoaderIcon, SearchIcon, ShieldCheckIcon } from "lucide-react";
@@ -109,7 +110,8 @@ function ServerRow({ server }: { server: RegistryServer }) {
   const connections = useMcpConnections();
   const live = useMcpLive();
   const installed = installedFromRegistry(server.name, custom);
-  const connected = installed && connections[installed.id]?.enabled && live[installed.id]?.status !== "needs_auth";
+  const enabled = !!(installed && connections[installed.id]?.enabled);
+  const connected = connectorLiveConnected(enabled, installed ? live[installed.id] : undefined);
 
   return (
     <li className="flex min-w-0 items-center gap-3 px-3 py-2.5">

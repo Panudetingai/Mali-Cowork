@@ -26,7 +26,14 @@ import { keepPreviews } from "@/features/chat-blocks";
 import { codexAbort } from "@/features/codex";
 import { cursorAbort, requestCursorLogin } from "@/features/cursor";
 import { antigravityAbort } from "@/features/antigravity";
-import { connectorInstructionsFor, hasEnabledMcp, pickedConnectorInstructions, syncMcpServers } from "@/features/mcp";
+import {
+  connectorInstructionsFor,
+  hasEnabledMcp,
+  mergeMcpLive,
+  pickedConnectorInstructions,
+  syncMcpHub,
+  syncMcpServers,
+} from "@/features/mcp";
 import {
   getOpencodeModels,
   loadOpencodeSettings,
@@ -278,12 +285,20 @@ export async function sendTurn(
     // already shows the run as started meanwhile.
     // CLI agents get the connectors and Mali's document tools from its
     // `mali` gateway: hand it the connector list and this chat's folders.
-    if (isOpencode || isCodex || isCursor || isAntigravity || cliAgent) {
+    if (isOpencode || isCodex || isCursor || isAntigravity || cliAgent || isMali) {
       await invoke("mcp_hub_set_workspace", {
         cwd: chatMode === "cowork" ? (folders[0] ?? null) : null,
         folders: chatMode === "cowork" ? grantsFor(folders) : [],
       }).catch(() => undefined);
-      if (hasEnabledMcp()) await syncMcpServers().catch(() => undefined);
+      if (hasEnabledMcp()) {
+        await syncMcpServers().catch(() => undefined);
+        // Mali's agent reads connectors from the hub on each run; sync here so
+        // a toggle off/on in this chat isn't still disconnected in the cache.
+        if (isMali) {
+          const hub = await syncMcpHub().catch(() => null);
+          if (hub?.servers.length) mergeMcpLive(hub.servers);
+        }
+      }
     }
 
     // Cowork: the agent opens a skill's SKILL.md itself, so the library

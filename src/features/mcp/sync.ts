@@ -24,6 +24,11 @@ export type McpServerStatus = {
   error?: string | null;
 };
 
+/** Whether Mali's hub has this connector up — what the agent uses, not just the saved switch. */
+export function connectorLiveConnected(enabled: boolean, live?: McpServerStatus) {
+  return enabled && live?.status === "connected";
+}
+
 export type McpSyncResult = {
   servers: McpServerStatus[];
 };

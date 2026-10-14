@@ -16,7 +16,7 @@ import { toastFailure } from "@/components/ui/sonner";
 import { useOpencode } from "@/features/opencode";
 import { useCallback, useEffect } from "react";
 
-/** Saved connector choices plus live status from OpenCode (shared with the chat's install cards). */
+/** Saved connector choices plus live status from Mali's hub (shared with the chat's install cards). */
 export function useMcpManager() {
   const opencode = useOpencode();
   const connections = useMcpConnections();
@@ -24,10 +24,13 @@ export function useMcpManager() {
   const live = useMcpLive();
   const busyMap = useMcpBusy();
   const available = !!opencode.check?.available;
+  const hub =
+    typeof window !== "undefined" &&
+    ("__TAURI__" in window || "__TAURI_INTERNALS__" in window);
 
   useEffect(() => {
-    if (available) void refreshMcpLive();
-  }, [available, opencode.cwd]);
+    if (hub) void refreshMcpLive();
+  }, [hub, opencode.cwd]);
 
   const run = useCallback(async (work: () => Promise<unknown>) => {
     try {
@@ -39,12 +42,11 @@ export function useMcpManager() {
     }
   }, []);
 
-  /** Save `patch` for one connector and apply it; rolls back if OpenCode refuses. */
+  /** Save `patch` for one connector and apply it in Mali's hub; rolls back if the hub refuses. */
   const apply = useCallback(
     (id: string, patch: Partial<McpConnection>) =>
-      // Without OpenCode the choice is kept and syncs once it starts.
-      available ? run(() => applyConnector(id, patch)) : run(async () => patchMcpConnection(id, patch)),
-    [available, run],
+      hub ? run(() => applyConnector(id, patch)) : run(async () => patchMcpConnection(id, patch)),
+    [hub, run],
   );
 
   return {
