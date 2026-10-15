@@ -68,8 +68,17 @@ export async function diagnoseMcpBinaries(): Promise<McpDiagnoseResult> {
  * with their secrets from the keychain. Sent to Mali's agent with each run.
  */
 export async function hubMcpServers(cwd?: string) {
+  return (await teamMcpServers(cwd)).filter((s) => s.enabled);
+}
+
+/**
+ * Every connector with its on/off state, as the hub's payload carries it. A
+ * bot keeps the ones it owns even when they're off, so its run can say so
+ * instead of acting as if they were never there.
+ */
+export async function teamMcpServers(cwd?: string) {
   await whenVaultReady();
-  return buildMcpSyncPayload(getMcpConnections(), getCustomMcps(), cwd ? [cwd] : undefined).filter((s) => s.enabled);
+  return buildMcpSyncPayload(getMcpConnections(), getCustomMcps(), cwd ? [cwd] : undefined);
 }
 
 /** Connect what's on and close what's off in Mali's hub; the live status of each. */

@@ -6,7 +6,7 @@
  */
 import { getChat, getChatIds } from "@/features/chat-history";
 import { buildInstructions, getInstructions, type InstructionsState } from "@/features/instructions";
-import { hasEnabledMcp, hubMcpServers, syncMcpServers, type McpServerEntry } from "@/features/mcp";
+import { hasEnabledMcp, syncMcpServers, teamMcpServers, type McpServerEntry } from "@/features/mcp";
 import { getOpencodeModels, loadOpencodeSettings, type FolderGrantInput, type WorkMode } from "@/features/opencode";
 import { providerContextLimit, requestConfigFor } from "@/features/providers";
 import {
@@ -223,7 +223,8 @@ export async function teamPayload(
 ): Promise<TeamPayload | undefined> {
   const state = getTeam();
   if (!teamActive(state)) return undefined;
-  const servers = state.mates.some((m) => m.connectors.length) ? await hubMcpServers(cwd) : [];
+  // Switched-off connectors stay on their bot's entry: the bot is told they're off.
+  const servers = state.mates.some((m) => m.connectors.length) ? await teamMcpServers(cwd) : [];
   // CLI bots get the connectors and Mali's document tools from the `mali` gateway, as a CLI lead does.
   if (state.mates.some((m) => runsOn(m.modelId) !== "api")) {
     await invoke("mcp_hub_set_workspace", { cwd: cwd ?? null, folders }).catch(() => undefined);

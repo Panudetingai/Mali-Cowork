@@ -3,6 +3,7 @@ import { libraryDir } from "@/features/skills";
 import { useEffect, useState } from "react";
 import { useSettingsSub } from "../route";
 import { PageHeader } from "../ui";
+import { NewSkillPage } from "./new-skill-page";
 import { SkillsManager } from "./skills-manager";
 
 /**
@@ -29,6 +30,9 @@ export function SkillsSettings() {
     };
   }, []);
 
+  // Settings → Skills → New: its own page, with Back to the library.
+  if (sub === "new") return <NewSkillPage onBack={back} />;
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -47,6 +51,7 @@ export function SkillsSettings() {
         onToggle={toggleSkill}
         onDelete={deleteSkill}
         discover
+        onNew={() => open("new")}
         // Discover is a page of its own (`/settings/skills/discover`), so Back returns to the library.
         tab={sub === "discover" ? "discover" : "yours"}
         onTabChange={(tab) => (tab === "discover" ? open("discover") : back())}

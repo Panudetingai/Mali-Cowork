@@ -122,7 +122,17 @@ pub async fn shutdown() {
     }
 }
 
+/// The connector generation the running server was started under (see
+/// `mcp_hub::connectors_generation`). Read before anything else, so a change
+/// during startup still counts as a change.
+static CONNECTORS_AT_START: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn started_with_connectors() -> u64 {
+    CONNECTORS_AT_START.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 async fn spawn_server() -> Result<Running, String> {
+    CONNECTORS_AT_START.store(crate::mcp_hub::connectors_generation(), std::sync::atomic::Ordering::SeqCst);
     let bin = opencode_bin().ok_or_else(not_found_message)?;
     let password = uuid::Uuid::new_v4().simple().to_string();
 

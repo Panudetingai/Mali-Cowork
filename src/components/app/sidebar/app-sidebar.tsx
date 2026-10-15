@@ -54,12 +54,12 @@ import { useInboxAttention } from "@/features/tasks";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import {
+    BellRingIcon,
     BotIcon,
     ChartColumnIcon,
     CheckSquareIcon,
     ChevronDownIcon,
     ChevronRightIcon,
-    CodeXmlIcon,
     FilesIcon,
     FolderKanbanIcon,
     GhostIcon,
@@ -72,8 +72,6 @@ import {
     PuzzleIcon,
     SearchIcon,
     Settings2Icon,
-    SparklesIcon,
-    SquarePenIcon,
     Trash2Icon,
     XIcon,
     MessageCircle,
@@ -167,18 +165,74 @@ function NavItem({
 
 type SubItem = { title: string; url: string; icon: LucideIcon; badge?: number; shortcut?: string };
 
-/** "More": the places that aren't for starting work, folded away. */
-function NavItemWithSub({ title, icon: Icon, items }: { title: string; icon: LucideIcon; items: SubItem[] }) {
+/**
+ * "More": the places that aren't for starting work, folded away. With the
+ * sidebar folded to icons, its icon opens a list of those places instead.
+ */
+function NavItemWithSub({
+  title,
+  icon: Icon,
+  items,
+  open,
+  onOpenChange: setOpen,
+}: {
+  title: string;
+  icon: LucideIcon;
+  items: SubItem[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const { state: sidebarState, isMobile } = useSidebar();
+  const iconsOnly = sidebarState === "collapsed" && !isMobile;
   const childActive = items.some((item) => pathname.startsWith(item.url.split("?")[0]));
-  const [open, setOpen] = useState(childActive);
   const badge = items.reduce((sum, item) => sum + (item.badge ?? 0), 0);
   useEffect(() => {
     if (childActive) setOpen(true);
-  }, [childActive]);
+  }, [childActive, setOpen]);
+
+  if (iconsOnly) {
+    return (
+      <SidebarMenuItem data-more-group>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button" title={title} aria-label={title} data-active={childActive} className={sidebarItemClass}>
+              <Icon strokeWidth={1.75} />
+              {badge > 0 && (
+                <span className="absolute top-1 right-1 size-2 rounded-full bg-amber-500" />
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side="right"
+            align="start"
+            sideOffset={8}
+            className="z-50 w-52 rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg"
+          >
+            <p className="px-2 pt-1 pb-1.5 text-[11px] font-medium text-muted-foreground">{title}</p>
+            {items.map((item) => {
+              const ItemIcon = item.icon;
+              return (
+                <DropdownMenuItem key={item.title} className={menuItemClass} onSelect={() => navigate(item.url)}>
+                  <ItemIcon className="size-4 text-muted-foreground" strokeWidth={1.75} />
+                  <span className="truncate">{item.title}</span>
+                  {!!item.badge && (
+                    <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-semibold tabular-nums text-white">
+                      {item.badge}
+                    </span>
+                  )}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SidebarMenuItem>
+    );
+  }
 
   return (
-    <SidebarMenuItem>
+    <SidebarMenuItem data-more-group>
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger asChild>
           <button type="button" data-active={childActive && !open} className={sidebarItemClass}>
@@ -408,16 +462,21 @@ function SidebarAttentionAlert({
     <button
       type="button"
       onClick={() => onOpen(firstChatId)}
-      className="mx-2 mb-2 flex w-[calc(100%-1rem)] items-center gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-left transition-colors hover:bg-amber-500/15"
+      className="group mx-2 mb-2 flex w-[calc(100%-1rem)] items-center gap-3 rounded-xl border border-border bg-card px-2.5 py-2 text-left shadow-sm transition-colors hover:bg-muted/60"
     >
-      <span className="relative flex size-2.5 shrink-0">
-        <span className="absolute inline-flex size-full animate-ping rounded-full bg-amber-400 opacity-50" />
-        <span className="relative inline-flex size-2.5 rounded-full bg-amber-500" />
+      <span className="relative flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400">
+        <BellRingIcon className="size-4" />
+        <span className="absolute -top-1 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] leading-none font-semibold text-white tabular-nums ring-2 ring-card">
+          {chatCount}
+        </span>
       </span>
-      <span className="min-w-0 flex-1 text-xs leading-snug font-medium text-amber-950 dark:text-amber-100">
-        {chatCount === 1 ? t("sidebarAttentionOne") : t("sidebarAttentionMany", { count: String(chatCount) })}
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] leading-tight font-medium text-foreground">{t("sidebarAttentionTitle")}</span>
+        <span className="mt-0.5 block truncate text-[11px] leading-tight text-muted-foreground">
+          {chatCount === 1 ? t("sidebarAttentionOne") : t("sidebarAttentionMany", { count: String(chatCount) })}
+        </span>
       </span>
-      <ChevronRightIcon className="size-4 shrink-0 text-amber-700/70 dark:text-amber-200/70" strokeWidth={2} />
+      <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
     </button>
   );
 }
@@ -452,6 +511,8 @@ export function AppSidebar() {
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // "More" folds away when any other sidebar item is clicked.
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const searchRef = useRef<HTMLInputElement>(null);
   const { state: sidebarState, isMobile, setOpen } = useSidebar();
@@ -595,6 +656,9 @@ export function AppSidebar() {
       <Sidebar
         collapsible="icon"
         className="top-(--titlebar-height) bottom-0 h-auto max-h-[calc(100svh-var(--titlebar-height))] border-r-0"
+        onClickCapture={(event) => {
+          if (!(event.target as HTMLElement).closest("[data-more-group]")) setMoreOpen(false);
+        }}
       >
         <SidebarHeader className="gap-2.5 px-3 pt-3 pb-1 group-data-[collapsible=icon]:px-2">
           <Unfolded show={!collapsed} className="relative">
@@ -631,27 +695,22 @@ export function AppSidebar() {
 
           <ActiveIndicatorList>
           <SidebarMenu className="gap-0.5">
+            {/* One way to start: "New" is a plain chat. Cowork and Code keep their ⌘3 / ⌘4 shortcuts. */}
             <NavItem
-              title={t("newChat")}
+              title={t("newItem")}
               url="/?mode=chat"
-              icon={SquarePenIcon}
+              icon={PlusIcon}
               shortcut={combo("1")}
               badge={chatAttention.chatModeCount || undefined}
             />
             <NavItem title={t("newTemporaryChat")} url={newChatHomeUrl("chat", { temporary: true })} icon={GhostIcon} shortcut={combo("2")} />
-            <NavItem
-              title={t("cowork")}
-              url="/?mode=cowork"
-              icon={SparklesIcon}
-              shortcut={combo("3")}
-              badge={chatAttention.coworkModeCount || undefined}
-            />
-            <NavItem title={t("code")} url="/?mode=code" icon={CodeXmlIcon} shortcut={combo("4")} />
             <NavItem title={t("visual")} url="/visual" icon={ImagesIcon} shortcut={combo("5")} />
             <NavItem title={t("botStudio")} url="/bots" icon={BotIcon} shortcut={combo("6")} />
             <NavItemWithSub
               title={t("more")}
               icon={LayoutGridIcon}
+              open={moreOpen}
+              onOpenChange={setMoreOpen}
               items={[
                 { title: t("inbox"), url: "/inbox", icon: InboxIcon, badge: inboxAttention },
                 { title: t("outputs"), url: "/outputs", icon: FilesIcon },

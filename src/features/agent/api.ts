@@ -8,6 +8,7 @@ import type { FolderGrantInput, WorkMode } from "@/features/opencode";
 import type { TeamPayload } from "@/features/team";
 import { createStreamChannel, isTauri, type ChatStreamHandlers } from "@/pages/chat/api/chat";
 import { invoke } from "@tauri-apps/api/core";
+import { loadAlwaysCommands } from "./safety";
 
 export type AgentRequest = {
   prompt: string;
@@ -44,7 +45,9 @@ export type AgentRequest = {
 
 export async function agentGenerateStream(request: AgentRequest, handlers: ChatStreamHandlers) {
   if (!isTauri()) throw new Error("The agent works in the Mali app only.");
-  await invoke("agent_generate", { request, onEvent: createStreamChannel(handlers) });
+  // Read here, not per caller, so every run (chat, quick bar, notch, team) gets the same list.
+  const withSettings = { alwaysCommands: loadAlwaysCommands(), ...request };
+  await invoke("agent_generate", { request: withSettings, onEvent: createStreamChannel(handlers) });
 }
 
 /** Answer a permission card: `once`, `always` or `reject`. */

@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 import type { ChatMessage } from "@/pages/chat/types";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { USER_SCROLL_EVENT } from "../hooks/use-chat";
 
 /** Dashes on each side of the one you're on — the rail never shows more than 2 × RAIL_SIDE + 1. */
@@ -101,22 +101,45 @@ export function MessageScrollRail({
   };
   useEffect(() => () => clearTimeout(closeTimer.current), []);
 
+  // The prompts' ids, not the messages: a streaming reply changes the messages
+  // many times a second, and measuring the chat for each of them forced a layout
+  // on every chunk. Positions only move when a prompt is added or the view moves.
+  const promptKey = useMemo(
+    () => messages.filter((m) => m.role === "user" && m.content.trim()).map((m) => m.id).join("|"),
+    [messages],
+  );
+  const latest = useRef(messages);
+  latest.current = messages;
+
   const measure = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-    setWindowState(railWindow(el, messages));
-  }, [containerRef, messages]);
+    setWindowState(railWindow(el, latest.current));
+  }, [containerRef]);
+
+  useEffect(() => {
+    measure();
+  }, [promptKey, measure]);
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    measure();
-    el.addEventListener("scroll", measure, { passive: true });
-    const ro = new ResizeObserver(measure);
+    // One measure per frame, however fast the view scrolls.
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        measure();
+      });
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    const ro = new ResizeObserver(onScroll);
     ro.observe(el);
     return () => {
-      el.removeEventListener("scroll", measure);
+      cancelAnimationFrame(frame);
+      el.removeEventListener("scroll", onScroll);
       ro.disconnect();
     };
   }, [containerRef, measure]);

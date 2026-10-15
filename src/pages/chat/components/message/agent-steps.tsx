@@ -31,7 +31,7 @@ import { TeamThread } from "./team-thread";
 
 /** A reply cut at its steps: text, the steps run there, more text, … */
 export type ReplySegment =
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; offset: number }
   | { type: "steps"; steps: ActivityItem[]; first: number };
 
 /**
@@ -44,14 +44,14 @@ export function segmentReply(content: string, activities: ActivityItem[] = []): 
   activities.forEach((step, index) => {
     const at = Math.min(Math.max(step.offset ?? 0, pos), content.length);
     const text = content.slice(pos, at);
-    if (text.trim()) segments.push({ type: "text", text });
+    if (text.trim()) segments.push({ type: "text", text, offset: pos });
     pos = at;
     const last = segments.at(-1);
     if (last?.type === "steps") last.steps.push(step);
     else segments.push({ type: "steps", steps: [step], first: index });
   });
   const rest = content.slice(pos);
-  if (rest.trim()) segments.push({ type: "text", text: rest });
+  if (rest.trim()) segments.push({ type: "text", text: rest, offset: pos });
   return segments;
 }
 
@@ -118,6 +118,7 @@ function StatusIcon({ failed, done, running }: { failed: boolean; done: boolean;
 
 function StepRow({ step, running }: { step: ActivityItem; running: boolean }) {
   const title = step.title.replace(/ \(failed\)$/, "");
+  // One line, however long the command: the row truncates it. The full command is in the output, one click away.
   const { verb, subject, mcp } = labelOf(title);
   const detail = step.detail?.trim();
   const failed = isFailed(step);
@@ -179,8 +180,10 @@ function StepRow({ step, running }: { step: ActivityItem; running: boolean }) {
   }
   if (!detail) {
     return (
-      <div className={row} title={title}>
-        {label}
+      <div>
+        <div className={row} title={title}>
+          {label}
+        </div>
       </div>
     );
   }

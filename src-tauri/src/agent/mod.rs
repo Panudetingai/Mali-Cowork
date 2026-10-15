@@ -74,6 +74,9 @@ pub struct AgentRequest {
     /// Settings: changes and commands run without asking.
     #[serde(default)]
     pub auto_approve: bool,
+    /// Settings: programs whose commands run without asking in every chat (`git`, `npm`).
+    #[serde(default)]
+    pub always_commands: Vec<String>,
     /// Settings: run shell commands inside the OS sandbox (on unless turned off).
     #[serde(default = "yes")]
     pub sandbox: bool,
@@ -231,7 +234,9 @@ fn os_name() -> &'static str {
     }
 }
 
-fn connectors_note(connected: &[String], unavailable: &[String]) -> String {
+/// `owned`: connectors a teammate uses (a lead doesn't get their tools), as "id (teammate)".
+/// `off`: connectors this run was given that are switched off in Mali.
+fn connectors_note(connected: &[String], unavailable: &[String], owned: &[String], off: &[String]) -> String {
     let mut note = String::new();
     if !connected.is_empty() {
         note.push_str(&format!(
@@ -240,10 +245,24 @@ when one covers the task, call it rather than guessing or saying you can't.",
             connected.join(", ")
         ));
     }
+    if !owned.is_empty() {
+        note.push_str(&format!(
+            "\nUsed by a teammate: {}. You have no tools for them: hand the job to that teammate with \
+`delegate_task` instead of saying they aren't connected.",
+            owned.join(", ")
+        ));
+    }
     if !unavailable.is_empty() {
         note.push_str(&format!(
             "\nNot reachable right now: {}. If the task needs one of them, say so and how to fix it.",
             unavailable.join(", ")
+        ));
+    }
+    if !off.is_empty() {
+        note.push_str(&format!(
+            "\nSwitched off in Mali: {}. You can't use them until the user switches them on in Settings → \
+Connectors; say so and don't try other tools in their place.",
+            off.join(", ")
         ));
     }
     note
@@ -486,6 +505,31 @@ async fn run(
     let mut connected: Vec<String> = hub_tools.iter().map(|t| t.server.clone()).collect();
     connected.dedup();
     let hub: HashMap<String, &mcp_hub::HubTool> = hub_tools.iter().map(|t| (t.name.clone(), t)).collect();
+    // The lead's connectors that a teammate uses: named in the note, so the lead hands the job over.
+    let teammate_owned: Vec<String> = if request.lead {
+        request
+            .team
+            .iter()
+            .flat_map(|m| {
+                m.mcp.iter().map(move |s| {
+                    if s.enabled { format!("{} ({})", s.id, m.name) } else { format!("{} ({}, switched off)", s.id, m.name) }
+                })
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    // A bot's own connectors that are switched off: it can't reach them, and must say so.
+    let off: Vec<String> = if request.lead {
+        Vec::new()
+    } else {
+        request
+            .mcp
+            .iter()
+            .filter(|s| !s.enabled && !mcp_hub::AGENT_ONLY_ELSEWHERE.contains(&s.id.as_str()))
+            .map(|s| s.id.clone())
+            .collect()
+    };
 
     let mut specs = if scope.is_some() { tools::specs() } else { Vec::new() };
     if let Some(allowed) = request.tool_scope {
@@ -511,9 +555,11 @@ async fn run(
     let system = match &scope {
         Some(scope) => system_prompt(request, scope),
         None => chat_system_prompt(request),
-    } + &connectors_note(&connected, &unavailable)
+    } + &connectors_note(&connected, &unavailable, &teammate_owned, &off)
         + &if request.lead { team::lead_note(request) } else { String::new() };
 
+    // Settings' "always allow" programs apply to every chat, and stay out of the chat's own list.
+    let standing = tools::standing_keys(&request.always_commands);
     let mut usage = Usage::default();
     // The conversation's size on the latest call, for the context meter.
     let mut context = 0;
@@ -691,7 +737,7 @@ async fn run(
                 )),
                 _ if call.name == team::DELEGATE => {
                     handoffs += 1;
-                    let mut always = std::mem::take(&mut session.always);
+                    let mut always = tools::with_standing(std::mem::take(&mut session.always), &standing);
                     let mut sessions = std::mem::take(&mut session.team_sessions);
                     let out = team::delegate(
                         call,
@@ -706,7 +752,7 @@ async fn run(
                         },
                     )
                     .await;
-                    session.always = always;
+                    session.always = tools::without_standing(always, &standing);
                     session.team_sessions = sessions;
                     out
                 }
@@ -743,7 +789,7 @@ async fn run(
                     call_connector(tool, call, cancel).await
                 }
                 (None, Some(scope)) => {
-                    let mut always = std::mem::take(&mut session.always);
+                    let mut always = tools::with_standing(std::mem::take(&mut session.always), &standing);
                     let out = {
                         let mut ctx = tools::ToolCtx {
                             scope,
@@ -755,7 +801,7 @@ async fn run(
                         };
                         tools::run(call, &mut ctx).await
                     };
-                    session.always = always;
+                    session.always = tools::without_standing(always, &standing);
                     out
                 }
                 (None, None) => tools::Outcome::err(format!("There is no tool named {} here.", call.name)),
@@ -818,6 +864,15 @@ async fn call_connector(tool: &mcp_hub::HubTool, call: &wire::ToolCall, cancel: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_switched_off_connector_is_named_so_the_agent_says_why() {
+        assert!(connectors_note(&[], &[], &[], &[]).is_empty());
+        let note = connectors_note(&[], &[], &[], &["notion".into()]);
+        assert!(note.contains("Switched off in Mali: notion"));
+        let note = connectors_note(&[], &[], &["gmail (Mailer, switched off)".into()], &[]);
+        assert!(note.contains("`delegate_task`"));
+    }
 
     #[test]
     fn today_is_a_date() {
@@ -921,6 +976,7 @@ mod tests {
             instructions: None,
             effort: None,
             auto_approve: false,
+            always_commands: vec![],
             sandbox: true,
             run_id: "test-run".into(),
         };
@@ -1003,6 +1059,7 @@ mod tests {
             instructions: None,
             effort: None,
             auto_approve: false,
+            always_commands: vec![],
             sandbox: true,
             run_id: "test-run-a".into(),
         };
@@ -1083,6 +1140,7 @@ done
             instructions: None,
             effort: None,
             auto_approve: false,
+            always_commands: vec![],
             sandbox: true,
             run_id: "test-run-mcp".into(),
         };
@@ -1152,6 +1210,7 @@ done
             instructions: None,
             effort: None,
             auto_approve: false,
+            always_commands: vec![],
             sandbox: true,
             run_id: "test-run-compact".into(),
         };
@@ -1199,6 +1258,7 @@ done
             instructions: None,
             effort: None,
             auto_approve: false,
+            always_commands: vec![],
             sandbox: true,
             run_id: run.into(),
         }

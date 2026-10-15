@@ -71,22 +71,19 @@ export function CoworkSuggestionCard({
       initial={{ opacity: 0, y: 8, scale: 0.99 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1], delay: 0.1 }}
-      className="mt-3 flex flex-col gap-3 rounded-2xl bg-amber-500/[0.07] p-4 ring-1 ring-amber-500/20 sm:flex-row sm:items-center"
+      className="mt-3 flex flex-col gap-4 rounded-xl border bg-card p-4 sm:flex-row sm:items-center sm:justify-between"
     >
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
-        <SparklesIcon className="size-4" />
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <p className="text-sm font-medium">{task ? `Cowork can do this: ${task}` : "This needs Cowork"}</p>
+      <div className="flex min-w-0 flex-col gap-1">
+        <p className="text-sm font-medium text-foreground">{task ? `Cowork can do this: ${task}` : "This needs Cowork"}</p>
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Cowork works in a folder you choose — it can create and edit files there. This conversation comes along.
+          Cowork works in a folder you choose and can create and edit files there. This conversation comes along.
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-1.5">
-        <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" onClick={dismiss}>
+      <div className="flex shrink-0 items-center justify-end gap-2">
+        <Button variant="ghost" size="sm" className="h-8 px-3 text-xs text-muted-foreground" onClick={dismiss}>
           Not now
         </Button>
-        <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={move}>
+        <Button size="sm" className="h-8 gap-1.5 px-3 text-xs" onClick={move}>
           Continue in Cowork
           <ArrowRightIcon className="size-3.5" />
         </Button>
@@ -166,10 +163,7 @@ export function MoveToCoworkDialog({ onNewCoworkChat }: { onNewCoworkChat: () =>
     <Dialog open={!!request} onOpenChange={(value) => !value && !moving && closeMoveToCowork()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <SparklesIcon className="size-4 text-amber-500" />
-            Continue in Cowork
-          </DialogTitle>
+          <DialogTitle>Continue in Cowork</DialogTitle>
           <DialogDescription>
             This chat switches to Cowork and keeps everything said so far. Cowork can read, create and edit files in
             the folder you choose.
@@ -177,12 +171,11 @@ export function MoveToCoworkDialog({ onNewCoworkChat }: { onNewCoworkChat: () =>
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-3 rounded-xl bg-muted/50 px-3 py-2.5">
-            <FolderIcon className="size-4 shrink-0 text-muted-foreground" />
+          <div className="flex items-center gap-3 rounded-xl border px-3.5 py-3">
             <div className="flex min-w-0 flex-1 flex-col">
               <span className="truncate text-sm font-medium">{folder ? folderName(folder) : "No folder chosen"}</span>
               {folder && (
-                <span className="truncate text-[11px] text-muted-foreground" title={folder}>
+                <span className="truncate text-xs text-muted-foreground" title={folder}>
                   {folder}
                 </span>
               )}

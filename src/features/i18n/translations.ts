@@ -2,6 +2,7 @@ export const translations = {
   en: {
     // Navigation & Sidebar
     newChat: "New chat",
+    newItem: "New",
     temporaryChat: "Temporary chat",
     newTemporaryChat: "Temporary chat",
     temporaryChatHint: "Not saved to history — removed when you leave",
@@ -82,8 +83,9 @@ export const translations = {
     items: "items",
     viewAllInbox: "View all Inbox",
     runInBackground: "Run in background",
-    sidebarAttentionOne: "A chat needs your OK — tap to open",
-    sidebarAttentionMany: "{count} chats need your OK — tap to open",
+    sidebarAttentionTitle: "Needs your OK",
+    sidebarAttentionOne: "1 chat is waiting · tap to review",
+    sidebarAttentionMany: "{count} chats are waiting · tap to review",
     chatWaitingForYou: "Waiting for your OK",
 
     // Titlebar
@@ -311,6 +313,7 @@ export const translations = {
   th: {
     // Navigation & Sidebar
     newChat: "แชทใหม่",
+    newItem: "ใหม่",
     temporaryChat: "แชทชั่วคราว",
     newTemporaryChat: "แชทชั่วคราว",
     temporaryChatHint: "ไม่บันทึกประวัติ — หายเมื่อออกจากแชท",
@@ -391,8 +394,9 @@ export const translations = {
     items: "รายการ",
     viewAllInbox: "ดู Inbox ทั้งหมด",
     runInBackground: "รันในพื้นหลัง",
-    sidebarAttentionOne: "มีแชทรอคุณอนุมัติ — แตะเพื่อเปิด",
-    sidebarAttentionMany: "มี {count} แชทรอคุณ — แตะเพื่อเปิด",
+    sidebarAttentionTitle: "รอการอนุมัติจากคุณ",
+    sidebarAttentionOne: "มี 1 แชทรอคุณ · แตะเพื่อดู",
+    sidebarAttentionMany: "มี {count} แชทรอคุณ · แตะเพื่อดู",
     chatWaitingForYou: "รอการตอบจากคุณ",
 
     // Titlebar

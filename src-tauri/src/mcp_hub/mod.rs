@@ -29,8 +29,33 @@ fn servers_store() -> &'static std::sync::Mutex<Vec<McpServerEntry>> {
     SERVERS.get_or_init(Default::default)
 }
 
+/// Bumped whenever the connectors the gateway offers change. CLI agents read
+/// that list once per instance and the gateway can't tell them it changed.
+static CONNECTORS_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 pub fn set_servers(servers: Vec<McpServerEntry>) {
-    *servers_store().lock().unwrap() = servers;
+    let mut store = servers_store().lock().unwrap();
+    let changed = offered_signature(&store) != offered_signature(&servers);
+    *store = servers;
+    if changed {
+        CONNECTORS_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Which connector set the gateway offers now, as a number that moves on change.
+pub fn connectors_generation() -> u64 {
+    CONNECTORS_GENERATION.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// What the gateway offers: each connector that is on, with everything that decides how it starts.
+fn offered_signature(servers: &[McpServerEntry]) -> Vec<String> {
+    let mut keys: Vec<String> = servers
+        .iter()
+        .filter(|s| s.enabled && !AGENT_ONLY_ELSEWHERE.contains(&s.id.as_str()))
+        .map(key_of)
+        .collect();
+    keys.sort();
+    keys
 }
 
 pub fn current_servers() -> Vec<McpServerEntry> {
@@ -272,12 +297,26 @@ pub async fn tools(servers: &[McpServerEntry]) -> (Vec<HubTool>, Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn pretty_json_is_compacted_and_other_text_kept() {
         assert_eq!(compact_json("{\n  \"a\": [1, 2]\n}"), r#"{"a":[1,2]}"#);
         assert_eq!(compact_json("Done.\n{not json}"), "Done.\n{not json}");
         assert_eq!(compact_json("{\n broken"), "{\n broken");
+    }
+
+    #[test]
+    fn the_offered_set_moves_only_when_a_connector_is_switched_or_changed() {
+        let server = |id: &str, enabled: bool| -> McpServerEntry {
+            serde_json::from_value(json!({ "id": id, "enabled": enabled, "kind": "local", "command": ["/bin/echo"] })).unwrap()
+        };
+        let on = [server("custom-notion", true), server("custom-gmail", true)];
+        // Same connectors, in another order: nothing to refresh.
+        assert_eq!(offered_signature(&on), offered_signature(&[server("custom-gmail", true), server("custom-notion", true)]));
+        // Switched off, or a connector the gateway never offers: the CLI's tool list is stale.
+        assert_ne!(offered_signature(&on), offered_signature(&[server("custom-notion", false), server("custom-gmail", true)]));
+        assert_eq!(offered_signature(&[server("filesystem", true)]), Vec::<String>::new());
     }
 
     #[test]

@@ -268,7 +268,7 @@ export function TeamSettings() {
 
       <div className="flex flex-col gap-1 border-t border-border/60 pt-9 pb-1">
         <SectionLabel>Advanced</SectionLabel>
-        <p className="text-[13px] text-muted-foreground">Optional. The team works without any of these.</p>
+        <p className="text-[13px] text-muted-foreground">Optional. The team works without them.</p>
       </div>
       <CoachSection />
       <NotebookSection />
@@ -533,14 +533,14 @@ function CoachSection() {
   return (
     <SettingsGroup
       title="Coach"
-      description="A stronger model for when the lead runs on a small or free one. The lead tells the coach what the team needs, and the coach writes the bot; when a bot does a job badly, the coach rewrites how it works. Nothing changes until you accept it."
+      description="A stronger model that helps the lead. It writes new bots and improves weak ones. You approve every change first."
     >
       <SettingRow
         icon={<GraduationCapIcon />}
         label={coach ? coach.name : "No coach"}
         description={
           coach
-            ? `${coach.group} · also keeps the lead's notebook${onCli ? " · asked in Chat mode, so it never touches your files" : ""}`
+            ? `${coach.group} · also keeps the notebook${onCli ? " · never touches your files" : ""}`
             : "The lead writes bots itself."
         }
         control={
@@ -588,7 +588,7 @@ function NotebookSection() {
   return (
     <SettingsGroup
       title="Lead's notebook"
-      description={`What you keep working on, learned from your chats' titles and first messages. Once something reaches ${READY_AT} chats, the coach writes a bot for it and you decide. It stays on this computer and is sent only to the coach model.`}
+      description={`Topics you often work on, found in your chats. At ${READY_AT} chats the coach can write a bot for one, and you decide. Stays on this computer; only the coach model sees it.`}
       actions={
         <Button size="sm" variant="outline" className="gap-1.5" disabled={busy || !team.learning} onClick={() => void update()}>
           {busy ? <LoaderIcon className="size-3.5 animate-spin" /> : <RefreshCwIcon className="size-3.5" />}
@@ -597,27 +597,35 @@ function NotebookSection() {
       }
       footer={
         error ??
-        (team.lastReflection ? `Last updated ${new Date(team.lastReflection).toLocaleString()} · updates itself after team work, twice a day at most.` : undefined)
+        (team.lastReflection ? `Last updated ${new Date(team.lastReflection).toLocaleString()} · updates itself, at most twice a day.` : undefined)
       }
     >
       <SettingRow
         icon={<BookOpenTextIcon />}
         label="Learn from my chats"
-        description="Off: the lead only sees your latest chat titles, and nothing is kept."
+        description="Off: the lead sees only chat titles, and nothing is saved."
         control={<Switch checked={team.learning} onCheckedChange={setLearning} aria-label="Learn from my chats" />}
       />
       {team.learning &&
         (team.notebook.length === 0 ? (
-          <p className="py-3 text-xs text-muted-foreground">Nothing yet. It fills in as you work in team mode, or press Update now.</p>
+          <p className="py-3 text-xs text-muted-foreground">Empty for now. It fills in as you use the team, or press Update now.</p>
         ) : (
           team.notebook.map((insight) => (
             <SettingRow
               key={insight.id}
-              label={insight.pattern}
+              label={
+                <span className="line-clamp-2" title={insight.pattern}>
+                  {insight.pattern}
+                </span>
+              }
               description={
                 <>
                   <span className={insightStatusClass(team, insight)}>{insightStatus(team, insight)}</span>
-                  {insight.evidence.length > 0 && ` · ${insight.evidence.slice(0, 3).join(" · ")}`}
+                  {insight.evidence.length > 0 && (
+                    <span className="line-clamp-2" title={insight.evidence.join(" · ")}>
+                      {` · ${insight.evidence.slice(0, 3).join(" · ")}`}
+                    </span>
+                  )}
                 </>
               }
               control={
@@ -638,7 +646,7 @@ function insightStatus(team: ReturnType<typeof useTeam>, insight: { pattern: str
     const proposed = team.proposals.some((p) => p.fromNotebook?.toLowerCase() === insight.pattern.trim().toLowerCase());
     return proposed ? `${insight.count} chats · bot proposed` : `${insight.count} chats · checked by the coach`;
   }
-  if (insight.count >= READY_AT) return `${insight.count} chats · enough for a bot — proposed at the next update`;
+  if (insight.count >= READY_AT) return `${insight.count} chats · ready for a bot, proposed at the next update`;
   return `${insight.count} of ${READY_AT} chats`;
 }
 
