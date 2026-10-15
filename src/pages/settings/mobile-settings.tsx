@@ -39,8 +39,7 @@ import {
   SmartphoneIcon,
   TabletIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { encode } from "uqr";
+import { useEffect, useState } from "react";
 import { Field, Notice, SecretInput, SectionHeader, Segmented, SettingRow, SettingsPage, StatusPill } from "./ui";
 
 /** Addresses change with the network; the page keeps up while it's open. */
@@ -318,17 +317,13 @@ function ConnectCard({ status, s }: { status: RemoteStatus; s: Strings }) {
         <StatusPill tone={connected ? "success" : "pending"}>{connected ? s.connected(status.clients) : s.waiting}</StatusPill>
       </div>
       <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start">
-        <div className="flex size-52 shrink-0 items-center justify-center rounded-2xl border bg-white p-2">
-          {preparing ? (
-            <div className="flex flex-col items-center gap-3 px-4 text-center">
-              <span className="size-6 animate-spin rounded-full border-2 border-black/15 border-t-black" />
-              <p className="text-sm font-medium text-black">{s.preparing}</p>
-              <p className="text-xs text-black/60">{s.preparingBody}</p>
-            </div>
-          ) : address ? (
-            <QrCode text={address.url} />
-          ) : null}
-        </div>
+        {preparing && (
+          <div className="flex size-52 shrink-0 flex-col items-center justify-center gap-3 rounded-2xl border border-border px-4 text-center">
+            <span className="size-6 animate-spin rounded-full border-2 border-border border-t-foreground" />
+            <p className="text-sm font-medium">{s.preparing}</p>
+            <p className="text-xs text-muted-foreground">{s.preparingBody}</p>
+          </div>
+        )}
         <div className="flex min-w-0 flex-1 flex-col gap-4">
           <ol className="flex flex-col gap-3">
             {[s.step1, s.step2, s.step3].map((step, i) => (
@@ -791,29 +786,4 @@ function DomainPill({ state }: { state: NonNullable<RemoteStatus["domain"]>["sta
   if (state === "working") return <StatusPill tone="pending">{d.working}</StatusPill>;
   if (state === "needsToken") return <StatusPill tone="warning">{d.needsToken}</StatusPill>;
   return <StatusPill tone="danger">{d.failed}</StatusPill>;
-}
-
-/** Drawn from the code's own modules, so no markup is injected. */
-function QrCode({ text }: { text: string }) {
-  const { size, path } = useMemo(() => {
-    const qr = encode(text, { border: 2, ecc: "M" });
-    let d = "";
-    qr.data.forEach((row, y) =>
-      row.forEach((dark, x) => {
-        if (dark) d += `M${x} ${y}h1v1h-1z`;
-      }),
-    );
-    return { size: qr.size, path: d };
-  }, [text]);
-  return (
-    <svg
-      viewBox={`0 0 ${size} ${size}`}
-      role="img"
-      aria-label="Pairing QR code"
-      shapeRendering="crispEdges"
-      className="size-44 shrink-0 rounded-xl border bg-white p-1"
-    >
-      <path d={path} fill="#000" />
-    </svg>
-  );
 }
