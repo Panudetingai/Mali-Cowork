@@ -14,8 +14,9 @@ import {
   useFolderGrants,
   type FolderAccess,
 } from "@/features/workspace";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { sandboxEngine, useCommandSandbox } from "@/features/agent";
+import { cleanProgram, sandboxEngine, useAlwaysCommands, useCommandSandbox } from "@/features/agent";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   BanIcon,
@@ -26,6 +27,7 @@ import {
   ShieldAlertIcon,
   TerminalIcon,
   Trash2Icon,
+  XIcon,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Notice, SectionHeader, SettingRow, SettingsGroup, SettingsPage, StatusPill } from "./ui";
@@ -176,6 +178,7 @@ function CommandSafety() {
           description="Commands can read your files and use the internet, but only change files in folders allowed as Read & write. They can’t read SSH keys, cloud credentials or the keychain, and don’t get your API keys."
           control={<Switch id="command-sandbox" checked={sandbox} disabled={!engine} onCheckedChange={setSandbox} />}
         />
+        <AlwaysAllowed />
       </SettingsGroup>
 
       <SettingsGroup wide title="What asks first" description="From harmless to never allowed — how each kind of command is treated.">
@@ -187,7 +190,7 @@ function CommandSafety() {
             label="Looking around runs without asking"
             examples={["ls", "git status", "cat README.md", "rg TODO | head"]}
           >
-            Commands that only read, inside the folders you allowed.
+            Commands that only read, and making a folder or empty file, inside the folders you allowed.
           </RiskRow>
           <RiskRow
             level={2}
@@ -197,8 +200,8 @@ function CommandSafety() {
             examples={["npm install", "cargo build", "git commit"]}
           >
             {contained === false
-              ? "Every time, auto-approve or not, unless you chose “Always” for that program in the chat."
-              : "Unless you turned on auto-approve, or chose “Always” for that program in the chat."}
+              ? "Every time, auto-approve or not, unless the program is in “Always allow” below or you chose “Always” for it in the chat."
+              : "Unless you turned on auto-approve, the program is in “Always allow” below, or you chose “Always” for it in the chat."}
           </RiskRow>
           <RiskRow
             level={3}
@@ -223,6 +226,79 @@ function CommandSafety() {
         </ol>
       </SettingsGroup>
     </>
+  );
+}
+
+/** Programs whose commands run without asking, in every chat. */
+function AlwaysAllowed() {
+  const [programs, setPrograms] = useAlwaysCommands();
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string>();
+
+  const add = () => {
+    const name = cleanProgram(draft);
+    if (!name) {
+      setError("Type one program name, like git or npm.");
+      return;
+    }
+    if (!programs.includes(name)) setPrograms([...programs, name]);
+    setDraft("");
+    setError(undefined);
+  };
+
+  return (
+    <div className="flex flex-col gap-3 py-3.5">
+      <div className="flex flex-col gap-0.5">
+        <p className="text-sm font-medium">Always allow</p>
+        <p className="text-[13px] text-muted-foreground">
+          Commands from these programs run without asking, in every chat. Risky and blocked commands still follow their own rules.
+        </p>
+      </div>
+      <form
+        className="flex gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          add();
+        }}
+      >
+        <Input
+          value={draft}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            setError(undefined);
+          }}
+          placeholder="git"
+          aria-label="Program name"
+          aria-invalid={!!error}
+          className="h-8 max-w-48 font-mono text-[13px]"
+        />
+        <Button type="submit" size="sm" variant="outline" disabled={!draft.trim()}>
+          Add
+        </Button>
+      </form>
+      {error && (
+        <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )}
+      {programs.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5">
+          {programs.map((name) => (
+            <li key={name} className="flex items-center gap-1 rounded-md bg-muted py-0.5 pr-0.5 pl-2 font-mono text-xs">
+              {name}
+              <button
+                type="button"
+                aria-label={`Remove ${name}`}
+                onClick={() => setPrograms(programs.filter((p) => p !== name))}
+                className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
+              >
+                <XIcon className="size-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

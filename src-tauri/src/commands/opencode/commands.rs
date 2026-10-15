@@ -18,7 +18,7 @@ use super::{
     policy::{Decision, FolderPolicy},
     providers::{overlay_model_ids, APP_PROVIDERS},
     schema::{self, Unsupported},
-    server::{ensure_server, not_found_message, restart},
+    server::{ensure_server, not_found_message, restart, started_with_connectors},
     stream::{self, Event},
     OpencodeCheckResult, OpencodeModel, OpencodeModelsResult, OpencodeProvider, OpencodeRequest,
     FolderGrant, PermissionReplyRequest, QuestionReplyRequest, SetAuthRequest,
@@ -333,6 +333,11 @@ impl ActivePrompt {
         Self(session_id.to_string())
     }
 
+    /// No prompt is running in any chat, so the server can be started again.
+    fn none_running() -> bool {
+        Self::registry().lock().unwrap().is_empty()
+    }
+
     /// Returns the updated session rules when the session is running.
     fn grant(session_id: &str, grant: &FolderGrant) -> Option<Vec<Value>> {
         let policy = Self::registry().lock().unwrap().get(session_id)?.clone();
@@ -426,6 +431,13 @@ async fn run_prompt(
     std::fs::create_dir_all(&cwd)
         .map_err(|e| format!("Cannot create working folder {}: {e}", cwd.display()))?;
     let directory = path_str(&cwd);
+    // A folder's instance reads the gateway's connector list when it starts, so
+    // a connector switched on or off since the server started is missing from
+    // it (or still in it). Start the server again between prompts, never under
+    // a running one.
+    if crate::mcp_hub::connectors_generation() != started_with_connectors() && ActivePrompt::none_running() {
+        restart().await;
+    }
     // Keep this folder's instance (and its MCP servers) open until the reply ends.
     let _instance = lease_instance(&directory).await;
 

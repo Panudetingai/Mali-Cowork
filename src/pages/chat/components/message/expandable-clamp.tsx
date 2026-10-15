@@ -32,19 +32,15 @@ export function ExpandableClamp({
     setClamped(el.scrollHeight > el.clientHeight + 2);
   }, [children, disabled, expanded]);
 
-  if (disabled) {
-    return <div className={className}>{children}</div>;
-  }
-
+  // The same tree whether or not it clamps: switching the wrapper would remount
+  // the reply (and re-highlight its code) when the stream starts and ends.
+  const clip = !disabled && !expanded;
   return (
     <div className={cn("min-w-0", className)}>
-      <div
-        ref={bodyRef}
-        className={cn(!expanded && maxHeightClass, !expanded && "overflow-hidden")}
-      >
+      <div ref={bodyRef} className={cn(clip && maxHeightClass, clip && "overflow-hidden")}>
         {children}
       </div>
-      {(clamped || expanded) && (
+      {!disabled && (clamped || expanded) && (
         <button
           type="button"
           onClick={() => setExpanded((open) => !open)}

@@ -367,6 +367,7 @@ fn child_request(lead: &AgentRequest, mate: &Teammate, prompt: String, session_i
         instructions: Some(own_instructions(mate, &lead.team)),
         effort: mate.effort.clone(),
         auto_approve: lead.auto_approve,
+        always_commands: lead.always_commands.clone(),
         sandbox: lead.sandbox,
         run_id: child_run_id(lead, mate),
         mcp: mate.mcp.clone(),

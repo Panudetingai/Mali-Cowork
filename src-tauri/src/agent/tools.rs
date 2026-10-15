@@ -219,6 +219,39 @@ fn approval_key(permission: &str, pattern: &str) -> String {
     }
 }
 
+/// Programs the user always allows in Settings, as approval keys. Dangerous
+/// and blocked commands still ask or never run, whatever is listed here.
+pub fn standing_keys(programs: &[String]) -> BTreeSet<String> {
+    programs
+        .iter()
+        .map(|p| p.trim())
+        .filter(|p| !p.is_empty() && !p.contains(char::is_whitespace))
+        .map(|p| approval_key("bash", p))
+        .collect()
+}
+
+/// The chat's "Always" set for one run, with the Settings programs added.
+pub fn with_standing(mut always: BTreeSet<String>, standing: &BTreeSet<String>) -> BTreeSet<String> {
+    always.extend(standing.iter().cloned());
+    always
+}
+
+/// What the chat keeps afterwards: its own "Always" picks, not the Settings
+/// ones, so removing a program in Settings takes effect on the next run.
+pub fn without_standing(always: BTreeSet<String>, standing: &BTreeSet<String>) -> BTreeSet<String> {
+    always.into_iter().filter(|key| !standing.contains(key)).collect()
+}
+
+/// `mkdir` or `touch` on its own: one program, no chains, pipes, redirects or
+/// expansions, and only `-p` as a flag. Its paths are checked by the caller.
+fn is_basic_make(command: &str) -> bool {
+    if command.contains(['&', ';', '|', '>', '<', '`', '$', '(', ')', '\n']) {
+        return false;
+    }
+    let mut words = command.split_whitespace();
+    matches!(words.next(), Some("mkdir" | "touch")) && words.all(|w| !w.starts_with('-') || w == "-p")
+}
+
 async fn approve(ctx: &mut ToolCtx<'_>, permission: &str, pattern: String, title: String, detail: Option<String>) -> bool {
     ask_user(ctx, permission, pattern, title, detail, Gate::Usual).await
 }
@@ -542,8 +575,11 @@ async fn bash(args: &Value, ctx: &mut ToolCtx<'_>) -> Outcome {
         }
     }
 
-    // Looking around the granted folders needs no prompt.
-    let free = risk == Risk::ReadOnly && ctx.scope.command_stays_inside(command);
+    // Looking around the granted folders needs no prompt. Making a folder or an
+    // empty file there needs none either, but only inside the sandbox: outside
+    // it, nothing contains the command, so it asks like any other.
+    let free = (risk == Risk::ReadOnly || (risk == Risk::Normal && sandboxed && is_basic_make(command)))
+        && ctx.scope.command_stays_inside(command);
     if !free {
         let (detail, gate) = match risk {
             Risk::Dangerous(reason) => (format!("⚠ {reason}\n$ {command}"), Gate::Risky),
@@ -681,6 +717,28 @@ mod tests {
     fn always_covers_same_program_only() {
         assert_eq!(approval_key("bash", "npm test --watch=false"), "bash:npm");
         assert_eq!(approval_key("edit", "/a/b"), "edit");
+    }
+
+    #[test]
+    fn settings_programs_become_approval_keys_and_leave_the_chat_alone() {
+        let standing = standing_keys(&["git".into(), "  npm ".into(), "".into(), "rm -rf".into()]);
+        assert_eq!(standing, BTreeSet::from(["bash:git".to_string(), "bash:npm".to_string()]));
+        let chat = BTreeSet::from(["edit".to_string(), "bash:git".to_string()]);
+        let run = with_standing(chat.clone(), &standing);
+        assert!(run.contains("bash:npm") && run.contains("edit"));
+        // Removing a program in Settings takes effect next run, so it is not kept in the chat.
+        assert_eq!(without_standing(run, &standing), BTreeSet::from(["edit".to_string()]));
+    }
+
+    #[test]
+    fn only_plain_mkdir_and_touch_are_basic() {
+        assert!(is_basic_make("mkdir -p reports/2026"));
+        assert!(is_basic_make("touch notes.md"));
+        assert!(!is_basic_make("mkdir a && npm install"));
+        assert!(!is_basic_make("touch a; rm b"));
+        assert!(!is_basic_make("mkdir -m 777 x"));
+        assert!(!is_basic_make("touch $HOME/x"));
+        assert!(!is_basic_make("cp a b"));
     }
 
     #[test]

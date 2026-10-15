@@ -53,6 +53,7 @@ async fn bench_run() {
         instructions: text("instructions"),
         effort: None,
         auto_approve: true,
+        always_commands: vec![],
         sandbox: true,
         run_id: format!("bench-{}", uuid::Uuid::new_v4().simple()),
         mcp,

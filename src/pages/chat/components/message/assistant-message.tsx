@@ -151,7 +151,7 @@ export function AssistantMessage({
                   }
                 />
               ) : (
-                <MarkdownSurface key={`text-${index}`}>
+                <MarkdownSurface key={`text-${segment.offset}`}>
                   <MessageResponse
                     className="text-sm"
                     isAnimating={contentIsAnimating && index === segments.length - 1}

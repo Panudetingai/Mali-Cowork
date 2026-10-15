@@ -29,6 +29,7 @@ import {
   useState,
 } from "react";
 import { Streamdown } from "streamdown";
+import "streamdown/styles.css";
 import { MarkdownPre } from "./markdown-pre";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
@@ -324,6 +325,9 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
 const streamdownPlugins = { cjk, code, math, mermaid };
 
+/** New words blur into place as they stream in: a lighter blur, cleared quickly (`sd-softBlur` in index.css). */
+const streamAnimation = { animation: "softBlur", duration: 200, easing: "ease-out", sep: "word" } as const;
+
 /** Plain `<pre>` fallback when Streamdown emits a non-fenced block (nested markdown, etc.). */
 const markdownComponents = {
   pre: MarkdownPre as unknown as NonNullable<MessageResponseProps["components"]>["pre"],
@@ -339,10 +343,8 @@ export const MessageResponse = memo(
       plugins={streamdownPlugins}
       components={{ ...markdownComponents, ...components }}
       isAnimating={isAnimating}
-      animated={
-        animated ??
-        (isAnimating ? { animation: "fadeIn", stagger: 36, duration: 260 } : false)
-      }
+      // Only the words still arriving animate; finished text is left as it is.
+      animated={animated ?? (isAnimating ? streamAnimation : false)}
       lineNumbers={false}
       // While streaming the code must grow outward so the chat's "Follow
       // reply" can pin the outer scroll to the bottom. Clamping to 420px

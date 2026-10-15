@@ -55,6 +55,8 @@ type Props = {
   /** Which tab is open, when the page keeps it (Settings routes Discover). */
   tab?: SkillsTab;
   onTabChange?: (tab: SkillsTab) => void;
+  /** Open the new-skill page. Without it, the New skill dialog opens here. */
+  onNew?: () => void;
 };
 
 export type SkillsTab = "yours" | "discover";
@@ -65,7 +67,7 @@ export type SkillsTab = "yours" | "discover";
  *
  * The same component serves a project's own skills, without Discover.
  */
-export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, emptyText, discover, ...props }: Props) {
+export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, emptyText, discover, onNew, ...props }: Props) {
   const navigate = useNavigate();
   const [importing, setImporting] = useState(false);
   const [found, setFound] = useState<SkillCandidate[] | null>(null);
@@ -240,7 +242,7 @@ export function SkillsManager({ skills, onSave, onToggle, onDelete, templates, e
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button type="button" size="sm" className="h-9 gap-1.5" onClick={() => setNewSkillDraft({ ...EMPTY_SKILL })}>
+          <Button type="button" size="sm" className="h-9 gap-1.5" onClick={() => (onNew ? onNew() : setNewSkillDraft({ ...EMPTY_SKILL }))}>
             <PlusIcon className="size-4" />
             New skill
           </Button>

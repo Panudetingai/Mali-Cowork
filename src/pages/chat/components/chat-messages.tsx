@@ -1,6 +1,7 @@
 import { sessionMode, type ChatSession } from "@/features/chat-history";
 import type { ChatMessage } from "@/pages/chat/types";
 import { AnimatePresence, motion } from "motion/react";
+import { useMemo, useRef } from "react";
 import { extractCoworkBlock, looksLikeFileWork } from "../cowork-handoff";
 import { CoworkSuggestionCard, MovedToCoworkDivider } from "./cowork-handoff-ui";
 import { BotMakerCard, ReplyBots } from "./bot-maker-card";
@@ -20,6 +21,18 @@ type Props = {
 };
 
 export function ChatMessages({ messages, isLoading, onRetry, onRate, onEdit, session }: Props) {
+  // One set of handlers for the whole list, so a finished message isn't redrawn
+  // every time the reply streams: the callbacks it gets never change identity.
+  const handlers = useRef({ onRetry, onRate, onEdit });
+  handlers.current = { onRetry, onRate, onEdit };
+  const stable = useMemo(
+    () => ({
+      onRetry: (id: string) => handlers.current.onRetry?.(id),
+      onRate: (id: string, value: "up" | "down") => handlers.current.onRate?.(id, value),
+      onEdit: (id: string, text: string) => handlers.current.onEdit?.(id, text),
+    }),
+    [],
+  );
   const isEmpty = messages.length === 0 && !isLoading;
   // The prompt the latest exchange came from. A reply that failed part-way
   // leaves its own bubble plus an error bubble, so "the message before this
@@ -54,7 +67,6 @@ export function ChatMessages({ messages, isLoading, onRetry, onRate, onEdit, ses
           // Retry regenerates from here, so only the latest exchange offers it.
           const retryTarget =
             isLast && (msg.role === "assistant" || msg.role === "error") ? retrySource : undefined;
-          const rate = onRate && msg.role === "assistant" ? onRate : undefined;
           // `/bot`'s card stands alone; a reply's bots go under its text.
           const cardOnly = !!msg.botMaker && !msg.content.trim();
           const streaming = !!msg.isStreaming && !!isLoading;
@@ -62,7 +74,6 @@ export function ChatMessages({ messages, isLoading, onRetry, onRate, onEdit, ses
             <motion.div
               key={msg.id}
               data-message-id={msg.id}
-              layout="position"
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
@@ -78,11 +89,10 @@ export function ChatMessages({ messages, isLoading, onRetry, onRate, onEdit, ses
               <ChatMessageItem
                 message={msg}
                 streaming={streaming}
-                onRetry={retryTarget && onRetry ? () => onRetry(retryTarget) : undefined}
-                onRate={rate ? (v) => rate(msg.id, v) : undefined}
-                onEdit={
-                  onEdit && !isLoading && msg.role === "user" ? (text) => onEdit(msg.id, text) : undefined
-                }
+                retryFrom={retryTarget}
+                onRetry={onRetry ? stable.onRetry : undefined}
+                onRate={onRate ? stable.onRate : undefined}
+                onEdit={onEdit && !isLoading ? stable.onEdit : undefined}
                 session={session}
               />
               )}

@@ -5,7 +5,7 @@ import { codexGenerateStream } from "@/features/codex";
 import { cursorGenerateStream } from "@/features/cursor";
 import { antigravityGenerateStream } from "@/features/antigravity";
 import { CLI_ID_PREFIX, cliArgs, getCustomCli, resolveCliModel } from "@/features/custom-cli";
-import { hasHubMcp, hubMcpServers } from "@/features/mcp";
+import { hasHubMcp, teamMcpServers } from "@/features/mcp";
 import {
     getOpencodeModels,
     loadOpencodeSettings,
@@ -293,7 +293,10 @@ async function routeStream(
         autoApprove: loadOpencodeSettings().autoApprove,
         sandbox: loadCommandSandbox(),
         runId: request.runId,
-        mcp: (await hubMcpServers(request.mode === "cowork" ? request.cwd : undefined)).filter((s) => !bot || bot.connectors.includes(s.id)),
+        // A bot keeps its own connectors, switched off or not: the run says which are off.
+        mcp: (await teamMcpServers(request.mode === "cowork" ? request.cwd : undefined)).filter((s) =>
+          bot ? bot.connectors.includes(s.id) : s.enabled,
+        ),
         ...(bot ? { toolScope: bot.tools } : {}),
         images,
         contextLimit: request.maxTokens,
